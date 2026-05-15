@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>dev.nthings.otlp4j</groupId>
+        <artifactId>otlp4j-parent</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>otlp4j-testing</artifactId>
+    <name>otlp4j-testing</name>
+    <description>Shared test fixtures and utilities consumed by the other otlp4j reactor modules in
+        test scope. Typed factory methods for the dev.nthings.otlp4j.model vocabulary, so every
+        module builds its small OTLP objects from one place. Depend on it with scope=test; this
+        module ships no production behaviour and is not part of any module's runtime surface.</description>
+
+    <!-- The fixtures speak only in dev.nthings.otlp4j.model terms (no api, no proto, no logging
+         facade), so this is the single compile dependency. -->
+    <dependencies>
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-model</artifactId>
+        </dependency>
+    </dependencies>
+
+    <!-- No build plugins of our own: parent already wires flatten, the doclint compile pass, the
+         maven-javadoc-plugin lint, and the inherited JaCoCo prepare-agent/report (which no-op
+         here since the module has no tests of its own — its classes are exercised through
+         consumer test suites). No check-coverage execution: opting in to the 90/85 floor would
+         require either fixture-coverage tests or per-class excludes, both wasteful. -->
+
+</project>

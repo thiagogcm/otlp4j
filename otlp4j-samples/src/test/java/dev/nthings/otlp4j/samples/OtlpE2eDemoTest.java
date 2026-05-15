@@ -1,0 +1,28 @@
+package dev.nthings.otlp4j.samples;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
+
+/// End-to-end sample canary: runs the demo and asserts what reached the backend.
+///
+/// This also proves runtime transport discovery through the service-provider interface.
+@Timeout(30)
+class OtlpE2eDemoTest {
+
+    @Test
+    void demoTraversesTheFullPipeline() throws Exception {
+        var result = OtlpE2eDemo.run();
+
+        assertThat(result.spansAtBackend())
+                .as("only the 3 SERVER spans should survive the filter")
+                .isEqualTo(3);
+        assertThat(result.derivedSpanCount())
+                .as("the CountConnector should derive a span-count metric of 3")
+                .isEqualTo(3L);
+        assertThat(result.enrichedEnvironment())
+                .as("the processor should have stamped deployment.environment onto the resource")
+                .isEqualTo("demo");
+    }
+}

@@ -1,0 +1,191 @@
+package dev.nthings.otlp4j.internal;
+
+import dev.nthings.otlp4j.model.Span;
+import dev.nthings.otlp4j.model.TraceData;
+import dev.nthings.otlp4j.pipeline.ExportResult;
+import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceRequest;
+import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceResponse;
+import java.util.ArrayList;
+import java.util.List;
+
+/// Maps OTLP trace types between the generated proto layer and the `dev.nthings.otlp4j.model`
+/// domain types, in both directions.
+///
+/// **Internal.** Part of the transport layer; not public API.
+final class TraceMapper {
+
+    private static final Span.Kind[] KINDS = Span.Kind.values();
+    private static final Span.Status.Code[] STATUS_CODES = Span.Status.Code.values();
+
+    private TraceMapper() {}
+
+    // --- proto -> domain ---------------------------------------------------------------------
+
+    public static TraceData toDomain(ExportTraceServiceRequest request) {
+        var resourceSpans = new ArrayList<TraceData.ResourceSpans>(request.getResourceSpansCount());
+        for (var rs : request.getResourceSpansList()) {
+            resourceSpans.add(toDomain(rs));
+        }
+        return new TraceData(resourceSpans);
+    }
+
+    private static TraceData.ResourceSpans toDomain(
+            io.opentelemetry.proto.trace.v1.ResourceSpans rs) {
+        var scopeSpans = new ArrayList<TraceData.ScopeSpans>(rs.getScopeSpansCount());
+        for (var ss : rs.getScopeSpansList()) {
+            scopeSpans.add(toDomain(ss));
+        }
+        return new TraceData.ResourceSpans(
+                CommonMapper.resource(rs.getResource()), rs.getSchemaUrl(), scopeSpans);
+    }
+
+    private static TraceData.ScopeSpans toDomain(io.opentelemetry.proto.trace.v1.ScopeSpans ss) {
+        var spans = new ArrayList<Span>(ss.getSpansCount());
+        for (var span : ss.getSpansList()) {
+            spans.add(toDomain(span));
+        }
+        return new TraceData.ScopeSpans(
+                CommonMapper.scope(ss.getScope()), ss.getSchemaUrl(), spans);
+    }
+
+    private static Span toDomain(io.opentelemetry.proto.trace.v1.Span span) {
+        var events = new ArrayList<Span.Event>(span.getEventsCount());
+        for (var event : span.getEventsList()) {
+            events.add(new Span.Event(
+                    event.getTimeUnixNano(),
+                    event.getName(),
+                    CommonMapper.attributes(event.getAttributesList()),
+                    event.getDroppedAttributesCount()));
+        }
+        var links = new ArrayList<Span.Link>(span.getLinksCount());
+        for (var link : span.getLinksList()) {
+            links.add(new Span.Link(
+                    CommonMapper.hex(link.getTraceId()),
+                    CommonMapper.hex(link.getSpanId()),
+                    link.getTraceState(),
+                    CommonMapper.attributes(link.getAttributesList()),
+                    link.getDroppedAttributesCount(),
+                    unsignedInt(link.getFlags())));
+        }
+        return new Span(
+                CommonMapper.hex(span.getTraceId()),
+                CommonMapper.hex(span.getSpanId()),
+                CommonMapper.hex(span.getParentSpanId()),
+                span.getTraceState(),
+                unsignedInt(span.getFlags()),
+                span.getName(),
+                kind(span.getKind().getNumber()),
+                span.getStartTimeUnixNano(),
+                span.getEndTimeUnixNano(),
+                CommonMapper.attributes(span.getAttributesList()),
+                span.getDroppedAttributesCount(),
+                events,
+                span.getDroppedEventsCount(),
+                links,
+                span.getDroppedLinksCount(),
+                status(span.getStatus()));
+    }
+
+    private static Span.Status status(io.opentelemetry.proto.trace.v1.Status status) {
+        var code = status.getCode().getNumber();
+        var mapped =
+                code >= 0 && code < STATUS_CODES.length
+                        ? STATUS_CODES[code]
+                        : Span.Status.Code.UNSET;
+        return new Span.Status(mapped, status.getMessage());
+    }
+
+    private static Span.Kind kind(int number) {
+        return number >= 0 && number < KINDS.length ? KINDS[number] : Span.Kind.UNSPECIFIED;
+    }
+
+    private static long unsignedInt(int value) {
+        return value & 0xFFFFFFFFL;
+    }
+
+    /// Interprets an OTLP trace export response as an [ExportResult].
+    public static ExportResult result(ExportTraceServiceResponse response) {
+        if (!response.hasPartialSuccess()) {
+            return ExportResult.success();
+        }
+        var partial = response.getPartialSuccess();
+        if (partial.getRejectedSpans() == 0 && partial.getErrorMessage().isEmpty()) {
+            return ExportResult.success();
+        }
+        return ExportResult.partialSuccess(
+                partial.getRejectedSpans(), partial.getErrorMessage());
+    }
+
+    // --- domain -> proto ---------------------------------------------------------------------
+
+    public static ExportTraceServiceRequest toProto(TraceData traces) {
+        var request = ExportTraceServiceRequest.newBuilder();
+        for (var rs : traces.resourceSpans()) {
+            request.addResourceSpans(toProto(rs));
+        }
+        return request.build();
+    }
+
+    private static io.opentelemetry.proto.trace.v1.ResourceSpans toProto(
+            TraceData.ResourceSpans rs) {
+        var builder =
+                io.opentelemetry.proto.trace.v1.ResourceSpans.newBuilder()
+                        .setResource(CommonMapper.toProtoResource(rs.resource()))
+                        .setSchemaUrl(rs.schemaUrl());
+        for (var ss : rs.scopeSpans()) {
+            builder.addScopeSpans(toProto(ss));
+        }
+        return builder.build();
+    }
+
+    private static io.opentelemetry.proto.trace.v1.ScopeSpans toProto(TraceData.ScopeSpans ss) {
+        var builder =
+                io.opentelemetry.proto.trace.v1.ScopeSpans.newBuilder()
+                        .setScope(CommonMapper.toProtoScope(ss.scope()))
+                        .setSchemaUrl(ss.schemaUrl());
+        for (var span : ss.spans()) {
+            builder.addSpans(toProto(span));
+        }
+        return builder.build();
+    }
+
+    private static io.opentelemetry.proto.trace.v1.Span toProto(Span span) {
+        var builder =
+                io.opentelemetry.proto.trace.v1.Span.newBuilder()
+                        .setTraceId(CommonMapper.bytes(span.traceId()))
+                        .setSpanId(CommonMapper.bytes(span.spanId()))
+                        .setParentSpanId(CommonMapper.bytes(span.parentSpanId()))
+                        .setTraceState(span.traceState())
+                        .setFlags((int) span.flags())
+                        .setName(span.name())
+                        .setKind(io.opentelemetry.proto.trace.v1.Span.SpanKind.forNumber(
+                                span.kind().ordinal()))
+                        .setStartTimeUnixNano(span.startEpochNanos())
+                        .setEndTimeUnixNano(span.endEpochNanos())
+                        .addAllAttributes(CommonMapper.toKeyValues(span.attributes()))
+                        .setDroppedAttributesCount(span.droppedAttributesCount())
+                        .setDroppedEventsCount(span.droppedEventsCount())
+                        .setDroppedLinksCount(span.droppedLinksCount())
+                        .setStatus(io.opentelemetry.proto.trace.v1.Status.newBuilder()
+                                .setCode(io.opentelemetry.proto.trace.v1.Status.StatusCode
+                                        .forNumber(span.status().code().ordinal()))
+                                .setMessage(span.status().message()));
+        for (var event : span.events()) {
+            builder.addEvents(io.opentelemetry.proto.trace.v1.Span.Event.newBuilder()
+                    .setTimeUnixNano(event.epochNanos())
+                    .setName(event.name())
+                    .addAllAttributes(CommonMapper.toKeyValues(event.attributes()))
+                    .setDroppedAttributesCount(event.droppedAttributesCount()));
+        }
+        for (var link : span.links()) {
+            builder.addLinks(io.opentelemetry.proto.trace.v1.Span.Link.newBuilder()
+                    .setTraceId(CommonMapper.bytes(link.traceId()))
+                    .setSpanId(CommonMapper.bytes(link.spanId()))
+                    .setTraceState(link.traceState())
+                    .addAllAttributes(CommonMapper.toKeyValues(link.attributes()))
+                    .setDroppedAttributesCount(link.droppedAttributesCount())
+                    .setFlags((int) link.flags()));
+        }
+        return builder.build();
+    }
+}

@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>dev.nthings.otlp4j</groupId>
+        <artifactId>otlp4j-parent</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>otlp4j-samples</artifactId>
+    <name>otlp4j-samples</name>
+    <description>Runnable end-to-end demonstrations of otlp4j. JPMS module dev.nthings.otlp4j.samples
+        — compiles against otlp4j-api only; the transport implementation is supplied at runtime,
+        so this module cannot see the generated proto code.</description>
+
+    <dependencies>
+        <!-- Compile only against the pure, user-facing API. -->
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-api</artifactId>
+        </dependency>
+        <!-- The transport implementation is bound at runtime via the SPI. -->
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-transport</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
+        <!-- logback is the runtime backend, so SDK and demo log output reaches the console. -->
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+    </dependencies>
+
+    <!-- The compiler doclint pass and the Javadoc lint are inherited from the parent POM. -->
+
+    <profiles>
+        <!-- GraalVM native-image build of the e2e demo. Requires a GraalVM JDK on JAVA_HOME. -->
+        <profile>
+            <id>native</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.graalvm.buildtools</groupId>
+                        <artifactId>native-maven-plugin</artifactId>
+                        <extensions>true</extensions>
+                        <executions>
+                            <execution>
+                                <id>build-native</id>
+                                <goals>
+                                    <goal>compile-no-fork</goal>
+                                </goals>
+                                <phase>package</phase>
+                            </execution>
+                        </executions>
+                        <configuration>
+                            <imageName>otlp4j-e2e-demo</imageName>
+                            <mainClass>dev.nthings.otlp4j.samples.OtlpE2eDemo</mainClass>
+                            <metadataRepository>
+                                <enabled>true</enabled>
+                            </metadataRepository>
+                            <buildArgs>
+                                <buildArg>--no-fallback</buildArg>
+                            </buildArgs>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <!-- jlink runtime image of the pure-API side; the automatic-module transport stack
+             cannot be linked and is supplied at runtime on the module path. -->
+        <profile>
+            <id>jlink</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.moditect</groupId>
+                        <artifactId>moditect-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>jlink-image</id>
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>create-runtime-image</goal>
+                                </goals>
+                                <configuration>
+                                    <modulePath>
+                                        <path>${project.build.directory}/${project.build.finalName}.jar</path>
+                                        <path>${project.basedir}/../otlp4j-api/target/otlp4j-api-${project.version}.jar</path>
+                                    </modulePath>
+                                    <modules>
+                                        <module>dev.nthings.otlp4j.samples</module>
+                                        <!-- Platform modules the runtime gRPC transport needs,
+                                             unreachable from the linked closure. -->
+                                        <module>java.logging</module>
+                                        <module>java.naming</module>
+                                        <module>java.sql</module>
+                                        <module>jdk.unsupported</module>
+                                    </modules>
+                                    <outputDirectory>${project.build.directory}/jlink-image</outputDirectory>
+                                    <jarInclusionPolicy>NONE</jarInclusionPolicy>
+                                    <compression>zip-6</compression>
+                                    <stripDebug>true</stripDebug>
+                                    <noManPages>true</noManPages>
+                                    <noHeaderFiles>true</noHeaderFiles>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+</project>

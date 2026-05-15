@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>dev.nthings.otlp4j</groupId>
+        <artifactId>otlp4j-parent</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>otlp4j-api</artifactId>
+    <name>otlp4j-api</name>
+    <description>The high-level, user-facing otlp4j API: typed domain model, pipeline, receiver,
+        exporter, processors and connectors. JPMS module dev.nthings.otlp4j.api — a pure module
+        with no dependency on the generated proto code; transport is bound at runtime via the SPI.</description>
+
+    <!-- The only main dependency is the pure domain model: still no proto/grpc on the compile
+         path. The compiler doclint pass and the Javadoc lint are inherited from the parent POM. -->
+    <dependencies>
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-model</artifactId>
+        </dependency>
+        <!-- Logging facade only; the consuming application binds a backend. -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
+
+        <!-- Shared OTLP test fixtures (dev.nthings.otlp4j.testing.Fixtures). -->
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-testing</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Opt in to the shared coverage floor (rules defined in the parent POM).
+                 OtlpReceiver/OtlpGrpcExporter and the transport SPI interfaces cannot be
+                 exercised without a transport provider, which is not on this pure module's own
+                 test path; they are covered by the otlp4j-transport integration suite and
+                 verified in the aggregate report, so they are excluded from this module's floor. -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>check-coverage</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                        <configuration>
+                            <excludes>
+                                <exclude>dev/nthings/otlp4j/receiver/OtlpReceiver*</exclude>
+                                <exclude>dev/nthings/otlp4j/exporter/OtlpGrpcExporter*</exclude>
+                                <exclude>dev/nthings/otlp4j/exporter/Exporter</exclude>
+                                <exclude>dev/nthings/otlp4j/spi/*</exclude>
+                            </excludes>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

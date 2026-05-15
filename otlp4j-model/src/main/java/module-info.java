@@ -1,0 +1,6 @@
+/// Pure typed OTLP domain records.
+///
+/// This module has no dependency on generated proto code, wire transport, or pipeline APIs.
+module dev.nthings.otlp4j.model {
+    exports dev.nthings.otlp4j.model;
+}
