@@ -2,7 +2,7 @@ package dev.nthings.otlp4j.internal;
 
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TraceData;
-import dev.nthings.otlp4j.pipeline.ExportResult;
+import dev.nthings.otlp4j.pipeline.ConsumeResult;
 import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceRequest;
 import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceResponse;
 import java.util.ArrayList;
@@ -103,17 +103,20 @@ final class TraceMapper {
         return value & 0xFFFFFFFFL;
     }
 
-    /// Interprets an OTLP trace export response as an [ExportResult].
-    public static ExportResult result(ExportTraceServiceResponse response) {
+    /// Interprets an OTLP trace export response as a [ConsumeResult].
+    public static ConsumeResult<TraceData> result(ExportTraceServiceResponse response) {
         if (!response.hasPartialSuccess()) {
-            return ExportResult.success();
+            return ConsumeResult.accepted();
         }
         var partial = response.getPartialSuccess();
         if (partial.getRejectedSpans() == 0 && partial.getErrorMessage().isEmpty()) {
-            return ExportResult.success();
+            return ConsumeResult.accepted();
         }
-        return ExportResult.partialSuccess(
-                partial.getRejectedSpans(), partial.getErrorMessage());
+        if (partial.getRejectedSpans() == 0) {
+            // Server reported an error message without a rejection count — treat as whole-batch reject.
+            return ConsumeResult.rejected(partial.getErrorMessage());
+        }
+        return ConsumeResult.partial(partial.getRejectedSpans(), partial.getErrorMessage());
     }
 
     // --- domain -> proto ---------------------------------------------------------------------

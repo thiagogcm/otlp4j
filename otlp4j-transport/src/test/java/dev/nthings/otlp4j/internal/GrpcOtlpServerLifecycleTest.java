@@ -4,73 +4,58 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import dev.nthings.otlp4j.model.TraceData;
-import dev.nthings.otlp4j.pipeline.ExportResult;
-import dev.nthings.otlp4j.pipeline.TelemetryConsumer;
+import dev.nthings.otlp4j.pipeline.ConsumeResult;
+import dev.nthings.otlp4j.spi.OtlpServerProvider;
+import dev.nthings.otlp4j.spi.ServerTransportConfig;
 import java.time.Duration;
+import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
-/// Lifecycle contract for [GrpcOtlpServer] in isolation — exercises the guard clauses and
-/// idempotent shutdown paths without standing up a real channel. The end-to-end SPI wiring is
-/// covered by `GrpcTransportTest`.
+/// Lifecycle contract for [GrpcOtlpServer] in isolation.
 @Timeout(30)
 class GrpcOtlpServerLifecycleTest {
 
-    private static final TelemetryConsumer NO_OP = new TelemetryConsumer() {
-        @Override
-        public ExportResult consumeTraces(TraceData traces) {
-            return ExportResult.success();
-        }
-    };
+    private static final OtlpServerProvider.Dispatchers NO_OP = new OtlpServerProvider.Dispatchers(
+            t -> CompletableFuture.completedStage(ConsumeResult.accepted()),
+            m -> CompletableFuture.completedStage(ConsumeResult.accepted()),
+            l -> CompletableFuture.completedStage(ConsumeResult.accepted()),
+            p -> CompletableFuture.completedStage(ConsumeResult.accepted()));
+
+    private static ServerTransportConfig ephemeral() {
+        return ServerTransportConfig.builder().port(0).build();
+    }
 
     @Test
     void shutdownBeforeStartIsASafeNoOp() {
-        assertThatCode(() -> new GrpcOtlpServer(NO_OP).shutdown())
-                .as("shutdown() before start() must be a no-op, not an error")
+        assertThatCode(() -> new GrpcOtlpServer(ephemeral(), NO_OP)
+                .shutdown(Duration.ofSeconds(1)).toCompletableFuture().join())
                 .doesNotThrowAnyException();
     }
 
     @Test
     void shutdownNowBeforeStartIsASafeNoOp() {
-        assertThatCode(() -> new GrpcOtlpServer(NO_OP).shutdownNow())
-                .as("shutdownNow() before start() must be a no-op, not an error")
+        assertThatCode(() -> new GrpcOtlpServer(ephemeral(), NO_OP)
+                .shutdownNow().toCompletableFuture().join())
                 .doesNotThrowAnyException();
     }
 
     @Test
-    void portBeforeStartThrowsIllegalState() {
-        assertThatThrownBy(() -> new GrpcOtlpServer(NO_OP).port())
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("server not started");
-    }
-
-    @Test
-    void awaitTerminationBeforeStartThrowsIllegalState() {
-        assertThatThrownBy(() -> new GrpcOtlpServer(NO_OP).awaitTermination(Duration.ofSeconds(1)))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("server not started");
-    }
-
-    @Test
-    void awaitTerminationNoArgBeforeStartThrowsIllegalState() {
-        assertThatThrownBy(() -> new GrpcOtlpServer(NO_OP).awaitTermination())
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("server not started");
+    void portBeforeStartIsZero() {
+        assertThat(new GrpcOtlpServer(ephemeral(), NO_OP).port()).isZero();
     }
 
     @Test
     void doubleStartThrowsIllegalState() throws Exception {
-        var server = new GrpcOtlpServer(NO_OP);
-        server.start(0);
+        var server = new GrpcOtlpServer(ephemeral(), NO_OP);
+        server.start();
         try {
             assertThat(server.port()).isPositive();
-            assertThatThrownBy(() -> server.start(0))
+            assertThatThrownBy(server::start)
                     .isInstanceOf(IllegalStateException.class)
-                    .hasMessageContaining("server already started");
+                    .hasMessageContaining("already started");
         } finally {
-            server.shutdownNow();
-            server.awaitTermination(Duration.ofSeconds(5));
+            server.shutdownNow().toCompletableFuture().join();
         }
     }
 }

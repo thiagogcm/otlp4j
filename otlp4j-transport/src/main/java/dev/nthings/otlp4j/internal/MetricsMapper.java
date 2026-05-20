@@ -6,7 +6,7 @@ import dev.nthings.otlp4j.model.Metric;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.NumberPoint;
 import dev.nthings.otlp4j.model.SummaryPoint;
-import dev.nthings.otlp4j.pipeline.ExportResult;
+import dev.nthings.otlp4j.pipeline.ConsumeResult;
 import io.opentelemetry.proto.collector.metrics.v1.ExportMetricsServiceRequest;
 import io.opentelemetry.proto.collector.metrics.v1.ExportMetricsServiceResponse;
 import io.opentelemetry.proto.metrics.v1.AggregationTemporality;
@@ -198,17 +198,19 @@ final class MetricsMapper {
         return value & 0xFFFFFFFFL;
     }
 
-    /// Interprets an OTLP metrics export response as an [ExportResult].
-    public static ExportResult result(ExportMetricsServiceResponse response) {
+    /// Interprets an OTLP metrics export response as a [ConsumeResult].
+    public static ConsumeResult<MetricsData> result(ExportMetricsServiceResponse response) {
         if (!response.hasPartialSuccess()) {
-            return ExportResult.success();
+            return ConsumeResult.accepted();
         }
         var partial = response.getPartialSuccess();
         if (partial.getRejectedDataPoints() == 0 && partial.getErrorMessage().isEmpty()) {
-            return ExportResult.success();
+            return ConsumeResult.accepted();
         }
-        return ExportResult.partialSuccess(
-                partial.getRejectedDataPoints(), partial.getErrorMessage());
+        if (partial.getRejectedDataPoints() == 0) {
+            return ConsumeResult.rejected(partial.getErrorMessage());
+        }
+        return ConsumeResult.partial(partial.getRejectedDataPoints(), partial.getErrorMessage());
     }
 
     // --- domain -> proto ---------------------------------------------------------------------

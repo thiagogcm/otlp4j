@@ -3,7 +3,6 @@ package dev.nthings.otlp4j.model;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 
 /// An immutable, insertion-ordered collection of OpenTelemetry attributes (string keys to
@@ -34,8 +33,9 @@ public final class Attributes {
         return new Builder();
     }
 
-    public Optional<AttributeValue> get(String key) {
-        return Optional.ofNullable(values.get(key));
+    /// Returns the value for `key`, or `null` if absent.
+    public AttributeValue get(String key) {
+        return values.get(key);
     }
 
     /// Returns the string value of `key`, or `null` if absent or not a string.

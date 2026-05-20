@@ -2,7 +2,7 @@ package dev.nthings.otlp4j.internal;
 
 import dev.nthings.otlp4j.model.LogRecord;
 import dev.nthings.otlp4j.model.LogsData;
-import dev.nthings.otlp4j.pipeline.ExportResult;
+import dev.nthings.otlp4j.pipeline.ConsumeResult;
 import io.opentelemetry.proto.collector.logs.v1.ExportLogsServiceRequest;
 import io.opentelemetry.proto.collector.logs.v1.ExportLogsServiceResponse;
 import io.opentelemetry.proto.logs.v1.SeverityNumber;
@@ -60,17 +60,19 @@ final class LogsMapper {
                 record.getEventName());
     }
 
-    /// Interprets an OTLP logs export response as an [ExportResult].
-    public static ExportResult result(ExportLogsServiceResponse response) {
+    /// Interprets an OTLP logs export response as a [ConsumeResult].
+    public static ConsumeResult<LogsData> result(ExportLogsServiceResponse response) {
         if (!response.hasPartialSuccess()) {
-            return ExportResult.success();
+            return ConsumeResult.accepted();
         }
         var partial = response.getPartialSuccess();
         if (partial.getRejectedLogRecords() == 0 && partial.getErrorMessage().isEmpty()) {
-            return ExportResult.success();
+            return ConsumeResult.accepted();
         }
-        return ExportResult.partialSuccess(
-                partial.getRejectedLogRecords(), partial.getErrorMessage());
+        if (partial.getRejectedLogRecords() == 0) {
+            return ConsumeResult.rejected(partial.getErrorMessage());
+        }
+        return ConsumeResult.partial(partial.getRejectedLogRecords(), partial.getErrorMessage());
     }
 
     // --- domain -> proto ---------------------------------------------------------------------

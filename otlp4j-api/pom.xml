@@ -55,11 +55,16 @@
                             <goal>check</goal>
                         </goals>
                         <configuration>
+                            <!-- Classes excluded from this module's floor cannot run without
+                                 the otlp4j-transport SPI provider on the test classpath. They
+                                 are exercised end-to-end by the otlp4j-transport suite and
+                                 counted in the aggregate coverage report. -->
                             <excludes>
-                                <exclude>dev/nthings/otlp4j/receiver/OtlpReceiver*</exclude>
+                                <exclude>dev/nthings/otlp4j/receiver/Receiver</exclude>
+                                <exclude>dev/nthings/otlp4j/receiver/OtlpGrpcReceiver*</exclude>
                                 <exclude>dev/nthings/otlp4j/exporter/OtlpGrpcExporter*</exclude>
-                                <exclude>dev/nthings/otlp4j/exporter/Exporter</exclude>
                                 <exclude>dev/nthings/otlp4j/spi/*</exclude>
+                                <exclude>dev/nthings/otlp4j/api/internal/SpiSupport*</exclude>
                             </excludes>
                         </configuration>
                     </execution>

@@ -2,33 +2,30 @@ package dev.nthings.otlp4j.spi;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.util.concurrent.CompletionStage;
 
-/// Transport-side server used by `OtlpReceiver`.
+/// Transport-side server backing a [dev.nthings.otlp4j.receiver.Receiver].
 ///
-/// Implementations are obtained through [OtlpServerProvider]; application code normally uses
-/// `OtlpReceiver` instead of this SPI directly.
+/// Implementations are obtained via [OtlpServerProvider]; application code normally uses
+/// `OtlpGrpcReceiver` instead. Lifecycle methods return [CompletionStage] so the receiver can
+/// participate in pipeline shutdown without spawning threads.
 public interface OtlpServer extends AutoCloseable {
 
-    /// Starts listening on the given TCP port; `0` selects an ephemeral port.
-    void start(int port) throws IOException;
+    /// Starts listening on the host/port given in the [ServerTransportConfig] passed to the
+    /// provider. Use port `0` for an ephemeral port; read it back with [#port()].
+    void start() throws IOException;
 
-    /// The port being listened on.
+    /// The port the server is bound to. Returns 0 before [#start] completes.
     int port();
 
-    /// Initiates a graceful shutdown; in-flight exports are allowed to complete.
-    void shutdown();
+    /// Initiates a graceful shutdown.
+    CompletionStage<Void> shutdown(Duration timeout);
 
-    /// Initiates a forceful shutdown; in-flight exports are cancelled.
-    void shutdownNow();
-
-    /// Blocks until the server has terminated, or the timeout elapses.
-    boolean awaitTermination(Duration timeout) throws InterruptedException;
-
-    /// Blocks until the server has terminated.
-    void awaitTermination() throws InterruptedException;
+    /// Initiates a forceful shutdown.
+    CompletionStage<Void> shutdownNow();
 
     @Override
     default void close() {
-        shutdownNow();
+        shutdownNow().toCompletableFuture().join();
     }
 }

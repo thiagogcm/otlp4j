@@ -1,6 +1,6 @@
 package dev.nthings.otlp4j.samples;
 
-import dev.nthings.otlp4j.connector.CountConnector;
+import dev.nthings.otlp4j.connector.SpanCountConnector;
 import dev.nthings.otlp4j.exporter.OtlpGrpcExporter;
 import dev.nthings.otlp4j.model.AttributeValue;
 import dev.nthings.otlp4j.model.Attributes;
@@ -10,11 +10,10 @@ import dev.nthings.otlp4j.model.NumberPoint;
 import dev.nthings.otlp4j.model.Resource;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TraceData;
-import dev.nthings.otlp4j.pipeline.ExportResult;
+import dev.nthings.otlp4j.pipeline.ConsumeResult;
 import dev.nthings.otlp4j.pipeline.Pipeline;
-import dev.nthings.otlp4j.pipeline.TelemetryConsumer;
-import dev.nthings.otlp4j.processor.Processors;
-import dev.nthings.otlp4j.receiver.OtlpReceiver;
+import dev.nthings.otlp4j.processor.Transforms;
+import dev.nthings.otlp4j.receiver.OtlpGrpcReceiver;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -25,8 +24,9 @@ import org.slf4j.LoggerFactory;
 
 /// End-to-end demo compiled only against `dev.nthings.otlp4j.api`.
 ///
-/// The runtime transport is supplied through the SPI. The demo sends five spans through a gateway,
-/// enriches and filters them, exports the surviving traces, and derives a span-count metric.
+/// The runtime transport is supplied through the SPI. Five spans flow through a gateway
+/// (`Pipeline.from(receiver.traces()) ... .branch().fanOut(exporter).fanOut(counter).join()`)
+/// to a backend that records the surviving spans and the derived count metric.
 public final class OtlpE2eDemo {
 
     private static final Logger log = LoggerFactory.getLogger(OtlpE2eDemo.class);
@@ -41,7 +41,7 @@ public final class OtlpE2eDemo {
         log.info("=== otlp4j end-to-end demo ===");
         log.info("Client sent 5 spans (3 SERVER, 2 INTERNAL) to the gateway.");
         log.info("Gateway pipeline: enrich resource attribute -> filter SERVER spans -> "
-                + "fan out to exporter + CountConnector.");
+                + "fan out to exporter + SpanCountConnector.");
         log.info("Backend received:");
         log.info("  filtered spans          : {} (expected 3)", result.spansAtBackend());
         log.info("  derived span-count metric: {} (expected 3)", result.derivedSpanCount());
@@ -51,65 +51,62 @@ public final class OtlpE2eDemo {
                 + "a proto or gRPC type.");
     }
 
-    /// Runs the full pipeline once and returns what reached the backend. Servers use ephemeral
-    /// ports and are torn down before returning; the calls are synchronous, so no waiting is needed.
+    /// Runs the full pipeline once and returns what reached the backend.
     public static Result run() throws Exception {
         var backendTraces = new AtomicReference<TraceData>();
         var backendMetrics = Collections.synchronizedList(new ArrayList<Metric>());
 
-        OtlpReceiver backend = null;
+        OtlpGrpcReceiver backend = null;
         OtlpGrpcExporter backendExporter = null;
-        OtlpReceiver gateway = null;
+        OtlpGrpcReceiver gateway = null;
         try {
-            // --- Backend: the final destination, capturing whatever survives the pipeline. ------
-            backend = OtlpReceiver.builder()
-                    .traceHandler(traces -> {
+            // --- Backend: the final destination, capturing whatever survives the pipeline.
+            backend = OtlpGrpcReceiver.builder()
+                    .ephemeralPort()
+                    .onTraces(traces -> {
                         backendTraces.set(traces);
-                        return ExportResult.success();
+                        return ConsumeResult.acceptedStage();
                     })
-                    .metricsHandler(metrics -> {
+                    .onMetrics(metrics -> {
                         backendMetrics.addAll(metrics.metrics());
-                        return ExportResult.success();
+                        return ConsumeResult.acceptedStage();
                     })
                     .build()
-                    .start(0);
+                    .start();
             log.info("Backend receiver started on port {}.", backend.port());
-            backendExporter =
-                    OtlpGrpcExporter.builder().endpoint("localhost", backend.port()).build();
+            backendExporter = OtlpGrpcExporter.to("localhost", backend.port());
 
-            // --- Gateway: receive -> [enrich -> filter] -> fan out to exporter + count connector.
-            var toBackend = backendExporter;
-            var spanCounter = new CountConnector(toBackend);
-            var fanOut = new TelemetryConsumer() {
-                @Override
-                public ExportResult consumeTraces(TraceData traces) {
-                    return toBackend.consumeTraces(traces).and(spanCounter.consumeTraces(traces));
-                }
-            };
-            var gatewayPipeline = Pipeline.builder()
-                    .process(Processors.setResourceAttribute(
-                            "deployment.environment", AttributeValue.of("demo")))
-                    .process(Processors.filterSpans(span -> span.kind() == Span.Kind.SERVER))
-                    .into(fanOut);
-            gateway = OtlpReceiver.builder().consumer(gatewayPipeline).build().start(0);
+            // --- Gateway: receive -> enrich -> filter -> fan out to exporter + count connector.
+            gateway = OtlpGrpcReceiver.builder().ephemeralPort().build().start();
             log.info("Gateway receiver started on port {}.", gateway.port());
 
-            // --- Client: export a mixed batch of spans to the gateway. --------------------------
-            try (var client =
-                    OtlpGrpcExporter.builder().endpoint("localhost", gateway.port()).build()) {
-                client.consumeTraces(sampleTraces());
+            var spanCounter = new SpanCountConnector(backendExporter.metrics());
+
+            var subscription = Pipeline.from(gateway.traces())
+                    .transform(Transforms.setTraceResourceAttribute(
+                            "deployment.environment", AttributeValue.of("demo")))
+                    .transform(Transforms.keepSpansWhere(span -> span.kind() == Span.Kind.SERVER))
+                    .filter(traces -> !traces.spans().isEmpty())
+                    .branch()
+                        .fanOut(backendExporter.traces())
+                        .fanOut(spanCounter)
+                    .join();
+
+            // --- Client: export a mixed batch of spans to the gateway. -----------------------
+            try (var client = OtlpGrpcExporter.to("localhost", gateway.port())) {
+                client.traces().consume(sampleTraces()).toCompletableFuture().join();
                 log.info("Client exported sample trace batch to the gateway.");
             }
+            subscription.shutdown(Duration.ofSeconds(5)).toCompletableFuture().join();
         } finally {
-            // The export above is synchronous, so the backend is fully populated by now.
             if (backendExporter != null) {
                 backendExporter.close();
             }
             if (gateway != null) {
-                gateway.shutdownNow().awaitTermination(Duration.ofSeconds(5));
+                gateway.shutdownNow().toCompletableFuture().join();
             }
             if (backend != null) {
-                backend.shutdownNow().awaitTermination(Duration.ofSeconds(5));
+                backend.shutdownNow().toCompletableFuture().join();
             }
         }
 
@@ -117,16 +114,22 @@ public final class OtlpE2eDemo {
         var spans = atBackend == null ? 0 : atBackend.spans().size();
         var environment = atBackend == null
                 ? "<none>"
-                : atBackend.resourceSpans().get(0).resource().attributes()
-                        .get("deployment.environment")
-                        .map(value -> value instanceof AttributeValue.StringValue s ? s.value() : "?")
-                        .orElse("<none>");
+                : extractEnvironment(atBackend);
         var derivedCount = backendMetrics.stream()
                 .filter(metric -> metric.name().equals("otlp4j.connector.span.count"))
                 .findFirst()
                 .map(OtlpE2eDemo::longValueOf)
                 .orElse(-1L);
         return new Result(spans, derivedCount, environment);
+    }
+
+    private static String extractEnvironment(TraceData traces) {
+        if (traces.resourceSpans().isEmpty()) {
+            return "<none>";
+        }
+        var attrs = traces.resourceSpans().get(0).resource().attributes();
+        var value = attrs.get("deployment.environment");
+        return value instanceof AttributeValue.StringValue s ? s.value() : "<none>";
     }
 
     private static long longValueOf(Metric metric) {

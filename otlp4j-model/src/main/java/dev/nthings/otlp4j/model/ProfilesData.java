@@ -6,6 +6,7 @@ import java.util.List;
 ///
 /// Profiles are still `v1development`; this model exposes only stable top-level profile metadata,
 /// not sample/location/mapping/string tables or the shared dictionary.
+@Experimental("profiles signal tracks OpenTelemetry v1development; shape may change without notice")
 public record ProfilesData(List<ResourceProfiles> resourceProfiles) {
 
     public ProfilesData {

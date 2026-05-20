@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 /// Unit tests for [Attributes] — the builder overloads, the [Attributes#of(Map)] copy/order/
@@ -22,11 +21,11 @@ class AttributesTest {
                 .put("bool", true)
                 .build();
 
-        assertThat(attributes.get("explicit")).contains(AttributeValue.of("v"));
-        assertThat(attributes.get("string")).contains(AttributeValue.of("s"));
-        assertThat(attributes.get("long")).contains(AttributeValue.of(10L));
-        assertThat(attributes.get("double")).contains(AttributeValue.of(2.5));
-        assertThat(attributes.get("bool")).contains(AttributeValue.of(true));
+        assertThat(attributes.get("explicit")).isEqualTo(AttributeValue.of("v"));
+        assertThat(attributes.get("string")).isEqualTo(AttributeValue.of("s"));
+        assertThat(attributes.get("long")).isEqualTo(AttributeValue.of(10L));
+        assertThat(attributes.get("double")).isEqualTo(AttributeValue.of(2.5));
+        assertThat(attributes.get("bool")).isEqualTo(AttributeValue.of(true));
         assertThat(attributes.size()).isEqualTo(5);
     }
 
@@ -71,11 +70,11 @@ class AttributesTest {
     }
 
     @Test
-    void getReturnsAPresentOptionalWhenTheKeyExistsAndEmptyOtherwise() {
+    void getReturnsTheValueWhenTheKeyExistsAndNullOtherwise() {
         var attributes = Attributes.builder().put("present", "yes").build();
 
-        assertThat(attributes.get("present")).contains(AttributeValue.of("yes"));
-        assertThat(attributes.get("absent")).isEmpty();
+        assertThat(attributes.get("present")).isEqualTo(AttributeValue.of("yes"));
+        assertThat(attributes.get("absent")).isNull();
     }
 
     @Test
@@ -139,6 +138,6 @@ class AttributesTest {
     @Test
     void keysReflectsAbsenceForTheEmptySingleton() {
         assertThat(Attributes.empty().keys()).isEmpty();
-        assertThat(Attributes.empty().get("anything")).isEqualTo(Optional.empty());
+        assertThat(Attributes.empty().get("anything")).isNull();
     }
 }

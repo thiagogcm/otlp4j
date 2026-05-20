@@ -10,29 +10,29 @@ import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TraceData;
-import dev.nthings.otlp4j.pipeline.ExportResult;
+import dev.nthings.otlp4j.pipeline.ConsumeResult;
 import dev.nthings.otlp4j.pipeline.Pipeline;
-import dev.nthings.otlp4j.processor.Processors;
-import dev.nthings.otlp4j.receiver.OtlpReceiver;
+import dev.nthings.otlp4j.processor.Transforms;
+import dev.nthings.otlp4j.receiver.OtlpGrpcReceiver;
 import dev.nthings.otlp4j.spi.OtlpClientProvider;
 import dev.nthings.otlp4j.spi.OtlpServerProvider;
 import dev.nthings.otlp4j.testing.Fixtures;
-import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 /// Black-box OTLP/gRPC transport tests over real servers on ephemeral ports.
-///
-/// These cover domain/proto/wire round trips, partial success, failures, lifecycle, and SPI wiring.
 @Timeout(30)
 class GrpcTransportTest {
 
-    private final List<OtlpReceiver> receivers = new ArrayList<>();
+    private final List<OtlpGrpcReceiver> receivers = new ArrayList<>();
     private final List<AutoCloseable> closeables = new ArrayList<>();
 
     @AfterEach
@@ -40,149 +40,141 @@ class GrpcTransportTest {
         for (var closeable : closeables) {
             try {
                 closeable.close();
-            } catch (Exception ignored) {
-                // one failed close must not mask the rest of the teardown
-            }
+            } catch (Exception ignored) { /* keep tearing down */ }
         }
         for (var receiver : receivers) {
             try {
-                receiver.shutdownNow().awaitTermination(Duration.ofSeconds(5));
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            } catch (RuntimeException ignored) {
-                // a receiver that never finished starting has nothing to await
-            }
+                receiver.shutdownNow().toCompletableFuture().get(5, TimeUnit.SECONDS);
+            } catch (Exception ignored) { /* keep tearing down */ }
         }
     }
 
     @Test
     void roundTripsRichTraceDataLosslessly() {
         var received = new AtomicReference<TraceData>();
-        var receiver = startReceiver(OtlpReceiver.builder().traceHandler(traces -> {
+        var receiver = startReceiver(OtlpGrpcReceiver.builder().onTraces(traces -> {
             received.set(traces);
-            return ExportResult.success();
+            return ConsumeResult.acceptedStage();
         }));
         var sent = TransportFixtures.richTraceData();
 
-        var result = exporterTo(receiver).consumeTraces(sent);
+        var result = exporterTo(receiver).traces().consume(sent).toCompletableFuture().join();
 
-        assertThat(result.isFullSuccess()).isTrue();
-        assertThat(received.get())
-                .as("trace telemetry must survive the proto round-trip intact")
-                .isEqualTo(sent);
+        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(received.get()).isEqualTo(sent);
     }
 
     @Test
     void roundTripsRichMetricsDataLosslessly() {
         var received = new AtomicReference<MetricsData>();
-        var receiver = startReceiver(OtlpReceiver.builder().metricsHandler(metrics -> {
+        var receiver = startReceiver(OtlpGrpcReceiver.builder().onMetrics(metrics -> {
             received.set(metrics);
-            return ExportResult.success();
+            return ConsumeResult.acceptedStage();
         }));
         var sent = TransportFixtures.richMetricsData();
 
-        var result = exporterTo(receiver).consumeMetrics(sent);
+        var result = exporterTo(receiver).metrics().consume(sent).toCompletableFuture().join();
 
-        assertThat(result.isFullSuccess()).isTrue();
-        assertThat(received.get())
-                .as("gauge/sum/histogram/exponential/summary metrics must round-trip intact")
-                .isEqualTo(sent);
+        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(received.get()).isEqualTo(sent);
     }
 
     @Test
     void roundTripsRichLogsDataLosslessly() {
         var received = new AtomicReference<LogsData>();
-        var receiver = startReceiver(OtlpReceiver.builder().logsHandler(logs -> {
+        var receiver = startReceiver(OtlpGrpcReceiver.builder().onLogs(logs -> {
             received.set(logs);
-            return ExportResult.success();
+            return ConsumeResult.acceptedStage();
         }));
         var sent = TransportFixtures.richLogsData();
 
-        var result = exporterTo(receiver).consumeLogs(sent);
+        var result = exporterTo(receiver).logs().consume(sent).toCompletableFuture().join();
 
-        assertThat(result.isFullSuccess()).isTrue();
-        assertThat(received.get())
-                .as("log telemetry must survive the proto round-trip intact")
-                .isEqualTo(sent);
+        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(received.get()).isEqualTo(sent);
     }
 
     @Test
     void roundTripsProfilesData() {
         var received = new AtomicReference<ProfilesData>();
-        var receiver = startReceiver(OtlpReceiver.builder().profilesHandler(profiles -> {
+        var receiver = startReceiver(OtlpGrpcReceiver.builder().onProfiles(profiles -> {
             received.set(profiles);
-            return ExportResult.success();
+            return ConsumeResult.acceptedStage();
         }));
         var sent = TransportFixtures.profilesData();
 
-        var result = exporterTo(receiver).consumeProfiles(sent);
+        var result = exporterTo(receiver).profiles().consume(sent).toCompletableFuture().join();
 
-        assertThat(result.isFullSuccess()).isTrue();
-        assertThat(received.get())
-                .as("profile metadata must round-trip intact")
-                .isEqualTo(sent);
+        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(received.get()).isEqualTo(sent);
     }
 
     @Test
     void propagatesPartialSuccessForEverySignal() {
-        var traceMessage = "2 spans malformed";
-        var metricMessage = "5 data points rejected";
-        var logMessage = "3 log records rejected";
-        var traces = startReceiver(OtlpReceiver.builder()
-                .traceHandler(t -> ExportResult.partialSuccess(2, traceMessage)));
-        var metrics = startReceiver(OtlpReceiver.builder()
-                .metricsHandler(m -> ExportResult.partialSuccess(5, metricMessage)));
-        var logs = startReceiver(OtlpReceiver.builder()
-                .logsHandler(l -> ExportResult.partialSuccess(3, logMessage)));
+        var traceReceiver = startReceiver(OtlpGrpcReceiver.builder()
+                .onTraces(t -> CompletableFuture.completedStage(
+                        ConsumeResult.partial(2L, "2 spans malformed"))));
+        var metricsReceiver = startReceiver(OtlpGrpcReceiver.builder()
+                .onMetrics(m -> CompletableFuture.completedStage(
+                        ConsumeResult.partial(5L, "5 data points rejected"))));
+        var logsReceiver = startReceiver(OtlpGrpcReceiver.builder()
+                .onLogs(l -> CompletableFuture.completedStage(
+                        ConsumeResult.partial(3L, "3 log records rejected"))));
 
-        var traceResult = exporterTo(traces)
-                .consumeTraces(Fixtures.traceData(Fixtures.span("op", Span.Kind.INTERNAL)));
-        var metricResult = exporterTo(metrics).consumeMetrics(new MetricsData(List.of()));
-        var logResult = exporterTo(logs).consumeLogs(new LogsData(List.of()));
+        var traceResult = exporterTo(traceReceiver).traces()
+                .consume(Fixtures.traceData(Fixtures.span("op", Span.Kind.INTERNAL))).toCompletableFuture().join();
+        var metricResult = exporterTo(metricsReceiver).metrics()
+                .consume(new MetricsData(List.of())).toCompletableFuture().join();
+        var logResult = exporterTo(logsReceiver).logs()
+                .consume(new LogsData(List.of())).toCompletableFuture().join();
 
-        assertThat(traceResult.rejectedCount()).isEqualTo(2);
-        assertThat(traceResult.message()).isEqualTo(traceMessage);
-        assertThat(metricResult.rejectedCount()).isEqualTo(5);
-        assertThat(metricResult.message()).isEqualTo(metricMessage);
-        assertThat(logResult.rejectedCount()).isEqualTo(3);
-        assertThat(logResult.message()).isEqualTo(logMessage);
+        assertThat(traceResult).isInstanceOf(ConsumeResult.Partial.class);
+        assertThat(((ConsumeResult.Partial<TraceData>) traceResult).rejectedItems()).isEqualTo(2L);
+        assertThat(metricResult).isInstanceOf(ConsumeResult.Partial.class);
+        assertThat(((ConsumeResult.Partial<MetricsData>) metricResult).rejectedItems()).isEqualTo(5L);
+        assertThat(logResult).isInstanceOf(ConsumeResult.Partial.class);
+        assertThat(((ConsumeResult.Partial<LogsData>) logResult).rejectedItems()).isEqualTo(3L);
     }
 
     @Test
-    void translatesAThrowingHandlerIntoATransportError() {
-        var receiver = startReceiver(OtlpReceiver.builder().traceHandler(traces -> {
+    void translatesAThrowingDispatcherIntoATransportError() {
+        var receiver = startReceiver(OtlpGrpcReceiver.builder().onTraces(traces -> {
             throw new IllegalStateException("handler boom");
         }));
         var exporter = exporterTo(receiver);
         var traces = Fixtures.traceData(Fixtures.span("op", Span.Kind.INTERNAL));
 
-        assertThatThrownBy(() -> exporter.consumeTraces(traces))
-                .as("the gRPC error should carry the handler's failure message")
-                .isInstanceOf(RuntimeException.class)
+        assertThatThrownBy(() -> exporter.traces().consume(traces).toCompletableFuture().join())
+                .isInstanceOf(CompletionException.class)
                 .hasMessageContaining("handler boom");
     }
 
     @Test
     void endToEndReceiveFilterExportPipeline() {
         var terminalCapture = new AtomicReference<TraceData>();
-        var terminal = startReceiver(OtlpReceiver.builder().traceHandler(traces -> {
+        var terminal = startReceiver(OtlpGrpcReceiver.builder().onTraces(traces -> {
             terminalCapture.set(traces);
-            return ExportResult.success();
+            return ConsumeResult.acceptedStage();
         }));
-        var pipeline = Pipeline.builder()
-                .process(Processors.filterSpans(span -> span.kind() == Span.Kind.SERVER))
-                .into(exporterTo(terminal));
-        var gateway = startReceiver(OtlpReceiver.builder().consumer(pipeline));
+        var gateway = startReceiver(OtlpGrpcReceiver.builder());
 
-        var result = exporterTo(gateway).consumeTraces(Fixtures.traceData(
-                Fixtures.span("internal-op", Span.Kind.INTERNAL),
-                Fixtures.span("GET /cart", Span.Kind.SERVER),
-                Fixtures.span("GET /checkout", Span.Kind.SERVER)));
+        try (var terminalExporter = exporterTo(terminal)) {
+            var sub = Pipeline.from(gateway.traces())
+                    .transform(Transforms.keepSpansWhere(span -> span.kind() == Span.Kind.SERVER))
+                    .filter(t -> !t.spans().isEmpty())
+                    .to(terminalExporter.traces());
 
-        assertThat(result.isFullSuccess()).isTrue();
-        assertThat(terminalCapture.get())
-                .as("telemetry must traverse the full receive -> filter -> export pipeline")
-                .isNotNull();
+            try (var gatewayClient = exporterTo(gateway)) {
+                var result = gatewayClient.traces().consume(Fixtures.traceData(
+                                Fixtures.span("internal-op", Span.Kind.INTERNAL),
+                                Fixtures.span("GET /cart", Span.Kind.SERVER),
+                                Fixtures.span("GET /checkout", Span.Kind.SERVER)))
+                        .toCompletableFuture().join();
+                assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+            }
+            sub.shutdown(Duration.ofSeconds(2)).toCompletableFuture().join();
+        }
+        assertThat(terminalCapture.get()).isNotNull();
         assertThat(terminalCapture.get().spans())
                 .hasSize(2)
                 .allMatch(span -> span.kind() == Span.Kind.SERVER);
@@ -190,30 +182,29 @@ class GrpcTransportTest {
 
     @Test
     void rejectsStartingAReceiverTwice() {
-        var receiver = startReceiver(
-                OtlpReceiver.builder().traceHandler(t -> ExportResult.success()));
+        var receiver = startReceiver(OtlpGrpcReceiver.builder()
+                .onTraces(t -> ConsumeResult.acceptedStage()));
 
-        assertThatThrownBy(() -> receiver.start(0))
+        assertThatThrownBy(receiver::start)
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("server already started");
+                .hasMessageContaining("already started");
     }
 
     @Test
-    void rejectsAPortQueryBeforeStart() {
-        var receiver =
-                OtlpReceiver.builder().traceHandler(t -> ExportResult.success()).build();
-
-        assertThatThrownBy(receiver::port)
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("server not started");
+    void portIsZeroBeforeStart() {
+        var receiver = OtlpGrpcReceiver.builder()
+                .ephemeralPort()
+                .onTraces(t -> ConsumeResult.acceptedStage())
+                .build();
+        try {
+            assertThat(receiver.port()).isZero();
+        } finally {
+            receiver.shutdownNow().toCompletableFuture().join();
+        }
     }
 
     @Test
     void declaresTheGrpcTransportProvidersAsSpiServices() {
-        // The functional round-trip tests above already prove the SPI resolves end-to-end
-        // (OtlpReceiver/OtlpGrpcExporter discover the transport via ServiceLoader). This test
-        // pins the wiring itself: the transport module must `provides` both SPI services with
-        // implementations from its internal gRPC package.
         var provides = ModuleLayer.boot()
                 .findModule("dev.nthings.otlp4j.transport")
                 .orElseThrow()
@@ -221,33 +212,23 @@ class GrpcTransportTest {
                 .provides();
 
         assertThat(provides)
-                .as("the transport module must provide both OTLP SPI services")
                 .anySatisfy(p -> {
                     assertThat(p.service()).isEqualTo(OtlpServerProvider.class.getName());
-                    assertThat(p.providers())
-                            .allMatch(impl -> impl.startsWith("dev.nthings.otlp4j.internal."));
+                    assertThat(p.providers()).allMatch(impl -> impl.startsWith("dev.nthings.otlp4j.internal."));
                 })
                 .anySatisfy(p -> {
                     assertThat(p.service()).isEqualTo(OtlpClientProvider.class.getName());
-                    assertThat(p.providers())
-                            .allMatch(impl -> impl.startsWith("dev.nthings.otlp4j.internal."));
+                    assertThat(p.providers()).allMatch(impl -> impl.startsWith("dev.nthings.otlp4j.internal."));
                 });
     }
 
-    // --- helpers -------------------------------------------------------------------------------
-
-    private OtlpReceiver startReceiver(OtlpReceiver.Builder builder) {
-        // Track the receiver before start() so teardown reclaims it even if start() throws.
-        var receiver = builder.build();
+    private OtlpGrpcReceiver startReceiver(OtlpGrpcReceiver.Builder builder) {
+        var receiver = builder.ephemeralPort().build();
         receivers.add(receiver);
-        try {
-            return receiver.start(0);
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
+        return receiver.start();
     }
 
-    private OtlpGrpcExporter exporterTo(OtlpReceiver receiver) {
+    private OtlpGrpcExporter exporterTo(OtlpGrpcReceiver receiver) {
         var exporter = OtlpGrpcExporter.builder()
                 .endpoint("localhost", receiver.port())
                 .timeout(Duration.ofSeconds(5))

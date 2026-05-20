@@ -6,6 +6,7 @@ import dev.nthings.otlp4j.model.Attributes;
 import dev.nthings.otlp4j.model.ExponentialHistogramPoint;
 import dev.nthings.otlp4j.model.Metric;
 import dev.nthings.otlp4j.model.ProfilesData;
+import dev.nthings.otlp4j.pipeline.ConsumeResult;
 import dev.nthings.otlp4j.testing.Fixtures;
 import io.opentelemetry.proto.collector.logs.v1.ExportLogsPartialSuccess;
 import io.opentelemetry.proto.collector.logs.v1.ExportLogsServiceResponse;
@@ -19,8 +20,7 @@ import java.util.List;
 import java.util.OptionalDouble;
 import org.junit.jupiter.api.Test;
 
-/// White-box unit tests for mapper behaviour that the round-trip properties cannot express:
-/// boundary cases and the intentionally lossy parts of the contract.
+/// White-box unit tests for mapper behaviour that the round-trip properties cannot express.
 class MapperEdgeCaseTest {
 
     @Test
@@ -47,9 +47,7 @@ class MapperEdgeCaseTest {
 
         var roundTripped = MetricsMapper.toDomain(MetricsMapper.toProto(sent));
 
-        assertThat(roundTripped)
-                .as("a non-zero bucket offset must survive even when bucketCounts is empty")
-                .isEqualTo(sent);
+        assertThat(roundTripped).isEqualTo(sent);
     }
 
     @Test
@@ -59,9 +57,7 @@ class MapperEdgeCaseTest {
         var roundTripped = MetricsMapper.toDomain(MetricsMapper.toProto(sent)).metrics().get(0);
 
         assertThat(roundTripped.name()).isEqualTo("placeholder.metric");
-        assertThat(roundTripped.data())
-                .as("an unset metric data oneof must map back to null")
-                .isNull();
+        assertThat(roundTripped.data()).isNull();
     }
 
     @Test
@@ -71,9 +67,7 @@ class MapperEdgeCaseTest {
 
         var roundTripped = ProfilesMapper.toDomain(ProfilesMapper.toProto(sent)).profiles().get(0);
 
-        assertThat(roundTripped.sampleCount())
-                .as("the sample/location/string tables are intentionally not reconstructed")
-                .isZero();
+        assertThat(roundTripped.sampleCount()).isZero();
         assertThat(roundTripped.profileId()).isEqualTo("0102030405060708");
         assertThat(roundTripped.timeUnixNano()).isEqualTo(100L);
         assertThat(roundTripped.durationNanos()).isEqualTo(200L);
@@ -92,145 +86,124 @@ class MapperEdgeCaseTest {
 
         var result = TraceMapper.result(response);
 
-        assertThat(result.rejectedCount()).isEqualTo(2);
-        assertThat(result.message()).isEqualTo("2 spans malformed");
+        assertThat(result).isInstanceOf(ConsumeResult.Partial.class);
+        var p = (ConsumeResult.Partial<?>) result;
+        assertThat(p.rejectedItems()).isEqualTo(2);
+        assertThat(p.message()).isEqualTo("2 spans malformed");
     }
 
     @Test
-    void traceResultWithNoPartialSuccessIsFullSuccess() {
-        var result = TraceMapper.result(ExportTraceServiceResponse.getDefaultInstance());
-
-        assertThat(result.isFullSuccess()).isTrue();
+    void traceResultWithNoPartialSuccessIsAccepted() {
+        assertThat(TraceMapper.result(ExportTraceServiceResponse.getDefaultInstance()))
+                .isInstanceOf(ConsumeResult.Accepted.class);
     }
 
     @Test
     void logsResultDecisionTable() {
-        assertThat(LogsMapper.result(ExportLogsServiceResponse.getDefaultInstance())
-                        .isFullSuccess())
-                .as("no partial_success block -> full success")
-                .isTrue();
+        assertThat(LogsMapper.result(ExportLogsServiceResponse.getDefaultInstance()))
+                .as("no partial_success block -> accepted")
+                .isInstanceOf(ConsumeResult.Accepted.class);
 
         assertThat(LogsMapper.result(ExportLogsServiceResponse.newBuilder()
-                                .setPartialSuccess(ExportLogsPartialSuccess.getDefaultInstance())
-                                .build())
-                        .isFullSuccess())
-                .as("empty partial_success block -> full success")
-                .isTrue();
+                        .setPartialSuccess(ExportLogsPartialSuccess.getDefaultInstance())
+                        .build()))
+                .as("empty partial_success block -> accepted")
+                .isInstanceOf(ConsumeResult.Accepted.class);
 
         var withCount = LogsMapper.result(ExportLogsServiceResponse.newBuilder()
                 .setPartialSuccess(ExportLogsPartialSuccess.newBuilder()
                         .setRejectedLogRecords(3)
                         .setErrorMessage("3 records rejected"))
                 .build());
-        assertThat(withCount.rejectedCount()).isEqualTo(3);
-        assertThat(withCount.message()).isEqualTo("3 records rejected");
+        assertThat(withCount).isInstanceOf(ConsumeResult.Partial.class);
+        var p = (ConsumeResult.Partial<?>) withCount;
+        assertThat(p.rejectedItems()).isEqualTo(3);
+        assertThat(p.message()).isEqualTo("3 records rejected");
 
         var messageOnly = LogsMapper.result(ExportLogsServiceResponse.newBuilder()
                 .setPartialSuccess(ExportLogsPartialSuccess.newBuilder()
                         .setErrorMessage("log warning"))
                 .build());
-        assertThat(messageOnly.isFullSuccess()).isFalse();
-        assertThat(messageOnly.rejectedCount()).isZero();
-        assertThat(messageOnly.message()).isEqualTo("log warning");
+        assertThat(messageOnly).isInstanceOf(ConsumeResult.Rejected.class);
+        var r = (ConsumeResult.Rejected<?>) messageOnly;
+        assertThat(r.message()).isEqualTo("log warning");
     }
 
     @Test
-    void traceResultWithAnEmptyPartialSuccessBlockIsFullSuccess() {
-        // partial_success is set, but with 0 rejected spans and no message: the collector signalled
-        // nothing was actually rejected, so this collapses to a full success.
+    void traceResultWithAnEmptyPartialSuccessBlockIsAccepted() {
         var response = ExportTraceServiceResponse.newBuilder()
                 .setPartialSuccess(ExportTracePartialSuccess.getDefaultInstance())
                 .build();
-
-        assertThat(TraceMapper.result(response).isFullSuccess())
-                .as("a present-but-empty partial_success block must collapse to full success")
-                .isTrue();
+        assertThat(TraceMapper.result(response)).isInstanceOf(ConsumeResult.Accepted.class);
     }
 
     @Test
-    void traceResultWithAMessageOnlyIsAPartialSuccess() {
-        // A message with 0 rejected spans is still a partial success — the message is non-empty
-        // so the short-circuit does not fire.
+    void traceResultWithAMessageOnlyIsRejected() {
         var response = ExportTraceServiceResponse.newBuilder()
                 .setPartialSuccess(ExportTracePartialSuccess.newBuilder()
                         .setErrorMessage("warning: clock skew detected"))
                 .build();
 
         var result = TraceMapper.result(response);
-
-        assertThat(result.isFullSuccess()).isFalse();
-        assertThat(result.rejectedCount()).isZero();
-        assertThat(result.message()).isEqualTo("warning: clock skew detected");
+        assertThat(result).isInstanceOf(ConsumeResult.Rejected.class);
+        assertThat(((ConsumeResult.Rejected<?>) result).message()).isEqualTo("warning: clock skew detected");
     }
 
     @Test
     void metricsResultDecisionTable() {
-        assertThat(MetricsMapper.result(ExportMetricsServiceResponse.getDefaultInstance())
-                        .isFullSuccess())
-                .as("no partial_success block -> full success")
-                .isTrue();
+        assertThat(MetricsMapper.result(ExportMetricsServiceResponse.getDefaultInstance()))
+                .isInstanceOf(ConsumeResult.Accepted.class);
 
         assertThat(MetricsMapper.result(ExportMetricsServiceResponse.newBuilder()
-                                .setPartialSuccess(ExportMetricsPartialSuccess.getDefaultInstance())
-                                .build())
-                        .isFullSuccess())
-                .as("empty partial_success block -> full success")
-                .isTrue();
+                        .setPartialSuccess(ExportMetricsPartialSuccess.getDefaultInstance())
+                        .build()))
+                .isInstanceOf(ConsumeResult.Accepted.class);
 
         var withCount = MetricsMapper.result(ExportMetricsServiceResponse.newBuilder()
                 .setPartialSuccess(ExportMetricsPartialSuccess.newBuilder()
                         .setRejectedDataPoints(7)
                         .setErrorMessage("7 points rejected"))
                 .build());
-        assertThat(withCount.rejectedCount()).isEqualTo(7);
-        assertThat(withCount.message()).isEqualTo("7 points rejected");
+        assertThat(withCount).isInstanceOf(ConsumeResult.Partial.class);
+        var p = (ConsumeResult.Partial<?>) withCount;
+        assertThat(p.rejectedItems()).isEqualTo(7);
+        assertThat(p.message()).isEqualTo("7 points rejected");
 
         var messageOnly = MetricsMapper.result(ExportMetricsServiceResponse.newBuilder()
                 .setPartialSuccess(ExportMetricsPartialSuccess.newBuilder()
                         .setErrorMessage("metadata warning"))
                 .build());
-        assertThat(messageOnly.isFullSuccess()).isFalse();
-        assertThat(messageOnly.rejectedCount()).isZero();
-        assertThat(messageOnly.message()).isEqualTo("metadata warning");
+        assertThat(messageOnly).isInstanceOf(ConsumeResult.Rejected.class);
     }
 
     @Test
     void profilesResultDecisionTable() {
-        assertThat(ProfilesMapper.result(ExportProfilesServiceResponse.getDefaultInstance())
-                        .isFullSuccess())
-                .as("no partial_success block -> full success")
-                .isTrue();
+        assertThat(ProfilesMapper.result(ExportProfilesServiceResponse.getDefaultInstance()))
+                .isInstanceOf(ConsumeResult.Accepted.class);
 
         assertThat(ProfilesMapper.result(ExportProfilesServiceResponse.newBuilder()
-                                .setPartialSuccess(
-                                        ExportProfilesPartialSuccess.getDefaultInstance())
-                                .build())
-                        .isFullSuccess())
-                .as("empty partial_success block -> full success")
-                .isTrue();
+                        .setPartialSuccess(ExportProfilesPartialSuccess.getDefaultInstance())
+                        .build()))
+                .isInstanceOf(ConsumeResult.Accepted.class);
 
         var withCount = ProfilesMapper.result(ExportProfilesServiceResponse.newBuilder()
                 .setPartialSuccess(ExportProfilesPartialSuccess.newBuilder()
                         .setRejectedProfiles(4)
                         .setErrorMessage("4 profiles rejected"))
                 .build());
-        assertThat(withCount.rejectedCount()).isEqualTo(4);
-        assertThat(withCount.message()).isEqualTo("4 profiles rejected");
+        assertThat(withCount).isInstanceOf(ConsumeResult.Partial.class);
+        var p = (ConsumeResult.Partial<?>) withCount;
+        assertThat(p.rejectedItems()).isEqualTo(4);
 
         var messageOnly = ProfilesMapper.result(ExportProfilesServiceResponse.newBuilder()
                 .setPartialSuccess(ExportProfilesPartialSuccess.newBuilder()
                         .setErrorMessage("profiles warning"))
                 .build());
-        assertThat(messageOnly.isFullSuccess()).isFalse();
-        assertThat(messageOnly.rejectedCount()).isZero();
-        assertThat(messageOnly.message()).isEqualTo("profiles warning");
+        assertThat(messageOnly).isInstanceOf(ConsumeResult.Rejected.class);
     }
 
     @Test
     void profilesMapperPreservesEveryScalarMetadataFieldExceptSampleCount() {
-        // Companion to profilesMapperDropsSampleCountButPreservesMetadata: this asserts the full
-        // scalar metadata surface survives, using distinct non-zero values for every field so a
-        // field swap in the mapper would be caught.
         var sent = TransportFixtures.profiles(new ProfilesData.Profile(
                 "aabbccddeeff00112233445566778899", 111L, 222L, 333L, 444, 555, "pprof-gz"));
 
@@ -242,8 +215,6 @@ class MapperEdgeCaseTest {
         assertThat(roundTripped.period()).isEqualTo(333L);
         assertThat(roundTripped.droppedAttributesCount()).isEqualTo(555);
         assertThat(roundTripped.originalPayloadFormat()).isEqualTo("pprof-gz");
-        assertThat(roundTripped.sampleCount())
-                .as("sampleCount is intentionally dropped: the sample table is not reconstructed")
-                .isZero();
+        assertThat(roundTripped.sampleCount()).isZero();
     }
 }

@@ -1,7 +1,7 @@
 package dev.nthings.otlp4j.internal;
 
 import dev.nthings.otlp4j.model.ProfilesData;
-import dev.nthings.otlp4j.pipeline.ExportResult;
+import dev.nthings.otlp4j.pipeline.ConsumeResult;
 import io.opentelemetry.proto.collector.profiles.v1development.ExportProfilesServiceRequest;
 import io.opentelemetry.proto.collector.profiles.v1development.ExportProfilesServiceResponse;
 import java.util.ArrayList;
@@ -59,17 +59,19 @@ final class ProfilesMapper {
                 profile.getOriginalPayloadFormat());
     }
 
-    /// Interprets an OTLP profiles export response as an [ExportResult].
-    public static ExportResult result(ExportProfilesServiceResponse response) {
+    /// Interprets an OTLP profiles export response as a [ConsumeResult].
+    public static ConsumeResult<ProfilesData> result(ExportProfilesServiceResponse response) {
         if (!response.hasPartialSuccess()) {
-            return ExportResult.success();
+            return ConsumeResult.accepted();
         }
         var partial = response.getPartialSuccess();
         if (partial.getRejectedProfiles() == 0 && partial.getErrorMessage().isEmpty()) {
-            return ExportResult.success();
+            return ConsumeResult.accepted();
         }
-        return ExportResult.partialSuccess(
-                partial.getRejectedProfiles(), partial.getErrorMessage());
+        if (partial.getRejectedProfiles() == 0) {
+            return ConsumeResult.rejected(partial.getErrorMessage());
+        }
+        return ConsumeResult.partial(partial.getRejectedProfiles(), partial.getErrorMessage());
     }
 
     // --- domain -> proto ---------------------------------------------------------------------

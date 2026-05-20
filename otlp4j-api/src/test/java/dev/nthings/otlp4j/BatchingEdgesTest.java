@@ -1,0 +1,169 @@
+package dev.nthings.otlp4j;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
+
+import dev.nthings.otlp4j.model.LogRecord;
+import dev.nthings.otlp4j.model.LogsData;
+import dev.nthings.otlp4j.model.MetricsData;
+import dev.nthings.otlp4j.model.ProfilesData;
+import dev.nthings.otlp4j.model.Span;
+import dev.nthings.otlp4j.model.TraceData;
+import dev.nthings.otlp4j.pipeline.Capabilities;
+import dev.nthings.otlp4j.pipeline.ConsumeResult;
+import dev.nthings.otlp4j.pipeline.Consumer;
+import dev.nthings.otlp4j.pipeline.LogConsumer;
+import dev.nthings.otlp4j.pipeline.MetricConsumer;
+import dev.nthings.otlp4j.pipeline.ProfileConsumer;
+import dev.nthings.otlp4j.pipeline.TraceConsumer;
+import dev.nthings.otlp4j.processor.BatchingProcessor;
+import dev.nthings.otlp4j.processor.DropPolicy;
+import dev.nthings.otlp4j.testing.Fixtures;
+import java.time.Duration;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import org.junit.jupiter.api.Test;
+
+class BatchingEdgesTest {
+
+    @Test
+    void blockPolicyEventuallyDeliversAllBatches() {
+        var captured = new CopyOnWriteArrayList<TraceData>();
+        TraceConsumer downstream = traces -> {
+            captured.add(traces);
+            return ConsumeResult.acceptedStage();
+        };
+        try (var batcher = BatchingProcessor.forTraces()
+                .downstream(downstream)
+                .maxBatchSize(2)
+                .queueCapacity(2)
+                .maxBatchAge(Duration.ofSeconds(30))
+                .dropPolicy(DropPolicy.BLOCK)
+                .build()) {
+            for (int i = 0; i < 6; i++) {
+                batcher.consume(Fixtures.traceData(Fixtures.span("s" + i, Span.Kind.SERVER)))
+                        .toCompletableFuture().join();
+            }
+            batcher.forceFlush(Duration.ofSeconds(2)).toCompletableFuture().join();
+        }
+        var total = captured.stream().mapToInt(t -> t.spans().size()).sum();
+        assertThat(total).isEqualTo(6);
+        assertThat(captured).isNotEmpty();
+    }
+
+    @Test
+    void shutdownIsIdempotent() {
+        TraceConsumer downstream = traces -> ConsumeResult.acceptedStage();
+        var batcher = BatchingProcessor.forTraces()
+                .downstream(downstream)
+                .maxBatchSize(10)
+                .queueCapacity(10)
+                .maxBatchAge(Duration.ofSeconds(30))
+                .build();
+        batcher.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
+        batcher.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
+    }
+
+    @Test
+    void queuedReflectsBufferSize() {
+        TraceConsumer slow = traces -> new CompletableFuture<>();
+        try (var batcher = BatchingProcessor.forTraces()
+                .downstream(slow)
+                .maxBatchSize(100)
+                .queueCapacity(10)
+                .maxBatchAge(Duration.ofSeconds(30))
+                .build()) {
+            batcher.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER))).toCompletableFuture().join();
+            batcher.consume(Fixtures.traceData(Fixtures.span("b", Span.Kind.SERVER))).toCompletableFuture().join();
+            assertThat(batcher.queued()).isEqualTo(2);
+        }
+    }
+
+    @Test
+    void capabilitiesIsImmutable() {
+        TraceConsumer downstream = traces -> ConsumeResult.acceptedStage();
+        try (var batcher = BatchingProcessor.forTraces().downstream(downstream).build()) {
+            assertThat(batcher.capabilities()).isEqualTo(Capabilities.IMMUTABLE);
+        }
+    }
+
+    @Test
+    void everyPerSignalFactoryFlushesAtThreshold() {
+        var traceCaptured = new AtomicReference<TraceData>();
+        TraceConsumer traceDownstream = traces -> {
+            traceCaptured.set(traces);
+            return ConsumeResult.acceptedStage();
+        };
+        try (var b = BatchingProcessor.forTraces().downstream(traceDownstream).maxBatchSize(1)
+                .queueCapacity(2).maxBatchAge(Duration.ofMinutes(1)).build()) {
+            b.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER))).toCompletableFuture().join();
+            await().atMost(Duration.ofSeconds(2)).until(() -> traceCaptured.get() != null);
+        }
+        var metricsCaptured = new AtomicReference<MetricsData>();
+        MetricConsumer metricsDownstream = m -> {
+            metricsCaptured.set(m);
+            return ConsumeResult.acceptedStage();
+        };
+        try (var b = BatchingProcessor.forMetrics().downstream(metricsDownstream).maxBatchSize(1)
+                .queueCapacity(2).maxBatchAge(Duration.ofMinutes(1)).build()) {
+            b.consume(Fixtures.metricsData(Fixtures.metric("m"))).toCompletableFuture().join();
+            await().atMost(Duration.ofSeconds(2)).until(() -> metricsCaptured.get() != null);
+        }
+        var logsCaptured = new AtomicReference<LogsData>();
+        LogConsumer logsDownstream = l -> {
+            logsCaptured.set(l);
+            return ConsumeResult.acceptedStage();
+        };
+        try (var b = BatchingProcessor.forLogs().downstream(logsDownstream).maxBatchSize(1)
+                .queueCapacity(2).maxBatchAge(Duration.ofMinutes(1)).build()) {
+            b.consume(Fixtures.logsData(Fixtures.logRecord("hi", LogRecord.Severity.INFO))).toCompletableFuture().join();
+            await().atMost(Duration.ofSeconds(2)).until(() -> logsCaptured.get() != null);
+        }
+        var profilesCaptured = new AtomicReference<ProfilesData>();
+        ProfileConsumer profilesDownstream = p -> {
+            profilesCaptured.set(p);
+            return ConsumeResult.acceptedStage();
+        };
+        try (var b = BatchingProcessor.forProfiles().downstream(profilesDownstream).maxBatchSize(1)
+                .queueCapacity(2).maxBatchAge(Duration.ofMinutes(1)).build()) {
+            b.consume(Fixtures.profilesData(Fixtures.profile("p"))).toCompletableFuture().join();
+            await().atMost(Duration.ofSeconds(2)).until(() -> profilesCaptured.get() != null);
+        }
+    }
+
+    @Test
+    void externalSchedulerIsHonoured() {
+        ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+        try {
+            var captured = new AtomicInteger();
+            TraceConsumer downstream = traces -> {
+                captured.incrementAndGet();
+                return ConsumeResult.acceptedStage();
+            };
+            try (var batcher = BatchingProcessor.forTraces()
+                    .downstream(downstream)
+                    .maxBatchSize(1000)
+                    .queueCapacity(1000)
+                    .maxBatchAge(Duration.ofMillis(50))
+                    .scheduler(scheduler)
+                    .build()) {
+                batcher.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
+                        .toCompletableFuture().join();
+                await().atMost(Duration.ofSeconds(2)).until(() -> captured.get() == 1);
+            }
+        } finally {
+            // External scheduler is the caller's responsibility — batcher must not shut it down.
+            scheduler.shutdown();
+        }
+    }
+
+    @Test
+    void capabilitiesOnConsumerInterface() {
+        Consumer<TraceData> c = batch -> ConsumeResult.acceptedStage();
+        assertThat(c.capabilities()).isEqualTo(Capabilities.IMMUTABLE);
+    }
+}

@@ -6,8 +6,7 @@ import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.TraceData;
-import dev.nthings.otlp4j.pipeline.ExportResult;
-import dev.nthings.otlp4j.pipeline.TelemetryConsumer;
+import dev.nthings.otlp4j.pipeline.ConsumeResult;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import io.opentelemetry.proto.collector.logs.v1.ExportLogsServiceResponse;
@@ -16,52 +15,39 @@ import io.opentelemetry.proto.collector.profiles.v1development.ExportProfilesSer
 import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceResponse;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 /// White-box tests for gRPC service adapters without a server or channel.
-///
-/// Pins request decoding, [ExportResult] encoding, and error translation at the adapter seam.
 class GrpcServiceAdaptersTest {
 
     @Test
-    void traceAdapterDecodesTheRequestAndForwardsItToTheConsumer() {
+    void traceAdapterDecodesTheRequestAndForwardsItToTheDispatcher() {
         var sent = TransportFixtures.richTraceData();
         var received = new AtomicReference<TraceData>();
         var observer = new RecordingObserver<ExportTraceServiceResponse>();
 
-        new TraceServiceAdapter(new TelemetryConsumer() {
-                    @Override
-                    public ExportResult consumeTraces(TraceData traces) {
-                        received.set(traces);
-                        return ExportResult.success();
-                    }
-                })
-                .export(TraceMapper.toProto(sent), observer);
+        new TraceServiceAdapter(traces -> {
+            received.set(traces);
+            return CompletableFuture.completedStage(ConsumeResult.accepted());
+        }).export(TraceMapper.toProto(sent), observer);
 
-        assertThat(received.get())
-                .as("the adapter must hand the consumer the decoded domain object")
-                .isEqualTo(sent);
+        observer.await();
+        assertThat(received.get()).isEqualTo(sent);
         assertThat(observer.completed).isTrue();
         assertThat(observer.error).isNull();
-        assertThat(observer.values).hasSize(1);
-        assertThat(observer.values.getFirst().hasPartialSuccess())
-                .as("a full success must not carry a partial_success block")
-                .isFalse();
+        assertThat(observer.values.getFirst().hasPartialSuccess()).isFalse();
     }
 
     @Test
     void traceAdapterEncodesPartialSuccessOntoTheResponse() {
         var observer = new RecordingObserver<ExportTraceServiceResponse>();
-
-        new TraceServiceAdapter(new TelemetryConsumer() {
-                    @Override
-                    public ExportResult consumeTraces(TraceData traces) {
-                        return ExportResult.partialSuccess(2, "2 spans bad");
-                    }
-                })
-                .export(TraceMapper.toProto(TransportFixtures.richTraceData()), observer);
-
+        new TraceServiceAdapter(traces -> CompletableFuture.completedStage(
+                ConsumeResult.partial(2L, "2 spans bad"))).export(
+                        TraceMapper.toProto(TransportFixtures.richTraceData()), observer);
+        observer.await();
         var partial = observer.values.getFirst().getPartialSuccess();
         assertThat(partial.getRejectedSpans()).isEqualTo(2);
         assertThat(partial.getErrorMessage()).isEqualTo("2 spans bad");
@@ -71,15 +57,10 @@ class GrpcServiceAdaptersTest {
     @Test
     void metricsAdapterEncodesPartialSuccessOntoTheResponse() {
         var observer = new RecordingObserver<ExportMetricsServiceResponse>();
-
-        new MetricsServiceAdapter(new TelemetryConsumer() {
-                    @Override
-                    public ExportResult consumeMetrics(MetricsData metrics) {
-                        return ExportResult.partialSuccess(5, "5 points bad");
-                    }
-                })
-                .export(MetricsMapper.toProto(TransportFixtures.richMetricsData()), observer);
-
+        new MetricsServiceAdapter(metrics -> CompletableFuture.completedStage(
+                ConsumeResult.partial(5L, "5 points bad"))).export(
+                        MetricsMapper.toProto(TransportFixtures.richMetricsData()), observer);
+        observer.await();
         var partial = observer.values.getFirst().getPartialSuccess();
         assertThat(partial.getRejectedDataPoints()).isEqualTo(5);
         assertThat(partial.getErrorMessage()).isEqualTo("5 points bad");
@@ -89,15 +70,10 @@ class GrpcServiceAdaptersTest {
     @Test
     void logsAdapterEncodesPartialSuccessOntoTheResponse() {
         var observer = new RecordingObserver<ExportLogsServiceResponse>();
-
-        new LogsServiceAdapter(new TelemetryConsumer() {
-                    @Override
-                    public ExportResult consumeLogs(LogsData logs) {
-                        return ExportResult.partialSuccess(3, "3 records bad");
-                    }
-                })
-                .export(LogsMapper.toProto(TransportFixtures.richLogsData()), observer);
-
+        new LogsServiceAdapter(logs -> CompletableFuture.completedStage(
+                ConsumeResult.partial(3L, "3 records bad"))).export(
+                        LogsMapper.toProto(TransportFixtures.richLogsData()), observer);
+        observer.await();
         var partial = observer.values.getFirst().getPartialSuccess();
         assertThat(partial.getRejectedLogRecords()).isEqualTo(3);
         assertThat(partial.getErrorMessage()).isEqualTo("3 records bad");
@@ -105,98 +81,64 @@ class GrpcServiceAdaptersTest {
     }
 
     @Test
-    void profilesAdapterDecodesTheRequestAndForwardsItToTheConsumer() {
+    void profilesAdapterDecodesTheRequestAndForwardsItToTheDispatcher() {
         var received = new AtomicReference<ProfilesData>();
         var observer = new RecordingObserver<ExportProfilesServiceResponse>();
-
-        new ProfilesServiceAdapter(new TelemetryConsumer() {
-                    @Override
-                    public ExportResult consumeProfiles(ProfilesData profiles) {
-                        received.set(profiles);
-                        return ExportResult.success();
-                    }
-                })
-                .export(ProfilesMapper.toProto(TransportFixtures.profilesData()), observer);
-
-        // ProfilesMapper is intentionally lossy, so equality with the original cannot hold; the
-        // adapter contract is simply that the consumer is fed a decoded, non-null domain object.
+        new ProfilesServiceAdapter(profiles -> {
+            received.set(profiles);
+            return CompletableFuture.completedStage(ConsumeResult.accepted());
+        }).export(ProfilesMapper.toProto(TransportFixtures.profilesData()), observer);
+        observer.await();
         assertThat(received.get()).isNotNull();
         assertThat(observer.completed).isTrue();
         assertThat(observer.values.getFirst().hasPartialSuccess()).isFalse();
     }
 
     @Test
-    void aThrowingConsumerIsTranslatedIntoAnInternalGrpcError() {
+    void aThrowingTraceDispatcherIsTranslatedIntoAnInternalGrpcError() {
         var observer = new RecordingObserver<ExportTraceServiceResponse>();
-
-        new TraceServiceAdapter(new TelemetryConsumer() {
-                    @Override
-                    public ExportResult consumeTraces(TraceData traces) {
-                        throw new IllegalStateException("handler boom");
-                    }
-                })
-                .export(TraceMapper.toProto(TransportFixtures.richTraceData()), observer);
-
-        assertThat(observer.values).as("a failed call must not stream a response").isEmpty();
+        new TraceServiceAdapter(traces -> {
+            throw new IllegalStateException("handler boom");
+        }).export(TraceMapper.toProto(TransportFixtures.richTraceData()), observer);
+        observer.await();
+        assertThat(observer.values).isEmpty();
         assertThat(observer.completed).isFalse();
-        assertThat(observer.error).isNotNull();
         var status = Status.fromThrowable(observer.error);
         assertThat(status.getCode()).isEqualTo(Status.Code.INTERNAL);
         assertThat(status.getDescription()).isEqualTo("handler boom");
     }
 
     @Test
-    void aThrowingMetricsConsumerIsTranslatedIntoAnInternalGrpcError() {
+    void aThrowingMetricsDispatcherIsTranslatedIntoAnInternalGrpcError() {
         var observer = new RecordingObserver<ExportMetricsServiceResponse>();
-
-        new MetricsServiceAdapter(new TelemetryConsumer() {
-                    @Override
-                    public ExportResult consumeMetrics(MetricsData metrics) {
-                        throw new IllegalStateException("metrics boom");
-                    }
-                })
-                .export(MetricsMapper.toProto(TransportFixtures.richMetricsData()), observer);
-
-        assertThat(observer.values).isEmpty();
-        assertThat(observer.completed).isFalse();
+        new MetricsServiceAdapter(metrics -> {
+            throw new IllegalStateException("metrics boom");
+        }).export(MetricsMapper.toProto(TransportFixtures.richMetricsData()), observer);
+        observer.await();
         var status = Status.fromThrowable(observer.error);
         assertThat(status.getCode()).isEqualTo(Status.Code.INTERNAL);
         assertThat(status.getDescription()).isEqualTo("metrics boom");
     }
 
     @Test
-    void aThrowingLogsConsumerIsTranslatedIntoAnInternalGrpcError() {
+    void aThrowingLogsDispatcherIsTranslatedIntoAnInternalGrpcError() {
         var observer = new RecordingObserver<ExportLogsServiceResponse>();
-
-        new LogsServiceAdapter(new TelemetryConsumer() {
-                    @Override
-                    public ExportResult consumeLogs(LogsData logs) {
-                        throw new IllegalStateException("logs boom");
-                    }
-                })
-                .export(LogsMapper.toProto(TransportFixtures.richLogsData()), observer);
-
-        assertThat(observer.values).isEmpty();
-        assertThat(observer.completed).isFalse();
+        new LogsServiceAdapter(logs -> {
+            throw new IllegalStateException("logs boom");
+        }).export(LogsMapper.toProto(TransportFixtures.richLogsData()), observer);
+        observer.await();
         var status = Status.fromThrowable(observer.error);
         assertThat(status.getCode()).isEqualTo(Status.Code.INTERNAL);
         assertThat(status.getDescription()).isEqualTo("logs boom");
     }
 
     @Test
-    void aThrowingProfilesConsumerIsTranslatedIntoAnInternalGrpcError() {
+    void aThrowingProfilesDispatcherIsTranslatedIntoAnInternalGrpcError() {
         var observer = new RecordingObserver<ExportProfilesServiceResponse>();
-
-        new ProfilesServiceAdapter(new TelemetryConsumer() {
-                    @Override
-                    public ExportResult consumeProfiles(ProfilesData profiles) {
-                        throw new IllegalStateException("profiles boom");
-                    }
-                })
-                .export(ProfilesMapper.toProto(TransportFixtures.profilesData()), observer);
-
-        assertThat(observer.values).isEmpty();
-        assertThat(observer.completed).isFalse();
+        new ProfilesServiceAdapter(profiles -> {
+            throw new IllegalStateException("profiles boom");
+        }).export(ProfilesMapper.toProto(TransportFixtures.profilesData()), observer);
+        observer.await();
         var status = Status.fromThrowable(observer.error);
         assertThat(status.getCode()).isEqualTo(Status.Code.INTERNAL);
         assertThat(status.getDescription()).isEqualTo("profiles boom");
@@ -207,16 +149,11 @@ class GrpcServiceAdaptersTest {
         var received = new AtomicReference<MetricsData>();
         var observer = new RecordingObserver<ExportMetricsServiceResponse>();
         var sent = TransportFixtures.richMetricsData();
-
-        new MetricsServiceAdapter(new TelemetryConsumer() {
-                    @Override
-                    public ExportResult consumeMetrics(MetricsData metrics) {
-                        received.set(metrics);
-                        return ExportResult.success();
-                    }
-                })
-                .export(MetricsMapper.toProto(sent), observer);
-
+        new MetricsServiceAdapter(metrics -> {
+            received.set(metrics);
+            return CompletableFuture.completedStage(ConsumeResult.accepted());
+        }).export(MetricsMapper.toProto(sent), observer);
+        observer.await();
         assertThat(received.get()).isEqualTo(sent);
         assertThat(observer.completed).isTrue();
         assertThat(observer.values.getFirst().hasPartialSuccess()).isFalse();
@@ -227,27 +164,19 @@ class GrpcServiceAdaptersTest {
         var received = new AtomicReference<LogsData>();
         var observer = new RecordingObserver<ExportLogsServiceResponse>();
         var sent = TransportFixtures.richLogsData();
-
-        new LogsServiceAdapter(new TelemetryConsumer() {
-                    @Override
-                    public ExportResult consumeLogs(LogsData logs) {
-                        received.set(logs);
-                        return ExportResult.success();
-                    }
-                })
-                .export(LogsMapper.toProto(sent), observer);
-
+        new LogsServiceAdapter(logs -> {
+            received.set(logs);
+            return CompletableFuture.completedStage(ConsumeResult.accepted());
+        }).export(LogsMapper.toProto(sent), observer);
+        observer.await();
         assertThat(received.get()).isEqualTo(sent);
         assertThat(observer.completed).isTrue();
         assertThat(observer.values.getFirst().hasPartialSuccess()).isFalse();
     }
 
-    /// A minimal [StreamObserver] that records every callback for later assertion — the
-    /// hand-rolled stand-in for `io.grpc.testing.StreamRecorder`, which is JUnit-4-oriented and
-    /// not worth a dependency for unary calls.
     private static final class RecordingObserver<T> implements StreamObserver<T> {
-
         private final List<T> values = new ArrayList<>();
+        private final CompletableFuture<Void> terminal = new CompletableFuture<>();
         private Throwable error;
         private boolean completed;
 
@@ -259,11 +188,17 @@ class GrpcServiceAdaptersTest {
         @Override
         public void onError(Throwable t) {
             error = t;
+            terminal.complete(null);
         }
 
         @Override
         public void onCompleted() {
             completed = true;
+            terminal.complete(null);
+        }
+
+        void await() {
+            terminal.orTimeout(5, TimeUnit.SECONDS).join();
         }
     }
 }

@@ -4,20 +4,22 @@ import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.TraceData;
-import dev.nthings.otlp4j.pipeline.ExportResult;
+import dev.nthings.otlp4j.pipeline.ConsumeResult;
+import java.util.concurrent.CompletionStage;
 
-/// Transport-side client used by `OtlpGrpcExporter`.
+/// Transport-side client used by exporters.
 ///
-/// Application code normally uses `OtlpGrpcExporter` instead of this SPI directly.
+/// Asynchronous so callers can fan out without spawning threads themselves. Application code
+/// normally uses `OtlpGrpcExporter` rather than this SPI directly.
 public interface OtlpClient extends AutoCloseable {
 
-    ExportResult exportTraces(TraceData traces);
+    CompletionStage<ConsumeResult<TraceData>>    exportTraces(TraceData traces);
 
-    ExportResult exportMetrics(MetricsData metrics);
+    CompletionStage<ConsumeResult<MetricsData>>  exportMetrics(MetricsData metrics);
 
-    ExportResult exportLogs(LogsData logs);
+    CompletionStage<ConsumeResult<LogsData>>     exportLogs(LogsData logs);
 
-    ExportResult exportProfiles(ProfilesData profiles);
+    CompletionStage<ConsumeResult<ProfilesData>> exportProfiles(ProfilesData profiles);
 
     /// Releases the client's transport resources.
     @Override
