@@ -9,9 +9,6 @@ package dev.nthings.otlp4j.pipeline;
 /// @param <T> the OTLP signal carried by this source
 public interface Source<T> {
 
-    /// The signal type emitted by this source.
-    Class<T> signalType();
-
     /// Attaches `consumer` and returns a subscription whose [Subscription#close()] detaches it.
     Subscription consume(Consumer<? super T> consumer);
 }

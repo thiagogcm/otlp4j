@@ -3,14 +3,11 @@ package dev.nthings.otlp4j;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.nthings.otlp4j.model.TraceData;
-import dev.nthings.otlp4j.pipeline.Capabilities;
 import dev.nthings.otlp4j.pipeline.ConsumeResult;
-import dev.nthings.otlp4j.pipeline.Consumer;
 import dev.nthings.otlp4j.pipeline.FanOut;
 import dev.nthings.otlp4j.pipeline.TraceConsumer;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
@@ -36,24 +33,6 @@ class FanOutTest {
         var fan = FanOut.<TraceData>of(broken, healthy);
         var result = fan.consume(new TraceData(List.of())).toCompletableFuture().join();
         assertThat(result).isInstanceOf(ConsumeResult.Rejected.class);
-    }
-
-    @Test
-    void capabilitiesReflectsPeers() {
-        TraceConsumer immutable = traces -> ConsumeResult.acceptedStage();
-        Consumer<TraceData> mutating = new Consumer<>() {
-            @Override
-            public CompletionStage<ConsumeResult<TraceData>> consume(TraceData batch) {
-                return ConsumeResult.acceptedStage();
-            }
-
-            @Override
-            public Capabilities capabilities() {
-                return Capabilities.MUTATES_DATA;
-            }
-        };
-        assertThat(FanOut.of(immutable, immutable).capabilities()).isEqualTo(Capabilities.IMMUTABLE);
-        assertThat(FanOut.of(immutable, mutating).capabilities()).isEqualTo(Capabilities.MUTATES_DATA);
     }
 
     @Test

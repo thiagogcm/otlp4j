@@ -9,9 +9,7 @@ import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TraceData;
-import dev.nthings.otlp4j.pipeline.Capabilities;
 import dev.nthings.otlp4j.pipeline.ConsumeResult;
-import dev.nthings.otlp4j.pipeline.Consumer;
 import dev.nthings.otlp4j.pipeline.LogConsumer;
 import dev.nthings.otlp4j.pipeline.MetricConsumer;
 import dev.nthings.otlp4j.pipeline.ProfileConsumer;
@@ -84,14 +82,6 @@ class BatchingEdgesTest {
     }
 
     @Test
-    void capabilitiesIsImmutable() {
-        TraceConsumer downstream = traces -> ConsumeResult.acceptedStage();
-        try (var batcher = BatchingProcessor.forTraces().downstream(downstream).build()) {
-            assertThat(batcher.capabilities()).isEqualTo(Capabilities.IMMUTABLE);
-        }
-    }
-
-    @Test
     void everyPerSignalFactoryFlushesAtThreshold() {
         var traceCaptured = new AtomicReference<TraceData>();
         TraceConsumer traceDownstream = traces -> {
@@ -159,11 +149,5 @@ class BatchingEdgesTest {
             // External scheduler is the caller's responsibility — batcher must not shut it down.
             scheduler.shutdown();
         }
-    }
-
-    @Test
-    void capabilitiesOnConsumerInterface() {
-        Consumer<TraceData> c = batch -> ConsumeResult.acceptedStage();
-        assertThat(c.capabilities()).isEqualTo(Capabilities.IMMUTABLE);
     }
 }

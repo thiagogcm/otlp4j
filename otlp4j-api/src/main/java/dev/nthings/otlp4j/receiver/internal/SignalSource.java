@@ -24,11 +24,6 @@ public final class SignalSource<T> implements Source<T> {
     }
 
     @Override
-    public Class<T> signalType() {
-        return signalType;
-    }
-
-    @Override
     public Subscription consume(Consumer<? super T> consumer) {
         Objects.requireNonNull(consumer, "consumer");
         if (!attached.compareAndSet(null, consumer)) {

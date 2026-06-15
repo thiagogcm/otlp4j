@@ -15,10 +15,6 @@ import java.util.function.Function;
 /// hold the unary gRPC call open until the pipeline acknowledges (or partial-succeeds).
 public interface OtlpServerProvider {
 
-    /// A short identifier (e.g., `"grpc"`, `"http/protobuf"`) used to disambiguate when
-    /// multiple providers are on the runtime path.
-    String name();
-
     /// Creates a server honouring `config` and bound to the four signal dispatchers.
     OtlpServer create(ServerTransportConfig config, Dispatchers dispatchers);
 

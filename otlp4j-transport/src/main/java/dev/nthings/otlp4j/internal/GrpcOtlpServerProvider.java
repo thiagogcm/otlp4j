@@ -12,11 +12,6 @@ public final class GrpcOtlpServerProvider implements OtlpServerProvider {
     public GrpcOtlpServerProvider() {}
 
     @Override
-    public String name() {
-        return "grpc";
-    }
-
-    @Override
     public OtlpServer create(ServerTransportConfig config, Dispatchers dispatchers) {
         return new GrpcOtlpServer(config, dispatchers);
     }

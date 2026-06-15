@@ -60,7 +60,6 @@ TraceConsumer countSpans = traces -> {
 - `partial(rejectedItems, message)` accepts part of the batch.
 - `rejected(message)` reports whole-batch rejection.
 - `fanOutMerge(...)` combines peer results that all saw the same batch.
-- `sequentialMerge(...)` combines results from sequential stages of the same signal.
 
 Throw an exception or complete the returned stage exceptionally when you want a transport-level failure instead of an OTLP partial-success response.
 

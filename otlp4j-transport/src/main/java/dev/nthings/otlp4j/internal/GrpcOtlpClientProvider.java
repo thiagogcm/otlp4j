@@ -12,11 +12,6 @@ public final class GrpcOtlpClientProvider implements OtlpClientProvider {
     public GrpcOtlpClientProvider() {}
 
     @Override
-    public String name() {
-        return "grpc";
-    }
-
-    @Override
     public OtlpClient create(ClientTransportConfig config) {
         return new GrpcOtlpClient(config);
     }

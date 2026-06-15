@@ -4,7 +4,6 @@ import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.TraceData;
-import dev.nthings.otlp4j.pipeline.Capabilities;
 import dev.nthings.otlp4j.pipeline.ConsumeResult;
 import dev.nthings.otlp4j.pipeline.Consumer;
 import dev.nthings.otlp4j.pipeline.Pipeline;
@@ -117,11 +116,6 @@ public final class BatchingProcessor<T> implements Consumer<T>, Pipeline.Flushab
             }
         }
         return ConsumeResult.acceptedStage();
-    }
-
-    @Override
-    public Capabilities capabilities() {
-        return Capabilities.IMMUTABLE;
     }
 
     /// Item-count of currently dropped batches. Non-decreasing over the lifetime of the batcher.

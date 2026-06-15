@@ -13,10 +13,4 @@ public interface Consumer<T> {
 
     /// Accepts one batch and returns a stage that completes when the batch has been processed.
     CompletionStage<ConsumeResult<T>> consume(T batch);
-
-    /// Declares whether this consumer may mutate `batch`. Used by [FanOut] when sharing data
-    /// between peers. Defaults to [Capabilities#IMMUTABLE].
-    default Capabilities capabilities() {
-        return Capabilities.IMMUTABLE;
-    }
 }

@@ -1,6 +1,5 @@
 package dev.nthings.otlp4j.connector;
 
-import dev.nthings.otlp4j.pipeline.Capabilities;
 import dev.nthings.otlp4j.pipeline.Consumer;
 import dev.nthings.otlp4j.pipeline.ConsumeResult;
 import java.util.concurrent.CompletionStage;
@@ -20,9 +19,4 @@ public interface Connector<I, O> extends Consumer<I> {
 
     @Override
     CompletionStage<ConsumeResult<I>> consume(I batch);
-
-    @Override
-    default Capabilities capabilities() {
-        return Capabilities.IMMUTABLE;
-    }
 }

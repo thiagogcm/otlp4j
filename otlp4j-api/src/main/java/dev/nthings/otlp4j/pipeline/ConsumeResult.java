@@ -113,30 +113,6 @@ public sealed interface ConsumeResult<T> permits ConsumeResult.Accepted, Consume
         return new Partial<>(maxRejected, messages == null ? "" : messages.toString());
     }
 
-    /// Combines two results from **sequential** stages of the same pipeline (stage A then stage B):
-    ///
-    ///   - If `first` is [Rejected], it is returned (the batch never reached stage B).
-    ///   - Otherwise rejection counts **add** — different items can be rejected at different stages.
-    ///   - Non-empty messages are concatenated.
-    static <T> ConsumeResult<T> sequentialMerge(ConsumeResult<T> first, ConsumeResult<T> second) {
-        if (first instanceof Rejected<T>) {
-            return first;
-        }
-        if (second instanceof Rejected<T>) {
-            return second;
-        }
-        long rejected =
-                (first instanceof Partial<T> p1 ? p1.rejectedItems() : 0L)
-                + (second instanceof Partial<T> p2 ? p2.rejectedItems() : 0L);
-        var msg1 = first instanceof Partial<T> p1 ? p1.message() : "";
-        var msg2 = second instanceof Partial<T> p2 ? p2.message() : "";
-        var combined =
-                msg1.isEmpty() ? msg2
-                        : msg2.isEmpty() ? msg1
-                                : msg1 + "; " + msg2;
-        return rejected == 0 ? accepted() : new Partial<>(rejected, combined);
-    }
-
     private static StringBuilder appendMessage(StringBuilder buf, String msg) {
         if (msg == null || msg.isEmpty()) {
             return buf;

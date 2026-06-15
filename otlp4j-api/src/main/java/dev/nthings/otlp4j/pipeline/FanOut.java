@@ -12,22 +12,16 @@ import java.util.concurrent.CompletionStage;
 /// (worst-case rejection count, not sum). A peer that throws is captured as a per-peer
 /// [ConsumeResult.Rejected] and never blocks the other peers.
 ///
-/// The same `batch` reference is shared with every peer; the OTLP model is immutable, so this
-/// is safe even when a peer declares [Capabilities#MUTATES_DATA]. The capability flag is still
-/// propagated upward should the model ever gain mutable fields.
+/// The same `batch` reference is shared with every peer; the OTLP model is immutable, so
+/// concurrent delivery is safe.
 ///
 /// @param <T> the OTLP signal carried by this fan-out
 public final class FanOut<T> implements Consumer<T> {
 
     private final List<Consumer<T>> peers;
-    private final Capabilities capabilities;
 
     private FanOut(List<Consumer<T>> peers) {
         this.peers = List.copyOf(peers);
-        this.capabilities =
-                this.peers.stream().anyMatch(p -> p.capabilities() == Capabilities.MUTATES_DATA)
-                        ? Capabilities.MUTATES_DATA
-                        : Capabilities.IMMUTABLE;
     }
 
     /// Returns a [FanOut] over the given peers. Peers run concurrently.
@@ -75,10 +69,5 @@ public final class FanOut<T> implements Consumer<T> {
             }
             return ConsumeResult.fanOutMerge(results);
         });
-    }
-
-    @Override
-    public Capabilities capabilities() {
-        return capabilities;
     }
 }

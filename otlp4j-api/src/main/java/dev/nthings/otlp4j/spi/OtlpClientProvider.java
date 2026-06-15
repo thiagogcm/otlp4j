@@ -6,10 +6,6 @@ package dev.nthings.otlp4j.spi;
 /// `OtlpGrpcExporter` locates an implementation via [java.util.ServiceLoader].
 public interface OtlpClientProvider {
 
-    /// A short identifier (e.g., `"grpc"`, `"http/protobuf"`) used to disambiguate when multiple
-    /// providers are on the runtime path.
-    String name();
-
     /// Creates a client honouring `config`.
     OtlpClient create(ClientTransportConfig config);
 }

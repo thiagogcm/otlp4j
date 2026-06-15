@@ -78,28 +78,21 @@ class ConsumeResultTest {
     }
 
     @Test
-    void sequentialMergeRejectionShortCircuits() {
-        var result = ConsumeResult.<TraceData>sequentialMerge(
-                ConsumeResult.rejected("first"),
-                ConsumeResult.partial(5L, "second"));
+    void fanOutMergeKeepsFirstRejectionAndOmitsEmptyMessages() {
+        var result = ConsumeResult.<TraceData>fanOutMerge(List.of(
+                ConsumeResult.rejected(""),
+                ConsumeResult.rejected("")));
         assertThat(result).isInstanceOf(ConsumeResult.Rejected.class);
-        assertThat(((ConsumeResult.Rejected<TraceData>) result).message()).isEqualTo("first");
+        assertThat(((ConsumeResult.Rejected<TraceData>) result).message()).isEmpty();
     }
 
     @Test
-    void sequentialMergeSumsPartialCounts() {
-        var result = ConsumeResult.<TraceData>sequentialMerge(
-                ConsumeResult.partial(3L, "a"),
-                ConsumeResult.partial(4L, "b"));
+    void fanOutMergePartialWithoutMessageReportsCountOnly() {
+        var result = ConsumeResult.<TraceData>fanOutMerge(List.of(
+                ConsumeResult.accepted(),
+                ConsumeResult.partial(4L, "")));
         var p = (ConsumeResult.Partial<TraceData>) result;
-        assertThat(p.rejectedItems()).isEqualTo(7L); // SUM, not max
-        assertThat(p.message()).isEqualTo("a; b");
-    }
-
-    @Test
-    void sequentialMergeOfAcceptedsIsAccepted() {
-        var result = ConsumeResult.<TraceData>sequentialMerge(
-                ConsumeResult.accepted(), ConsumeResult.accepted());
-        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(p.rejectedItems()).isEqualTo(4L);
+        assertThat(p.message()).isEmpty();
     }
 }
