@@ -1,9 +1,11 @@
 # otlp4j
 
-otlp4j is a JPMS-modular Java SDK for receiving, processing, and exporting
-[OpenTelemetry Protocol (OTLP)](https://opentelemetry.io/docs/specs/otlp/) telemetry. Application code uses immutable Java records and typed asynchronous APIs; generated Protobuf and gRPC types remain inside the transport modules.
+otlp4j is a JPMS-modular Java SDK for receiving, processing, and exporting [OpenTelemetry Protocol (OTLP)](https://opentelemetry.io/docs/specs/otlp/) telemetry. Application code uses immutable Java records and typed asynchronous APIs; generated Protobuf and gRPC types remain inside the transport modules.
 
-The project is currently `0.1.0-SNAPSHOT` and requires JDK 25. Its built-in transport supports plaintext OTLP/gRPC for traces, metrics, logs, and experimental profiles.
+The project is currently experimental `0.1.0-SNAPSHOT` and requires JDK 25. Its built-in transport supports plaintext OTLP/gRPC for traces, metrics, logs, and experimental profiles.
+
+> [!WARNING]
+> This project was developed with the assistance of AI agents and has not undergone thorough testing. Please report any issues you encounter.
 
 ## Capabilities
 
