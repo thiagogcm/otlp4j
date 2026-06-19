@@ -35,10 +35,14 @@
         <awaitility.version>4.3.0</awaitility.version>
 
         <protobuf-maven-plugin.version>5.1.5</protobuf-maven-plugin.version>
+        <maven-clean-plugin.version>3.5.0</maven-clean-plugin.version>
         <maven-compiler-plugin.version>3.15.0</maven-compiler-plugin.version>
+        <maven-resources-plugin.version>3.5.0</maven-resources-plugin.version>
         <maven-surefire-plugin.version>3.5.6</maven-surefire-plugin.version>
         <maven-javadoc-plugin.version>3.12.0</maven-javadoc-plugin.version>
         <maven-jar-plugin.version>3.5.0</maven-jar-plugin.version>
+        <maven-install-plugin.version>3.1.4</maven-install-plugin.version>
+        <maven-deploy-plugin.version>3.1.4</maven-deploy-plugin.version>
         <maven-enforcer-plugin.version>3.6.3</maven-enforcer-plugin.version>
         <flatten-maven-plugin.version>1.7.3</flatten-maven-plugin.version>
         <native-maven-plugin.version>1.1.2</native-maven-plugin.version>
@@ -150,6 +154,11 @@
         <pluginManagement>
             <plugins>
                 <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-clean-plugin</artifactId>
+                    <version>${maven-clean-plugin.version}</version>
+                </plugin>
+                <plugin>
                     <groupId>io.github.ascopes</groupId>
                     <artifactId>protobuf-maven-plugin</artifactId>
                     <version>${protobuf-maven-plugin.version}</version>
@@ -172,8 +181,29 @@
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-resources-plugin</artifactId>
+                    <version>${maven-resources-plugin.version}</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-jar-plugin</artifactId>
                     <version>${maven-jar-plugin.version}</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-install-plugin</artifactId>
+                    <version>${maven-install-plugin.version}</version>
+                    <configuration>
+                        <installAtEnd>true</installAtEnd>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-deploy-plugin</artifactId>
+                    <version>${maven-deploy-plugin.version}</version>
+                    <configuration>
+                        <deployAtEnd>true</deployAtEnd>
+                    </configuration>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
