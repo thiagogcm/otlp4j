@@ -1,10 +1,5 @@
-# OpenTelemetry Collector Proto
+# Bundled OTLP schemas
 
-This package describes the OpenTelemetry collector protocol.
+This tree contains the OpenTelemetry Protobuf definitions used to generate otlp4j's internal message and gRPC service classes. It includes common/resource data and collector services for traces, metrics, logs, and `v1development` profiles.
 
-## Packages
-
-1. `common` package contains the common messages shared between different services.
-2. `trace` package contains the Trace Service protos.
-3. `metrics` package contains the Metrics Service protos.
-4. `logs` package contains the Logs Service protos.
+Generated packages are qualified-exported only to `otlp4j-transport`; they are not part of the application API. See the repository [architecture](../../../../../../../docs/architecture.md) for the boundary and current fidelity limits.

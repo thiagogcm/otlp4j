@@ -1,246 +1,184 @@
 # Public API
 
-The public API is the surface application authors should use. It lives in two modules:
-
-- `dev.nthings.otlp4j.model`: pure OTLP domain records.
-- `dev.nthings.otlp4j.api`: pipeline, receiver, exporter, processor, connector, and transport SPI APIs.
-
-`dev.nthings.otlp4j.transport` is not a public programming surface. Add it at runtime when you want the built-in OTLP/gRPC transport.
+Application code normally depends on `otlp4j-api`, which transitively exposes `otlp4j-model`. Add `otlp4j-transport` at runtime to use the bundled OTLP/gRPC provider. Packages in the transport and generated proto modules are implementation details.
 
 ## Domain model
 
-The model module contains immutable records that mirror OTLP's resource/scope/signal hierarchy:
+Each signal preserves OTLP's resource and instrumentation-scope grouping while providing a flattened accessor:
 
-```mermaid
-flowchart TD
-    trace["TraceData"] --> resourceSpans["ResourceSpans"] --> scopeSpans["ScopeSpans"] --> span["Span"]
-    metrics["MetricsData"] --> resourceMetrics["ResourceMetrics"] --> scopeMetrics["ScopeMetrics"] --> metric["Metric"]
-    logs["LogsData"] --> resourceLogs["ResourceLogs"] --> scopeLogs["ScopeLogs"] --> logRecord["LogRecord"]
-    profiles["ProfilesData"] --> resourceProfiles["ResourceProfiles"] --> scopeProfiles["ScopeProfiles"] --> profile["Profile"]
-```
+| Batch | Grouping | Flattened accessor |
+| --- | --- | --- |
+| `TraceData` | `ResourceSpans` → `ScopeSpans` → `Span` | `spans()` |
+| `MetricsData` | `ResourceMetrics` → `ScopeMetrics` → `Metric` | `metrics()` |
+| `LogsData` | `ResourceLogs` → `ScopeLogs` → `LogRecord` | `logRecords()` |
+| `ProfilesData` | `ResourceProfiles` → `ScopeProfiles` → `Profile` | `profiles()` |
 
-Flattening helpers are available for common consumers:
+Records copy incoming lists and are safe to share between fan-out peers. `Attributes` and the sealed `AttributeValue` hierarchy represent OTLP values. Builders are available for `Attributes`, `Span`, `Metric`, and `LogRecord`; the remaining records use canonical constructors.
 
-- `TraceData.spans()`
-- `MetricsData.metrics()`
-- `LogsData.logRecords()`
-- `ProfilesData.profiles()`
+`Metric.Data` covers gauge, sum, histogram, exponential histogram, and summary. Profiles are marked `@Experimental` and expose only top-level metadata.
 
-Attributes are represented by `Attributes` and the sealed `AttributeValue` family. Trace and span identifiers are lowercase hex strings in normal round trips, not byte arrays.
+## Consumers and results
 
-Prefer builders where they exist (`Span.builder()`, `Metric.builder()`, `Attributes.builder()`), because several canonical record constructors intentionally stay close to the OTLP wire shape.
-
-## Consumer contract
-
-`Consumer<T>` is the central pipeline contract:
+`Consumer<T>` is the asynchronous pipeline contract:
 
 ```java
 CompletionStage<ConsumeResult<T>> consume(T batch);
 ```
 
-Use the per-signal SAMs in application code:
-
-- `TraceConsumer` consumes `TraceData`.
-- `MetricConsumer` consumes `MetricsData`.
-- `LogConsumer` consumes `LogsData`.
-- `ProfileConsumer` consumes `ProfilesData`.
-
-Example:
+Prefer the signal aliases `TraceConsumer`, `MetricConsumer`, `LogConsumer`, and `ProfileConsumer` in declarations and extension APIs.
 
 ```java
-TraceConsumer countSpans = traces -> {
+TraceConsumer report = traces -> {
     System.out.println("spans=" + traces.spans().size());
     return ConsumeResult.acceptedStage();
 };
 ```
 
-`ConsumeResult<T>` represents the OTLP acknowledgement for one signal:
+`ConsumeResult<T>` has three variants:
 
-- `accepted()` accepts the full batch.
-- `partial(rejectedItems, message)` accepts part of the batch.
-- `rejected(message)` reports whole-batch rejection.
-- `fanOutMerge(...)` combines peer results that all saw the same batch.
+- `Accepted<T>`: every item was accepted.
+- `Partial<T>`: a positive item count was rejected; the rest was accepted.
+- `Rejected<T>`: the complete batch was rejected.
 
-Throw an exception or complete the returned stage exceptionally when you want a transport-level failure instead of an OTLP partial-success response.
+Use an exception or exceptionally completed stage for a transport-level failure. A normal `Rejected` is still an OTLP response and is encoded as signal-specific partial-success data.
 
-## Receivers
+## Receive
 
-`OtlpGrpcReceiver` is the built-in OTLP/gRPC ingest endpoint:
+`OtlpGrpcReceiver` defaults to plaintext `0.0.0.0:4317`. Port `0` selects an ephemeral port, available through `port()` after `start()`.
 
 ```java
 var receiver = OtlpGrpcReceiver.builder()
-        .endpoint("0.0.0.0", 4317)
-        .onTraces(traces -> {
-            System.out.println("received " + traces.spans().size() + " spans");
+        .ephemeralPort()
+        .onLogs(logs -> {
+            System.out.println("records=" + logs.logRecords().size());
             return ConsumeResult.acceptedStage();
         })
         .build()
         .start();
 ```
 
-Use `ephemeralPort()` in tests or demos, then read the selected port with `port()`.
-
-A receiver exposes one typed source per signal:
+Builder callbacks occupy the signal's single attachment slot. For a composed graph, leave the callback unset and attach through its source:
 
 ```java
-Source<TraceData> traces = receiver.traces();
-Source<MetricsData> metrics = receiver.metrics();
-Source<LogsData> logs = receiver.logs();
-Source<ProfilesData> profiles = receiver.profiles();
+Subscription subscription = Pipeline.from(receiver.traces())
+        .filter(traces -> !traces.spans().isEmpty())
+        .to(report);
 ```
 
-Attach directly for simple cases:
+Calling `consume` again while a source is attached throws `IllegalStateException`. Closing its subscription releases the slot. An unattached signal is acknowledged as accepted.
 
-```java
-var subscription = receiver.traces().consume(countSpans);
-```
+## Transform and route
 
-Each `Source<T>` accepts one consumer at a time. For multiple peers, use `FanOut<T>` or the pipeline branch API.
-
-An unattached source still returns accepted to OTLP senders. Attach every signal you intend to process.
-
-## Pipelines
-
-`Pipeline.from(source)` builds a typed graph for one signal:
+Pipeline stages keep the signal type unchanged:
 
 ```java
 var subscription = Pipeline.from(receiver.traces())
+        .transform(Transforms.keepSpansWhere(
+                span -> span.kind() == Span.Kind.SERVER))
         .transform(Transforms.setTraceResourceAttribute(
-                "deployment.environment", AttributeValue.of("prod")))
-        .transform(Transforms.keepSpansWhere(span -> span.kind() == Span.Kind.SERVER))
+                "service.namespace", AttributeValue.of("store")))
         .filter(traces -> !traces.spans().isEmpty())
-        .to(exporter.traces());
+        .branch()
+            .fanOut(exporter.traces())
+            .fanOut(spanCounter)
+        .join();
 ```
 
-Pipeline operations:
+Available built-in transforms are span and log-record filters plus per-signal resource-attribute setters. Implement `Transform<T>` for other synchronous one-to-one rewrites.
 
-- `transform(...)` applies a pure `Transform<T>`.
-- `filter(...)` drops whole batches that do not match.
-- `tap(...)` observes batches without affecting the main acknowledgement.
-- `branch().fanOut(...).join()` sends the same batch to multiple consumers.
-- `to(...)` attaches a single terminal consumer.
+`FanOut.of(...)` is the direct alternative to the branch builder. Peers run concurrently; the result is rejected if any peer rejects, otherwise partial results use the largest rejection count.
 
-The returned `Subscription` owns the source attachment and lifecycle of known leaves. Call `shutdown(Duration)` or `close()` during teardown. Use `forceFlush(Duration)` to ask flushable leaves to drain without detaching.
+`Pipeline.tap(observer)` is a fire-and-forget side effect inside the main graph. For demand-aware streaming with bounded buffers, use the receiver's `TelemetryTap` instead.
 
-Fan-out can also be created directly:
+## Batch
 
-```java
-TraceConsumer both = FanOut.of(exporter.traces(), anotherTraceConsumer);
-```
-
-`FanOut<T>` runs peers concurrently. If peers return partial results, the merged rejected-item count is the worst peer count, not the sum.
-
-## Exporters
-
-`OtlpGrpcExporter` is the built-in OTLP/gRPC exporter:
-
-```java
-try (var exporter = OtlpGrpcExporter.builder()
-        .endpoint("collector.example.com", 4317)
-        .timeout(Duration.ofSeconds(5))
-        .build()) {
-    var result = exporter.traces()
-            .consume(traces)
-            .toCompletableFuture()
-            .join();
-}
-```
-
-Defaults are `localhost:4317` and a 10 second timeout. One exporter instance exposes typed consumer facets:
-
-- `traces()`
-- `metrics()`
-- `logs()`
-- `profiles()`
-
-Custom terminal exporters can implement `Exporter<T>`, which is a `Consumer<T>` plus `forceFlush(Duration)` and `shutdown(Duration)` lifecycle hooks. `OtlpGrpcExporter` exposes typed facets rather than implementing one combined all-signal exporter contract.
-
-The endpoint is configured as `host` and `port`, not as a URL. `ClientTransportConfig` includes TLS, headers, compression, and retry shape for the SPI, but the shipped gRPC transport currently uses plaintext credentials.
-
-## Transforms and batching
-
-Ready-made transforms live in `Transforms`:
-
-- `keepSpansWhere(...)`
-- `keepLogRecordsWhere(...)`
-- `setTraceResourceAttribute(...)`
-- `setMetricsResourceAttribute(...)`
-- `setLogsResourceAttribute(...)`
-- `setProfilesResourceAttribute(...)`
-
-`BatchingProcessor<T>` coalesces small batches before forwarding them:
+Create a signal-specific batcher and attach it as the terminal consumer:
 
 ```java
 var batcher = BatchingProcessor.forTraces()
         .downstream(exporter.traces())
         .maxBatchSize(512)
         .maxBatchAge(Duration.ofSeconds(5))
+        .queueCapacity(2048)
         .dropPolicy(DropPolicy.DROP_NEWEST)
         .build();
 
 var subscription = Pipeline.from(receiver.traces()).to(batcher);
 ```
 
-The batcher is asynchronous, queue-backed, and timer-triggered. It flushes on size threshold, age threshold, `forceFlush(Duration)`, or `shutdown(Duration)`. `droppedCount()` and `queued()` expose current processor state.
+The four factories are `forTraces`, `forMetrics`, `forLogs`, and `forProfiles`. `queued()` reports buffered batches, not telemetry item count. `droppedCount()` counts dropped batches.
 
-Use the signal-specific builders:
+Overflow behavior:
 
-- `BatchingProcessor.forTraces()`
-- `BatchingProcessor.forMetrics()`
-- `BatchingProcessor.forLogs()`
-- `BatchingProcessor.forProfiles()`
+| Policy | Result |
+| --- | --- |
+| `DROP_OLDEST` | Evict the oldest queued batch and accept the new batch |
+| `DROP_NEWEST` | Drop the new batch and return `Partial(1, ...)` |
+| `BLOCK` | Block until queue space is available |
+| `ERROR` | Drop the new batch and return `Rejected` |
 
-## Connectors
+`forceFlush` drains the current queue. `shutdown` stops the timer and drains once; the processor then rejects new batches. A pipeline subscription closes a directly attached batcher.
 
-`Connector<I,O>` derives telemetry from telemetry. It consumes signal `I` and emits signal `O` into a downstream consumer.
+## Export
 
-Built-in connectors:
+`OtlpGrpcExporter` defaults to plaintext `localhost:4317` with a ten-second deadline per request. It owns one client channel and exposes a consumer facet for each signal.
 
 ```java
-var spanCounts = new SpanCountConnector(exporter.metrics());
-var logCounts = new LogRecordCountConnector(exporter.metrics());
+try (var exporter = OtlpGrpcExporter.builder()
+        .endpoint("collector.example.com", 4317)
+        .timeout(Duration.ofSeconds(5))
+        .build()) {
+    ConsumeResult<TraceData> result = exporter.traces()
+            .consume(traces)
+            .toCompletableFuture()
+            .join();
+}
 ```
 
-`SpanCountConnector` consumes traces and emits `otlp4j.connector.span.count`. `LogRecordCountConnector` consumes logs and emits `otlp4j.connector.log.record.count`.
+The exporter itself owns the channel. Its `traces()`, `metrics()`, `logs()`, and `profiles()` facets do not own or close it. `forceFlush` currently completes immediately because the client has no exporter-side buffer.
 
-## Live tap
+Implement `Exporter<T>` for a custom typed terminal with flush and shutdown hooks. Implement the lower-level client or server SPI when replacing the wire transport.
 
-Every receiver exposes a side-channel `TelemetryTap`:
+## Connect signals
+
+`Connector<I,O>` consumes one signal and emits another to its configured downstream consumer:
 
 ```java
-receiver.tap().setOptions(new TapOptions(BackpressureStrategy.DROP_OLDEST, 512));
-Flow.Publisher<TraceData> traceStream = receiver.tap().traces();
+var spanCounter = new SpanCountConnector(exporter.metrics());
+var logCounter = new LogRecordCountConnector(exporter.metrics());
+```
+
+The built-ins emit `otlp4j.connector.span.count` and `otlp4j.connector.log.record.count`. They always accept the input batch after the downstream stage completes; a downstream partial result or rejection is logged because a metric rejection cannot be relabeled as a trace or log rejection. An exceptionally completed downstream stage still propagates.
+
+## Observe live traffic
+
+Every receiver has independent JDK `Flow.Publisher` streams:
+
+```java
+receiver.tap().setOptions(
+        new TapOptions(BackpressureStrategy.DROP_OLDEST, 512));
+
+Flow.Publisher<TraceData> traces = receiver.tap().traces();
 Flow.Publisher<Telemetry> allSignals = receiver.tap().all();
 ```
 
-Tap publishers are independent of the pipeline acknowledgement path. A slow tap subscriber affects only its own buffer unless `BackpressureStrategy.BLOCK` is selected. `droppedCount()` reports batches dropped by tap publishers.
+`all()` emits `Telemetry.Traces`, `.Metrics`, `.Logs`, or `.Profiles`. Defaults are a 256-batch buffer per subscription and `DROP_OLDEST`. Options apply when a subscriber attaches. `droppedCount()` aggregates tap drops for the receiver.
 
-Use `Telemetry` when subscribing to `tap().all()`:
+## Supply another transport
 
-- `Telemetry.Traces`
-- `Telemetry.Metrics`
-- `Telemetry.Logs`
-- `Telemetry.Profiles`
+Implement these pairs and register their providers with JPMS, `META-INF/services`, or both:
 
-## Transport SPI
+- `OtlpServerProvider` and `OtlpServer` for receiving;
+- `OtlpClientProvider` and `OtlpClient` for exporting.
 
-The SPI package is public so alternate transports can be supplied:
+Helpers select the first provider returned by `ServiceLoader`; avoid ambiguous provider sets. Configuration arrives through `ServerTransportConfig` or `ClientTransportConfig`. The bundled client uses host, port, and timeout; the server uses only its port. Both always create plaintext gRPC credentials.
 
-- Implement `OtlpServerProvider` and `OtlpServer` for receiver-side transport.
-- Implement `OtlpClientProvider` and `OtlpClient` for exporter-side transport.
-- Register providers with JPMS `provides` declarations, `META-INF/services`, or both.
+## Shutdown order
 
-Provider creation uses config records:
+Stop ingestion before closing downstream resources:
 
-- `ServerTransportConfig`
-- `ClientTransportConfig`
+1. Shut down the pipeline subscription to detach the source and drain directly owned processors.
+2. Close exporter instances and any connector-owned downstream resources explicitly.
+3. Shut down the receiver.
 
-The built-in helpers select the first provider found through `ServiceLoader`.
-
-## Signal coverage and limitations
-
-- Traces, metrics, logs, and profiles have receive/export paths.
-- Profiles use OpenTelemetry `v1development`; the domain model exposes stable top-level metadata and intentionally omits detailed sample/location/mapping/dictionary tables.
-- Metric exemplars are not modeled.
-- The built-in transport is plaintext gRPC today, despite SPI shape for richer transport configuration.
-- Generated proto and gRPC types are intentionally not exposed through the public API.
+Use `shutdown(Duration)` when completion matters. Convenience `close()` methods use fixed defaults, while `Receiver.close()` performs an immediate shutdown.

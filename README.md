@@ -1,89 +1,29 @@
 # otlp4j
 
-A JPMS-modular Java SDK for the **OpenTelemetry Protocol (OTLP)**. The public API is built around typed OTLP domain records, asynchronous per-signal consumers, receiver sources, pipeline graphs, connectors, processors, exporters, and a transport SPI that keeps generated Protobuf/gRPC code out of application code.
+otlp4j is a JPMS-modular Java SDK for receiving, processing, and exporting
+[OpenTelemetry Protocol (OTLP)](https://opentelemetry.io/docs/specs/otlp/) telemetry. Application code uses immutable Java records and typed asynchronous APIs; generated Protobuf and gRPC types remain inside the transport modules.
 
-The project is early and not yet published as a release artifact. For now, build it from the reactor or install it into your local Maven repository before experimenting with downstream code.
+The project is currently `0.1.0-SNAPSHOT` and requires JDK 25. Its built-in transport supports plaintext OTLP/gRPC for traces, metrics, logs, and experimental profiles.
 
-## What it provides
+## Capabilities
 
-- A pure Java domain model for traces, metrics, logs, and profiles.
-- Per-signal asynchronous consumers: `TraceConsumer`, `MetricConsumer`, `LogConsumer`, and `ProfileConsumer`.
-- Typed `Source<T>` attachment points exposed by receivers and wired with `Pipeline.from(source)`.
-- A pipeline graph builder with transforms, filters, observers, explicit fan-out, and lifecycle-aware subscriptions.
-- Queue-backed `BatchingProcessor<T>` implementations and built-in transforms for common enrichment/filtering cases.
-- Trace-to-metrics and logs-to-metrics connectors for count-derived metrics.
-- A live `TelemetryTap` side channel backed by JDK `Flow.Publisher`.
-- A built-in OTLP/gRPC transport discovered through `ServiceLoader`.
-- A runnable end-to-end sample that proves the API module can use the transport without compiling against generated proto or gRPC types.
+- Immutable domain models for all four OTLP signals
+- Per-signal receivers, consumers, and exporter facets
+- Typed pipelines with transforms, filters, observers, and concurrent fan-out
+- Queue-backed batching with bounded buffers and configurable overflow policy
+- Trace-to-metric and log-to-metric count connectors
+- Independent `Flow.Publisher` streams for live telemetry observation
+- A transport SPI with a gRPC implementation loaded through `ServiceLoader`
 
-## Module layout
+## Use from Maven
 
-| Module             | Purpose                                                                                |
-| ------------------ | -------------------------------------------------------------------------------------- |
-| `otlp4j-model`     | JDK-only record model for OTLP resource/scope/signal data.                             |
-| `otlp4j-api`       | Public pipeline, receiver, exporter, processor, connector, and transport SPI APIs.     |
-| `otlp4j-proto`     | Generated OpenTelemetry proto and gRPC classes, exported only to the transport module. |
-| `otlp4j-transport` | Internal OTLP/gRPC client/server and proto/domain mappers.                             |
-| `otlp4j-samples`   | End-to-end demo compiled against the API and bound to the transport at runtime.        |
-| `otlp4j-testing`   | Shared test fixtures for the reactor.                                                  |
-| `otlp4j-coverage`  | Aggregate JaCoCo report module.                                                        |
-
-Runtime dependency reference:
-
-```mermaid
-flowchart LR
-    app["Application"] --> api["otlp4j-api"]
-    api --> model["otlp4j-model"]
-    app -. runtime SPI provider .-> transport["otlp4j-transport"]
-    transport -. implements API SPI .-> api
-    transport --> proto["otlp4j-proto"]
-    proto --> generated["Generated OpenTelemetry proto/gRPC code"]
-```
-
-Application code compiles against `otlp4j-api`; `otlp4j-transport` is added when the built-in OTLP/gRPC runtime is needed.
-
-## Current SDK standard
-
-The public surface follows the OpenTelemetry Collector mental model:
-
-```text
-Receiver source -> Pipeline transforms / filters / fan-out / batching / connectors -> Exporter
-```
-
-Important rules:
-
-- Consumers are per-signal SAMs and return `CompletionStage<ConsumeResult<T>>`.
-- `ConsumeResult<T>` is signal typed and sealed: accepted, partial, or rejected.
-- A `Source<T>` accepts one attached consumer; use `FanOut<T>` or `Pipeline.from(...).branch()` when multiple consumers must see the same batch.
-- `TelemetryTap` is a side channel for live observation and does not affect pipeline acknowledgements unless a caller explicitly chooses blocking tap back-pressure.
-- Generated proto and gRPC types stay inside `otlp4j-proto` and `otlp4j-transport`.
-
-## Requirements
-
-- JDK 25 or newer.
-- Maven 3.9.9 or newer. The Maven wrapper currently resolves Maven 3.9.15.
-
-The build enforces these versions and runs Javadoc doclint with warnings promoted to failures for hand-written modules.
-
-## Build and verify
+The snapshot coordinates are intended for a local reactor build. Install them first:
 
 ```sh
-./mvnw -B verify
+./mvnw -B install
 ```
 
-`verify` compiles all modules, generates proto classes, runs the test suite, checks the configured JaCoCo floors, builds the aggregate coverage report, and lints Javadocs. CI runs the same command.
-
-Useful narrower commands:
-
-```sh
-./mvnw -B -pl otlp4j-samples -am test
-./mvnw -B -pl otlp4j-api -am test
-./mvnw -B -pl otlp4j-transport -am test
-```
-
-## Minimal usage
-
-Add the API at compile time and the transport at runtime:
+Compile against the public API and add the built-in transport at runtime:
 
 ```xml
 <dependency>
@@ -99,57 +39,64 @@ Add the API at compile time and the transport at runtime:
 </dependency>
 ```
 
-Receive trace batches, transform them, fan out to an OTLP exporter, and derive count metrics from the same trace stream:
+## Example
+
+This receiver keeps server spans, enriches their resource, and exports them to another OTLP endpoint:
 
 ```java
 var receiver = OtlpGrpcReceiver.builder()
-        .endpoint("0.0.0.0", 4318)
+        .endpoint("0.0.0.0", 4317)
         .build()
         .start();
 
 var exporter = OtlpGrpcExporter.to("collector.example.com", 4317);
-var spanCounter = new SpanCountConnector(exporter.metrics());
 
 var subscription = Pipeline.from(receiver.traces())
+        .transform(Transforms.keepSpansWhere(
+                span -> span.kind() == Span.Kind.SERVER))
         .transform(Transforms.setTraceResourceAttribute(
-                "deployment.environment", AttributeValue.of("dev")))
-        .transform(Transforms.keepSpansWhere(span -> span.kind() == Span.Kind.SERVER))
+                "deployment.environment", AttributeValue.of("production")))
         .filter(traces -> !traces.spans().isEmpty())
-        .branch()
-            .fanOut(exporter.traces())
-            .fanOut(spanCounter)
-        .join();
-
-Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-    subscription.close();
-    exporter.close();
-    receiver.close();
-}));
+        .to(exporter.traces());
 ```
 
-For a single handler, attach directly with receiver builder sugar:
+The receiver accepts one consumer per signal source. Use `branch().fanOut(...).join()` when several consumers need the same batch.
+
+Own the three lifecycles explicitly: close the subscription first, then the exporter and receiver. An exporter facet such as `exporter.traces()` is a consumer view and does not transfer ownership of the exporter to the pipeline.
 
 ```java
-var receiver = OtlpGrpcReceiver.builder()
-        .onTraces(traces -> {
-            System.out.println("received spans=" + traces.spans().size());
-            return ConsumeResult.acceptedStage();
-        })
-        .build()
-        .start();
+subscription.shutdown(Duration.ofSeconds(10)).toCompletableFuture().join();
+exporter.close();
+receiver.shutdown(Duration.ofSeconds(10)).toCompletableFuture().join();
 ```
 
-See [docs/public-api.md](docs/public-api.md) for the public API map and [otlp4j-samples/README.md](otlp4j-samples/README.md) for the runnable end-to-end demo.
+## Modules
 
-## Documentation
+| Module | Role |
+| --- | --- |
+| `otlp4j-model` | JDK-only OTLP domain records |
+| `otlp4j-api` | Public receivers, pipelines, processors, connectors, exporters, and transport SPI |
+| `otlp4j-proto` | Generated OTLP messages and gRPC services, qualified-exported to the transport |
+| `otlp4j-transport` | Internal gRPC client/server and wire mappers |
+| `otlp4j-samples` | Executable end-to-end example |
+| `otlp4j-testing` | Shared reactor test fixtures |
+| `otlp4j-coverage` | Aggregate JaCoCo report |
 
-- [Architecture](docs/architecture.md): module boundaries, pipeline standard, SPI wiring, and transport flow.
-- [Public API](docs/public-api.md): user-facing types and extension points.
-- [SDK architecture standard](sdk-refactoring.md): the accepted standard that replaced the earlier unified-consumer design.
+See [Public API](docs/public-api.md) for usage and [Architecture](docs/architecture.md) for module boundaries, request flow, and extension points. The [sample README](otlp4j-samples/README.md) describes the executable scenario.
 
-## Notes and limitations
+## Build
 
-- The built-in transport currently uses plaintext gRPC. TLS, headers, compression, and retry configuration exist on the SPI records, but the shipped gRPC transport only honours the plaintext path today.
-- The profiles signal is OpenTelemetry `v1development`. Its domain model (`ProfilesData.Profile`) exposes stable top-level metadata and intentionally omits detailed sample/location/mapping/dictionary tables.
-- Metric exemplars are not surfaced in the domain model.
-- A source with no attached consumer returns accepted. Attach every signal you intend to process; use explicit fan-out when multiple consumers need the same signal.
+The Maven wrapper uses Maven 3.9.16; the build accepts Maven 3.9.9 or newer.
+
+```sh
+./mvnw -B verify
+```
+
+This runs the tests, coverage checks, Protobuf generation, and Javadoc lint. If [`just`](https://just.systems/) is installed, `just ci` also checks the `justfile` format before running the same verification.
+
+## Current limits
+
+- The bundled transport uses plaintext gRPC. Its client applies host, port, and deadline; its server applies the port but currently ignores `bindHost`. TLS, headers, compression, and retry settings exist for SPI compatibility but are not implemented by this provider.
+- Profiles track OpenTelemetry `v1development`. `ProfilesData.Profile` retains top-level metadata but not sample, location, mapping, or dictionary tables.
+- Metric exemplars are not represented in the domain model.
+- An unattached receiver source acknowledges a batch as accepted. Attach every signal that must be processed.
