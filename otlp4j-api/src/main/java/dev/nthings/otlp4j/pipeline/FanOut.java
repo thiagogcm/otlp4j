@@ -21,16 +21,19 @@ public final class FanOut<T> implements Consumer<T> {
     private final List<Consumer<T>> peers;
 
     private FanOut(List<Consumer<T>> peers) {
+        if (peers.isEmpty()) {
+            throw new IllegalArgumentException("FanOut requires at least one peer");
+        }
         this.peers = List.copyOf(peers);
     }
 
-    /// Returns a [FanOut] over the given peers. Peers run concurrently.
+    /// Returns a [FanOut] over the given peers. Peers run concurrently; at least one is required.
     @SafeVarargs
     public static <T> FanOut<T> of(Consumer<T>... peers) {
         return new FanOut<>(List.of(peers));
     }
 
-    /// Returns a [FanOut] over the given peers. Peers run concurrently.
+    /// Returns a [FanOut] over the given peers. Peers run concurrently; at least one is required.
     public static <T> FanOut<T> of(List<? extends Consumer<T>> peers) {
         Objects.requireNonNull(peers, "peers");
         return new FanOut<>(new ArrayList<>(peers));
@@ -43,9 +46,6 @@ public final class FanOut<T> implements Consumer<T> {
 
     @Override
     public CompletionStage<ConsumeResult<T>> consume(T batch) {
-        if (peers.isEmpty()) {
-            return ConsumeResult.acceptedStage();
-        }
         @SuppressWarnings("unchecked")
         CompletableFuture<ConsumeResult<T>>[] futures = new CompletableFuture[peers.size()];
         for (int i = 0; i < peers.size(); i++) {

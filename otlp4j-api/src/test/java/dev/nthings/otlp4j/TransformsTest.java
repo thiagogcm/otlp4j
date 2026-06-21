@@ -44,39 +44,39 @@ class TransformsTest {
         assertThat(filtered.logRecords().getFirst().body()).isEqualTo(AttributeValue.of("error"));
     }
 
-    @DisplayName("setTraceResourceAttribute adds a resource attribute")
+    @DisplayName("withTracesResourceAttribute adds a resource attribute")
     @Test
-    void setTraceResourceAttributeAddsAttribute() {
+    void withTracesResourceAttributeAddsAttribute() {
         var traces = Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER));
-        var enriched = Transforms.setTraceResourceAttribute("env", AttributeValue.of("prod")).apply(traces);
+        var enriched = Transforms.withTracesResourceAttribute("env", AttributeValue.of("prod")).apply(traces);
         var attr = enriched.resourceSpans().getFirst().resource().attributes().get("env");
         assertThat(attr).isInstanceOf(AttributeValue.StringValue.class);
         assertThat(((AttributeValue.StringValue) attr).value()).isEqualTo("prod");
     }
 
-    @DisplayName("setMetricsResourceAttribute adds a resource attribute")
+    @DisplayName("withMetricsResourceAttribute adds a resource attribute")
     @Test
-    void setMetricsResourceAttributeAddsAttribute() {
+    void withMetricsResourceAttributeAddsAttribute() {
         var metrics = Fixtures.metricsData(Fixtures.metric("m1"));
-        var enriched = Transforms.setMetricsResourceAttribute("env", AttributeValue.of("dev")).apply(metrics);
+        var enriched = Transforms.withMetricsResourceAttribute("env", AttributeValue.of("dev")).apply(metrics);
         var attr = enriched.resourceMetrics().getFirst().resource().attributes().get("env");
         assertThat(((AttributeValue.StringValue) attr).value()).isEqualTo("dev");
     }
 
-    @DisplayName("setLogsResourceAttribute adds a resource attribute")
+    @DisplayName("withLogsResourceAttribute adds a resource attribute")
     @Test
-    void setLogsResourceAttributeAddsAttribute() {
+    void withLogsResourceAttributeAddsAttribute() {
         var logs = Fixtures.logsData(Fixtures.logRecord("hi", LogRecord.Severity.INFO));
-        var enriched = Transforms.setLogsResourceAttribute("env", AttributeValue.of("staging")).apply(logs);
+        var enriched = Transforms.withLogsResourceAttribute("env", AttributeValue.of("staging")).apply(logs);
         var attr = enriched.resourceLogs().getFirst().resource().attributes().get("env");
         assertThat(((AttributeValue.StringValue) attr).value()).isEqualTo("staging");
     }
 
-    @DisplayName("setProfilesResourceAttribute adds a resource attribute")
+    @DisplayName("withProfilesResourceAttribute adds a resource attribute")
     @Test
-    void setProfilesResourceAttributeAddsAttribute() {
+    void withProfilesResourceAttributeAddsAttribute() {
         var profiles = Fixtures.profilesData(Fixtures.profile("p1"));
-        var enriched = Transforms.setProfilesResourceAttribute("env", AttributeValue.of("perf")).apply(profiles);
+        var enriched = Transforms.withProfilesResourceAttribute("env", AttributeValue.of("perf")).apply(profiles);
         var attr = enriched.resourceProfiles().getFirst().resource().attributes().get("env");
         assertThat(((AttributeValue.StringValue) attr).value()).isEqualTo("perf");
     }

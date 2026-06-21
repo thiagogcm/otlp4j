@@ -13,6 +13,12 @@ public record ProfilesData(List<ResourceProfiles> resourceProfiles) {
         resourceProfiles = List.copyOf(resourceProfiles);
     }
 
+    /// Wraps `profiles` under one `resource` and `scope`.
+    public static ProfilesData of(Resource resource, InstrumentationScope scope, List<Profile> profiles) {
+        return new ProfilesData(
+                List.of(new ResourceProfiles(resource, "", List.of(new ScopeProfiles(scope, "", profiles)))));
+    }
+
     /// All profiles across every resource and scope, flattened for convenient consumption.
     public List<Profile> profiles() {
         return resourceProfiles.stream()

@@ -35,7 +35,7 @@ class SignalSourceTest {
             hits.incrementAndGet();
             return ConsumeResult.acceptedStage();
         };
-        var sub = source.consume(c);
+        var sub = source.subscribe(c);
         try {
             source.dispatch(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER))).toCompletableFuture().join();
             source.dispatch(Fixtures.traceData(Fixtures.span("b", Span.Kind.SERVER))).toCompletableFuture().join();
@@ -45,13 +45,13 @@ class SignalSourceTest {
         assertThat(hits.get()).isEqualTo(2);
     }
 
-    @DisplayName("consume rejects a second concurrent subscription")
+    @DisplayName("subscribe rejects a second concurrent subscription")
     @Test
-    void doubleConsumeRejected() {
+    void doubleSubscribeRejected() {
         var source = new SignalSource<>(TraceData.class);
-        var sub = source.consume(traces -> ConsumeResult.acceptedStage());
+        var sub = source.subscribe(traces -> ConsumeResult.acceptedStage());
         try {
-            assertThatThrownBy(() -> source.consume(traces -> ConsumeResult.acceptedStage()))
+            assertThatThrownBy(() -> source.subscribe(traces -> ConsumeResult.acceptedStage()))
                     .isInstanceOf(IllegalStateException.class);
         } finally {
             sub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
@@ -63,7 +63,7 @@ class SignalSourceTest {
     void dispatchPropagatesConsumerException() {
         var source = new SignalSource<>(TraceData.class);
         TraceConsumer c = traces -> { throw new RuntimeException("boom"); };
-        var sub = source.consume(c);
+        var sub = source.subscribe(c);
         try {
             org.assertj.core.api.Assertions.assertThatThrownBy(() ->
                     source.dispatch(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER))))

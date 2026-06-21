@@ -5,4 +5,9 @@ package dev.nthings.otlp4j.model;
 public record Resource(Attributes attributes, int droppedAttributesCount) {
 
     public static final Resource EMPTY = new Resource(Attributes.empty(), 0);
+
+    /// A resource carrying `attributes` and no dropped-attribute count.
+    public static Resource of(Attributes attributes) {
+        return new Resource(attributes, 0);
+    }
 }

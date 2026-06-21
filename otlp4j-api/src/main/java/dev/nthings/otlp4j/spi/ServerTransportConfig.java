@@ -17,11 +17,16 @@ public record ServerTransportConfig(String bindHost, int port, Tls tls) {
         return new Builder();
     }
 
+    /// Returns a builder pre-populated with this config's fields.
+    public Builder toBuilder() {
+        return new Builder().bindHost(bindHost).port(port).tls(tls);
+    }
+
     public static final class Builder {
 
         private String bindHost = "0.0.0.0";
         private int port = 4317;
-        private Tls tls = Tls.Disabled.instance();
+        private Tls tls = Tls.disabled();
 
         private Builder() {}
 

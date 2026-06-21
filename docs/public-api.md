@@ -2,6 +2,18 @@
 
 Application code normally depends on `otlp4j-api`, which transitively exposes `otlp4j-model`. Add `otlp4j-transport` at runtime to use the bundled OTLP/gRPC provider. Packages in the transport and generated proto modules are implementation details.
 
+Everything lives under the `dev.nthings.otlp4j` root. The types you import most often:
+
+| Type(s) | Package |
+| --- | --- |
+| `OtlpGrpcReceiver`, `Receiver`, `TelemetryTap` | `dev.nthings.otlp4j.receiver` |
+| `OtlpGrpcExporter`, `Exporter` | `dev.nthings.otlp4j.exporter` |
+| `Pipeline`, `Source`, `Subscription`, `Consumer` (+ `TraceConsumer` … aliases), `Transform`, `FanOut`, `ConsumeResult`, `Telemetry` | `dev.nthings.otlp4j.pipeline` |
+| `Transforms`, `BatchingProcessor`, `DropPolicy` | `dev.nthings.otlp4j.processor` |
+| `Connector`, `Connectors`, `SpanCountConnector`, `LogRecordCountConnector` | `dev.nthings.otlp4j.connector` |
+| Transport SPI: `OtlpClient(Provider)`, `OtlpServer(Provider)`, `ClientTransportConfig`, `ServerTransportConfig`, `Tls`, `Compression`, `RetryPolicy` | `dev.nthings.otlp4j.spi` |
+| Domain records: `TraceData`, `MetricsData`, `LogsData`, `ProfilesData`, `Resource`, `Attributes`, `AttributeValue`, `Span`, `Metric`, `LogRecord`, … | `dev.nthings.otlp4j.model` |
+
 ## Domain model
 
 Each signal preserves OTLP's resource and instrumentation-scope grouping while providing a flattened accessor:
@@ -13,7 +25,13 @@ Each signal preserves OTLP's resource and instrumentation-scope grouping while p
 | `LogsData` | `ResourceLogs` → `ScopeLogs` → `LogRecord` | `logRecords()` |
 | `ProfilesData` | `ResourceProfiles` → `ScopeProfiles` → `Profile` | `profiles()` |
 
-Records copy incoming lists and are safe to share between fan-out peers. `Attributes` and the sealed `AttributeValue` hierarchy represent OTLP values. Builders are available for `Attributes`, `Span`, `Metric`, and `LogRecord`; the remaining records use canonical constructors.
+Records copy incoming lists and are safe to share between fan-out peers. `Attributes` and the sealed `AttributeValue` hierarchy represent OTLP values. Builders are available for `Attributes`, `Span`, `Metric`, and `LogRecord`; the remaining records use canonical constructors. To avoid hand-nesting the resource/scope wrappers, each signal type has an `of(resource, scope, items)` factory, and `Resource.of(...)` / `InstrumentationScope.of(...)` cover the common cases:
+
+```java
+var batch = TraceData.of(Resource.of(attributes), InstrumentationScope.of("my.lib", "1.0"), spans);
+```
+
+`Attributes.toBuilder()` plus `Builder.putAll(...)` make "copy and add a key" a one-liner instead of a manual map walk.
 
 `Metric.Data` covers gauge, sum, histogram, exponential histogram, and summary. Profiles are marked `@Experimental` and expose only top-level metadata.
 
@@ -75,7 +93,7 @@ Pipeline stages keep the signal type unchanged:
 var subscription = Pipeline.from(receiver.traces())
         .transform(Transforms.keepSpansWhere(
                 span -> span.kind() == Span.Kind.SERVER))
-        .transform(Transforms.setTraceResourceAttribute(
+        .transform(Transforms.withTracesResourceAttribute(
                 "service.namespace", AttributeValue.of("store")))
         .filter(traces -> !traces.spans().isEmpty())
         .branch()
@@ -88,7 +106,17 @@ Available built-in transforms are span and log-record filters plus per-signal re
 
 `FanOut.of(...)` is the direct alternative to the branch builder. Peers run concurrently; the result is rejected if any peer rejects, otherwise partial results use the largest rejection count.
 
-`Pipeline.tap(observer)` is a fire-and-forget side effect inside the main graph. For demand-aware streaming with bounded buffers, use the receiver's `TelemetryTap` instead.
+`Pipeline.peek(observer)` is a fire-and-forget side effect inside the main graph; it takes a plain `java.util.function.Consumer`, cannot alter or reject the batch, and swallows observer exceptions. For demand-aware streaming with bounded buffers, use the receiver's `TelemetryTap` instead.
+
+The routing concepts, contrasted:
+
+| Concept | Cardinality | Changes signal? | Owns downstream lifecycle? |
+| --- | --- | --- | --- |
+| `Transform` (via `Transforms`) | 1 → 1 | no | no |
+| `Connector` (via `Connectors`) | 1 → 1 | yes | yes (its downstream consumer) |
+| `BatchingProcessor` | N → 1 (buffered) | no | yes (when attached as terminal) |
+| `Pipeline.peek` | observe | no | no |
+| `TelemetryTap` (on the receiver) | observe (demand-aware) | no | n/a |
 
 ## Batch
 
@@ -144,8 +172,8 @@ Implement `Exporter<T>` for a custom typed terminal with flush and shutdown hook
 `Connector<I,O>` consumes one signal and emits another to its configured downstream consumer:
 
 ```java
-var spanCounter = new SpanCountConnector(exporter.metrics());
-var logCounter = new LogRecordCountConnector(exporter.metrics());
+var spanCounter = Connectors.spanCount(exporter.metrics());
+var logCounter = Connectors.logRecordCount(exporter.metrics());
 ```
 
 The built-ins emit `otlp4j.connector.span.count` and `otlp4j.connector.log.record.count`. They always accept the input batch after the downstream stage completes; a downstream partial result or rejection is logged because a metric rejection cannot be relabeled as a trace or log rejection. An exceptionally completed downstream stage still propagates.
@@ -181,4 +209,4 @@ Stop ingestion before closing downstream resources:
 2. Close exporter instances and any connector-owned downstream resources explicitly.
 3. Shut down the receiver.
 
-Use `shutdown(Duration)` when completion matters. Convenience `close()` methods use fixed defaults, while `Receiver.close()` performs an immediate shutdown.
+Use `shutdown(Duration)` when completion matters. The convenience `close()` methods drain gracefully with a fixed ten-second default across the receiver, exporter, and subscription; call `Receiver.shutdownNow()` for an immediate stop.

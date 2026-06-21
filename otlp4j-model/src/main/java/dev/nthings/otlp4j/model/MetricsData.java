@@ -11,6 +11,12 @@ public record MetricsData(List<ResourceMetrics> resourceMetrics) {
         resourceMetrics = List.copyOf(resourceMetrics);
     }
 
+    /// Wraps `metrics` under one `resource` and `scope`.
+    public static MetricsData of(Resource resource, InstrumentationScope scope, List<Metric> metrics) {
+        return new MetricsData(
+                List.of(new ResourceMetrics(resource, "", List.of(new ScopeMetrics(scope, "", metrics)))));
+    }
+
     /// All metrics across every resource and scope, flattened for convenient consumption.
     public List<Metric> metrics() {
         return resourceMetrics.stream()

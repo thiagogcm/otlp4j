@@ -2,8 +2,7 @@ package dev.nthings.otlp4j;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import dev.nthings.otlp4j.connector.LogRecordCountConnector;
-import dev.nthings.otlp4j.connector.SpanCountConnector;
+import dev.nthings.otlp4j.connector.Connectors;
 import dev.nthings.otlp4j.model.LogRecord;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.pipeline.ConsumeResult;
@@ -23,7 +22,7 @@ class ConnectorRebrandTest {
     void spanCountConnectorAcceptsInputDespiteDownstreamPartial() {
         MetricConsumer downstream = metrics -> CompletableFuture.completedStage(
                 ConsumeResult.partial(2L, "metric backend pushback"));
-        var connector = new SpanCountConnector(downstream);
+        var connector = Connectors.spanCount(downstream);
         var r = connector.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
                 .toCompletableFuture().join();
         assertThat(r)
@@ -36,7 +35,7 @@ class ConnectorRebrandTest {
     void spanCountConnectorAcceptsInputDespiteDownstreamRejected() {
         MetricConsumer downstream = metrics -> CompletableFuture.completedStage(
                 ConsumeResult.rejected("backend down"));
-        var connector = new SpanCountConnector(downstream);
+        var connector = Connectors.spanCount(downstream);
         var r = connector.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
                 .toCompletableFuture().join();
         assertThat(r).isInstanceOf(ConsumeResult.Accepted.class);
@@ -47,7 +46,7 @@ class ConnectorRebrandTest {
     void logRecordCountConnectorAcceptsInputDespiteDownstreamPartial() {
         MetricConsumer downstream = metrics -> CompletableFuture.completedStage(
                 ConsumeResult.partial(1L, "metric pushback"));
-        var connector = new LogRecordCountConnector(downstream);
+        var connector = Connectors.logRecordCount(downstream);
         var r = connector.consume(Fixtures.logsData(Fixtures.logRecord("hi", LogRecord.Severity.INFO)))
                 .toCompletableFuture().join();
         assertThat(r).isInstanceOf(ConsumeResult.Accepted.class);
@@ -58,7 +57,7 @@ class ConnectorRebrandTest {
     void logRecordCountConnectorAcceptsInputDespiteDownstreamRejected() {
         MetricConsumer downstream = metrics -> CompletableFuture.completedStage(
                 ConsumeResult.rejected("backend down"));
-        var connector = new LogRecordCountConnector(downstream);
+        var connector = Connectors.logRecordCount(downstream);
         var r = connector.consume(Fixtures.logsData(Fixtures.logRecord("hi", LogRecord.Severity.INFO)))
                 .toCompletableFuture().join();
         assertThat(r).isInstanceOf(ConsumeResult.Accepted.class);
@@ -68,8 +67,8 @@ class ConnectorRebrandTest {
     @Test
     void connectorsExposeDownstreamForGraphIntrospection() {
         MetricConsumer downstream = metrics -> ConsumeResult.acceptedStage();
-        var span = new SpanCountConnector(downstream);
-        var log = new LogRecordCountConnector(downstream);
+        var span = Connectors.spanCount(downstream);
+        var log = Connectors.logRecordCount(downstream);
         assertThat(span.downstream()).isSameAs(downstream);
         assertThat(log.downstream()).isSameAs(downstream);
     }

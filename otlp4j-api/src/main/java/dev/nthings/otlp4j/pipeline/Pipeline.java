@@ -34,8 +34,10 @@ public final class Pipeline {
         /// Drops the batch entirely if `keep` rejects it.
         Stage<T> filter(Predicate<? super T> keep);
 
-        /// Adds a side-effect observer. Errors and rejected acks from `observer` are ignored.
-        Stage<T> tap(Consumer<T> observer);
+        /// Adds a fire-and-forget side-effect observer that cannot alter or reject the batch.
+        /// Exceptions thrown by `observer` are swallowed so they never affect the main path; for a
+        /// demand-aware live stream use the receiver's [dev.nthings.otlp4j.receiver.TelemetryTap].
+        Stage<T> peek(java.util.function.Consumer<? super T> observer);
 
         /// Opens a branch — subsequent `.fanOut(...)` calls add peers, `.join()` closes the
         /// branch and returns the active subscription.
@@ -70,7 +72,10 @@ public final class Pipeline {
 
         @Override
         public Stage<T> transform(Transform<T> fn) {
-            return new StageImpl<>(source, stageFn.andThen(fn::apply), resources);
+            Objects.requireNonNull(fn, "fn");
+            // A prior filter may have dropped the batch to null; don't hand null to a user Transform.
+            Function<T, T> step = batch -> batch == null ? null : fn.apply(batch);
+            return new StageImpl<>(source, stageFn.andThen(step), resources);
         }
 
         @Override
@@ -80,18 +85,19 @@ public final class Pipeline {
         }
 
         @Override
-        public Stage<T> tap(Consumer<T> observer) {
-            Function<T, T> tap = batch -> {
+        public Stage<T> peek(java.util.function.Consumer<? super T> observer) {
+            Objects.requireNonNull(observer, "observer");
+            Function<T, T> peek = batch -> {
                 if (batch != null) {
                     try {
-                        observer.consume(batch);
+                        observer.accept(batch);
                     } catch (RuntimeException _) {
-                        // tap errors must not affect the main path
+                        // peek errors must not affect the main path
                     }
                 }
                 return batch;
             };
-            return new StageImpl<>(source, stageFn.andThen(tap), resources);
+            return new StageImpl<>(source, stageFn.andThen(peek), resources);
         }
 
         @Override
@@ -116,7 +122,7 @@ public final class Pipeline {
                 return terminal.consume(after);
             };
             var leafResources = leafResources(terminal);
-            return new PipelineSubscription(source.consume(chain), combine(resources, leafResources));
+            return new PipelineSubscription(source.subscribe(chain), combine(resources, leafResources));
         }
     }
 

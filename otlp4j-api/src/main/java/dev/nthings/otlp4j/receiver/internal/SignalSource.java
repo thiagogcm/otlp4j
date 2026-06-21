@@ -12,7 +12,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /// [Source] backed by a single-consumer slot.
 ///
-/// Throws on a second [#consume] attach — multi-consumer fan-out is the caller's
+/// Throws on a second [#subscribe] attach — multi-consumer fan-out is the caller's
 /// responsibility via `FanOut` in the pipeline package.
 public final class SignalSource<T> implements Source<T> {
 
@@ -24,7 +24,7 @@ public final class SignalSource<T> implements Source<T> {
     }
 
     @Override
-    public Subscription consume(Consumer<? super T> consumer) {
+    public Subscription subscribe(Consumer<? super T> consumer) {
         Objects.requireNonNull(consumer, "consumer");
         if (!attached.compareAndSet(null, consumer)) {
             throw new IllegalStateException(

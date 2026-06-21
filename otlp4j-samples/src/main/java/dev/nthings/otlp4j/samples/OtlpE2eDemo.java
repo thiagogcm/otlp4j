@@ -1,6 +1,6 @@
 package dev.nthings.otlp4j.samples;
 
-import dev.nthings.otlp4j.connector.SpanCountConnector;
+import dev.nthings.otlp4j.connector.Connectors;
 import dev.nthings.otlp4j.exporter.OtlpGrpcExporter;
 import dev.nthings.otlp4j.model.AttributeValue;
 import dev.nthings.otlp4j.model.Attributes;
@@ -80,10 +80,10 @@ public final class OtlpE2eDemo {
             gateway = OtlpGrpcReceiver.builder().ephemeralPort().build().start();
             log.info("Gateway receiver started on port {}.", gateway.port());
 
-            var spanCounter = new SpanCountConnector(backendExporter.metrics());
+            var spanCounter = Connectors.spanCount(backendExporter.metrics());
 
             var subscription = Pipeline.from(gateway.traces())
-                    .transform(Transforms.setTraceResourceAttribute(
+                    .transform(Transforms.withTracesResourceAttribute(
                             "deployment.environment", AttributeValue.of("demo")))
                     .transform(Transforms.keepSpansWhere(span -> span.kind() == Span.Kind.SERVER))
                     .filter(traces -> !traces.spans().isEmpty())
@@ -142,17 +142,15 @@ public final class OtlpE2eDemo {
     }
 
     private static TraceData sampleTraces() {
-        var resource = new Resource(
-                Attributes.builder().put("service.name", "checkout").build(), 0);
-        var scope = new InstrumentationScope("otlp4j-demo", "1.0.0", Attributes.empty(), 0);
+        var resource = Resource.of(Attributes.builder().put("service.name", "checkout").build());
+        var scope = InstrumentationScope.of("otlp4j-demo", "1.0.0");
         var spans = List.of(
                 span("GET /cart", Span.Kind.SERVER),
                 span("GET /checkout", Span.Kind.SERVER),
                 span("POST /pay", Span.Kind.SERVER),
                 span("db.query", Span.Kind.INTERNAL),
                 span("cache.lookup", Span.Kind.INTERNAL));
-        return new TraceData(List.of(new TraceData.ResourceSpans(
-                resource, "", List.of(new TraceData.ScopeSpans(scope, "", spans)))));
+        return TraceData.of(resource, scope, spans);
     }
 
     private static Span span(String name, Span.Kind kind) {

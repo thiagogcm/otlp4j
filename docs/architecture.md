@@ -51,7 +51,7 @@ An unattached source returns `Accepted`. A source has one attachment slot; fan-o
 
 - `transform` rewrites one batch without changing its signal type.
 - `filter` acknowledges a batch as accepted without forwarding it when the predicate returns false.
-- `tap` invokes a best-effort observer and ignores its result. It does not wait for an asynchronous observer or handle its later failure.
+- `peek` invokes a best-effort observer (a plain `java.util.function.Consumer`) and ignores its result. It does not wait for an asynchronous observer or handle its later failure.
 - `branch` builds a concurrent `FanOut`; `join` attaches it.
 - `to` attaches one terminal consumer.
 

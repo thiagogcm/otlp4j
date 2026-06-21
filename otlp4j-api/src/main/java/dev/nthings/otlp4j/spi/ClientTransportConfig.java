@@ -56,7 +56,7 @@ public record ClientTransportConfig(
         private String host = "localhost";
         private int port = 4317;
         private Duration timeout = Duration.ofSeconds(10);
-        private Tls tls = Tls.Disabled.instance();
+        private Tls tls = Tls.disabled();
         private final Map<String, String> headers = new LinkedHashMap<>();
         private Compression compression = Compression.NONE;
         private RetryPolicy retry = RetryPolicy.none();

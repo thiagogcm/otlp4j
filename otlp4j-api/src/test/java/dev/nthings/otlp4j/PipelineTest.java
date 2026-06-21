@@ -33,7 +33,7 @@ class PipelineTest {
             return ConsumeResult.acceptedStage();
         };
         var sub = Pipeline.from((Source<TraceData>) source)
-                .transform(Transforms.setTraceResourceAttribute("env", AttributeValue.of("prod")))
+                .transform(Transforms.withTracesResourceAttribute("env", AttributeValue.of("prod")))
                 .transform(Transforms.keepSpansWhere(span -> span.kind() == Span.Kind.SERVER))
                 .filter(traces -> !traces.spans().isEmpty())
                 .to(terminal);
@@ -79,9 +79,9 @@ class PipelineTest {
         assertThat(b.get()).isEqualTo(1);
     }
 
-    @DisplayName("Exceptions thrown by a tap do not break the main path")
+    @DisplayName("Exceptions thrown by a peek observer do not break the main path")
     @Test
-    void tapErrorsDoNotAffectMainPath() {
+    void peekErrorsDoNotAffectMainPath() {
         var source = new SignalSource<>(TraceData.class);
         var captured = new ArrayList<TraceData>();
         TraceConsumer terminal = traces -> {
@@ -89,8 +89,8 @@ class PipelineTest {
             return ConsumeResult.acceptedStage();
         };
         var sub = Pipeline.from((Source<TraceData>) source)
-                .tap(traces -> {
-                    throw new RuntimeException("tap exploded");
+                .peek(traces -> {
+                    throw new RuntimeException("peek exploded");
                 })
                 .to(terminal);
         try {
@@ -98,6 +98,34 @@ class PipelineTest {
                     .toCompletableFuture().join();
             assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
             assertThat(captured).hasSize(1);
+        } finally {
+            sub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
+        }
+    }
+
+    @DisplayName("A transform after a filter is not invoked on a dropped (null) batch")
+    @Test
+    void transformAfterFilterIsNotInvokedOnDroppedBatch() {
+        var source = new SignalSource<>(TraceData.class);
+        var observedByTransform = new AtomicInteger();
+        var delivered = new ArrayList<TraceData>();
+        TraceConsumer terminal = traces -> {
+            delivered.add(traces);
+            return ConsumeResult.acceptedStage();
+        };
+        var sub = Pipeline.from((Source<TraceData>) source)
+                .filter(traces -> !traces.spans().isEmpty())
+                .transform(traces -> {
+                    observedByTransform.incrementAndGet();
+                    return traces;
+                })
+                .to(terminal);
+        try {
+            // An all-dropped batch must short-circuit before the downstream transform, not NPE.
+            var result = source.dispatch(Fixtures.traceData()).toCompletableFuture().join();
+            assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+            assertThat(observedByTransform).hasValue(0);
+            assertThat(delivered).isEmpty();
         } finally {
             sub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
         }

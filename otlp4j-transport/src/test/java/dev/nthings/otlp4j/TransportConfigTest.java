@@ -165,7 +165,7 @@ class TransportConfigTest {
         }));
         var exporter = exporter(ClientTransportConfig.builder()
                 .endpoint("localhost", receiver.port())
-                .tls(new Tls.Custom(null, null, resource("/tls/server.crt")))
+                .tls(Tls.trust(resource("/tls/server.crt")))
                 .timeout(Duration.ofSeconds(5))
                 .build());
 
@@ -198,7 +198,7 @@ class TransportConfigTest {
         try (var exporter = OtlpGrpcExporter.builder()
                 .transport(ClientTransportConfig.builder()
                         .endpoint("localhost", 4317)
-                        .tls(Tls.SystemTrust.instance())
+                        .tls(Tls.systemTrust())
                         .build())
                 .build()) {
             assertThat(exporter).isNotNull();
@@ -209,7 +209,7 @@ class TransportConfigTest {
     @Test
     void rejectsSystemTrustForServer() {
         var receiver = OtlpGrpcReceiver.builder()
-                .transport(ServerTransportConfig.builder().port(0).tls(Tls.SystemTrust.instance()).build())
+                .transport(ServerTransportConfig.builder().port(0).tls(Tls.systemTrust()).build())
                 .onTraces(t -> ConsumeResult.acceptedStage())
                 .build();
         receivers.add(receiver);
@@ -219,11 +219,48 @@ class TransportConfigTest {
                 .hasMessageContaining("SystemTrust");
     }
 
+    @DisplayName("OtlpGrpcReceiver.on(port) builds a startable plaintext receiver")
+    @Test
+    void onPortBuildsStartablePlaintextReceiver() {
+        var receiver = OtlpGrpcReceiver.on(0);
+        receivers.add(receiver);
+        receiver.start();
+
+        assertThat(receiver.port()).isPositive();
+        var exporter = exporter(ClientTransportConfig.builder()
+                .endpoint("localhost", receiver.port())
+                .timeout(Duration.ofSeconds(3))
+                .build());
+
+        var result = exporter.traces().consume(traces()).toCompletableFuture().join();
+        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+    }
+
+    @DisplayName("Builder keeps TLS when port() is set after transport()")
+    @Test
+    void builderKeepsTlsWhenPortSetAfterTransport() {
+        var receiver = OtlpGrpcReceiver.builder()
+                .transport(serverTls())
+                .port(0)
+                .onTraces(t -> ConsumeResult.acceptedStage())
+                .build();
+        receivers.add(receiver);
+        receiver.start();
+
+        // The server is still TLS, so a plaintext client must fail to connect.
+        var plaintext = exporter(ClientTransportConfig.builder()
+                .endpoint("localhost", receiver.port())
+                .timeout(Duration.ofSeconds(3))
+                .build());
+        assertThatThrownBy(() -> plaintext.traces().consume(traces()).toCompletableFuture().join())
+                .isInstanceOf(CompletionException.class);
+    }
+
     private static ServerTransportConfig serverTls() {
         return ServerTransportConfig.builder()
                 .bindHost("localhost")
                 .port(0)
-                .tls(new Tls.Custom(resource("/tls/server.crt"), resource("/tls/server.key"), null))
+                .tls(Tls.custom(resource("/tls/server.crt"), resource("/tls/server.key"), null))
                 .build();
     }
 

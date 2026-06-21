@@ -11,25 +11,37 @@ import java.nio.file.Path;
 public sealed interface Tls permits Tls.Disabled, Tls.SystemTrust, Tls.Custom {
 
     /// Plaintext transport — no TLS.
-    record Disabled() implements Tls {
-
-        private static final Disabled INSTANCE = new Disabled();
-
-        public static Disabled instance() {
-            return INSTANCE;
-        }
+    static Tls disabled() {
+        return Disabled.INSTANCE;
     }
 
     /// TLS using the JVM's default trust store; no client certificate.
-    record SystemTrust() implements Tls {
-
-        private static final SystemTrust INSTANCE = new SystemTrust();
-
-        public static SystemTrust instance() {
-            return INSTANCE;
-        }
+    static Tls systemTrust() {
+        return SystemTrust.INSTANCE;
     }
 
-    /// TLS with caller-supplied certificate, key, and (optional) trust material.
+    /// Client-side TLS trusting `trustFile` for the server's certificate; no client certificate.
+    static Tls trust(Path trustFile) {
+        return new Custom(null, null, trustFile);
+    }
+
+    /// TLS with a caller-supplied certificate, key, and (optional) trust material. On a server the
+    /// certificate and key are required; on a client they enable mutual TLS and `trustFile`, when
+    /// non-null, overrides the default trust store.
+    static Tls custom(Path certFile, Path keyFile, Path trustFile) {
+        return new Custom(certFile, keyFile, trustFile);
+    }
+
+    /// Prefer [Tls#disabled()].
+    record Disabled() implements Tls {
+        private static final Disabled INSTANCE = new Disabled();
+    }
+
+    /// Prefer [Tls#systemTrust()].
+    record SystemTrust() implements Tls {
+        private static final SystemTrust INSTANCE = new SystemTrust();
+    }
+
+    /// Prefer the [Tls#custom(Path, Path, Path)] and [Tls#trust(Path)] factories.
     record Custom(Path certFile, Path keyFile, Path trustFile) implements Tls {}
 }

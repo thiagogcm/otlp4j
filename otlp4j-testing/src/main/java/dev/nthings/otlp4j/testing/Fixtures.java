@@ -33,17 +33,11 @@ public final class Fixtures {
     }
 
     public static TraceData traceData(Span... spans) {
-        return new TraceData(List.of(new TraceData.ResourceSpans(
-                checkoutResource(),
-                "",
-                List.of(new TraceData.ScopeSpans(testScope(), "", List.of(spans))))));
+        return TraceData.of(checkoutResource(), testScope(), List.of(spans));
     }
 
     public static MetricsData metricsData(Metric... metrics) {
-        return new MetricsData(List.of(new MetricsData.ResourceMetrics(
-                checkoutResource(),
-                "",
-                List.of(new MetricsData.ScopeMetrics(testScope(), "", List.of(metrics))))));
+        return MetricsData.of(checkoutResource(), testScope(), List.of(metrics));
     }
 
     public static Metric metric(String name) {
@@ -56,10 +50,7 @@ public final class Fixtures {
     }
 
     public static ProfilesData profilesData(ProfilesData.Profile... profiles) {
-        return new ProfilesData(List.of(new ProfilesData.ResourceProfiles(
-                checkoutResource(),
-                "",
-                List.of(new ProfilesData.ScopeProfiles(testScope(), "", List.of(profiles))))));
+        return ProfilesData.of(checkoutResource(), testScope(), List.of(profiles));
     }
 
     public static ProfilesData.Profile profile(String profileId) {
@@ -75,17 +66,14 @@ public final class Fixtures {
     }
 
     public static LogsData logsData(LogRecord... records) {
-        return new LogsData(List.of(new LogsData.ResourceLogs(
-                checkoutResource(),
-                "",
-                List.of(new LogsData.ScopeLogs(testScope(), "", List.of(records))))));
+        return LogsData.of(checkoutResource(), testScope(), List.of(records));
     }
 
     public static Resource checkoutResource() {
-        return new Resource(Attributes.builder().put("service.name", "checkout").build(), 0);
+        return Resource.of(Attributes.builder().put("service.name", "checkout").build());
     }
 
     public static InstrumentationScope testScope() {
-        return new InstrumentationScope("otlp4j-test", "1.0.0", Attributes.empty(), 0);
+        return InstrumentationScope.of("otlp4j-test", "1.0.0");
     }
 }

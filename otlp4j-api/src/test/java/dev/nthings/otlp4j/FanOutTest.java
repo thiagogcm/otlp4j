@@ -39,6 +39,15 @@ class FanOutTest {
         assertThat(result).isInstanceOf(ConsumeResult.Rejected.class);
     }
 
+    @DisplayName("of() rejects an empty peer set")
+    @Test
+    void rejectsEmptyPeerSet() {
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> FanOut.<TraceData>of(List.of()))
+                .isInstanceOf(IllegalArgumentException.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(FanOut::of)
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
     @DisplayName("consume() merges peer Partial counts using the max")
     @Test
     void mergesRejectionCountsWithMax() {

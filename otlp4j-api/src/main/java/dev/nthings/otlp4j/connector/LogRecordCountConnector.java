@@ -19,7 +19,7 @@ public final class LogRecordCountConnector implements LogConsumer, Connector<Log
 
     private final MetricConsumer downstream;
 
-    public LogRecordCountConnector(MetricConsumer downstream) {
+    LogRecordCountConnector(MetricConsumer downstream) {
         this.downstream = Objects.requireNonNull(downstream, "downstream");
     }
 

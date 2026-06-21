@@ -32,4 +32,9 @@ public record RetryPolicy(int maxAttempts, Duration initialBackoff, Duration max
     public static RetryPolicy none() {
         return NONE;
     }
+
+    /// An exponential-backoff policy; `maxAttempts` counts the initial attempt, so pass at least 2 to retry.
+    public static RetryPolicy exponential(int maxAttempts, Duration initialBackoff, Duration maxBackoff) {
+        return new RetryPolicy(maxAttempts, initialBackoff, maxBackoff);
+    }
 }

@@ -14,7 +14,7 @@ import org.slf4j.Logger;
 final class CountMetrics {
 
     private static final InstrumentationScope SCOPE =
-            new InstrumentationScope("otlp4j-count-connector", "0.1.0", Attributes.empty(), 0);
+            InstrumentationScope.of("otlp4j-count-connector", "0.1.0");
 
     private CountMetrics() {}
 
@@ -28,10 +28,7 @@ final class CountMetrics {
                 "{item}",
                 new Metric.Sum(List.of(point), Metric.AggregationTemporality.DELTA, true),
                 Attributes.empty());
-        return new MetricsData(List.of(new MetricsData.ResourceMetrics(
-                Resource.EMPTY,
-                "",
-                List.of(new MetricsData.ScopeMetrics(SCOPE, "", List.of(metric))))));
+        return MetricsData.of(Resource.EMPTY, SCOPE, List.of(metric));
     }
 
     /// Cross-signal `Partial`/`Rejected` from the derived metric must not be relabelled onto the

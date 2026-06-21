@@ -2,8 +2,7 @@ package dev.nthings.otlp4j;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import dev.nthings.otlp4j.connector.LogRecordCountConnector;
-import dev.nthings.otlp4j.connector.SpanCountConnector;
+import dev.nthings.otlp4j.connector.Connectors;
 import dev.nthings.otlp4j.model.LogRecord;
 import dev.nthings.otlp4j.model.Metric;
 import dev.nthings.otlp4j.model.MetricsData;
@@ -28,7 +27,7 @@ class ConnectorsTest {
             captured.add(metrics);
             return ConsumeResult.acceptedStage();
         };
-        var connector = new SpanCountConnector(downstream);
+        var connector = Connectors.spanCount(downstream);
         var traces = Fixtures.traceData(
                 Fixtures.span("a", Span.Kind.SERVER),
                 Fixtures.span("b", Span.Kind.SERVER),
@@ -49,7 +48,7 @@ class ConnectorsTest {
             captured.add(metrics);
             return ConsumeResult.acceptedStage();
         };
-        var connector = new LogRecordCountConnector(downstream);
+        var connector = Connectors.logRecordCount(downstream);
         var logs = Fixtures.logsData(
                 Fixtures.logRecord("a", LogRecord.Severity.INFO),
                 Fixtures.logRecord("b", LogRecord.Severity.WARN));

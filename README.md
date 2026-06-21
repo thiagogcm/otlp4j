@@ -41,22 +41,38 @@ Compile against the public API and add the built-in transport at runtime:
 </dependency>
 ```
 
-## Example
+## Entry points
 
-This receiver keeps server spans, enriches their resource, and exports them to another OTLP endpoint:
+Four types cover almost everything: `OtlpGrpcReceiver` (ingest), `OtlpGrpcExporter` (send), `Pipeline` (the transform/route DSL), and the ready-made building blocks `Transforms` and `BatchingProcessor`. The [Public API](docs/public-api.md) guide maps every type to its package.
+
+## Hello, telemetry
+
+Receive on an ephemeral port and print each batch:
 
 ```java
 var receiver = OtlpGrpcReceiver.builder()
-        .endpoint("0.0.0.0", 4317)
+        .ephemeralPort()
+        .onTraces(traces -> {
+            System.out.println("spans=" + traces.spans().size());
+            return ConsumeResult.acceptedStage();
+        })
         .build()
         .start();
+```
+
+## Example
+
+This gateway keeps server spans, enriches their resource, and exports them to another OTLP endpoint:
+
+```java
+var receiver = OtlpGrpcReceiver.on("0.0.0.0", 4317).start();
 
 var exporter = OtlpGrpcExporter.to("collector.example.com", 4317);
 
 var subscription = Pipeline.from(receiver.traces())
         .transform(Transforms.keepSpansWhere(
                 span -> span.kind() == Span.Kind.SERVER))
-        .transform(Transforms.setTraceResourceAttribute(
+        .transform(Transforms.withTracesResourceAttribute(
                 "deployment.environment", AttributeValue.of("production")))
         .filter(traces -> !traces.spans().isEmpty())
         .to(exporter.traces());
@@ -64,7 +80,8 @@ var subscription = Pipeline.from(receiver.traces())
 
 The receiver accepts one consumer per signal source. Use `branch().fanOut(...).join()` when several consumers need the same batch.
 
-Own the three lifecycles explicitly: close the subscription first, then the exporter and receiver. An exporter facet such as `exporter.traces()` is a consumer view and does not transfer ownership of the exporter to the pipeline.
+> [!IMPORTANT]
+> You own three lifecycles. Shut them down in order — subscription, then exporter, then receiver. Closing the subscription does **not** close the exporter: an exporter facet such as `exporter.traces()` is a consumer view and does not transfer ownership of the exporter to the pipeline.
 
 ```java
 subscription.shutdown(Duration.ofSeconds(10)).toCompletableFuture().join();

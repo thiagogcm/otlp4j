@@ -33,6 +33,11 @@ public final class Attributes {
         return new Builder();
     }
 
+    /// Returns a [Builder] pre-populated with these attributes.
+    public Builder toBuilder() {
+        return new Builder().putAll(this);
+    }
+
     /// Returns the value for `key`, or `null` if absent.
     public AttributeValue get(String key) {
         return values.get(key);
@@ -103,6 +108,18 @@ public final class Attributes {
 
         public Builder put(String key, boolean value) {
             return put(key, AttributeValue.of(value));
+        }
+
+        /// Copies every entry from `other`, overwriting existing keys.
+        public Builder putAll(Attributes other) {
+            values.putAll(other.values);
+            return this;
+        }
+
+        /// Copies every entry from `map`, overwriting existing keys.
+        public Builder putAll(Map<String, AttributeValue> map) {
+            values.putAll(map);
+            return this;
         }
 
         public Attributes build() {

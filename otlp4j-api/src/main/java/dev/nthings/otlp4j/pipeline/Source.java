@@ -10,5 +10,5 @@ package dev.nthings.otlp4j.pipeline;
 public interface Source<T> {
 
     /// Attaches `consumer` and returns a subscription whose [Subscription#close()] detaches it.
-    Subscription consume(Consumer<? super T> consumer);
+    Subscription subscribe(Consumer<? super T> consumer);
 }

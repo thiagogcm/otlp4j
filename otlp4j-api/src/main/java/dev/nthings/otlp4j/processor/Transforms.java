@@ -1,7 +1,6 @@
 package dev.nthings.otlp4j.processor;
 
 import dev.nthings.otlp4j.model.AttributeValue;
-import dev.nthings.otlp4j.model.Attributes;
 import dev.nthings.otlp4j.model.LogRecord;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
@@ -61,38 +60,37 @@ public final class Transforms {
         };
     }
 
-    /// Sets a resource attribute on every [Resource] in a trace batch.
-    public static Transform<TraceData> setTraceResourceAttribute(String key, AttributeValue value) {
+    /// Adds (or overwrites) a resource attribute on every [Resource] in a trace batch.
+    public static Transform<TraceData> withTracesResourceAttribute(String key, AttributeValue value) {
         return traces -> new TraceData(traces.resourceSpans().stream()
                 .map(rs -> new TraceData.ResourceSpans(enrich(rs.resource(), key, value), rs.schemaUrl(), rs.scopeSpans()))
                 .toList());
     }
 
-    /// Sets a resource attribute on every [Resource] in a metrics batch.
-    public static Transform<MetricsData> setMetricsResourceAttribute(String key, AttributeValue value) {
+    /// Adds (or overwrites) a resource attribute on every [Resource] in a metrics batch.
+    public static Transform<MetricsData> withMetricsResourceAttribute(String key, AttributeValue value) {
         return metrics -> new MetricsData(metrics.resourceMetrics().stream()
                 .map(rm -> new MetricsData.ResourceMetrics(enrich(rm.resource(), key, value), rm.schemaUrl(), rm.scopeMetrics()))
                 .toList());
     }
 
-    /// Sets a resource attribute on every [Resource] in a logs batch.
-    public static Transform<LogsData> setLogsResourceAttribute(String key, AttributeValue value) {
+    /// Adds (or overwrites) a resource attribute on every [Resource] in a logs batch.
+    public static Transform<LogsData> withLogsResourceAttribute(String key, AttributeValue value) {
         return logs -> new LogsData(logs.resourceLogs().stream()
                 .map(rl -> new LogsData.ResourceLogs(enrich(rl.resource(), key, value), rl.schemaUrl(), rl.scopeLogs()))
                 .toList());
     }
 
-    /// Sets a resource attribute on every [Resource] in a profiles batch.
-    public static Transform<ProfilesData> setProfilesResourceAttribute(String key, AttributeValue value) {
+    /// Adds (or overwrites) a resource attribute on every [Resource] in a profiles batch.
+    public static Transform<ProfilesData> withProfilesResourceAttribute(String key, AttributeValue value) {
         return profiles -> new ProfilesData(profiles.resourceProfiles().stream()
                 .map(rp -> new ProfilesData.ResourceProfiles(enrich(rp.resource(), key, value), rp.schemaUrl(), rp.scopeProfiles()))
                 .toList());
     }
 
     private static Resource enrich(Resource resource, String key, AttributeValue value) {
-        var builder = Attributes.builder();
-        resource.attributes().asMap().forEach(builder::put);
-        builder.put(key, value);
-        return new Resource(builder.build(), resource.droppedAttributesCount());
+        return new Resource(
+                resource.attributes().toBuilder().put(key, value).build(),
+                resource.droppedAttributesCount());
     }
 }

@@ -22,7 +22,7 @@ class ConfigRecordsTest {
         assertThat(c.host()).isEqualTo("localhost");
         assertThat(c.port()).isEqualTo(4317);
         assertThat(c.timeout()).isEqualTo(Duration.ofSeconds(10));
-        assertThat(c.tls()).isEqualTo(Tls.Disabled.instance());
+        assertThat(c.tls()).isEqualTo(Tls.disabled());
         assertThat(c.compression()).isEqualTo(Compression.NONE);
         assertThat(c.retry()).isEqualTo(RetryPolicy.none());
         assertThat(c.headers()).isEmpty();
@@ -57,7 +57,24 @@ class ConfigRecordsTest {
         var c = ServerTransportConfig.builder().build();
         assertThat(c.bindHost()).isEqualTo("0.0.0.0");
         assertThat(c.port()).isEqualTo(4317);
-        assertThat(c.tls()).isEqualTo(Tls.Disabled.instance());
+        assertThat(c.tls()).isEqualTo(Tls.disabled());
+    }
+
+    @DisplayName("ServerTransportConfig.toBuilder round-trips and preserves untouched fields")
+    @Test
+    void serverConfigToBuilderRoundTrips() {
+        var original = ServerTransportConfig.builder()
+                .bindHost("127.0.0.1")
+                .port(5000)
+                .tls(Tls.systemTrust())
+                .build();
+
+        var derived = original.toBuilder().port(6000).build();
+
+        assertThat(derived.bindHost()).isEqualTo("127.0.0.1");
+        assertThat(derived.tls()).isEqualTo(Tls.systemTrust());
+        assertThat(derived.port()).isEqualTo(6000);
+        assertThat(original.port()).isEqualTo(5000);
     }
 
     @DisplayName("ServerTransportConfig rejects an out-of-range port")
@@ -82,10 +99,25 @@ class ConfigRecordsTest {
         assertThat(new RetryPolicy(3, Duration.ofMillis(50), Duration.ofSeconds(1)).maxAttempts()).isEqualTo(3);
     }
 
-    @DisplayName("Tls.Disabled and Tls.SystemTrust expose shared singletons")
+    @DisplayName("Tls factories expose shared singletons and build custom bundles")
     @Test
-    void tlsFamilyHasSharedInstances() {
-        assertThat(Tls.Disabled.instance()).isSameAs(Tls.Disabled.instance());
-        assertThat(Tls.SystemTrust.instance()).isSameAs(Tls.SystemTrust.instance());
+    void tlsFactoriesExposeSharedSingletonsAndBuildCustomBundles() {
+        assertThat(Tls.disabled()).isSameAs(Tls.disabled()).isInstanceOf(Tls.Disabled.class);
+        assertThat(Tls.systemTrust()).isSameAs(Tls.systemTrust()).isInstanceOf(Tls.SystemTrust.class);
+        assertThat(Tls.trust(java.nio.file.Path.of("ca.pem")))
+                .isEqualTo(new Tls.Custom(null, null, java.nio.file.Path.of("ca.pem")));
+        assertThat(Tls.custom(java.nio.file.Path.of("c"), java.nio.file.Path.of("k"), null))
+                .isEqualTo(new Tls.Custom(java.nio.file.Path.of("c"), java.nio.file.Path.of("k"), null));
+    }
+
+    @DisplayName("RetryPolicy.exponential builds a validated retrying policy")
+    @Test
+    void retryPolicyExponentialBuildsAValidatedRetryingPolicy() {
+        var policy = RetryPolicy.exponential(4, Duration.ofMillis(100), Duration.ofSeconds(2));
+        assertThat(policy.maxAttempts()).isEqualTo(4);
+        assertThat(policy.initialBackoff()).isEqualTo(Duration.ofMillis(100));
+        assertThat(policy.maxBackoff()).isEqualTo(Duration.ofSeconds(2));
+        assertThatThrownBy(() -> RetryPolicy.exponential(3, Duration.ofMillis(200), Duration.ofMillis(50)))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 }

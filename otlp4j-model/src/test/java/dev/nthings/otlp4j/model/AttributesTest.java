@@ -32,6 +32,41 @@ class AttributesTest {
         assertThat(attributes.size()).isEqualTo(5);
     }
 
+    @DisplayName("toBuilder pre-populates, then put adds and overrides")
+    @Test
+    void toBuilderPrePopulatesThenPutAddsAndOverrides() {
+        var base = Attributes.builder().put("keep", "v").put("override", "old").build();
+
+        var derived = base.toBuilder()
+                .put("override", "new")
+                .put("added", "x")
+                .build();
+
+        assertThat(derived.getString("keep")).isEqualTo("v");
+        assertThat(derived.getString("override")).isEqualTo("new");
+        assertThat(derived.getString("added")).isEqualTo("x");
+        assertThat(base.getString("override"))
+                .as("toBuilder must not mutate the source attributes")
+                .isEqualTo("old");
+    }
+
+    @DisplayName("putAll copies from Attributes and from a Map, overwriting keys")
+    @Test
+    void putAllCopiesFromAttributesAndFromAMapOverwritingKeys() {
+        var fromAttributes = Attributes.builder().put("a", "1").put("shared", "from-attrs").build();
+        var fromMap = Map.of("b", AttributeValue.of("2"), "shared", AttributeValue.of("from-map"));
+
+        var merged = Attributes.builder()
+                .put("shared", "original")
+                .putAll(fromAttributes)
+                .putAll(fromMap)
+                .build();
+
+        assertThat(merged.getString("a")).isEqualTo("1");
+        assertThat(merged.getString("b")).isEqualTo("2");
+        assertThat(merged.getString("shared")).isEqualTo("from-map");
+    }
+
     @DisplayName("builder preserves insertion order")
     @Test
     void builderPreservesInsertionOrder() {

@@ -11,6 +11,11 @@ public record LogsData(List<ResourceLogs> resourceLogs) {
         resourceLogs = List.copyOf(resourceLogs);
     }
 
+    /// Wraps `logRecords` under one `resource` and `scope`.
+    public static LogsData of(Resource resource, InstrumentationScope scope, List<LogRecord> logRecords) {
+        return new LogsData(List.of(new ResourceLogs(resource, "", List.of(new ScopeLogs(scope, "", logRecords)))));
+    }
+
     /// All log records across every resource and scope, flattened for convenient consumption.
     public List<LogRecord> logRecords() {
         return resourceLogs.stream()

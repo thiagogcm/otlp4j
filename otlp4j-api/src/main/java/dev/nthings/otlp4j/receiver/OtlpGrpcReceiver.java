@@ -45,15 +45,27 @@ public final class OtlpGrpcReceiver implements Receiver {
                 this::dispatchMetrics,
                 this::dispatchLogs,
                 this::dispatchProfiles);
-        this.server = SpiSupport.firstProvider(OtlpServerProvider.class).create(b.config, dispatchers);
-        if (b.traces != null)   traces.consume(b.traces);
-        if (b.metrics != null)  metrics.consume(b.metrics);
-        if (b.logs != null)     logs.consume(b.logs);
-        if (b.profiles != null) profiles.consume(b.profiles);
+        this.server = SpiSupport.firstProvider(OtlpServerProvider.class).create(b.config.build(), dispatchers);
+        if (b.traces != null)   traces.subscribe(b.traces);
+        if (b.metrics != null)  metrics.subscribe(b.metrics);
+        if (b.logs != null)     logs.subscribe(b.logs);
+        if (b.profiles != null) profiles.subscribe(b.profiles);
     }
 
     public static Builder builder() {
         return new Builder();
+    }
+
+    /// Builds — but does not [#start()] — a receiver bound to `port` on all interfaces. Mirrors the
+    /// exporter's [dev.nthings.otlp4j.exporter.OtlpGrpcExporter#to(String, int)] convenience; wire
+    /// consumers through the per-signal [Source]s, then call [#start()].
+    public static OtlpGrpcReceiver on(int port) {
+        return builder().port(port).build();
+    }
+
+    /// Builds — but does not [#start()] — a receiver bound to `bindHost:port`.
+    public static OtlpGrpcReceiver on(String bindHost, int port) {
+        return builder().endpoint(bindHost, port).build();
     }
 
     @Override
@@ -122,7 +134,7 @@ public final class OtlpGrpcReceiver implements Receiver {
     /// Builder for [OtlpGrpcReceiver]. Defaults bind `0.0.0.0:4317` with plaintext transport.
     public static final class Builder {
 
-        private ServerTransportConfig config = ServerTransportConfig.builder().build();
+        private ServerTransportConfig.Builder config = ServerTransportConfig.builder();
         private TraceConsumer    traces;
         private MetricConsumer   metrics;
         private LogConsumer      logs;
@@ -131,21 +143,18 @@ public final class OtlpGrpcReceiver implements Receiver {
         private Builder() {}
 
         public Builder transport(ServerTransportConfig config) {
-            this.config = config;
+            this.config = config.toBuilder();
             return this;
         }
 
         public Builder endpoint(String bindHost, int port) {
-            this.config = ServerTransportConfig.builder()
-                    .bindHost(bindHost)
-                    .port(port)
-                    .tls(this.config.tls())
-                    .build();
+            config.bindHost(bindHost).port(port);
             return this;
         }
 
         public Builder port(int port) {
-            return endpoint(config.bindHost(), port);
+            config.port(port);
+            return this;
         }
 
         public Builder ephemeralPort() {

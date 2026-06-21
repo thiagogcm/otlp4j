@@ -118,7 +118,7 @@ public final class BatchingProcessor<T> implements Consumer<T>, Pipeline.Flushab
         return ConsumeResult.acceptedStage();
     }
 
-    /// Item-count of currently dropped batches. Non-decreasing over the lifetime of the batcher.
+    /// Number of dropped batches (not telemetry items). Non-decreasing over the batcher's lifetime.
     public long droppedCount() {
         return drops.sum();
     }

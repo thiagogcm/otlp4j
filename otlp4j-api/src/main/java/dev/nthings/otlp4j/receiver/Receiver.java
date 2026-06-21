@@ -30,7 +30,8 @@ public interface Receiver extends AutoCloseable {
     /// The receiver's live side-channel.
     TelemetryTap tap();
 
-    /// Starts the underlying transport. Idempotent on a started receiver.
+    /// Starts the underlying transport and returns this receiver for chaining. Throws
+    /// [IllegalStateException] if the receiver has already been started.
     Receiver start();
 
     /// The port the receiver is bound to (gRPC, HTTP, etc.). Zero before [#start] completes.
@@ -42,8 +43,11 @@ public interface Receiver extends AutoCloseable {
     /// Forcibly stops the transport.
     CompletionStage<Void> shutdownNow();
 
+    /// Gracefully drains and stops the transport with a default 10-second timeout, matching the
+    /// `close()` semantics of [dev.nthings.otlp4j.exporter.OtlpGrpcExporter] and
+    /// [dev.nthings.otlp4j.pipeline.Subscription]. Use [#shutdownNow()] for an immediate stop.
     @Override
     default void close() {
-        shutdownNow().toCompletableFuture().join();
+        shutdown(Duration.ofSeconds(10)).toCompletableFuture().join();
     }
 }

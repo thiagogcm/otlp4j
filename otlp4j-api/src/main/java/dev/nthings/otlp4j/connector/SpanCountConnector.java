@@ -18,7 +18,7 @@ public final class SpanCountConnector implements TraceConsumer, Connector<TraceD
 
     private final MetricConsumer downstream;
 
-    public SpanCountConnector(MetricConsumer downstream) {
+    SpanCountConnector(MetricConsumer downstream) {
         this.downstream = Objects.requireNonNull(downstream, "downstream");
     }
 

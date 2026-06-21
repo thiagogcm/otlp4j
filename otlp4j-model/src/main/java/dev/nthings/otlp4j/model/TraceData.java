@@ -12,6 +12,11 @@ public record TraceData(List<ResourceSpans> resourceSpans) {
         resourceSpans = List.copyOf(resourceSpans);
     }
 
+    /// Wraps `spans` under one `resource` and `scope`.
+    public static TraceData of(Resource resource, InstrumentationScope scope, List<Span> spans) {
+        return new TraceData(List.of(new ResourceSpans(resource, "", List.of(new ScopeSpans(scope, "", spans)))));
+    }
+
     /// All spans across every resource and scope, flattened for convenient consumption.
     public List<Span> spans() {
         return resourceSpans.stream()
