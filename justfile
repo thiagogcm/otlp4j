@@ -87,6 +87,11 @@ native:
 jlink:
     {{ mvn }} {{ batch }} -pl {{ sample_module }} -am package -Pjlink
 
+# Update the opentelemetry-proto submodule and copy protos into the proto module.
+update-protos:
+    git submodule update --remote --force --init -- opentelemetry-proto
+    cp -r opentelemetry-proto/opentelemetry otlp4j-proto/src/main/proto/
+
 # Generate protobuf and gRPC sources.
 proto:
     {{ mvn }} {{ batch }} -pl otlp4j-proto -am generate-sources
