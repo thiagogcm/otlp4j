@@ -11,10 +11,13 @@ import dev.nthings.otlp4j.model.TraceData;
 import dev.nthings.otlp4j.pipeline.Telemetry;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.util.List;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+@DisplayName("Telemetry envelope")
 class TelemetryEnvelopeTest {
 
+    @DisplayName("Each Telemetry variant exposes its wrapped payload")
     @Test
     void everyVariantWrapsItsPayload() {
         var traces = Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER));
@@ -33,6 +36,7 @@ class TelemetryEnvelopeTest {
         assertThat(p.data()).isSameAs(profiles);
     }
 
+    @DisplayName("Sealed Telemetry switches exhaustively over all variants")
     @Test
     void sealedExhaustiveSwitch() {
         List<Telemetry> items = List.of(

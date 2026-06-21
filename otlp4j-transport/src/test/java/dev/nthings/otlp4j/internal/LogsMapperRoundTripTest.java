@@ -10,12 +10,14 @@ import dev.nthings.otlp4j.testing.Fixtures;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
 /// Mapper-unit round-trip coverage for [LogsMapper]: log records with different body variants
 /// and trace/span ids present and empty.
+@DisplayName("LogsMapper round-trips")
 class LogsMapperRoundTripTest {
 
     static Stream<LogRecord> logRecordVariants() {
@@ -53,6 +55,7 @@ class LogsMapperRoundTripTest {
                         .build());
     }
 
+    @DisplayName("Every LogRecord body and id variant round-trips through LogsMapper")
     @ParameterizedTest
     @MethodSource("logRecordVariants")
     void roundTripsLogRecordVariants(LogRecord record) {
@@ -62,6 +65,7 @@ class LogsMapperRoundTripTest {
                 .isEqualTo(sent);
     }
 
+    @DisplayName("Empty LogsData round-trips through LogsMapper")
     @Test
     void roundTripsAnEmptyLogsData() {
         var sent = new LogsData(List.of());

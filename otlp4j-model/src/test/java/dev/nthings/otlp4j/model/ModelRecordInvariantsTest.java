@@ -15,14 +15,17 @@ import dev.nthings.otlp4j.model.TraceData.ScopeSpans;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.OptionalDouble;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /// White-box tests pinning the model records' real logic: flattening across resources/scopes,
 /// defensive list copying in the compact constructors, and the documented constants.
+@DisplayName("Model record invariants")
 class ModelRecordInvariantsTest {
 
     // --- flattening across resources/scopes -------------------------------------------------
 
+    @DisplayName("TraceData.spans flattens across every resource and scope")
     @Test
     void traceDataSpansFlattensAcrossEveryResourceAndScope() {
         var trace = new TraceData(List.of(
@@ -36,6 +39,7 @@ class ModelRecordInvariantsTest {
         assertThat(trace.spans()).extracting(Span::name).containsExactly("a", "b", "c", "d");
     }
 
+    @DisplayName("MetricsData.metrics flattens across every resource and scope")
     @Test
     void metricsDataMetricsFlattensAcrossEveryResourceAndScope() {
         var metrics = new MetricsData(List.of(
@@ -48,6 +52,7 @@ class ModelRecordInvariantsTest {
         assertThat(metrics.metrics()).extracting(Metric::name).containsExactly("m1", "m2", "m3");
     }
 
+    @DisplayName("LogsData.logRecords flattens across every resource and scope")
     @Test
     void logsDataLogRecordsFlattensAcrossEveryResourceAndScope() {
         var logs = new LogsData(List.of(
@@ -62,6 +67,7 @@ class ModelRecordInvariantsTest {
                 .containsExactly("first", "second", "third");
     }
 
+    @DisplayName("ProfilesData.profiles flattens across every resource and scope")
     @Test
     void profilesDataProfilesFlattensAcrossEveryResourceAndScope() {
         var profiles = new ProfilesData(List.of(
@@ -78,6 +84,7 @@ class ModelRecordInvariantsTest {
 
     // --- defensive list copying in compact constructors -------------------------------------
 
+    @DisplayName("TraceData defensively copies its ResourceSpans list")
     @Test
     void traceDataDefensivelyCopiesItsResourceSpansList() {
         var source = new ArrayList<ResourceSpans>();
@@ -90,6 +97,7 @@ class ModelRecordInvariantsTest {
                 .isInstanceOf(UnsupportedOperationException.class);
     }
 
+    @DisplayName("Span defensively copies its events and links lists")
     @Test
     void spanDefensivelyCopiesItsEventsAndLinksLists() {
         var events = new ArrayList<Span.Event>();
@@ -107,6 +115,7 @@ class ModelRecordInvariantsTest {
                 .isInstanceOf(UnsupportedOperationException.class);
     }
 
+    @DisplayName("Metric data kinds defensively copy their point lists")
     @Test
     void metricPointBearingDataKindsDefensivelyCopyTheirPointLists() {
         var numberPoints = new ArrayList<NumberPoint>();
@@ -136,6 +145,7 @@ class ModelRecordInvariantsTest {
         assertThat(summary.points()).isEmpty();
     }
 
+    @DisplayName("HistogramPoint defensively copies its bucket and bound lists")
     @Test
     void histogramPointDefensivelyCopiesItsBucketAndBoundLists() {
         var bucketCounts = new ArrayList<Long>(List.of(1L, 2L));
@@ -153,6 +163,7 @@ class ModelRecordInvariantsTest {
                 .isInstanceOf(UnsupportedOperationException.class);
     }
 
+    @DisplayName("ExponentialHistogramPoint.Buckets defensively copies its counts list")
     @Test
     void exponentialHistogramBucketsDefensivelyCopiesItsCountsList() {
         var counts = new ArrayList<Long>(List.of(1L, 2L, 3L));
@@ -165,6 +176,7 @@ class ModelRecordInvariantsTest {
                 .isInstanceOf(UnsupportedOperationException.class);
     }
 
+    @DisplayName("SummaryPoint defensively copies its quantile list")
     @Test
     void summaryPointDefensivelyCopiesItsQuantileList() {
         var quantiles = new ArrayList<SummaryPoint.Quantile>();
@@ -180,6 +192,7 @@ class ModelRecordInvariantsTest {
 
     // --- documented constants ---------------------------------------------------------------
 
+    @DisplayName("Documented constants expose their empty or unset values")
     @Test
     void documentedConstantsExposeTheirEmptyOrUnsetValues() {
         assertThat(Resource.EMPTY.attributes()).isEqualTo(Attributes.empty());

@@ -5,12 +5,15 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /// Unit tests for [Attributes] — the builder overloads, the [Attributes#of(Map)] copy/order/
 /// empty-singleton contract, and every accessor including the `getString` type-mismatch path.
+@DisplayName("Attributes")
 class AttributesTest {
 
+    @DisplayName("builder supports every put overload")
     @Test
     void builderSupportsEveryPutOverload() {
         var attributes = Attributes.builder()
@@ -29,6 +32,7 @@ class AttributesTest {
         assertThat(attributes.size()).isEqualTo(5);
     }
 
+    @DisplayName("builder preserves insertion order")
     @Test
     void builderPreservesInsertionOrder() {
         var attributes = Attributes.builder()
@@ -40,6 +44,7 @@ class AttributesTest {
         assertThat(attributes.keys()).containsExactly("z", "a", "m");
     }
 
+    @DisplayName("of(Map) copies its input so later mutation does not leak in")
     @Test
     void ofMapCopiesItsInputSoLaterMutationDoesNotLeakIn() {
         var source = new LinkedHashMap<String, AttributeValue>();
@@ -52,6 +57,7 @@ class AttributesTest {
         assertThat(attributes.keys()).containsExactly("key");
     }
 
+    @DisplayName("of(Map) preserves iteration order")
     @Test
     void ofMapPreservesIterationOrder() {
         var source = new LinkedHashMap<String, AttributeValue>();
@@ -62,6 +68,7 @@ class AttributesTest {
         assertThat(Attributes.of(source).keys()).containsExactly("third", "first", "second");
     }
 
+    @DisplayName("of(empty Map) short-circuits to the EMPTY singleton")
     @Test
     void ofEmptyMapShortCircuitsToTheEmptySingleton() {
         assertThat(Attributes.of(Map.of()))
@@ -69,6 +76,7 @@ class AttributesTest {
                 .isSameAs(Attributes.empty());
     }
 
+    @DisplayName("get returns the value when present, null otherwise")
     @Test
     void getReturnsTheValueWhenTheKeyExistsAndNullOtherwise() {
         var attributes = Attributes.builder().put("present", "yes").build();
@@ -77,6 +85,7 @@ class AttributesTest {
         assertThat(attributes.get("absent")).isNull();
     }
 
+    @DisplayName("getString returns null for absent or non-string values")
     @Test
     void getStringReturnsTheStringWhenPresentAndNullWhenAbsentOrNotAString() {
         var attributes = Attributes.builder()
@@ -91,6 +100,7 @@ class AttributesTest {
                 .isNull();
     }
 
+    @DisplayName("contains reflects key presence")
     @Test
     void containsReflectsKeyPresence() {
         var attributes = Attributes.builder().put("here", "v").build();
@@ -99,6 +109,7 @@ class AttributesTest {
         assertThat(attributes.contains("missing")).isFalse();
     }
 
+    @DisplayName("asMap returns an unmodifiable view")
     @Test
     void asMapReturnsAnUnmodifiableView() {
         var attributes = Attributes.builder().put("k", "v").build();
@@ -108,6 +119,7 @@ class AttributesTest {
         assertThat(attributes.asMap()).containsEntry("k", AttributeValue.of("v"));
     }
 
+    @DisplayName("size and isEmpty reflect contents")
     @Test
     void sizeAndIsEmptyReflectContents() {
         assertThat(Attributes.empty().isEmpty()).isTrue();
@@ -118,6 +130,7 @@ class AttributesTest {
         assertThat(populated.size()).isEqualTo(2);
     }
 
+    @DisplayName("equals and hashCode are content-based")
     @Test
     void equalsAndHashCodeAreContentBased() {
         var a = Attributes.builder().put("k", "v").build();
@@ -128,6 +141,7 @@ class AttributesTest {
         assertThat(a).isNotEqualTo("not attributes");
     }
 
+    @DisplayName("toString includes the underlying map")
     @Test
     void toStringIncludesTheUnderlyingMap() {
         assertThat(Attributes.builder().put("k", "v").build().toString())
@@ -135,6 +149,7 @@ class AttributesTest {
                 .contains("k");
     }
 
+    @DisplayName("empty singleton has no keys and returns null on get")
     @Test
     void keysReflectsAbsenceForTheEmptySingleton() {
         assertThat(Attributes.empty().keys()).isEmpty();

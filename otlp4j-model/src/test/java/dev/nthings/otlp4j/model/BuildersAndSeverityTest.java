@@ -3,16 +3,19 @@ package dev.nthings.otlp4j.model;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
 /// Unit tests for the [Span], [LogRecord] and [Metric] builders' defaults and list semantics,
 /// plus exhaustive enumeration of [LogRecord.Severity] number round-tripping.
+@DisplayName("Builders and LogRecord.Severity")
 class BuildersAndSeverityTest {
 
     // --- Span.builder -----------------------------------------------------------------------
 
+    @DisplayName("Span.builder defaults every field to empty or zero")
     @Test
     void spanBuilderDefaultsEveryFieldToItsEmptyOrZeroValue() {
         var span = Span.builder().build();
@@ -35,6 +38,7 @@ class BuildersAndSeverityTest {
         assertThat(span.status()).isEqualTo(Span.Status.UNSET);
     }
 
+    @DisplayName("Span.builder events(List) replaces while addEvent appends")
     @Test
     void spanBuilderEventsListReplacesWhileAddEventAppends() {
         var first = new Span.Event(1L, "first", Attributes.empty(), 0);
@@ -52,6 +56,7 @@ class BuildersAndSeverityTest {
                 .containsExactly(second, third);
     }
 
+    @DisplayName("Span.builder links(List) replaces while addLink appends")
     @Test
     void spanBuilderLinksListReplacesWhileAddLinkAppends() {
         var first = new Span.Link("t1", "s1", "", Attributes.empty(), 0, 0L);
@@ -67,6 +72,7 @@ class BuildersAndSeverityTest {
         assertThat(span.links()).containsExactly(second, third);
     }
 
+    @DisplayName("Span.builder retains every set field")
     @Test
     void spanBuilderRetainsEverySetField() {
         var span = Span.builder()
@@ -94,6 +100,7 @@ class BuildersAndSeverityTest {
 
     // --- LogRecord.builder ------------------------------------------------------------------
 
+    @DisplayName("LogRecord.builder defaults every field to empty or zero")
     @Test
     void logRecordBuilderDefaultsEveryFieldToItsEmptyOrZeroValue() {
         var record = LogRecord.builder().build();
@@ -111,6 +118,7 @@ class BuildersAndSeverityTest {
         assertThat(record.eventName()).isEmpty();
     }
 
+    @DisplayName("LogRecord.builder body(String) wraps in a StringValue")
     @Test
     void logRecordBuilderBodyStringOverloadWrapsInAStringValue() {
         var record = LogRecord.builder().body("hello").build();
@@ -118,6 +126,7 @@ class BuildersAndSeverityTest {
         assertThat(record.body()).isEqualTo(AttributeValue.of("hello"));
     }
 
+    @DisplayName("LogRecord.builder retains every set field")
     @Test
     void logRecordBuilderRetainsEverySetField() {
         var record = LogRecord.builder()
@@ -141,6 +150,7 @@ class BuildersAndSeverityTest {
 
     // --- Metric.builder ---------------------------------------------------------------------
 
+    @DisplayName("Metric.builder defaults text fields empty and metadata to empty Attributes")
     @Test
     void metricBuilderDefaultsTextFieldsToEmptyAndMetadataToEmptyAttributes() {
         var data = new Metric.Gauge(List.of());
@@ -153,6 +163,7 @@ class BuildersAndSeverityTest {
         assertThat(metric.data()).isSameAs(data);
     }
 
+    @DisplayName("Metric.builder retains every set field")
     @Test
     void metricBuilderRetainsEverySetField() {
         var metadata = Attributes.builder().put("k", "v").build();
@@ -173,12 +184,14 @@ class BuildersAndSeverityTest {
 
     // --- LogRecord.Severity -----------------------------------------------------------------
 
+    @DisplayName("Severity.fromNumber round-trips every constant")
     @ParameterizedTest
     @EnumSource(LogRecord.Severity.class)
     void severityFromNumberRoundTripsEveryConstant(LogRecord.Severity severity) {
         assertThat(LogRecord.Severity.fromNumber(severity.number())).isEqualTo(severity);
     }
 
+    @DisplayName("Severity.fromNumber falls back to UNSPECIFIED out of range")
     @Test
     void severityFromNumberFallsBackToUnspecifiedForOutOfRangeNumbers() {
         assertThat(LogRecord.Severity.fromNumber(-1)).isEqualTo(LogRecord.Severity.UNSPECIFIED);
@@ -187,6 +200,7 @@ class BuildersAndSeverityTest {
                 .isEqualTo(LogRecord.Severity.UNSPECIFIED);
     }
 
+    @DisplayName("Severity numbers cover the contiguous 0 to 24 range")
     @Test
     void severityNumbersCoverTheContiguousZeroToTwentyFourRange() {
         assertThat(LogRecord.Severity.values()).hasSize(25);

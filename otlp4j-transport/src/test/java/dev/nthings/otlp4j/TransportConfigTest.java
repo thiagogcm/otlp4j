@@ -36,6 +36,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
@@ -45,6 +46,7 @@ import org.junit.jupiter.api.Timeout;
 /// Header/compression/retry tests point an exporter at a bare gRPC server with a capturing or
 /// flaky interceptor; TLS is exercised end-to-end through the real receiver and exporter.
 @Timeout(30)
+@DisplayName("OTLP/gRPC transport config")
 class TransportConfigTest {
 
     private static final Metadata.Key<String> API_KEY =
@@ -78,6 +80,7 @@ class TransportConfigTest {
         }
     }
 
+    @DisplayName("Attaches configured headers to the request")
     @Test
     void attachesConfiguredHeaders() {
         var capture = new CapturingInterceptor();
@@ -93,6 +96,7 @@ class TransportConfigTest {
         assertThat(capture.headers.get().get(API_KEY)).isEqualTo("secret");
     }
 
+    @DisplayName("Requests gzip compression when configured")
     @Test
     void requestsGzipCompressionWhenConfigured() {
         var capture = new CapturingInterceptor();
@@ -107,6 +111,7 @@ class TransportConfigTest {
         assertThat(capture.headers.get().get(GRPC_ENCODING)).isEqualTo("gzip");
     }
 
+    @DisplayName("Does not compress by default")
     @Test
     void doesNotCompressByDefault() {
         var capture = new CapturingInterceptor();
@@ -118,6 +123,7 @@ class TransportConfigTest {
         assertThat(capture.headers.get().get(GRPC_ENCODING)).isNotEqualTo("gzip");
     }
 
+    @DisplayName("Retries retryable server errors until success")
     @Test
     void retriesRetryableServerErrors() {
         var flaky = new FlakyInterceptor(2); // first two attempts fail, third succeeds
@@ -134,6 +140,7 @@ class TransportConfigTest {
         assertThat(flaky.calls.get()).isEqualTo(3);
     }
 
+    @DisplayName("Does not retry when no RetryPolicy is set")
     @Test
     void doesNotRetryWhenPolicyDisabled() {
         var flaky = new FlakyInterceptor(1); // fails the only attempt
@@ -148,6 +155,7 @@ class TransportConfigTest {
         assertThat(flaky.calls.get()).isEqualTo(1);
     }
 
+    @DisplayName("Round-trips TraceData over custom TLS")
     @Test
     void roundTripsOverTls() {
         var received = new AtomicReference<TraceData>();
@@ -168,6 +176,7 @@ class TransportConfigTest {
         assertThat(received.get()).isEqualTo(sent);
     }
 
+    @DisplayName("Plaintext client fails against a TLS server")
     @Test
     void plaintextClientFailsAgainstTlsServer() {
         var receiver = startReceiver(serverTls(),
@@ -181,6 +190,7 @@ class TransportConfigTest {
                 .isInstanceOf(CompletionException.class);
     }
 
+    @DisplayName("Builds a client exporter with SystemTrust TLS")
     @Test
     void buildsClientWithSystemTrustTls() {
         // SystemTrust uses the JVM default trust store; the channel connects lazily, so building
@@ -195,6 +205,7 @@ class TransportConfigTest {
         }
     }
 
+    @DisplayName("Rejects SystemTrust TLS for a server")
     @Test
     void rejectsSystemTrustForServer() {
         var receiver = OtlpGrpcReceiver.builder()

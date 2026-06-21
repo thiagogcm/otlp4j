@@ -9,14 +9,17 @@ import dev.nthings.otlp4j.model.NumberPoint;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.util.List;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
 /// Pins the number mapping between domain enums and generated proto enums.
 ///
 /// Every mapped constant round-trips so enum reordering or insertion fails here.
+@DisplayName("Enum number-mapping contract")
 class EnumPinningContractTest {
 
+    @DisplayName("Every Span.Kind round-trips through TraceMapper")
     @ParameterizedTest
     @EnumSource(Span.Kind.class)
     void everySpanKindRoundTripsThroughTheTraceMapper(Span.Kind kind) {
@@ -35,6 +38,7 @@ class EnumPinningContractTest {
                 .isEqualTo(kind);
     }
 
+    @DisplayName("Every Span.Status.Code round-trips through TraceMapper")
     @ParameterizedTest
     @EnumSource(Span.Status.Code.class)
     void everyStatusCodeRoundTripsThroughTheTraceMapper(Span.Status.Code code) {
@@ -54,6 +58,7 @@ class EnumPinningContractTest {
                 .isEqualTo(code);
     }
 
+    @DisplayName("Every Metric.AggregationTemporality round-trips through MetricsMapper")
     @ParameterizedTest
     @EnumSource(Metric.AggregationTemporality.class)
     void everyAggregationTemporalityRoundTripsThroughTheMetricsMapper(
@@ -75,6 +80,7 @@ class EnumPinningContractTest {
                 .isEqualTo(temporality);
     }
 
+    @DisplayName("Every LogRecord.Severity round-trips through LogsMapper")
     @ParameterizedTest
     @EnumSource(LogRecord.Severity.class)
     void everyLogSeverityRoundTripsThroughTheLogsMapper(LogRecord.Severity severity) {

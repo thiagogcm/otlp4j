@@ -2,6 +2,7 @@ package dev.nthings.otlp4j.samples;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
@@ -9,8 +10,10 @@ import org.junit.jupiter.api.Timeout;
 ///
 /// This also proves runtime transport discovery through the service-provider interface.
 @Timeout(30)
+@DisplayName("OTLP end-to-end demo")
 class OtlpE2eDemoTest {
 
+    @DisplayName("demo filters spans, derives count, and enriches the resource")
     @Test
     void demoTraversesTheFullPipeline() throws Exception {
         var result = OtlpE2eDemo.run();

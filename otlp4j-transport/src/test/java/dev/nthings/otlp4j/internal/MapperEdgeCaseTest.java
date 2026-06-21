@@ -18,11 +18,14 @@ import io.opentelemetry.proto.collector.trace.v1.ExportTracePartialSuccess;
 import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceResponse;
 import java.util.List;
 import java.util.OptionalDouble;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /// White-box unit tests for mapper behaviour that the round-trip properties cannot express.
+@DisplayName("Mapper edge cases")
 class MapperEdgeCaseTest {
 
+    @DisplayName("ExponentialHistogram bucket offset survives round-trip with empty counts")
     @Test
     void exponentialHistogramBucketOffsetSurvivesRoundTripWhenCountsAreEmpty() {
         var point = new ExponentialHistogramPoint(
@@ -50,6 +53,7 @@ class MapperEdgeCaseTest {
         assertThat(roundTripped).isEqualTo(sent);
     }
 
+    @DisplayName("Metric with no data maps back to null data")
     @Test
     void aMetricWithNoDataMapsBackToNull() {
         var sent = Fixtures.metricsData(Metric.builder().name("placeholder.metric").build());
@@ -60,6 +64,7 @@ class MapperEdgeCaseTest {
         assertThat(roundTripped.data()).isNull();
     }
 
+    @DisplayName("ProfilesMapper drops sampleCount but preserves metadata")
     @Test
     void profilesMapperDropsSampleCountButPreservesMetadata() {
         var sent = TransportFixtures.profiles(
@@ -76,6 +81,7 @@ class MapperEdgeCaseTest {
         assertThat(roundTripped.originalPayloadFormat()).isEqualTo("pprof");
     }
 
+    @DisplayName("TraceMapper.result reads rejected count and message from partial_success")
     @Test
     void traceResultReadsThePartialSuccessFields() {
         var response = ExportTraceServiceResponse.newBuilder()
@@ -92,12 +98,14 @@ class MapperEdgeCaseTest {
         assertThat(p.message()).isEqualTo("2 spans malformed");
     }
 
+    @DisplayName("TraceMapper.result with no partial_success is Accepted")
     @Test
     void traceResultWithNoPartialSuccessIsAccepted() {
         assertThat(TraceMapper.result(ExportTraceServiceResponse.getDefaultInstance()))
                 .isInstanceOf(ConsumeResult.Accepted.class);
     }
 
+    @DisplayName("LogsMapper.result maps partial_success to Accepted, Partial, or Rejected")
     @Test
     void logsResultDecisionTable() {
         assertThat(LogsMapper.result(ExportLogsServiceResponse.getDefaultInstance()))
@@ -129,6 +137,7 @@ class MapperEdgeCaseTest {
         assertThat(r.message()).isEqualTo("log warning");
     }
 
+    @DisplayName("TraceMapper.result with empty partial_success block is Accepted")
     @Test
     void traceResultWithAnEmptyPartialSuccessBlockIsAccepted() {
         var response = ExportTraceServiceResponse.newBuilder()
@@ -137,6 +146,7 @@ class MapperEdgeCaseTest {
         assertThat(TraceMapper.result(response)).isInstanceOf(ConsumeResult.Accepted.class);
     }
 
+    @DisplayName("TraceMapper.result with message only and zero count is Rejected")
     @Test
     void traceResultWithAMessageOnlyIsRejected() {
         var response = ExportTraceServiceResponse.newBuilder()
@@ -149,6 +159,7 @@ class MapperEdgeCaseTest {
         assertThat(((ConsumeResult.Rejected<?>) result).message()).isEqualTo("warning: clock skew detected");
     }
 
+    @DisplayName("MetricsMapper.result maps partial_success to Accepted, Partial, or Rejected")
     @Test
     void metricsResultDecisionTable() {
         assertThat(MetricsMapper.result(ExportMetricsServiceResponse.getDefaultInstance()))
@@ -176,6 +187,7 @@ class MapperEdgeCaseTest {
         assertThat(messageOnly).isInstanceOf(ConsumeResult.Rejected.class);
     }
 
+    @DisplayName("ProfilesMapper.result maps partial_success to Accepted, Partial, or Rejected")
     @Test
     void profilesResultDecisionTable() {
         assertThat(ProfilesMapper.result(ExportProfilesServiceResponse.getDefaultInstance()))
@@ -202,6 +214,7 @@ class MapperEdgeCaseTest {
         assertThat(messageOnly).isInstanceOf(ConsumeResult.Rejected.class);
     }
 
+    @DisplayName("ProfilesMapper preserves every scalar metadata field except sampleCount")
     @Test
     void profilesMapperPreservesEveryScalarMetadataFieldExceptSampleCount() {
         var sent = TransportFixtures.profiles(new ProfilesData.Profile(

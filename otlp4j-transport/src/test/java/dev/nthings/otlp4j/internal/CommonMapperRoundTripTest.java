@@ -11,6 +11,7 @@ import io.opentelemetry.proto.common.v1.AnyValue;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -18,6 +19,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 /// Exhaustive mapper-unit round-trip coverage for [CommonMapper] — every `AttributeValue`
 /// variant (including nested and empty), the `Attributes` short-circuit, the id hex helpers and
 /// the resource/scope mappers, all with no gRPC layer in the loop.
+@DisplayName("CommonMapper round-trips")
 class CommonMapperRoundTripTest {
 
     static Stream<AttributeValue> everyAttributeValueVariant() {
@@ -42,6 +44,7 @@ class CommonMapperRoundTripTest {
                         Map.of("bytes", AttributeValue.of(new byte[] {9, 8, 7}))))));
     }
 
+    @DisplayName("Every AttributeValue variant round-trips through CommonMapper")
     @ParameterizedTest
     @MethodSource("everyAttributeValueVariant")
     void roundTripsEveryAttributeValueVariant(AttributeValue value) {
@@ -50,12 +53,14 @@ class CommonMapperRoundTripTest {
                 .isEqualTo(value);
     }
 
+    @DisplayName("Empty AttributeValue maps to the default AnyValue instance")
     @Test
     void toAnyValueOfEmptyMapsToTheDefaultAnyValueInstance() {
         assertThat(CommonMapper.toAnyValue(AttributeValue.empty()))
                 .isEqualTo(AnyValue.getDefaultInstance());
     }
 
+    @DisplayName("VALUE_NOT_SET AnyValue decodes to AttributeValue.empty")
     @Test
     void valueNotSetAnyValueDecodesToEmpty() {
         // An AnyValue with no oneof case set is VALUE_NOT_SET.
@@ -64,6 +69,7 @@ class CommonMapperRoundTripTest {
                 .isEqualTo(AttributeValue.empty());
     }
 
+    @DisplayName("Empty KeyValue list short-circuits to the shared Attributes.empty")
     @Test
     void emptyAttributesShortCircuitsToTheSharedEmptyInstance() {
         var keyValues = CommonMapper.toKeyValues(Attributes.empty());
@@ -73,6 +79,7 @@ class CommonMapperRoundTripTest {
                 .isEqualTo(Attributes.empty());
     }
 
+    @DisplayName("Populated Attributes round-trip through CommonMapper")
     @Test
     void populatedAttributesRoundTrip() {
         var attributes = Attributes.builder()
@@ -85,6 +92,7 @@ class CommonMapperRoundTripTest {
                 .isEqualTo(attributes);
     }
 
+    @DisplayName("Empty id round-trips through the hex and bytes helpers")
     @Test
     void hexAndBytesRoundTripAnEmptyId() {
         assertThat(CommonMapper.hex(ByteString.EMPTY)).isEmpty();
@@ -92,6 +100,7 @@ class CommonMapperRoundTripTest {
         assertThat(CommonMapper.hex(CommonMapper.bytes(""))).isEmpty();
     }
 
+    @DisplayName("Lowercase-hex id round-trips through the hex and bytes helpers")
     @Test
     void hexAndBytesRoundTripALowercaseHexId() {
         var id = "0102030405060708090a0b0c0d0e0f10";
@@ -100,6 +109,7 @@ class CommonMapperRoundTripTest {
                 .isEqualTo(id);
     }
 
+    @DisplayName("Populated Resource round-trips through CommonMapper")
     @Test
     void resourceRoundTrips() {
         var resource = new Resource(
@@ -108,12 +118,14 @@ class CommonMapperRoundTripTest {
                 .isEqualTo(resource);
     }
 
+    @DisplayName("Resource.EMPTY round-trips through CommonMapper")
     @Test
     void emptyResourceRoundTrips() {
         assertThat(CommonMapper.resource(CommonMapper.toProtoResource(Resource.EMPTY)))
                 .isEqualTo(Resource.EMPTY);
     }
 
+    @DisplayName("Populated InstrumentationScope round-trips through CommonMapper")
     @Test
     void scopeRoundTrips() {
         var scope = new InstrumentationScope(
@@ -121,6 +133,7 @@ class CommonMapperRoundTripTest {
         assertThat(CommonMapper.scope(CommonMapper.toProtoScope(scope))).isEqualTo(scope);
     }
 
+    @DisplayName("InstrumentationScope.EMPTY round-trips through CommonMapper")
     @Test
     void emptyScopeRoundTrips() {
         assertThat(CommonMapper.scope(CommonMapper.toProtoScope(InstrumentationScope.EMPTY)))

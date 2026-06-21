@@ -11,10 +11,13 @@ import dev.nthings.otlp4j.receiver.internal.SignalSource;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+@DisplayName("SignalSource")
 class SignalSourceTest {
 
+    @DisplayName("dispatch returns Accepted when no consumer is attached")
     @Test
     void dispatchWithoutConsumerReturnsAccepted() {
         var source = new SignalSource<>(TraceData.class);
@@ -23,6 +26,7 @@ class SignalSourceTest {
         assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
     }
 
+    @DisplayName("dispatch invokes the attached consumer once per batch")
     @Test
     void dispatchInvokesAttachedConsumer() {
         var source = new SignalSource<>(TraceData.class);
@@ -41,6 +45,7 @@ class SignalSourceTest {
         assertThat(hits.get()).isEqualTo(2);
     }
 
+    @DisplayName("consume rejects a second concurrent subscription")
     @Test
     void doubleConsumeRejected() {
         var source = new SignalSource<>(TraceData.class);
@@ -53,6 +58,7 @@ class SignalSourceTest {
         }
     }
 
+    @DisplayName("dispatch propagates exceptions thrown by the consumer")
     @Test
     void dispatchPropagatesConsumerException() {
         var source = new SignalSource<>(TraceData.class);

@@ -17,10 +17,13 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+@DisplayName("Pipeline")
 class PipelineTest {
 
+    @DisplayName("Transform and filter stages apply in declared order")
     @Test
     void transformAndFilterApplyInOrder() {
         var source = new SignalSource<>(TraceData.class);
@@ -49,6 +52,7 @@ class PipelineTest {
                 .isInstanceOf(AttributeValue.StringValue.class);
     }
 
+    @DisplayName("branch() fans out each item to every peer consumer")
     @Test
     void branchFansOutToEveryPeer() {
         var source = new SignalSource<>(TraceData.class);
@@ -75,6 +79,7 @@ class PipelineTest {
         assertThat(b.get()).isEqualTo(1);
     }
 
+    @DisplayName("Exceptions thrown by a tap do not break the main path")
     @Test
     void tapErrorsDoNotAffectMainPath() {
         var source = new SignalSource<>(TraceData.class);
@@ -98,6 +103,7 @@ class PipelineTest {
         }
     }
 
+    @DisplayName("Shutting down the Subscription detaches the consumer")
     @Test
     void closingSubscriptionDetachesConsumer() {
         var source = new SignalSource<>(TraceData.class);

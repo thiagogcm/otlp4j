@@ -24,10 +24,13 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+@DisplayName("BatchingProcessor edge cases")
 class BatchingEdgesTest {
 
+    @DisplayName("BLOCK drop policy eventually delivers every span")
     @Test
     void blockPolicyEventuallyDeliversAllBatches() {
         var captured = new CopyOnWriteArrayList<TraceData>();
@@ -53,6 +56,7 @@ class BatchingEdgesTest {
         assertThat(captured).isNotEmpty();
     }
 
+    @DisplayName("shutdown is idempotent across repeated calls")
     @Test
     void shutdownIsIdempotent() {
         TraceConsumer downstream = traces -> ConsumeResult.acceptedStage();
@@ -66,6 +70,7 @@ class BatchingEdgesTest {
         batcher.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
     }
 
+    @DisplayName("queued reflects buffered items while downstream stalls")
     @Test
     void queuedReflectsBufferSize() {
         TraceConsumer slow = traces -> new CompletableFuture<>();
@@ -81,6 +86,7 @@ class BatchingEdgesTest {
         }
     }
 
+    @DisplayName("Every per-signal factory flushes at the batch-size threshold")
     @Test
     void everyPerSignalFactoryFlushesAtThreshold() {
         var traceCaptured = new AtomicReference<TraceData>();
@@ -125,6 +131,7 @@ class BatchingEdgesTest {
         }
     }
 
+    @DisplayName("External scheduler drives age-based flush and is not shut down")
     @Test
     void externalSchedulerIsHonoured() {
         ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();

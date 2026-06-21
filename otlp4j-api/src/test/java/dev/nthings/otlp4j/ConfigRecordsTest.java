@@ -9,10 +9,13 @@ import dev.nthings.otlp4j.spi.RetryPolicy;
 import dev.nthings.otlp4j.spi.ServerTransportConfig;
 import dev.nthings.otlp4j.spi.Tls;
 import java.time.Duration;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+@DisplayName("Transport config records")
 class ConfigRecordsTest {
 
+    @DisplayName("ClientTransportConfig builder applies sensible defaults")
     @Test
     void clientConfigDefaults() {
         var c = ClientTransportConfig.builder().build();
@@ -25,6 +28,7 @@ class ConfigRecordsTest {
         assertThat(c.headers()).isEmpty();
     }
 
+    @DisplayName("ClientTransportConfig builder applies fluent overrides")
     @Test
     void clientConfigBuilderFluentOverrides() {
         var c = ClientTransportConfig.builder()
@@ -40,12 +44,14 @@ class ConfigRecordsTest {
         assertThat(c.timeout()).isEqualTo(Duration.ofSeconds(3));
     }
 
+    @DisplayName("ClientTransportConfig rejects a zero timeout")
     @Test
     void clientConfigRejectsZeroTimeout() {
         assertThatThrownBy(() -> ClientTransportConfig.builder().timeout(Duration.ZERO).build())
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    @DisplayName("ServerTransportConfig builder applies sensible defaults")
     @Test
     void serverConfigDefaults() {
         var c = ServerTransportConfig.builder().build();
@@ -54,12 +60,14 @@ class ConfigRecordsTest {
         assertThat(c.tls()).isEqualTo(Tls.Disabled.instance());
     }
 
+    @DisplayName("ServerTransportConfig rejects an out-of-range port")
     @Test
     void serverConfigRejectsBadPort() {
         assertThatThrownBy(() -> ServerTransportConfig.builder().port(70000).build())
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    @DisplayName("RetryPolicy rejects invalid backoffs and accepts ordered ones")
     @Test
     void retryPolicyValidates() {
         assertThatThrownBy(() -> new RetryPolicy(0, Duration.ZERO, Duration.ZERO))
@@ -74,6 +82,7 @@ class ConfigRecordsTest {
         assertThat(new RetryPolicy(3, Duration.ofMillis(50), Duration.ofSeconds(1)).maxAttempts()).isEqualTo(3);
     }
 
+    @DisplayName("Tls.Disabled and Tls.SystemTrust expose shared singletons")
     @Test
     void tlsFamilyHasSharedInstances() {
         assertThat(Tls.Disabled.instance()).isSameAs(Tls.Disabled.instance());

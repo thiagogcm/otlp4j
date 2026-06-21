@@ -9,10 +9,13 @@ import dev.nthings.otlp4j.pipeline.TraceConsumer;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+@DisplayName("FanOut")
 class FanOutTest {
 
+    @DisplayName("consume() delivers the batch to every peer consumer")
     @Test
     void deliversToEveryPeer() {
         var hits = new AtomicInteger();
@@ -26,6 +29,7 @@ class FanOutTest {
         assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
     }
 
+    @DisplayName("One failing peer still produces a merged Rejected result")
     @Test
     void onePeerFailureDoesNotBlockOthers() {
         TraceConsumer healthy = traces -> ConsumeResult.acceptedStage();
@@ -35,6 +39,7 @@ class FanOutTest {
         assertThat(result).isInstanceOf(ConsumeResult.Rejected.class);
     }
 
+    @DisplayName("consume() merges peer Partial counts using the max")
     @Test
     void mergesRejectionCountsWithMax() {
         TraceConsumer p1 = traces -> CompletableFuture.completedStage(ConsumeResult.partial(3L, "one"));

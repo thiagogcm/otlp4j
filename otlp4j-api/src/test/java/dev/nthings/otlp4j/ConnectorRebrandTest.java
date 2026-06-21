@@ -10,12 +10,15 @@ import dev.nthings.otlp4j.pipeline.ConsumeResult;
 import dev.nthings.otlp4j.pipeline.MetricConsumer;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.util.concurrent.CompletableFuture;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /// Cross-signal rebranding of partial/rejected counts at the connector boundary would
 /// misattribute rejected metric data points as rejected spans/log records.
+@DisplayName("Connector result rebranding")
 class ConnectorRebrandTest {
 
+    @DisplayName("SpanCountConnector accepts input despite downstream Partial")
     @Test
     void spanCountConnectorAcceptsInputDespiteDownstreamPartial() {
         MetricConsumer downstream = metrics -> CompletableFuture.completedStage(
@@ -28,6 +31,7 @@ class ConnectorRebrandTest {
                 .isInstanceOf(ConsumeResult.Accepted.class);
     }
 
+    @DisplayName("SpanCountConnector accepts input despite downstream Rejected")
     @Test
     void spanCountConnectorAcceptsInputDespiteDownstreamRejected() {
         MetricConsumer downstream = metrics -> CompletableFuture.completedStage(
@@ -38,6 +42,7 @@ class ConnectorRebrandTest {
         assertThat(r).isInstanceOf(ConsumeResult.Accepted.class);
     }
 
+    @DisplayName("LogRecordCountConnector accepts input despite downstream Partial")
     @Test
     void logRecordCountConnectorAcceptsInputDespiteDownstreamPartial() {
         MetricConsumer downstream = metrics -> CompletableFuture.completedStage(
@@ -48,6 +53,7 @@ class ConnectorRebrandTest {
         assertThat(r).isInstanceOf(ConsumeResult.Accepted.class);
     }
 
+    @DisplayName("LogRecordCountConnector accepts input despite downstream Rejected")
     @Test
     void logRecordCountConnectorAcceptsInputDespiteDownstreamRejected() {
         MetricConsumer downstream = metrics -> CompletableFuture.completedStage(
@@ -58,6 +64,7 @@ class ConnectorRebrandTest {
         assertThat(r).isInstanceOf(ConsumeResult.Accepted.class);
     }
 
+    @DisplayName("Connectors expose downstream for graph introspection")
     @Test
     void connectorsExposeDownstreamForGraphIntrospection() {
         MetricConsumer downstream = metrics -> ConsumeResult.acceptedStage();

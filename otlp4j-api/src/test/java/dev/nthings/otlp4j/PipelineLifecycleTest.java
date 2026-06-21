@@ -16,10 +16,13 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+@DisplayName("Pipeline lifecycle")
 class PipelineLifecycleTest {
 
+    @DisplayName("close() shuts the subscription down without error")
     @Test
     void closeCallsShutdown() {
         var source = new SignalSource<>(TraceData.class);
@@ -30,6 +33,7 @@ class PipelineLifecycleTest {
         assertThat(true).isTrue();
     }
 
+    @DisplayName("forceFlush() delegates to Flushable terminal resources")
     @Test
     void forceFlushDelegatesToFlushableResources() {
         var source = new SignalSource<>(TraceData.class);
@@ -57,6 +61,7 @@ class PipelineLifecycleTest {
         assertThat(closed.get()).isTrue();
     }
 
+    @DisplayName("shutdown() propagates AutoCloseable close exceptions")
     @Test
     void shutdownPropagatesAutoCloseableExceptions() {
         var source = new SignalSource<>(TraceData.class);
@@ -75,6 +80,7 @@ class PipelineLifecycleTest {
                 .hasMessageContaining("close failed");
     }
 
+    @DisplayName("branch() with no peers throws IllegalStateException")
     @Test
     void branchRequiresAtLeastOnePeer() {
         var source = new SignalSource<>(TraceData.class);
@@ -82,6 +88,7 @@ class PipelineLifecycleTest {
         assertThatThrownBy(branch::join).isInstanceOf(IllegalStateException.class);
     }
 
+    @DisplayName("A throwing transform stage yields a Rejected result")
     @Test
     void pipelineStageThrowingProducesRejected() {
         var source = new SignalSource<>(TraceData.class);

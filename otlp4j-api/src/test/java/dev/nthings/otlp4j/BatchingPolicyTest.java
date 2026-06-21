@@ -14,10 +14,13 @@ import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.LongAdder;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+@DisplayName("BatchingProcessor drop policies")
 class BatchingPolicyTest {
 
+    @DisplayName("DROP_OLDEST evicts oldest entries when the queue is full")
     @Test
     void dropOldestEvictsAndKeepsLatest() {
         TraceConsumer stuck = traces -> new CompletableFuture<>();
@@ -36,6 +39,7 @@ class BatchingPolicyTest {
         }
     }
 
+    @DisplayName("ERROR policy reports Rejected when the queue is full")
     @Test
     void errorPolicyReportsRejected() {
         TraceConsumer stuck = traces -> new CompletableFuture<>();
@@ -53,6 +57,7 @@ class BatchingPolicyTest {
         }
     }
 
+    @DisplayName("External dropCounter receives drop events")
     @Test
     void externalDropCounterReceivesEvents() {
         var counter = new LongAdder();
@@ -72,6 +77,7 @@ class BatchingPolicyTest {
         }
     }
 
+    @DisplayName("forceFlush emits the buffered batch immediately")
     @Test
     void forceFlushDelegatesToFlushNow() {
         var captured = new AtomicReference<TraceData>();
@@ -93,24 +99,28 @@ class BatchingPolicyTest {
         }
     }
 
+    @DisplayName("maxBatchSize of zero throws IllegalArgumentException")
     @Test
     void rejectsZeroMaxBatchSize() {
         assertThatThrownBy(() -> BatchingProcessor.forTraces().maxBatchSize(0))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    @DisplayName("queueCapacity of zero throws IllegalArgumentException")
     @Test
     void rejectsZeroQueueCapacity() {
         assertThatThrownBy(() -> BatchingProcessor.forTraces().queueCapacity(0))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    @DisplayName("maxBatchAge of zero throws IllegalArgumentException")
     @Test
     void rejectsZeroMaxBatchAge() {
         assertThatThrownBy(() -> BatchingProcessor.forTraces().maxBatchAge(Duration.ZERO))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    @DisplayName("consume after shutdown returns Rejected")
     @Test
     void consumeAfterCloseReturnsRejected() {
         TraceConsumer downstream = traces -> ConsumeResult.acceptedStage();

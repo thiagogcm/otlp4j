@@ -14,14 +14,17 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /// Unit tests for [AttributeValue] — every variant, factory and the defensive-copy contract of
 /// [BytesValue], plus nested-structure deep equality.
+@DisplayName("AttributeValue")
 class AttributeValueTest {
 
     // --- BytesValue: the priority — defensive copying both ways -----------------------------
 
+    @DisplayName("BytesValue defensively copies the constructor input")
     @Test
     void bytesValueDefensivelyCopiesTheInputArrayOnConstruction() {
         byte[] source = {1, 2, 3};
@@ -34,6 +37,7 @@ class AttributeValueTest {
                 .containsExactly(1, 2, 3);
     }
 
+    @DisplayName("BytesValue.value() returns a fresh copy each call")
     @Test
     void bytesValueAccessorReturnsAFreshCopyEachCall() {
         var value = new BytesValue(new byte[] {1, 2, 3});
@@ -47,6 +51,7 @@ class AttributeValueTest {
         assertThat(value.value()).isNotSameAs(value.value());
     }
 
+    @DisplayName("BytesValue equals compares content not reference")
     @Test
     void bytesValueEqualsComparesContentNotReference() {
         var a = new BytesValue(new byte[] {1, 2, 3});
@@ -57,6 +62,7 @@ class AttributeValueTest {
         assertThat(a).isNotEqualTo("not a BytesValue");
     }
 
+    @DisplayName("BytesValue hashCode is content-based")
     @Test
     void bytesValueHashCodeIsContentBased() {
         var a = new BytesValue(new byte[] {4, 5, 6});
@@ -65,6 +71,7 @@ class AttributeValueTest {
         assertThat(a).hasSameHashCodeAs(b);
     }
 
+    @DisplayName("BytesValue toString reports the byte count")
     @Test
     void bytesValueToStringReportsTheByteCount() {
         assertThat(new BytesValue(new byte[] {1, 2, 3, 4}).toString())
@@ -74,6 +81,7 @@ class AttributeValueTest {
 
     // --- the remaining scalar variants ------------------------------------------------------
 
+    @DisplayName("scalar variants expose their wrapped value")
     @Test
     void scalarVariantsExposeTheirWrappedValue() {
         assertThat(new StringValue("hello").value()).isEqualTo("hello");
@@ -83,6 +91,7 @@ class AttributeValueTest {
         assertThat(new Empty()).isEqualTo(AttributeValue.EMPTY);
     }
 
+    @DisplayName("ArrayValue and KeyValueListValue expose their collections")
     @Test
     void arrayValueAndKeyValueListValueExposeTheirWrappedCollections() {
         var array = new ArrayValue(List.of(AttributeValue.of("a"), AttributeValue.of(1L)));
@@ -94,6 +103,7 @@ class AttributeValueTest {
 
     // --- static factories -------------------------------------------------------------------
 
+    @DisplayName("of produces the matching variant per scalar overload")
     @Test
     void ofProducesTheMatchingVariantForEachScalarOverload() {
         assertThat(AttributeValue.of("s")).isEqualTo(new StringValue("s"));
@@ -103,12 +113,14 @@ class AttributeValueTest {
         assertThat(AttributeValue.of(new byte[] {9})).isEqualTo(new BytesValue(new byte[] {9}));
     }
 
+    @DisplayName("empty() and EMPTY return the shared Empty singleton")
     @Test
     void emptyAndEMPTYReturnTheSharedEmptySingleton() {
         assertThat(AttributeValue.empty()).isSameAs(AttributeValue.EMPTY);
         assertThat(AttributeValue.EMPTY).isInstanceOf(Empty.class);
     }
 
+    @DisplayName("of(List) copies its input so later mutation does not leak in")
     @Test
     void ofListCopiesItsInputSoLaterMutationDoesNotLeakIn() {
         var source = new ArrayList<AttributeValue>();
@@ -120,6 +132,7 @@ class AttributeValueTest {
         assertThat(value.values()).containsExactly(AttributeValue.of("first"));
     }
 
+    @DisplayName("of(Map) copies its input and preserves iteration order")
     @Test
     void ofMapCopiesItsInputAndPreservesIterationOrder() {
         var source = new LinkedHashMap<String, AttributeValue>();
@@ -138,6 +151,7 @@ class AttributeValueTest {
 
     // --- nested structures ------------------------------------------------------------------
 
+    @DisplayName("nested ArrayValue of KeyValueListValue of bytes supports deep equality")
     @Test
     void nestedArrayOfKeyValueListOfBytesSupportsDeepEquality() {
         AttributeValue nestedA = new ArrayValue(List.of(

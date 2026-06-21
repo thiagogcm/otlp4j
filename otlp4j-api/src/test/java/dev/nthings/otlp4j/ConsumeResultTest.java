@@ -6,10 +6,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import dev.nthings.otlp4j.model.TraceData;
 import dev.nthings.otlp4j.pipeline.ConsumeResult;
 import java.util.List;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+@DisplayName("ConsumeResult")
 class ConsumeResultTest {
 
+    @DisplayName("accepted() returns a shared singleton instance")
     @Test
     void acceptedIsShared() {
         ConsumeResult<TraceData> a = ConsumeResult.accepted();
@@ -17,6 +20,7 @@ class ConsumeResultTest {
         assertThat(a).isSameAs(b);
     }
 
+    @DisplayName("partial() rejects a non-positive rejected count")
     @Test
     void partialRejectsNonPositiveCount() {
         assertThatThrownBy(() -> ConsumeResult.partial(0L, "nope"))
@@ -25,6 +29,7 @@ class ConsumeResultTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    @DisplayName("partial() normalises a null message to empty")
     @Test
     void partialNormalisesNullMessage() {
         ConsumeResult<TraceData> result = ConsumeResult.partial(2L, null);
@@ -32,6 +37,7 @@ class ConsumeResultTest {
         assertThat(r.message()).isEmpty();
     }
 
+    @DisplayName("rejected() normalises null message and leaves cause null")
     @Test
     void rejectedNormalisesNullMessage() {
         ConsumeResult<TraceData> result = ConsumeResult.rejected(null);
@@ -40,6 +46,7 @@ class ConsumeResultTest {
         assertThat(r.cause()).isNull();
     }
 
+    @DisplayName("fanOutMerge of all Accepted yields Accepted")
     @Test
     void fanOutMergeOfAllAcceptedIsAccepted() {
         var result = ConsumeResult.<TraceData>fanOutMerge(List.of(
@@ -49,6 +56,7 @@ class ConsumeResultTest {
         assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
     }
 
+    @DisplayName("fanOutMerge takes the max rejected count, not the sum")
     @Test
     void fanOutMergeUsesMaxRejection() {
         var result = ConsumeResult.<TraceData>fanOutMerge(List.of(
@@ -61,6 +69,7 @@ class ConsumeResultTest {
         assertThat(p.message()).contains("a").contains("b");
     }
 
+    @DisplayName("fanOutMerge lets Rejected dominate Partial and Accepted")
     @Test
     void fanOutMergeRejectionDominatesPartial() {
         var rejected = ConsumeResult.<TraceData>rejected("boom");
@@ -71,12 +80,14 @@ class ConsumeResultTest {
         assertThat(result).isInstanceOf(ConsumeResult.Rejected.class);
     }
 
+    @DisplayName("fanOutMerge of an empty list yields Accepted")
     @Test
     void fanOutMergeEmptyIsAccepted() {
         var result = ConsumeResult.<TraceData>fanOutMerge(List.of());
         assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
     }
 
+    @DisplayName("fanOutMerge of empty-message rejections keeps message empty")
     @Test
     void fanOutMergeKeepsFirstRejectionAndOmitsEmptyMessages() {
         var result = ConsumeResult.<TraceData>fanOutMerge(List.of(
@@ -86,6 +97,7 @@ class ConsumeResultTest {
         assertThat(((ConsumeResult.Rejected<TraceData>) result).message()).isEmpty();
     }
 
+    @DisplayName("fanOutMerge keeps Partial count with an empty message")
     @Test
     void fanOutMergePartialWithoutMessageReportsCountOnly() {
         var result = ConsumeResult.<TraceData>fanOutMerge(List.of(

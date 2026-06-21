@@ -18,11 +18,14 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /// White-box tests for gRPC service adapters without a server or channel.
+@DisplayName("gRPC service adapters")
 class GrpcServiceAdaptersTest {
 
+    @DisplayName("TraceServiceAdapter decodes the request and forwards it to the dispatcher")
     @Test
     void traceAdapterDecodesTheRequestAndForwardsItToTheDispatcher() {
         var sent = TransportFixtures.richTraceData();
@@ -41,6 +44,7 @@ class GrpcServiceAdaptersTest {
         assertThat(observer.values.getFirst().hasPartialSuccess()).isFalse();
     }
 
+    @DisplayName("TraceServiceAdapter encodes rejected spans as partial success")
     @Test
     void traceAdapterEncodesPartialSuccessOntoTheResponse() {
         var observer = new RecordingObserver<ExportTraceServiceResponse>();
@@ -54,6 +58,7 @@ class GrpcServiceAdaptersTest {
         assertThat(observer.completed).isTrue();
     }
 
+    @DisplayName("MetricsServiceAdapter encodes rejected data points as partial success")
     @Test
     void metricsAdapterEncodesPartialSuccessOntoTheResponse() {
         var observer = new RecordingObserver<ExportMetricsServiceResponse>();
@@ -67,6 +72,7 @@ class GrpcServiceAdaptersTest {
         assertThat(observer.completed).isTrue();
     }
 
+    @DisplayName("LogsServiceAdapter encodes rejected log records as partial success")
     @Test
     void logsAdapterEncodesPartialSuccessOntoTheResponse() {
         var observer = new RecordingObserver<ExportLogsServiceResponse>();
@@ -80,6 +86,7 @@ class GrpcServiceAdaptersTest {
         assertThat(observer.completed).isTrue();
     }
 
+    @DisplayName("ProfilesServiceAdapter decodes the request and forwards it to the dispatcher")
     @Test
     void profilesAdapterDecodesTheRequestAndForwardsItToTheDispatcher() {
         var received = new AtomicReference<ProfilesData>();
@@ -94,6 +101,7 @@ class GrpcServiceAdaptersTest {
         assertThat(observer.values.getFirst().hasPartialSuccess()).isFalse();
     }
 
+    @DisplayName("Throwing trace dispatcher becomes an INTERNAL gRPC error")
     @Test
     void aThrowingTraceDispatcherIsTranslatedIntoAnInternalGrpcError() {
         var observer = new RecordingObserver<ExportTraceServiceResponse>();
@@ -108,6 +116,7 @@ class GrpcServiceAdaptersTest {
         assertThat(status.getDescription()).isEqualTo("handler boom");
     }
 
+    @DisplayName("Throwing metrics dispatcher becomes an INTERNAL gRPC error")
     @Test
     void aThrowingMetricsDispatcherIsTranslatedIntoAnInternalGrpcError() {
         var observer = new RecordingObserver<ExportMetricsServiceResponse>();
@@ -120,6 +129,7 @@ class GrpcServiceAdaptersTest {
         assertThat(status.getDescription()).isEqualTo("metrics boom");
     }
 
+    @DisplayName("Throwing logs dispatcher becomes an INTERNAL gRPC error")
     @Test
     void aThrowingLogsDispatcherIsTranslatedIntoAnInternalGrpcError() {
         var observer = new RecordingObserver<ExportLogsServiceResponse>();
@@ -132,6 +142,7 @@ class GrpcServiceAdaptersTest {
         assertThat(status.getDescription()).isEqualTo("logs boom");
     }
 
+    @DisplayName("Throwing profiles dispatcher becomes an INTERNAL gRPC error")
     @Test
     void aThrowingProfilesDispatcherIsTranslatedIntoAnInternalGrpcError() {
         var observer = new RecordingObserver<ExportProfilesServiceResponse>();
@@ -144,6 +155,7 @@ class GrpcServiceAdaptersTest {
         assertThat(status.getDescription()).isEqualTo("profiles boom");
     }
 
+    @DisplayName("MetricsServiceAdapter decodes a full-success request")
     @Test
     void metricsAdapterDecodesAFullSuccessRequest() {
         var received = new AtomicReference<MetricsData>();
@@ -159,6 +171,7 @@ class GrpcServiceAdaptersTest {
         assertThat(observer.values.getFirst().hasPartialSuccess()).isFalse();
     }
 
+    @DisplayName("LogsServiceAdapter decodes a full-success request")
     @Test
     void logsAdapterDecodesAFullSuccessRequest() {
         var received = new AtomicReference<LogsData>();

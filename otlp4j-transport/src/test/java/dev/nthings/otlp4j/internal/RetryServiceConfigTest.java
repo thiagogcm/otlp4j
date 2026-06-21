@@ -6,11 +6,14 @@ import dev.nthings.otlp4j.spi.RetryPolicy;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /// Unit tests for the gRPC retry service-config mapping.
+@DisplayName("RetryServiceConfig mapping")
 class RetryServiceConfigTest {
 
+    @DisplayName("RetryPolicy yields one methodConfig per service with retryable codes")
     @Test
     void emitsOneMethodConfigPerServiceWithTheRetryableCodes() {
         var config = RetryServiceConfig.build(

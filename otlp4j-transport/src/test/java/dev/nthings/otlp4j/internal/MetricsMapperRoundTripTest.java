@@ -12,6 +12,7 @@ import dev.nthings.otlp4j.testing.Fixtures;
 import java.util.List;
 import java.util.OptionalDouble;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -19,6 +20,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 /// Mapper-unit round-trip coverage for [MetricsMapper]: one case per `Metric.Data` kind,
 /// both `NumberPoint` value variants, and the present/absent forms of the histogram optional
 /// fields (`hasSum`/`hasMin`/`hasMax`).
+@DisplayName("MetricsMapper round-trips")
 class MetricsMapperRoundTripTest {
 
     private static NumberPoint longPoint() {
@@ -122,6 +124,7 @@ class MetricsMapperRoundTripTest {
                         .build());
     }
 
+    @DisplayName("Every Metric.Data kind round-trips through MetricsMapper")
     @ParameterizedTest
     @MethodSource("everyMetricDataKind")
     void roundTripsEveryMetricDataKind(Metric metric) {
@@ -131,12 +134,14 @@ class MetricsMapperRoundTripTest {
                 .isEqualTo(sent);
     }
 
+    @DisplayName("Empty MetricsData round-trips unchanged")
     @Test
     void roundTripsAnEmptyMetricsData() {
         var sent = Fixtures.metricsData();
         assertThat(MetricsMapper.toDomain(MetricsMapper.toProto(sent))).isEqualTo(sent);
     }
 
+    @DisplayName("NumberPoint with unset value oneof round-trips as null")
     @Test
     void roundTripsANumberPointWithNoValue() {
         var point = new NumberPoint(Attributes.empty(), 1_000L, 2_000L, null, 0L);

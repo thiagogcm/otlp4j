@@ -4,13 +4,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.Locale;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /// White-box / bug-hunt coverage for [CommonMapper] and the unsigned-int flag handling shared by
 /// the trace, metrics and logs mappers. Each test pins the *actual* observed behaviour — the
 /// report flags which of these are suspected real production bugs and which are intentional.
+@DisplayName("CommonMapper edge cases")
 class CommonMapperEdgeCaseTest {
 
+    @DisplayName("CommonMapper.bytes throws on non-hex input")
     @Test
     void bytesThrowsOnNonHexInput() {
         // HEX.parseHex rejects non-hex characters; CommonMapper.bytes does no input validation,
@@ -20,6 +23,7 @@ class CommonMapperEdgeCaseTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    @DisplayName("CommonMapper.bytes throws on odd-length input")
     @Test
     void bytesThrowsOnOddLengthInput() {
         assertThatThrownBy(() -> CommonMapper.bytes("abc"))
@@ -27,6 +31,7 @@ class CommonMapperEdgeCaseTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    @DisplayName("Malformed traceId is rejected only at TraceMapper.toProto")
     @Test
     void malformedTraceIdThrowsOutOfTraceMapperToProto() {
         // A Span with a malformed traceId is accepted by the domain model (no validation there
@@ -38,6 +43,7 @@ class CommonMapperEdgeCaseTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    @DisplayName("Uppercase hex id lowercases through hex(), not a string-identity round-trip")
     @Test
     void uppercaseHexIdIsNotAnIdentityRoundTrip() {
         // bytes() accepts uppercase hex, but hex() always emits lowercase: the byte content is
@@ -51,6 +57,7 @@ class CommonMapperEdgeCaseTest {
                 .isNotEqualTo(upper);
     }
 
+    @DisplayName("Span flags at max unsigned 32-bit value round-trip exactly")
     @Test
     void spanFlagsAtMaxUnsignedIntRoundTrip() {
         // 0xFFFFFFFFL fits in 32 bits: the (int) cast on encode and the & 0xFFFFFFFFL on decode
@@ -64,6 +71,7 @@ class CommonMapperEdgeCaseTest {
                 .isEqualTo(0xFFFFFFFFL);
     }
 
+    @DisplayName("Span flags above unsigned 32-bit range are truncated by the encode cast")
     @Test
     void spanFlagsAboveUnsignedIntRangeAreTruncated() {
         // A flags value with bits above bit 31 set cannot survive the (int) cast on encode: the

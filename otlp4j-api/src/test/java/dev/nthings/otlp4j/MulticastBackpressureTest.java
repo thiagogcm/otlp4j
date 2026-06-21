@@ -12,10 +12,13 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Flow;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.LongAdder;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+@DisplayName("MulticastPublisher backpressure")
 class MulticastBackpressureTest {
 
+    @DisplayName("DROP_OLDEST evicts older items and counts drops")
     @Test
     void dropOldestEvictsOlderItems() {
         var drops = new LongAdder();
@@ -32,6 +35,7 @@ class MulticastBackpressureTest {
         }
     }
 
+    @DisplayName("ERROR strategy signals overflow via onError")
     @Test
     void errorStrategySignalsViaOnError() {
         var drops = new LongAdder();
@@ -55,6 +59,7 @@ class MulticastBackpressureTest {
         }
     }
 
+    @DisplayName("BLOCK strategy delivers every item without dropping")
     @Test
     void blockStrategyEventuallyDelivers() {
         var drops = new LongAdder();
@@ -87,6 +92,7 @@ class MulticastBackpressureTest {
         }
     }
 
+    @DisplayName("Subscriber throwing in onNext is signalled via onError")
     @Test
     void subscriberThrowingOnNextCompletesExceptionally() {
         var drops = new LongAdder();

@@ -18,10 +18,13 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Flow;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.LongAdder;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+@DisplayName("ReceiverTap and MulticastPublisher edge cases")
 class TapAndMulticastEdgesTest {
 
+    @DisplayName("ReceiverTap fans out to typed and unified channels")
     @Test
     void receiverTapPublishesToTypedAndUnifiedChannels() {
         var tap = new ReceiverTap();
@@ -40,6 +43,7 @@ class TapAndMulticastEdgesTest {
         }
     }
 
+    @DisplayName("droppedCount increases when a subscriber stalls")
     @Test
     void droppedCountIncrementsWhenSubscriberStalls() {
         var tap = new ReceiverTap();
@@ -55,6 +59,7 @@ class TapAndMulticastEdgesTest {
         }
     }
 
+    @DisplayName("Closed publisher completes new subscribers immediately")
     @Test
     void closingPublisherCompletesNewSubscribersImmediately() {
         var drops = new LongAdder();
@@ -70,6 +75,7 @@ class TapAndMulticastEdgesTest {
         assertThat(completed.get()).isTrue();
     }
 
+    @DisplayName("Cancelling a subscription stops further delivery")
     @Test
     void cancellingSubscriptionStopsDelivery() {
         var drops = new LongAdder();
@@ -102,6 +108,7 @@ class TapAndMulticastEdgesTest {
         }
     }
 
+    @DisplayName("Requesting zero items signals IllegalArgumentException")
     @Test
     void requestZeroIsRejected() {
         var drops = new LongAdder();
@@ -121,6 +128,7 @@ class TapAndMulticastEdgesTest {
         }
     }
 
+    @DisplayName("TapOptions.defaults uses DROP_OLDEST with buffer 256")
     @Test
     void tapOptionsDefaultsAreSane() {
         var opts = TapOptions.defaults();
@@ -128,6 +136,7 @@ class TapAndMulticastEdgesTest {
         assertThat(opts.bufferSize()).isEqualTo(256);
     }
 
+    @DisplayName("TapOptions rejects a non-positive buffer size")
     @Test
     void tapOptionsRejectsBadBuffer() {
         assertThatThrownBy(() -> new TapOptions(BackpressureStrategy.BLOCK, 0))

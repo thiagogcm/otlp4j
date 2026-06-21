@@ -8,12 +8,14 @@ import dev.nthings.otlp4j.model.TraceData;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.util.List;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
 /// Mapper-unit round-trip coverage for [TraceMapper]: spans with events/links/status present
 /// and absent, an empty `TraceData`, and a multi-resource / multi-scope payload.
+@DisplayName("TraceMapper round-trips")
 class TraceMapperRoundTripTest {
 
     private static Span bareSpan() {
@@ -67,6 +69,7 @@ class TraceMapperRoundTripTest {
                         .build());
     }
 
+    @DisplayName("Spans with and without events, links and status round-trip through TraceMapper")
     @ParameterizedTest
     @MethodSource("spanVariants")
     void roundTripsSpanVariants(Span span) {
@@ -76,12 +79,14 @@ class TraceMapperRoundTripTest {
                 .isEqualTo(sent);
     }
 
+    @DisplayName("Empty TraceData round-trips through TraceMapper")
     @Test
     void roundTripsAnEmptyTraceData() {
         var sent = new TraceData(List.of());
         assertThat(TraceMapper.toDomain(TraceMapper.toProto(sent))).isEqualTo(sent);
     }
 
+    @DisplayName("Multi-resource and multi-scope trace payloads round-trip through TraceMapper")
     @Test
     void roundTripsMultipleResourcesAndScopes() {
         var sent = TransportFixtures.traceWithScopes(3);

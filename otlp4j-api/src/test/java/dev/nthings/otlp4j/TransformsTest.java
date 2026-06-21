@@ -7,10 +7,13 @@ import dev.nthings.otlp4j.model.LogRecord;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.processor.Transforms;
 import dev.nthings.otlp4j.testing.Fixtures;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+@DisplayName("Transforms")
 class TransformsTest {
 
+    @DisplayName("keepSpansWhere filters spans and prunes empty scopes")
     @Test
     void keepSpansWhereFiltersAndPrunes() {
         var traces = Fixtures.traceData(
@@ -21,6 +24,7 @@ class TransformsTest {
         assertThat(filtered.spans()).hasSize(2);
     }
 
+    @DisplayName("keepSpansWhere yields empty data when nothing matches")
     @Test
     void keepSpansWhereResultsInEmptyDataWhenNothingMatches() {
         var traces = Fixtures.traceData(Fixtures.span("a", Span.Kind.INTERNAL));
@@ -29,6 +33,7 @@ class TransformsTest {
         assertThat(filtered.resourceSpans()).isEmpty();
     }
 
+    @DisplayName("keepLogRecordsWhere filters records by severity")
     @Test
     void keepLogRecordsFiltersAndPrunes() {
         var logs = Fixtures.logsData(
@@ -39,6 +44,7 @@ class TransformsTest {
         assertThat(filtered.logRecords().getFirst().body()).isEqualTo(AttributeValue.of("error"));
     }
 
+    @DisplayName("setTraceResourceAttribute adds a resource attribute")
     @Test
     void setTraceResourceAttributeAddsAttribute() {
         var traces = Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER));
@@ -48,6 +54,7 @@ class TransformsTest {
         assertThat(((AttributeValue.StringValue) attr).value()).isEqualTo("prod");
     }
 
+    @DisplayName("setMetricsResourceAttribute adds a resource attribute")
     @Test
     void setMetricsResourceAttributeAddsAttribute() {
         var metrics = Fixtures.metricsData(Fixtures.metric("m1"));
@@ -56,6 +63,7 @@ class TransformsTest {
         assertThat(((AttributeValue.StringValue) attr).value()).isEqualTo("dev");
     }
 
+    @DisplayName("setLogsResourceAttribute adds a resource attribute")
     @Test
     void setLogsResourceAttributeAddsAttribute() {
         var logs = Fixtures.logsData(Fixtures.logRecord("hi", LogRecord.Severity.INFO));
@@ -64,6 +72,7 @@ class TransformsTest {
         assertThat(((AttributeValue.StringValue) attr).value()).isEqualTo("staging");
     }
 
+    @DisplayName("setProfilesResourceAttribute adds a resource attribute")
     @Test
     void setProfilesResourceAttributeAddsAttribute() {
         var profiles = Fixtures.profilesData(Fixtures.profile("p1"));

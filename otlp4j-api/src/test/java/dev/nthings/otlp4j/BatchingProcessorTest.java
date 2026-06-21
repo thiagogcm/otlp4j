@@ -15,10 +15,13 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+@DisplayName("BatchingProcessor")
 class BatchingProcessorTest {
 
+    @DisplayName("Flushes a batch once maxBatchSize is reached")
     @Test
     void flushesOnSizeThreshold() {
         var captured = new ArrayList<TraceData>();
@@ -42,6 +45,7 @@ class BatchingProcessorTest {
         assertThat(captured.getFirst().spans()).hasSize(3);
     }
 
+    @DisplayName("Flushes a batch once maxBatchAge elapses")
     @Test
     void flushesOnAgeThreshold() {
         var captured = new ArrayList<TraceData>();
@@ -62,6 +66,7 @@ class BatchingProcessorTest {
         assertThat(captured).hasSize(1);
     }
 
+    @DisplayName("DROP_NEWEST reports Partial and increments droppedCount")
     @Test
     void dropNewestReportsPartialSuccess() {
         var ignore = new AtomicInteger();
@@ -84,6 +89,7 @@ class BatchingProcessorTest {
         }
     }
 
+    @DisplayName("Shutdown drains buffered traces downstream")
     @Test
     void shutdownDrains() {
         var captured = new ArrayList<TraceData>();
@@ -102,6 +108,7 @@ class BatchingProcessorTest {
         assertThat(captured).hasSize(1);
     }
 
+    @DisplayName("Builder without downstream throws IllegalStateException")
     @Test
     void rejectsBuilderWithoutDownstream() {
         var builder = BatchingProcessor.forTraces().maxBatchSize(1);

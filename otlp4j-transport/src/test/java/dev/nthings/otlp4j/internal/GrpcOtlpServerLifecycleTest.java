@@ -9,11 +9,13 @@ import dev.nthings.otlp4j.spi.OtlpServerProvider;
 import dev.nthings.otlp4j.spi.ServerTransportConfig;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 /// Lifecycle contract for [GrpcOtlpServer] in isolation.
 @Timeout(30)
+@DisplayName("GrpcOtlpServer lifecycle")
 class GrpcOtlpServerLifecycleTest {
 
     private static final OtlpServerProvider.Dispatchers NO_OP = new OtlpServerProvider.Dispatchers(
@@ -26,6 +28,7 @@ class GrpcOtlpServerLifecycleTest {
         return ServerTransportConfig.builder().port(0).build();
     }
 
+    @DisplayName("shutdown before start is a safe no-op")
     @Test
     void shutdownBeforeStartIsASafeNoOp() {
         assertThatCode(() -> new GrpcOtlpServer(ephemeral(), NO_OP)
@@ -33,6 +36,7 @@ class GrpcOtlpServerLifecycleTest {
                 .doesNotThrowAnyException();
     }
 
+    @DisplayName("shutdownNow before start is a safe no-op")
     @Test
     void shutdownNowBeforeStartIsASafeNoOp() {
         assertThatCode(() -> new GrpcOtlpServer(ephemeral(), NO_OP)
@@ -40,11 +44,13 @@ class GrpcOtlpServerLifecycleTest {
                 .doesNotThrowAnyException();
     }
 
+    @DisplayName("port is zero before the server starts")
     @Test
     void portBeforeStartIsZero() {
         assertThat(new GrpcOtlpServer(ephemeral(), NO_OP).port()).isZero();
     }
 
+    @DisplayName("starting an already-started server throws IllegalStateException")
     @Test
     void doubleStartThrowsIllegalState() throws Exception {
         var server = new GrpcOtlpServer(ephemeral(), NO_OP);

@@ -14,10 +14,13 @@ import dev.nthings.otlp4j.pipeline.MetricConsumer;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.util.ArrayList;
 import java.util.List;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+@DisplayName("Count connectors")
 class ConnectorsTest {
 
+    @DisplayName("SpanCountConnector emits span count as a Sum metric")
     @Test
     void spanCountConnectorEmitsCountMetric() {
         var captured = new ArrayList<MetricsData>();
@@ -38,6 +41,7 @@ class ConnectorsTest {
         assertThat(longValue(metric)).isEqualTo(3L);
     }
 
+    @DisplayName("LogRecordCountConnector emits log record count as a Sum metric")
     @Test
     void logRecordCountConnectorEmitsCountMetric() {
         var captured = new ArrayList<MetricsData>();

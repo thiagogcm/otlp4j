@@ -12,10 +12,13 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Flow;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.LongAdder;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+@DisplayName("MulticastPublisher")
 class MulticastPublisherTest {
 
+    @DisplayName("Published items reach a subscribed Flow.Subscriber")
     @Test
     void deliversToSubscriber() {
         var drops = new LongAdder();
@@ -30,6 +33,7 @@ class MulticastPublisherTest {
         pub.close();
     }
 
+    @DisplayName("DROP_NEWEST drops items instead of blocking the producer")
     @Test
     void droppingSubscriberDoesNotBlockProducer() {
         var drops = new LongAdder();
@@ -43,6 +47,7 @@ class MulticastPublisherTest {
         pub.close();
     }
 
+    @DisplayName("Buffered item is delivered once demand is requested")
     @Test
     void deliversBufferedItemPromptlyOnceDemandArrives() {
         var drops = new LongAdder();
@@ -65,6 +70,7 @@ class MulticastPublisherTest {
         pub.close();
     }
 
+    @DisplayName("close() signals onComplete to every subscriber")
     @Test
     void closeCompletesEverySubscriber() {
         var drops = new LongAdder();

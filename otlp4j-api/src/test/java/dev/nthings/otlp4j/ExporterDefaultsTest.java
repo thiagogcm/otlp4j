@@ -10,11 +10,14 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /// Covers the default-method paths on the [Exporter] interface without bringing up a transport.
+@DisplayName("Exporter default methods")
 class ExporterDefaultsTest {
 
+    @DisplayName("forceFlush is a no-op and close() invokes shutdown")
     @Test
     void defaultsAreSafeNoOpsThatCloseInvokesShutdown() {
         var consumed = new AtomicBoolean();
@@ -38,6 +41,7 @@ class ExporterDefaultsTest {
         assertThat(shutdownCalled.get()).isTrue();
     }
 
+    @DisplayName("Default forceFlush and shutdown complete normally")
     @Test
     void defaultForceFlushAndShutdownComplete() {
         Exporter<TraceData> exporter = batch -> ConsumeResult.acceptedStage();

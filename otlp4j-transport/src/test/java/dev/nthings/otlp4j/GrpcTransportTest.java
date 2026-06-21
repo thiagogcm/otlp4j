@@ -25,11 +25,13 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 /// Black-box OTLP/gRPC transport tests over real servers on ephemeral ports.
 @Timeout(30)
+@DisplayName("OTLP/gRPC transport")
 class GrpcTransportTest {
 
     private final List<OtlpGrpcReceiver> receivers = new ArrayList<>();
@@ -49,6 +51,7 @@ class GrpcTransportTest {
         }
     }
 
+    @DisplayName("Round-trips rich TraceData losslessly")
     @Test
     void roundTripsRichTraceDataLosslessly() {
         var received = new AtomicReference<TraceData>();
@@ -64,6 +67,7 @@ class GrpcTransportTest {
         assertThat(received.get()).isEqualTo(sent);
     }
 
+    @DisplayName("Round-trips rich MetricsData losslessly")
     @Test
     void roundTripsRichMetricsDataLosslessly() {
         var received = new AtomicReference<MetricsData>();
@@ -79,6 +83,7 @@ class GrpcTransportTest {
         assertThat(received.get()).isEqualTo(sent);
     }
 
+    @DisplayName("Round-trips rich LogsData losslessly")
     @Test
     void roundTripsRichLogsDataLosslessly() {
         var received = new AtomicReference<LogsData>();
@@ -94,6 +99,7 @@ class GrpcTransportTest {
         assertThat(received.get()).isEqualTo(sent);
     }
 
+    @DisplayName("Round-trips ProfilesData")
     @Test
     void roundTripsProfilesData() {
         var received = new AtomicReference<ProfilesData>();
@@ -109,6 +115,7 @@ class GrpcTransportTest {
         assertThat(received.get()).isEqualTo(sent);
     }
 
+    @DisplayName("Propagates partial success for every signal")
     @Test
     void propagatesPartialSuccessForEverySignal() {
         var traceReceiver = startReceiver(OtlpGrpcReceiver.builder()
@@ -136,6 +143,7 @@ class GrpcTransportTest {
         assertThat(((ConsumeResult.Partial<LogsData>) logResult).rejectedItems()).isEqualTo(3L);
     }
 
+    @DisplayName("Translates a throwing dispatcher into a transport error")
     @Test
     void translatesAThrowingDispatcherIntoATransportError() {
         var receiver = startReceiver(OtlpGrpcReceiver.builder().onTraces(traces -> {
@@ -149,6 +157,7 @@ class GrpcTransportTest {
                 .hasMessageContaining("handler boom");
     }
 
+    @DisplayName("End-to-end receive, filter, export Pipeline keeps only SERVER spans")
     @Test
     void endToEndReceiveFilterExportPipeline() {
         var terminalCapture = new AtomicReference<TraceData>();
@@ -180,6 +189,7 @@ class GrpcTransportTest {
                 .allMatch(span -> span.kind() == Span.Kind.SERVER);
     }
 
+    @DisplayName("Rejects starting a receiver twice")
     @Test
     void rejectsStartingAReceiverTwice() {
         var receiver = startReceiver(OtlpGrpcReceiver.builder()
@@ -190,6 +200,7 @@ class GrpcTransportTest {
                 .hasMessageContaining("already started");
     }
 
+    @DisplayName("Receiver port is zero before start")
     @Test
     void portIsZeroBeforeStart() {
         var receiver = OtlpGrpcReceiver.builder()
@@ -203,6 +214,7 @@ class GrpcTransportTest {
         }
     }
 
+    @DisplayName("Declares the gRPC transport providers as SPI services")
     @Test
     void declaresTheGrpcTransportProvidersAsSpiServices() {
         var provides = ModuleLayer.boot()
