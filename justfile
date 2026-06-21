@@ -88,6 +88,8 @@ jlink:
     {{ mvn }} {{ batch }} -pl {{ sample_module }} -am package -Pjlink
 
 # Update the opentelemetry-proto submodule and copy protos into the proto module.
+# The copied opentelemetry/ subtree is a verbatim mirror: don't hand-edit it.
+# otlp4j notes live in otlp4j-proto/src/main/proto/README.md, outside the mirror.
 update-protos:
     git submodule update --remote --force --init -- opentelemetry-proto
     cp -r opentelemetry-proto/opentelemetry otlp4j-proto/src/main/proto/

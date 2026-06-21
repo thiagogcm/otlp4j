@@ -28,4 +28,8 @@ module dev.nthings.otlp4j.proto {
     exports io.opentelemetry.proto.collector.metrics.v1 to dev.nthings.otlp4j.transport;
     exports io.opentelemetry.proto.collector.logs.v1 to dev.nthings.otlp4j.transport;
     exports io.opentelemetry.proto.collector.profiles.v1development to dev.nthings.otlp4j.transport;
+
+    // processcontext.v1development is generated but intentionally not exported: ProcessContext is a
+    // non-OTLP, memory-mapped sidecar (not collector-exchanged), so the transport has no mapper for
+    // it. Kept encapsulated rather than excluded so update-protos stays a faithful upstream mirror.
 }
