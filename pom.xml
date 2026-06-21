@@ -6,7 +6,7 @@
 
     <groupId>dev.nthings.otlp4j</groupId>
     <artifactId>otlp4j-parent</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>${revision}</version>
     <packaging>pom</packaging>
 
     <name>otlp4j (parent)</name>
@@ -23,6 +23,14 @@
     </modules>
 
     <properties>
+        <!-- Single source of truth for the version (Maven CI-friendly versions). The
+             flatten-maven-plugin inlines it into every published POM, so consumers never see
+             the ${revision} placeholder; override per build with -Drevision=… (e.g. releases). -->
+        <revision>0.1.0-SNAPSHOT</revision>
+        <!-- Reproducible-build anchor: pins archive entry timestamps for byte-for-byte stable
+             artifacts. Bump at each release (or override with -Dproject.build.outputTimestamp). -->
+        <project.build.outputTimestamp>2026-06-21T00:00:00Z</project.build.outputTimestamp>
+
         <maven.compiler.release>25</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 

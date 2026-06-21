@@ -7,7 +7,7 @@
     <parent>
         <groupId>dev.nthings.otlp4j</groupId>
         <artifactId>otlp4j-parent</artifactId>
-        <version>0.1.0-SNAPSHOT</version>
+        <version>${revision}</version>
     </parent>
 
     <artifactId>otlp4j-coverage</artifactId>
@@ -18,9 +18,11 @@
         artifact of its own.</description>
 
     <properties>
-        <!-- Nothing to publish, flatten or document here: this module produces no artifact. -->
+        <!-- Build-only aggregator: no artifact, so nothing to publish/flatten/document/install.
+             install is skipped alongside flatten so an unresolved ${revision} can't reach the POM. -->
         <maven.javadoc.skip>true</maven.javadoc.skip>
         <maven.deploy.skip>true</maven.deploy.skip>
+        <maven.install.skip>true</maven.install.skip>
         <flatten.skip>true</flatten.skip>
     </properties>
 
