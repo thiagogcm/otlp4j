@@ -103,12 +103,13 @@ final class TraceServiceAdapter extends TraceServiceGrpc.TraceServiceImplBase {
     private static ExportTraceServiceResponse asResponse(ConsumeResult<TraceData> result) {
         var resp = ExportTraceServiceResponse.newBuilder();
         switch (result) {
-            case ConsumeResult.Accepted<TraceData> a -> { /* full success */ }
-            case ConsumeResult.Partial<TraceData> p -> resp.setPartialSuccess(ExportTracePartialSuccess.newBuilder()
-                    .setRejectedSpans(p.rejectedItems())
-                    .setErrorMessage(p.message()));
-            case ConsumeResult.Rejected<TraceData> r -> resp.setPartialSuccess(ExportTracePartialSuccess.newBuilder()
-                    .setErrorMessage(r.message()));
+            case ConsumeResult.Accepted<TraceData> _ -> { }
+            case ConsumeResult.Partial<TraceData>(var rejected, var message) ->
+                    resp.setPartialSuccess(ExportTracePartialSuccess.newBuilder()
+                            .setRejectedSpans(rejected)
+                            .setErrorMessage(message));
+            case ConsumeResult.Rejected<TraceData>(var message, var _) ->
+                    resp.setPartialSuccess(ExportTracePartialSuccess.newBuilder().setErrorMessage(message));
         }
         return resp.build();
     }
@@ -139,12 +140,13 @@ final class MetricsServiceAdapter extends MetricsServiceGrpc.MetricsServiceImplB
     private static ExportMetricsServiceResponse asResponse(ConsumeResult<MetricsData> result) {
         var resp = ExportMetricsServiceResponse.newBuilder();
         switch (result) {
-            case ConsumeResult.Accepted<MetricsData> a -> { /* full success */ }
-            case ConsumeResult.Partial<MetricsData> p -> resp.setPartialSuccess(ExportMetricsPartialSuccess.newBuilder()
-                    .setRejectedDataPoints(p.rejectedItems())
-                    .setErrorMessage(p.message()));
-            case ConsumeResult.Rejected<MetricsData> r -> resp.setPartialSuccess(ExportMetricsPartialSuccess.newBuilder()
-                    .setErrorMessage(r.message()));
+            case ConsumeResult.Accepted<MetricsData> _ -> { }
+            case ConsumeResult.Partial<MetricsData>(var rejected, var message) ->
+                    resp.setPartialSuccess(ExportMetricsPartialSuccess.newBuilder()
+                            .setRejectedDataPoints(rejected)
+                            .setErrorMessage(message));
+            case ConsumeResult.Rejected<MetricsData>(var message, var _) ->
+                    resp.setPartialSuccess(ExportMetricsPartialSuccess.newBuilder().setErrorMessage(message));
         }
         return resp.build();
     }
@@ -175,12 +177,13 @@ final class LogsServiceAdapter extends LogsServiceGrpc.LogsServiceImplBase {
     private static ExportLogsServiceResponse asResponse(ConsumeResult<LogsData> result) {
         var resp = ExportLogsServiceResponse.newBuilder();
         switch (result) {
-            case ConsumeResult.Accepted<LogsData> a -> { /* full success */ }
-            case ConsumeResult.Partial<LogsData> p -> resp.setPartialSuccess(ExportLogsPartialSuccess.newBuilder()
-                    .setRejectedLogRecords(p.rejectedItems())
-                    .setErrorMessage(p.message()));
-            case ConsumeResult.Rejected<LogsData> r -> resp.setPartialSuccess(ExportLogsPartialSuccess.newBuilder()
-                    .setErrorMessage(r.message()));
+            case ConsumeResult.Accepted<LogsData> _ -> { }
+            case ConsumeResult.Partial<LogsData>(var rejected, var message) ->
+                    resp.setPartialSuccess(ExportLogsPartialSuccess.newBuilder()
+                            .setRejectedLogRecords(rejected)
+                            .setErrorMessage(message));
+            case ConsumeResult.Rejected<LogsData>(var message, var _) ->
+                    resp.setPartialSuccess(ExportLogsPartialSuccess.newBuilder().setErrorMessage(message));
         }
         return resp.build();
     }
@@ -211,12 +214,13 @@ final class ProfilesServiceAdapter extends ProfilesServiceGrpc.ProfilesServiceIm
     private static ExportProfilesServiceResponse asResponse(ConsumeResult<ProfilesData> result) {
         var resp = ExportProfilesServiceResponse.newBuilder();
         switch (result) {
-            case ConsumeResult.Accepted<ProfilesData> a -> { /* full success */ }
-            case ConsumeResult.Partial<ProfilesData> p -> resp.setPartialSuccess(ExportProfilesPartialSuccess.newBuilder()
-                    .setRejectedProfiles(p.rejectedItems())
-                    .setErrorMessage(p.message()));
-            case ConsumeResult.Rejected<ProfilesData> r -> resp.setPartialSuccess(ExportProfilesPartialSuccess.newBuilder()
-                    .setErrorMessage(r.message()));
+            case ConsumeResult.Accepted<ProfilesData> _ -> { }
+            case ConsumeResult.Partial<ProfilesData>(var rejected, var message) ->
+                    resp.setPartialSuccess(ExportProfilesPartialSuccess.newBuilder()
+                            .setRejectedProfiles(rejected)
+                            .setErrorMessage(message));
+            case ConsumeResult.Rejected<ProfilesData>(var message, var _) ->
+                    resp.setPartialSuccess(ExportProfilesPartialSuccess.newBuilder().setErrorMessage(message));
         }
         return resp.build();
     }

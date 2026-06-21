@@ -85,7 +85,7 @@ public final class Pipeline {
                 if (batch != null) {
                     try {
                         observer.consume(batch);
-                    } catch (RuntimeException ignored) {
+                    } catch (RuntimeException _) {
                         // tap errors must not affect the main path
                     }
                 }

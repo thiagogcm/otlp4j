@@ -38,13 +38,12 @@ final class CountMetrics {
     /// input batch; log for visibility and report the input as accepted.
     static <I> ConsumeResult<I> acceptInput(ConsumeResult<MetricsData> downstream, Logger log, String connectorName) {
         switch (downstream) {
-            case ConsumeResult.Accepted<MetricsData> a -> {}
-            case ConsumeResult.Partial<MetricsData> p ->
+            case ConsumeResult.Accepted<MetricsData> _ -> {}
+            case ConsumeResult.Partial<MetricsData>(var rejected, var message) ->
                     log.warn("{} downstream partial_success: {} rejected items, msg={}",
-                            connectorName, p.rejectedItems(), p.message());
-            case ConsumeResult.Rejected<MetricsData> r ->
-                    log.warn("{} downstream rejected derived metric: {}",
-                            connectorName, r.message(), r.cause());
+                            connectorName, rejected, message);
+            case ConsumeResult.Rejected<MetricsData>(var message, var cause) ->
+                    log.warn("{} downstream rejected derived metric: {}", connectorName, message, cause);
         }
         return ConsumeResult.accepted();
     }

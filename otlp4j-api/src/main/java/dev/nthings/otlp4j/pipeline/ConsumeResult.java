@@ -95,13 +95,13 @@ public sealed interface ConsumeResult<T> permits ConsumeResult.Accepted, Consume
                     }
                     messages = appendMessage(messages, r.message());
                 }
-                case Partial<T> p -> {
-                    if (p.rejectedItems() > maxRejected) {
-                        maxRejected = p.rejectedItems();
+                case Partial<T>(var rejectedItems, var message) -> {
+                    if (rejectedItems > maxRejected) {
+                        maxRejected = rejectedItems;
                     }
-                    messages = appendMessage(messages, p.message());
+                    messages = appendMessage(messages, message);
                 }
-                case Accepted<T> ignored -> {}
+                case Accepted<T> _ -> {}
             }
         }
         if (firstRejected != null) {

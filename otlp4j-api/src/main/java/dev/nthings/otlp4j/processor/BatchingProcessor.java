@@ -143,7 +143,7 @@ public final class BatchingProcessor<T> implements Consumer<T>, Pipeline.Flushab
                 .orTimeout(timeout.toNanos(), TimeUnit.NANOSECONDS)
                 .exceptionally(t -> null);
         if (ownsScheduler) {
-            drained = drained.whenComplete((v, t) -> scheduler.shutdown()).toCompletableFuture();
+            drained = drained.whenComplete((_, _) -> scheduler.shutdown()).toCompletableFuture();
         }
         return drained;
     }
@@ -154,7 +154,7 @@ public final class BatchingProcessor<T> implements Consumer<T>, Pipeline.Flushab
     }
 
     private void flushIfDue() {
-        flushNow().whenComplete((v, t) -> {
+        flushNow().whenComplete((_, t) -> {
             if (t != null) {
                 log.warn("scheduled flush failed", t);
             }

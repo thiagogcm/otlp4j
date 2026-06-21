@@ -40,12 +40,12 @@ class GrpcTransportTest {
         for (var closeable : closeables) {
             try {
                 closeable.close();
-            } catch (Exception ignored) { /* keep tearing down */ }
+            } catch (Exception _) { /* keep tearing down */ }
         }
         for (var receiver : receivers) {
             try {
                 receiver.shutdownNow().toCompletableFuture().get(5, TimeUnit.SECONDS);
-            } catch (Exception ignored) { /* keep tearing down */ }
+            } catch (Exception _) { /* keep tearing down */ }
         }
     }
 

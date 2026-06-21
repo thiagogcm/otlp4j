@@ -36,14 +36,14 @@ class TransformsTest {
                 Fixtures.logRecord("error", LogRecord.Severity.ERROR));
         var filtered = Transforms.keepLogRecordsWhere(r -> r.severity() == LogRecord.Severity.ERROR).apply(logs);
         assertThat(filtered.logRecords()).hasSize(1);
-        assertThat(filtered.logRecords().get(0).body()).isEqualTo(AttributeValue.of("error"));
+        assertThat(filtered.logRecords().getFirst().body()).isEqualTo(AttributeValue.of("error"));
     }
 
     @Test
     void setTraceResourceAttributeAddsAttribute() {
         var traces = Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER));
         var enriched = Transforms.setTraceResourceAttribute("env", AttributeValue.of("prod")).apply(traces);
-        var attr = enriched.resourceSpans().get(0).resource().attributes().get("env");
+        var attr = enriched.resourceSpans().getFirst().resource().attributes().get("env");
         assertThat(attr).isInstanceOf(AttributeValue.StringValue.class);
         assertThat(((AttributeValue.StringValue) attr).value()).isEqualTo("prod");
     }
@@ -52,7 +52,7 @@ class TransformsTest {
     void setMetricsResourceAttributeAddsAttribute() {
         var metrics = Fixtures.metricsData(Fixtures.metric("m1"));
         var enriched = Transforms.setMetricsResourceAttribute("env", AttributeValue.of("dev")).apply(metrics);
-        var attr = enriched.resourceMetrics().get(0).resource().attributes().get("env");
+        var attr = enriched.resourceMetrics().getFirst().resource().attributes().get("env");
         assertThat(((AttributeValue.StringValue) attr).value()).isEqualTo("dev");
     }
 
@@ -60,7 +60,7 @@ class TransformsTest {
     void setLogsResourceAttributeAddsAttribute() {
         var logs = Fixtures.logsData(Fixtures.logRecord("hi", LogRecord.Severity.INFO));
         var enriched = Transforms.setLogsResourceAttribute("env", AttributeValue.of("staging")).apply(logs);
-        var attr = enriched.resourceLogs().get(0).resource().attributes().get("env");
+        var attr = enriched.resourceLogs().getFirst().resource().attributes().get("env");
         assertThat(((AttributeValue.StringValue) attr).value()).isEqualTo("staging");
     }
 
@@ -68,7 +68,7 @@ class TransformsTest {
     void setProfilesResourceAttributeAddsAttribute() {
         var profiles = Fixtures.profilesData(Fixtures.profile("p1"));
         var enriched = Transforms.setProfilesResourceAttribute("env", AttributeValue.of("perf")).apply(profiles);
-        var attr = enriched.resourceProfiles().get(0).resource().attributes().get("env");
+        var attr = enriched.resourceProfiles().getFirst().resource().attributes().get("env");
         assertThat(((AttributeValue.StringValue) attr).value()).isEqualTo("perf");
     }
 }

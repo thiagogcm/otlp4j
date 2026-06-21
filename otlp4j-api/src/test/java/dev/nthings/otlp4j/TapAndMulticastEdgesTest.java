@@ -34,7 +34,7 @@ class TapAndMulticastEdgesTest {
             await().atMost(Duration.ofSeconds(2)).until(() -> traces.size() >= 1 && all.size() >= 1);
             assertThat(traces).hasSize(1);
             assertThat(all).hasSize(1);
-            assertThat(all.get(0)).isInstanceOf(Telemetry.Traces.class);
+            assertThat(all.getFirst()).isInstanceOf(Telemetry.Traces.class);
         } finally {
             tap.close();
         }

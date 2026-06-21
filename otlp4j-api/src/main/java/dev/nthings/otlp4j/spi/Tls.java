@@ -5,9 +5,9 @@ import java.nio.file.Path;
 /// TLS configuration for an OTLP transport.
 ///
 /// Sealed family covering the three useful states: TLS disabled, TLS using the JVM's default
-/// trust store, and a fully custom credential bundle. The current OTLP/gRPC transport ships
-/// with [Disabled] only; the other variants exist on the SPI so alternate transports and a
-/// future TLS implementation can adopt them without an SPI break.
+/// trust store, and a fully custom credential bundle. The bundled OTLP/gRPC transport honours
+/// all three on the client; the server honours [Disabled] and [Custom] (which supplies its
+/// certificate and key) and rejects [SystemTrust], as a server has no certificate of its own.
 public sealed interface Tls permits Tls.Disabled, Tls.SystemTrust, Tls.Custom {
 
     /// Plaintext transport — no TLS.

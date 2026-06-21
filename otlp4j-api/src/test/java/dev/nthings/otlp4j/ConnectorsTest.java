@@ -33,7 +33,7 @@ class ConnectorsTest {
         var result = connector.consume(traces).toCompletableFuture().join();
         assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
         assertThat(captured).hasSize(1);
-        var metric = captured.get(0).metrics().get(0);
+        var metric = captured.getFirst().metrics().getFirst();
         assertThat(metric.name()).isEqualTo("otlp4j.connector.span.count");
         assertThat(longValue(metric)).isEqualTo(3L);
     }
@@ -51,7 +51,7 @@ class ConnectorsTest {
                 Fixtures.logRecord("b", LogRecord.Severity.WARN));
         var result = connector.consume(logs).toCompletableFuture().join();
         assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
-        var metric = captured.get(0).metrics().get(0);
+        var metric = captured.getFirst().metrics().getFirst();
         assertThat(metric.name()).isEqualTo("otlp4j.connector.log.record.count");
         assertThat(longValue(metric)).isEqualTo(2L);
     }
@@ -59,7 +59,7 @@ class ConnectorsTest {
     private static long longValue(Metric metric) {
         if (metric.data() instanceof Metric.Sum sum
                 && !sum.points().isEmpty()
-                && sum.points().get(0).value() instanceof NumberPoint.LongValue v) {
+                && sum.points().getFirst().value() instanceof NumberPoint.LongValue v) {
             return v.value();
         }
         return -1L;

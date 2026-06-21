@@ -54,7 +54,7 @@ class MapperEdgeCaseTest {
     void aMetricWithNoDataMapsBackToNull() {
         var sent = Fixtures.metricsData(Metric.builder().name("placeholder.metric").build());
 
-        var roundTripped = MetricsMapper.toDomain(MetricsMapper.toProto(sent)).metrics().get(0);
+        var roundTripped = MetricsMapper.toDomain(MetricsMapper.toProto(sent)).metrics().getFirst();
 
         assertThat(roundTripped.name()).isEqualTo("placeholder.metric");
         assertThat(roundTripped.data()).isNull();
@@ -65,7 +65,7 @@ class MapperEdgeCaseTest {
         var sent = TransportFixtures.profiles(
                 new ProfilesData.Profile("0102030405060708", 100L, 200L, 5L, 42, 3, "pprof"));
 
-        var roundTripped = ProfilesMapper.toDomain(ProfilesMapper.toProto(sent)).profiles().get(0);
+        var roundTripped = ProfilesMapper.toDomain(ProfilesMapper.toProto(sent)).profiles().getFirst();
 
         assertThat(roundTripped.sampleCount()).isZero();
         assertThat(roundTripped.profileId()).isEqualTo("0102030405060708");
@@ -207,7 +207,7 @@ class MapperEdgeCaseTest {
         var sent = TransportFixtures.profiles(new ProfilesData.Profile(
                 "aabbccddeeff00112233445566778899", 111L, 222L, 333L, 444, 555, "pprof-gz"));
 
-        var roundTripped = ProfilesMapper.toDomain(ProfilesMapper.toProto(sent)).profiles().get(0);
+        var roundTripped = ProfilesMapper.toDomain(ProfilesMapper.toProto(sent)).profiles().getFirst();
 
         assertThat(roundTripped.profileId()).isEqualTo("aabbccddeeff00112233445566778899");
         assertThat(roundTripped.timeUnixNano()).isEqualTo(111L);

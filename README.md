@@ -2,7 +2,7 @@
 
 otlp4j is a JPMS-modular Java SDK for receiving, processing, and exporting [OpenTelemetry Protocol (OTLP)](https://opentelemetry.io/docs/specs/otlp/) telemetry. Application code uses immutable Java records and typed asynchronous APIs; generated Protobuf and gRPC types remain inside the transport modules.
 
-The project is currently experimental `0.1.0-SNAPSHOT` and requires JDK 25. Its built-in transport supports plaintext OTLP/gRPC for traces, metrics, logs, and experimental profiles.
+The project is currently experimental `0.1.0-SNAPSHOT` and requires JDK 25. Its built-in transport carries OTLP/gRPC for traces, metrics, logs, and experimental profiles, over plaintext or TLS, with authentication headers, gzip compression, and gRPC-native retries.
 
 > [!WARNING]
 > This project was developed with the assistance of AI agents and has not undergone thorough testing. Please report any issues you encounter.
@@ -98,7 +98,7 @@ This runs the tests, coverage checks, Protobuf generation, and Javadoc lint. If 
 
 ## Current limits
 
-- The bundled transport uses plaintext gRPC. Its client applies host, port, and deadline; its server applies the port but currently ignores `bindHost`. TLS, headers, compression, and retry settings exist for SPI compatibility but are not implemented by this provider.
+- The bundled transport applies the full configuration surface — TLS, headers, compression, and retry on the client; TLS on the server — except the server's `bindHost`, which is currently ignored (gRPC binds its default address).
 - Profiles track OpenTelemetry `v1development`. `ProfilesData.Profile` retains top-level metadata but not sample, location, mapping, or dictionary tables.
 - Metric exemplars are not represented in the domain model.
 - An unattached receiver source acknowledges a batch as accepted. Attach every signal that must be processed.

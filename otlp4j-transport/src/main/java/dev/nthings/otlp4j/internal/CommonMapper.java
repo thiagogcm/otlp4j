@@ -106,31 +106,27 @@ final class CommonMapper {
 
     public static AnyValue toAnyValue(AttributeValue value) {
         return switch (value) {
-            case AttributeValue.StringValue v ->
-                AnyValue.newBuilder().setStringValue(v.value()).build();
-            case AttributeValue.BoolValue v ->
-                AnyValue.newBuilder().setBoolValue(v.value()).build();
-            case AttributeValue.LongValue v -> AnyValue.newBuilder().setIntValue(v.value()).build();
-            case AttributeValue.DoubleValue v ->
-                AnyValue.newBuilder().setDoubleValue(v.value()).build();
-            case AttributeValue.BytesValue v ->
-                AnyValue.newBuilder().setBytesValue(ByteString.copyFrom(v.value())).build();
-            case AttributeValue.ArrayValue v -> {
+            case AttributeValue.StringValue(var s) -> AnyValue.newBuilder().setStringValue(s).build();
+            case AttributeValue.BoolValue(var b) -> AnyValue.newBuilder().setBoolValue(b).build();
+            case AttributeValue.LongValue(var l) -> AnyValue.newBuilder().setIntValue(l).build();
+            case AttributeValue.DoubleValue(var d) -> AnyValue.newBuilder().setDoubleValue(d).build();
+            case AttributeValue.BytesValue(var bytes) ->
+                AnyValue.newBuilder().setBytesValue(ByteString.copyFrom(bytes)).build();
+            case AttributeValue.ArrayValue(var values) -> {
                 var array = ArrayValue.newBuilder();
-                for (var element : v.values()) {
+                for (var element : values) {
                     array.addValues(toAnyValue(element));
                 }
                 yield AnyValue.newBuilder().setArrayValue(array).build();
             }
-            case AttributeValue.KeyValueListValue v -> {
+            case AttributeValue.KeyValueListValue(var values) -> {
                 var list = KeyValueList.newBuilder();
-                v.values()
-                        .forEach((key, element) -> list.addValues(KeyValue.newBuilder()
-                                .setKey(key)
-                                .setValue(toAnyValue(element))));
+                values.forEach((key, element) -> list.addValues(KeyValue.newBuilder()
+                        .setKey(key)
+                        .setValue(toAnyValue(element))));
                 yield AnyValue.newBuilder().setKvlistValue(list).build();
             }
-            case AttributeValue.Empty ignored -> AnyValue.getDefaultInstance();
+            case AttributeValue.Empty() -> AnyValue.getDefaultInstance();
         };
     }
 

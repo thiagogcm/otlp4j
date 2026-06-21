@@ -6,9 +6,8 @@ import java.util.Objects;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Flow;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -86,10 +85,10 @@ public final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoClose
         private final ArrayBlockingQueue<T> queue;
         private final LongAdder drops;
         private final CopyOnWriteArrayList<SubscriptionImpl<T>> roster;
-        private final AtomicLong demand = new AtomicLong();
+        private final Semaphore demand = new Semaphore(0);
         private final AtomicBoolean cancelled = new AtomicBoolean();
         private final AtomicBoolean dispatcherRunning = new AtomicBoolean();
-        private Thread dispatcher;
+        private volatile Thread dispatcher;
 
         SubscriptionImpl(
                 Flow.Subscriber<? super T> subscriber,
@@ -139,33 +138,33 @@ public final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoClose
 
         void startDispatcher() {
             if (dispatcherRunning.compareAndSet(false, true)) {
-                dispatcher = Thread.ofVirtual()
-                        .name("otlp4j-tap-dispatcher")
-                        .start(this::dispatchLoop);
+                // Publish the field before start() so complete()/cancel() can interrupt the dispatcher.
+                var t = Thread.ofVirtual().name("otlp4j-tap-dispatcher").unstarted(this::dispatchLoop);
+                dispatcher = t;
+                t.start();
             }
         }
 
+        /// Blocks for demand, then for an item, then delivers — no polling, no spinning.
         private void dispatchLoop() {
             try {
                 while (!cancelled.get()) {
-                    while (demand.get() > 0 || strategy == BackpressureStrategy.BLOCK) {
-                        T item = queue.poll(100, TimeUnit.MILLISECONDS);
-                        if (item == null) {
-                            if (cancelled.get()) return;
-                            continue;
-                        }
-                        if (cancelled.get()) return;
-                        if (demand.get() > 0) {
-                            demand.decrementAndGet();
-                        }
-                        try {
-                            subscriber.onNext(item);
-                        } catch (RuntimeException e) {
-                            completeExceptionally(e);
-                            return;
-                        }
+                    if (strategy != BackpressureStrategy.BLOCK) {
+                        demand.acquire();
                     }
-                    Thread.sleep(10);
+                    if (cancelled.get()) {
+                        return;
+                    }
+                    T item = queue.take();
+                    if (cancelled.get()) {
+                        return;
+                    }
+                    try {
+                        subscriber.onNext(item);
+                    } catch (RuntimeException e) {
+                        completeExceptionally(e);
+                        return;
+                    }
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -174,9 +173,10 @@ public final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoClose
 
         void complete() {
             if (cancelled.compareAndSet(false, true)) {
+                interruptDispatcher();
                 try {
                     subscriber.onComplete();
-                } catch (RuntimeException ignored) {
+                } catch (RuntimeException _) {
                     // Subscriber violated Flow contract; cannot propagate further.
                 }
             }
@@ -184,9 +184,10 @@ public final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoClose
 
         void completeExceptionally(Throwable t) {
             if (cancelled.compareAndSet(false, true)) {
+                interruptDispatcher();
                 try {
                     subscriber.onError(t);
-                } catch (RuntimeException ignored) {
+                } catch (RuntimeException _) {
                     // Subscriber violated Flow contract; cannot propagate further.
                 }
                 roster.remove(this);
@@ -199,17 +200,28 @@ public final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoClose
                 completeExceptionally(new IllegalArgumentException("request must be positive"));
                 return;
             }
-            // Saturating add: concurrent request() calls must never overflow demand.
-            demand.updateAndGet(prev -> prev > Long.MAX_VALUE - n ? Long.MAX_VALUE : prev + n);
+            if (strategy == BackpressureStrategy.BLOCK) {
+                return; // BLOCK delivers regardless of demand
+            }
+            // Saturate at Integer.MAX_VALUE outstanding permits; effectively unbounded demand.
+            int headroom = Integer.MAX_VALUE - demand.availablePermits();
+            if (headroom > 0) {
+                demand.release((int) Math.min(n, headroom));
+            }
         }
 
         @Override
         public void cancel() {
             if (cancelled.compareAndSet(false, true)) {
                 roster.remove(this);
-                if (dispatcher != null) {
-                    dispatcher.interrupt();
-                }
+                interruptDispatcher();
+            }
+        }
+
+        private void interruptDispatcher() {
+            var d = dispatcher;
+            if (d != null) {
+                d.interrupt();
             }
         }
     }

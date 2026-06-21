@@ -44,6 +44,28 @@ class MulticastPublisherTest {
     }
 
     @Test
+    void deliversBufferedItemPromptlyOnceDemandArrives() {
+        var drops = new LongAdder();
+        var pub = new MulticastPublisher<String>(drops);
+        var received = new CopyOnWriteArrayList<String>();
+        var subRef = new AtomicReference<Flow.Subscription>();
+        pub.subscribe(new Flow.Subscriber<>() {
+            @Override public void onSubscribe(Flow.Subscription s) { subRef.set(s); } // no demand yet
+            @Override public void onNext(String item) { received.add(item); }
+            @Override public void onError(Throwable t) {}
+            @Override public void onComplete() {}
+        });
+
+        pub.publish("buffered");
+        assertThat(received).as("nothing is delivered before demand is requested").isEmpty();
+
+        subRef.get().request(1);
+        await().atMost(Duration.ofSeconds(1)).until(() -> received.size() == 1);
+        assertThat(received).containsExactly("buffered");
+        pub.close();
+    }
+
+    @Test
     void closeCompletesEverySubscriber() {
         var drops = new LongAdder();
         var pub = new MulticastPublisher<String>(drops);

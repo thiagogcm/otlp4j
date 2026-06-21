@@ -6,14 +6,25 @@ import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.TraceData;
 import dev.nthings.otlp4j.pipeline.ConsumeResult;
 import dev.nthings.otlp4j.spi.ClientTransportConfig;
+import dev.nthings.otlp4j.spi.Compression;
 import dev.nthings.otlp4j.spi.OtlpClient;
+import dev.nthings.otlp4j.spi.Tls;
+import io.grpc.ChannelCredentials;
 import io.grpc.Grpc;
 import io.grpc.InsecureChannelCredentials;
 import io.grpc.ManagedChannel;
+import io.grpc.Metadata;
+import io.grpc.TlsChannelCredentials;
+import io.grpc.stub.AbstractStub;
+import io.grpc.stub.MetadataUtils;
 import io.opentelemetry.proto.collector.logs.v1.LogsServiceGrpc;
 import io.opentelemetry.proto.collector.metrics.v1.MetricsServiceGrpc;
 import io.opentelemetry.proto.collector.profiles.v1development.ProfilesServiceGrpc;
 import io.opentelemetry.proto.collector.trace.v1.TraceServiceGrpc;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Executor;
@@ -23,8 +34,10 @@ import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/// The OTLP/gRPC implementation of the [OtlpClient] SPI: opens a plaintext channel to a
-/// collector endpoint and exports domain telemetry asynchronously.
+/// The OTLP/gRPC implementation of the [OtlpClient] SPI: opens a channel to a collector
+/// endpoint and exports domain telemetry asynchronously.
+///
+/// Honours the full [ClientTransportConfig]: TLS credentials, per-call headers, gzip, and retry.
 ///
 /// **Internal.** Part of the transport layer; obtained via the SPI.
 final class GrpcOtlpClient implements OtlpClient {
@@ -39,15 +52,27 @@ final class GrpcOtlpClient implements OtlpClient {
     private final LogsServiceGrpc.LogsServiceBlockingStub logsStub;
     private final ProfilesServiceGrpc.ProfilesServiceBlockingStub profilesStub;
     private final ClientTransportConfig config;
+    private final boolean compress;
     private final Executor executor;
 
     GrpcOtlpClient(ClientTransportConfig config) {
         this.config = config;
-        // TLS variants on the SPI are honoured for `Disabled`; non-disabled values fall back to
-        // plaintext in this v1 transport. The TLS-aware path lives here without an SPI break.
-        this.channel = Grpc.newChannelBuilderForAddress(
-                        config.host(), config.port(), InsecureChannelCredentials.create())
-                .build();
+        this.compress = config.compression() == Compression.GZIP;
+
+        var builder = Grpc.newChannelBuilderForAddress(
+                config.host(), config.port(), channelCredentials(config.tls()));
+        if (!config.headers().isEmpty()) {
+            builder.intercept(MetadataUtils.newAttachHeadersInterceptor(toMetadata(config.headers())));
+        }
+        var retry = config.retry();
+        if (retry.maxAttempts() > 1) {
+            // gRPC's native retry bounds total attempts; the per-call deadline still caps wall time.
+            builder.enableRetry()
+                    .maxRetryAttempts(retry.maxAttempts())
+                    .defaultServiceConfig(RetryServiceConfig.build(retry, OTLP_SERVICE_NAMES));
+        }
+        this.channel = builder.build();
+
         this.traceStub = TraceServiceGrpc.newBlockingStub(channel);
         this.metricsStub = MetricsServiceGrpc.newBlockingStub(channel);
         this.logsStub = LogsServiceGrpc.newBlockingStub(channel);
@@ -58,30 +83,32 @@ final class GrpcOtlpClient implements OtlpClient {
 
     @Override
     public CompletionStage<ConsumeResult<TraceData>> exportTraces(TraceData traces) {
-        return CompletableFuture.supplyAsync(() -> TraceMapper.result(
-                traceStub.withDeadlineAfter(config.timeout().toNanos(), TimeUnit.NANOSECONDS)
-                        .export(TraceMapper.toProto(traces))), executor);
+        return CompletableFuture.supplyAsync(
+                () -> TraceMapper.result(call(traceStub).export(TraceMapper.toProto(traces))), executor);
     }
 
     @Override
     public CompletionStage<ConsumeResult<MetricsData>> exportMetrics(MetricsData metrics) {
-        return CompletableFuture.supplyAsync(() -> MetricsMapper.result(
-                metricsStub.withDeadlineAfter(config.timeout().toNanos(), TimeUnit.NANOSECONDS)
-                        .export(MetricsMapper.toProto(metrics))), executor);
+        return CompletableFuture.supplyAsync(
+                () -> MetricsMapper.result(call(metricsStub).export(MetricsMapper.toProto(metrics))), executor);
     }
 
     @Override
     public CompletionStage<ConsumeResult<LogsData>> exportLogs(LogsData logs) {
-        return CompletableFuture.supplyAsync(() -> LogsMapper.result(
-                logsStub.withDeadlineAfter(config.timeout().toNanos(), TimeUnit.NANOSECONDS)
-                        .export(LogsMapper.toProto(logs))), executor);
+        return CompletableFuture.supplyAsync(
+                () -> LogsMapper.result(call(logsStub).export(LogsMapper.toProto(logs))), executor);
     }
 
     @Override
     public CompletionStage<ConsumeResult<ProfilesData>> exportProfiles(ProfilesData profiles) {
-        return CompletableFuture.supplyAsync(() -> ProfilesMapper.result(
-                profilesStub.withDeadlineAfter(config.timeout().toNanos(), TimeUnit.NANOSECONDS)
-                        .export(ProfilesMapper.toProto(profiles))), executor);
+        return CompletableFuture.supplyAsync(
+                () -> ProfilesMapper.result(call(profilesStub).export(ProfilesMapper.toProto(profiles))), executor);
+    }
+
+    /// Applies the per-call deadline and, when enabled, gzip compression to a stub.
+    private <S extends AbstractStub<S>> S call(S stub) {
+        var s = stub.withDeadlineAfter(config.timeout().toNanos(), TimeUnit.NANOSECONDS);
+        return compress ? s.withCompression("gzip") : s;
     }
 
     @Override
@@ -104,5 +131,40 @@ final class GrpcOtlpClient implements OtlpClient {
                 es.close();
             }
         }
+    }
+
+    /// The fully-qualified OTLP collector service names, used to scope the retry service config.
+    private static final List<String> OTLP_SERVICE_NAMES = List.of(
+            TraceServiceGrpc.SERVICE_NAME,
+            MetricsServiceGrpc.SERVICE_NAME,
+            LogsServiceGrpc.SERVICE_NAME,
+            ProfilesServiceGrpc.SERVICE_NAME);
+
+    private static ChannelCredentials channelCredentials(Tls tls) {
+        return switch (tls) {
+            case Tls.Disabled() -> InsecureChannelCredentials.create();
+            case Tls.SystemTrust() -> TlsChannelCredentials.create();
+            case Tls.Custom(var certFile, var keyFile, var trustFile) -> {
+                try {
+                    var b = TlsChannelCredentials.newBuilder();
+                    if (certFile != null && keyFile != null) {
+                        b.keyManager(certFile.toFile(), keyFile.toFile());
+                    }
+                    if (trustFile != null) {
+                        b.trustManager(trustFile.toFile());
+                    }
+                    yield b.build();
+                } catch (IOException e) {
+                    throw new UncheckedIOException("failed to load client TLS material", e);
+                }
+            }
+        };
+    }
+
+    private static Metadata toMetadata(Map<String, String> headers) {
+        var md = new Metadata();
+        headers.forEach((name, value) ->
+                md.put(Metadata.Key.of(name, Metadata.ASCII_STRING_MARSHALLER), value));
+        return md;
     }
 }

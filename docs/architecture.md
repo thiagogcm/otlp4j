@@ -77,7 +77,7 @@ The default buffer holds 256 batches and drops the oldest on overflow. Other str
 
 The built-in client uses blocking gRPC stubs on a virtual-thread-per-task executor and applies the configured deadline to each export. The server exposes trace, metric, log, and experimental profile collector services.
 
-Although the SPI records include TLS, headers, compression, and retry policy, the bundled provider currently creates insecure client and server credentials. The client applies host, port, and request deadline. The server applies its port but not `bindHost`; gRPC therefore uses its default bind address. Alternate providers can implement the remaining fields without changing the application API.
+The bundled provider honours the full SPI configuration surface. The client selects channel credentials from `Tls` (plaintext, JVM default trust, or a custom certificate bundle), attaches the configured headers to every call, requests gzip compression when configured, and maps `RetryPolicy` onto gRPC's native retry via the channel's default service config. The server selects its credentials from `Tls` (`Disabled` for plaintext, `Custom` for a server certificate and key; `SystemTrust` is rejected, having no server certificate). The one field still unused is the server's `bindHost`: gRPC binds its default address. Alternate providers can vary any of this without changing the application API.
 
 ## Model fidelity
 

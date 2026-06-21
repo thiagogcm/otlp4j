@@ -44,8 +44,8 @@ class PipelineTest {
             sub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
         }
         assertThat(captured).hasSize(1);
-        assertThat(captured.get(0).spans()).hasSize(1);
-        assertThat(captured.get(0).resourceSpans().get(0).resource().attributes().get("env"))
+        assertThat(captured.getFirst().spans()).hasSize(1);
+        assertThat(captured.getFirst().resourceSpans().getFirst().resource().attributes().get("env"))
                 .isInstanceOf(AttributeValue.StringValue.class);
     }
 

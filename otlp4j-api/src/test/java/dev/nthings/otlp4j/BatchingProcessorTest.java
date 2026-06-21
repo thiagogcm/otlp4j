@@ -39,7 +39,7 @@ class BatchingProcessorTest {
             await().atMost(Duration.ofSeconds(2)).until(() -> !captured.isEmpty());
         }
         assertThat(captured).hasSize(1);
-        assertThat(captured.get(0).spans()).hasSize(3);
+        assertThat(captured.getFirst().spans()).hasSize(3);
     }
 
     @Test

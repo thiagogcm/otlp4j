@@ -3,10 +3,14 @@ package dev.nthings.otlp4j.internal;
 import dev.nthings.otlp4j.spi.OtlpServer;
 import dev.nthings.otlp4j.spi.OtlpServerProvider;
 import dev.nthings.otlp4j.spi.ServerTransportConfig;
+import dev.nthings.otlp4j.spi.Tls;
 import io.grpc.Grpc;
 import io.grpc.InsecureServerCredentials;
 import io.grpc.Server;
+import io.grpc.ServerCredentials;
+import io.grpc.TlsServerCredentials;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -14,10 +18,11 @@ import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/// Plaintext OTLP/gRPC implementation of the [OtlpServer] SPI.
+/// OTLP/gRPC implementation of the [OtlpServer] SPI.
 ///
 /// Serves the four OTLP collector services and routes decoded requests to the per-signal
-/// dispatchers passed in by [GrpcOtlpServerProvider].
+/// dispatchers passed in by [GrpcOtlpServerProvider]. [Tls] selects the server credentials:
+/// [Tls.Disabled] is plaintext and [Tls.Custom] supplies the server certificate and key.
 final class GrpcOtlpServer implements OtlpServer {
 
     private static final Logger log = LoggerFactory.getLogger(GrpcOtlpServer.class);
@@ -37,9 +42,7 @@ final class GrpcOtlpServer implements OtlpServer {
         if (server != null) {
             throw new IllegalStateException("server already started");
         }
-        // TLS configuration on the SPI is honoured for `Disabled`; other variants fall back to
-        // plaintext in this v1 transport. Future TLS implementation lives here without an SPI break.
-        var serverBuilder = Grpc.newServerBuilderForPort(config.port(), InsecureServerCredentials.create());
+        var serverBuilder = Grpc.newServerBuilderForPort(config.port(), serverCredentials(config.tls()));
         GrpcServiceAdapters.create(dispatchers).forEach(serverBuilder::addService);
         server = serverBuilder.build().start();
         log.info("OTLP/gRPC server listening on port {}", server.getPort());
@@ -89,5 +92,26 @@ final class GrpcOtlpServer implements OtlpServer {
                 throw new RuntimeException(e);
             }
         });
+    }
+
+    private static ServerCredentials serverCredentials(Tls tls) {
+        return switch (tls) {
+            case Tls.Disabled() -> InsecureServerCredentials.create();
+            case Tls.Custom(var certFile, var keyFile, var _) -> {
+                if (certFile == null || keyFile == null) {
+                    throw new IllegalArgumentException(
+                            "Tls.Custom for a server requires both a certificate and a key");
+                }
+                try {
+                    yield TlsServerCredentials.newBuilder()
+                            .keyManager(certFile.toFile(), keyFile.toFile())
+                            .build();
+                } catch (IOException e) {
+                    throw new UncheckedIOException("failed to load server TLS material", e);
+                }
+            }
+            case Tls.SystemTrust() -> throw new IllegalArgumentException(
+                    "Tls.SystemTrust is not valid for a server; use Tls.Custom with a certificate and key");
+        };
     }
 }

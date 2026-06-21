@@ -1,19 +1,30 @@
 package dev.nthings.otlp4j.spi;
 
 import java.time.Duration;
+import java.util.Objects;
 
 /// Simple retry policy carried by [ClientTransportConfig].
 ///
-/// `maxAttempts` includes the initial attempt; a value of 1 disables retries. The current
-/// gRPC transport does not retry, but the policy is part of the SPI so alternate transports
-/// can pick it up without changing the API.
+/// `maxAttempts` includes the initial attempt; a value of 1 disables retries. The bundled
+/// gRPC transport maps this onto gRPC's native retry (exponential backoff over the OTLP-
+/// recommended retryable status codes); the per-request deadline still bounds total wall time.
 public record RetryPolicy(int maxAttempts, Duration initialBackoff, Duration maxBackoff) {
 
     private static final RetryPolicy NONE = new RetryPolicy(1, Duration.ZERO, Duration.ZERO);
 
     public RetryPolicy {
+        Objects.requireNonNull(initialBackoff, "initialBackoff");
+        Objects.requireNonNull(maxBackoff, "maxBackoff");
         if (maxAttempts < 1) {
             throw new IllegalArgumentException("maxAttempts must be >= 1");
+        }
+        if (maxAttempts > 1) {
+            if (initialBackoff.isZero() || initialBackoff.isNegative()) {
+                throw new IllegalArgumentException("initialBackoff must be > 0 when retries are enabled");
+            }
+            if (maxBackoff.compareTo(initialBackoff) < 0) {
+                throw new IllegalArgumentException("maxBackoff must be >= initialBackoff");
+            }
         }
     }
 

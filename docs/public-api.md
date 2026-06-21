@@ -44,7 +44,7 @@ Use an exception or exceptionally completed stage for a transport-level failure.
 
 ## Receive
 
-`OtlpGrpcReceiver` defaults to plaintext `0.0.0.0:4317`. Port `0` selects an ephemeral port, available through `port()` after `start()`.
+`OtlpGrpcReceiver` defaults to plaintext `0.0.0.0:4317`; pass a `ServerTransportConfig` with `Tls.Custom(cert, key, …)` through `transport(...)` to serve TLS. Port `0` selects an ephemeral port, available through `port()` after `start()`.
 
 ```java
 var receiver = OtlpGrpcReceiver.builder()
@@ -121,7 +121,7 @@ Overflow behavior:
 
 ## Export
 
-`OtlpGrpcExporter` defaults to plaintext `localhost:4317` with a ten-second deadline per request. It owns one client channel and exposes a consumer facet for each signal.
+`OtlpGrpcExporter` defaults to plaintext `localhost:4317` with a ten-second deadline per request. It owns one client channel and exposes a consumer facet for each signal. TLS, authentication headers, gzip compression, and retries are configured by passing a fully built `ClientTransportConfig` through `transport(...)`.
 
 ```java
 try (var exporter = OtlpGrpcExporter.builder()
@@ -171,7 +171,7 @@ Implement these pairs and register their providers with JPMS, `META-INF/services
 - `OtlpServerProvider` and `OtlpServer` for receiving;
 - `OtlpClientProvider` and `OtlpClient` for exporting.
 
-Helpers select the first provider returned by `ServiceLoader`; avoid ambiguous provider sets. Configuration arrives through `ServerTransportConfig` or `ClientTransportConfig`. The bundled client uses host, port, and timeout; the server uses only its port. Both always create plaintext gRPC credentials.
+Helpers select the first provider returned by `ServiceLoader`; avoid ambiguous provider sets. Configuration arrives through `ServerTransportConfig` or `ClientTransportConfig`. The bundled client honours host, port, timeout, TLS, headers, compression, and retry; the server honours its port and TLS (it does not yet apply `bindHost`).
 
 ## Shutdown order
 
