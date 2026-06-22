@@ -9,6 +9,7 @@ import dev.nthings.otlp4j.spi.RetryPolicy;
 import dev.nthings.otlp4j.spi.ServerTransportConfig;
 import dev.nthings.otlp4j.spi.Tls;
 import java.time.Duration;
+import java.util.concurrent.Executor;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -58,15 +59,24 @@ class ConfigRecordsTest {
         assertThat(c.bindHost()).isEqualTo("0.0.0.0");
         assertThat(c.port()).isEqualTo(4317);
         assertThat(c.tls()).isEqualTo(Tls.disabled());
+        assertThat(c.maxInboundMessageSizeBytes()).isEqualTo(4 * 1024 * 1024);
+        assertThat(c.maxConcurrentCallsPerConnection()).isZero();
+        assertThat(c.handshakeTimeout()).isEqualTo(Duration.ofSeconds(20));
+        assertThat(c.serverExecutor()).isNull();
     }
 
     @DisplayName("ServerTransportConfig.toBuilder round-trips and preserves untouched fields")
     @Test
     void serverConfigToBuilderRoundTrips() {
+        Executor executor = Runnable::run;
         var original = ServerTransportConfig.builder()
                 .bindHost("127.0.0.1")
                 .port(5000)
                 .tls(Tls.systemTrust())
+                .maxInboundMessageSizeBytes(1024)
+                .maxConcurrentCallsPerConnection(8)
+                .handshakeTimeout(Duration.ofSeconds(5))
+                .serverExecutor(executor)
                 .build();
 
         var derived = original.toBuilder().port(6000).build();
@@ -74,6 +84,10 @@ class ConfigRecordsTest {
         assertThat(derived.bindHost()).isEqualTo("127.0.0.1");
         assertThat(derived.tls()).isEqualTo(Tls.systemTrust());
         assertThat(derived.port()).isEqualTo(6000);
+        assertThat(derived.maxInboundMessageSizeBytes()).isEqualTo(1024);
+        assertThat(derived.maxConcurrentCallsPerConnection()).isEqualTo(8);
+        assertThat(derived.handshakeTimeout()).isEqualTo(Duration.ofSeconds(5));
+        assertThat(derived.serverExecutor()).isSameAs(executor);
         assertThat(original.port()).isEqualTo(5000);
     }
 
@@ -81,6 +95,17 @@ class ConfigRecordsTest {
     @Test
     void serverConfigRejectsBadPort() {
         assertThatThrownBy(() -> ServerTransportConfig.builder().port(70000).build())
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @DisplayName("ServerTransportConfig rejects non-positive hardening limits and a non-positive handshake timeout")
+    @Test
+    void serverConfigRejectsBadHardeningLimits() {
+        assertThatThrownBy(() -> ServerTransportConfig.builder().maxInboundMessageSizeBytes(0).build())
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> ServerTransportConfig.builder().maxConcurrentCallsPerConnection(-1).build())
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> ServerTransportConfig.builder().handshakeTimeout(Duration.ZERO).build())
                 .isInstanceOf(IllegalArgumentException.class);
     }
 

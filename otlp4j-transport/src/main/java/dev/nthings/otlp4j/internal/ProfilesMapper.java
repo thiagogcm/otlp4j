@@ -1,16 +1,19 @@
 package dev.nthings.otlp4j.internal;
 
+import com.google.protobuf.InvalidProtocolBufferException;
 import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.pipeline.ConsumeResult;
 import io.opentelemetry.proto.collector.profiles.v1development.ExportProfilesServiceRequest;
 import io.opentelemetry.proto.collector.profiles.v1development.ExportProfilesServiceResponse;
+import io.opentelemetry.proto.profiles.v1development.ProfilesDictionary;
 import java.util.ArrayList;
 import java.util.List;
 
 /// Maps profiles between generated proto types and [ProfilesData].
 ///
-/// Profiles are `v1development`; only top-level metadata is modeled, so domain-to-proto mapping is
-/// lossy for sample/location/mapping/string tables and the shared dictionary.
+/// Profiles are `v1development`; only top-level metadata is modeled for inspection, but forwarding
+/// is lossless via opaque payload passthrough: the shared dictionary and each profile's raw bytes
+/// are captured verbatim so domain-to-proto re-emits byte-identical output.
 final class ProfilesMapper {
 
     private ProfilesMapper() {}
@@ -23,7 +26,9 @@ final class ProfilesMapper {
         for (var rp : request.getResourceProfilesList()) {
             resourceProfiles.add(toDomain(rp));
         }
-        return new ProfilesData(resourceProfiles);
+        var dictionary =
+                request.hasDictionary() ? request.getDictionary().toByteArray() : new byte[0];
+        return new ProfilesData(resourceProfiles, dictionary);
     }
 
     private static ProfilesData.ResourceProfiles toDomain(
@@ -56,7 +61,8 @@ final class ProfilesMapper {
                 profile.getPeriod(),
                 profile.getSamplesCount(),
                 profile.getDroppedAttributesCount(),
-                profile.getOriginalPayloadFormat());
+                profile.getOriginalPayloadFormat(),
+                profile.toByteArray());
     }
 
     /// Interprets an OTLP profiles export response as a [ConsumeResult].
@@ -80,6 +86,14 @@ final class ProfilesMapper {
         var request = ExportProfilesServiceRequest.newBuilder();
         for (var rp : profiles.resourceProfiles()) {
             request.addResourceProfiles(toProto(rp));
+        }
+        var dictionary = profiles.dictionary();
+        if (dictionary.length > 0) {
+            try {
+                request.setDictionary(ProfilesDictionary.parseFrom(dictionary));
+            } catch (InvalidProtocolBufferException e) {
+                throw new IllegalStateException("malformed opaque profiles dictionary payload", e);
+            }
         }
         return request.build();
     }
@@ -110,6 +124,17 @@ final class ProfilesMapper {
 
     private static io.opentelemetry.proto.profiles.v1development.Profile toProto(
             ProfilesData.Profile profile) {
+        var rawProfile = profile.rawProfile();
+        if (rawProfile.length > 0) {
+            try {
+                // Lossless passthrough: re-emit the captured bytes verbatim, preserving samples,
+                // dictionary references, and the original payload.
+                return io.opentelemetry.proto.profiles.v1development.Profile.parseFrom(rawProfile);
+            } catch (InvalidProtocolBufferException e) {
+                throw new IllegalStateException("malformed opaque profile payload", e);
+            }
+        }
+        // Scalar-only profile: rebuild the modeled metadata.
         return io.opentelemetry.proto.profiles.v1development.Profile.newBuilder()
                 .setProfileId(CommonMapper.bytes(profile.profileId()))
                 .setTimeUnixNano(profile.timeUnixNano())

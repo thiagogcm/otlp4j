@@ -77,7 +77,7 @@ class EnumPinningContractTest {
     void everyAggregationTemporalityRoundTripsThroughTheMetricsMapper(
             Metric.AggregationTemporality temporality) {
         var point = new NumberPoint(
-                Attributes.empty(), 0L, 1L, NumberPoint.longValue(1L), 0L);
+                Attributes.empty(), 0L, 1L, NumberPoint.longValue(1L), 0L, List.of());
         var sent = Fixtures.metricsData(Metric.builder()
                 .name("sum")
                 .data(new Metric.Sum(List.of(point), temporality, true))

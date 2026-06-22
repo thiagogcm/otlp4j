@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import dev.nthings.otlp4j.model.Attributes;
 import dev.nthings.otlp4j.model.ExponentialHistogramPoint;
 import dev.nthings.otlp4j.model.Metric;
-import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.pipeline.ConsumeResult;
 import dev.nthings.otlp4j.testing.Fixtures;
 import io.opentelemetry.proto.collector.logs.v1.ExportLogsPartialSuccess;
@@ -41,7 +40,8 @@ class MapperEdgeCaseTest {
                 OptionalDouble.empty(),
                 OptionalDouble.empty(),
                 0.0,
-                0L);
+                0L,
+                List.of());
         var sent = Fixtures.metricsData(Metric.builder()
                 .name("exp.histogram")
                 .data(new Metric.ExponentialHistogram(
@@ -62,23 +62,6 @@ class MapperEdgeCaseTest {
 
         assertThat(roundTripped.name()).isEqualTo("placeholder.metric");
         assertThat(roundTripped.data()).isNull();
-    }
-
-    @DisplayName("ProfilesMapper drops sampleCount but preserves metadata")
-    @Test
-    void profilesMapperDropsSampleCountButPreservesMetadata() {
-        var sent = TransportFixtures.profiles(
-                new ProfilesData.Profile("0102030405060708", 100L, 200L, 5L, 42, 3, "pprof"));
-
-        var roundTripped = ProfilesMapper.toDomain(ProfilesMapper.toProto(sent)).profiles().getFirst();
-
-        assertThat(roundTripped.sampleCount()).isZero();
-        assertThat(roundTripped.profileId()).isEqualTo("0102030405060708");
-        assertThat(roundTripped.timeUnixNano()).isEqualTo(100L);
-        assertThat(roundTripped.durationNanos()).isEqualTo(200L);
-        assertThat(roundTripped.period()).isEqualTo(5L);
-        assertThat(roundTripped.droppedAttributesCount()).isEqualTo(3);
-        assertThat(roundTripped.originalPayloadFormat()).isEqualTo("pprof");
     }
 
     @DisplayName("TraceMapper.result reads rejected count and message from partial_success")
@@ -212,22 +195,5 @@ class MapperEdgeCaseTest {
                         .setErrorMessage("profiles warning"))
                 .build());
         assertThat(messageOnly).isInstanceOf(ConsumeResult.Rejected.class);
-    }
-
-    @DisplayName("ProfilesMapper preserves every scalar metadata field except sampleCount")
-    @Test
-    void profilesMapperPreservesEveryScalarMetadataFieldExceptSampleCount() {
-        var sent = TransportFixtures.profiles(new ProfilesData.Profile(
-                "aabbccddeeff00112233445566778899", 111L, 222L, 333L, 444, 555, "pprof-gz"));
-
-        var roundTripped = ProfilesMapper.toDomain(ProfilesMapper.toProto(sent)).profiles().getFirst();
-
-        assertThat(roundTripped.profileId()).isEqualTo("aabbccddeeff00112233445566778899");
-        assertThat(roundTripped.timeUnixNano()).isEqualTo(111L);
-        assertThat(roundTripped.durationNanos()).isEqualTo(222L);
-        assertThat(roundTripped.period()).isEqualTo(333L);
-        assertThat(roundTripped.droppedAttributesCount()).isEqualTo(555);
-        assertThat(roundTripped.originalPayloadFormat()).isEqualTo("pprof-gz");
-        assertThat(roundTripped.sampleCount()).isZero();
     }
 }

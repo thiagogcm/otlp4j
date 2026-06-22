@@ -87,6 +87,27 @@ class GrpcServiceAdaptersTest {
         assertThat(status.getDescription()).isEqualTo("stage threw");
     }
 
+    /// Pins the #9d contract: the cause is the ONLY thing that distinguishes a transient rejection
+    /// (UNAVAILABLE, retried) from a permanent one (INTERNAL, not retried). A deterministic dropper
+    /// must attach a cause or its batch is retried until the client's budget is spent.
+    @DisplayName("The cause alone flips a no-cause UNAVAILABLE rejection to a non-retryable INTERNAL")
+    @Test
+    void rejectionCauseDecidesRetryability() {
+        var noCause = new RecordingObserver<ExportTraceServiceResponse>();
+        new TraceServiceAdapter(traces -> CompletableFuture.completedStage(
+                ConsumeResult.rejected("dropped by policy"))).export(
+                        TraceMapper.toProto(TransportFixtures.richTraceData()), noCause);
+        noCause.await();
+        assertThat(Status.fromThrowable(noCause.error).getCode()).isEqualTo(Status.Code.UNAVAILABLE);
+
+        var withCause = new RecordingObserver<ExportTraceServiceResponse>();
+        new TraceServiceAdapter(traces -> CompletableFuture.completedStage(
+                ConsumeResult.rejected("dropped by policy", new IllegalStateException("disallowed")))).export(
+                        TraceMapper.toProto(TransportFixtures.richTraceData()), withCause);
+        withCause.await();
+        assertThat(Status.fromThrowable(withCause.error).getCode()).isEqualTo(Status.Code.INTERNAL);
+    }
+
     @DisplayName("MetricsServiceAdapter encodes rejected data points as partial success")
     @Test
     void metricsAdapterEncodesPartialSuccessOntoTheResponse() {

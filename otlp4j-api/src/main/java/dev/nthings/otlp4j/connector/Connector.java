@@ -10,6 +10,9 @@ import java.util.concurrent.CompletionStage;
 /// type and to emit batches that do not correspond 1:1 with the input. The framework treats a
 /// connector as a [Consumer] of `I` that holds a downstream [Consumer] of `O`.
 ///
+/// The built-in count connectors expose a [FailurePolicy] controlling whether a downstream
+/// delivery failure of the derived `O` is propagated onto the input result.
+///
 /// @param <I> the input OTLP signal
 /// @param <O> the OTLP signal emitted downstream
 public interface Connector<I, O> extends Consumer<I> {

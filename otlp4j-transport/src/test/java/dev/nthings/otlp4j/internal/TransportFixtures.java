@@ -33,7 +33,7 @@ public final class TransportFixtures {
                 Resource.EMPTY,
                 "",
                 List.of(new ProfilesData.ScopeProfiles(
-                        InstrumentationScope.EMPTY, "", List.of(profiles))))));
+                        InstrumentationScope.EMPTY, "", List.of(profiles))))), new byte[0]);
     }
 
     /// A trace with every span field — events, links, status, dropped counts — populated.
@@ -90,7 +90,8 @@ public final class TransportFixtures {
                         1_000L,
                         2_000L,
                         NumberPoint.doubleValue(0.73),
-                        0L))))
+                        0L,
+                        List.of()))))
                 .build();
         var sum = Metric.builder()
                 .name("http.server.requests")
@@ -102,7 +103,8 @@ public final class TransportFixtures {
                                 1_000L,
                                 2_000L,
                                 NumberPoint.longValue(125L),
-                                0L)),
+                                0L,
+                                List.of())),
                         Metric.AggregationTemporality.CUMULATIVE,
                         true))
                 .metadata(Attributes.builder().put("meta", "x").build())
@@ -121,7 +123,8 @@ public final class TransportFixtures {
                                 List.of(1.0, 10.0),
                                 OptionalDouble.of(0.5),
                                 OptionalDouble.of(99.9),
-                                0L)),
+                                0L,
+                                List.of())),
                         Metric.AggregationTemporality.CUMULATIVE))
                 .build();
         var exponential = Metric.builder()
@@ -140,7 +143,8 @@ public final class TransportFixtures {
                                 OptionalDouble.empty(),
                                 OptionalDouble.empty(),
                                 0.0,
-                                0L)),
+                                0L,
+                                List.of())),
                         Metric.AggregationTemporality.DELTA))
                 .build();
         var summary = Metric.builder()
@@ -177,8 +181,9 @@ public final class TransportFixtures {
         return Fixtures.logsData(record);
     }
 
-    /// A profiles batch. `sampleCount` is left at 0: the shallow profiles model carries no
-    /// samples to re-encode, so any non-zero value would not survive the lossy mapper.
+    /// A profiles batch built from scalar metadata only (empty `rawProfile`), so it re-emits just
+    /// the modeled scalar fields. Lossless sample/dictionary forwarding is covered by the dedicated
+    /// round-trip test that drives the proto builders directly.
     public static ProfilesData profilesData() {
         return profiles(new ProfilesData.Profile(
                 "0102030405060708090a0b0c0d0e0f10",
@@ -187,7 +192,8 @@ public final class TransportFixtures {
                 99L,
                 0,
                 4,
-                "pprof"));
+                "pprof",
+                new byte[0]));
     }
 
     // --- malformed / mutated inputs for the bug-hunt tests -------------------------------------

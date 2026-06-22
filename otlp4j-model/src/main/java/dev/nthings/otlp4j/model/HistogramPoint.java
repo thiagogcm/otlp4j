@@ -18,10 +18,12 @@ public record HistogramPoint(
         List<Double> explicitBounds,
         OptionalDouble min,
         OptionalDouble max,
-        long flags) {
+        long flags,
+        List<Exemplar> exemplars) {
 
     public HistogramPoint {
         bucketCounts = List.copyOf(bucketCounts);
         explicitBounds = List.copyOf(explicitBounds);
+        exemplars = List.copyOf(exemplars);
     }
 }

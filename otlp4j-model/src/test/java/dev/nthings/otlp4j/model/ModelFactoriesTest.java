@@ -78,7 +78,7 @@ class ModelFactoriesTest {
     @DisplayName("ProfilesData.of wraps profiles under one resource and scope")
     @Test
     void profilesDataOfWrapsProfilesUnderOneResourceAndScope() {
-        var profile = new ProfilesData.Profile("p", 0L, 0L, 0L, 0, 0, "");
+        var profile = new ProfilesData.Profile("p", 0L, 0L, 0L, 0, 0, "", new byte[0]);
 
         var data = ProfilesData.of(Resource.EMPTY, InstrumentationScope.of("lib"), List.of(profile));
 

@@ -18,7 +18,12 @@ public record ExponentialHistogramPoint(
         OptionalDouble min,
         OptionalDouble max,
         double zeroThreshold,
-        long flags) {
+        long flags,
+        List<Exemplar> exemplars) {
+
+    public ExponentialHistogramPoint {
+        exemplars = List.copyOf(exemplars);
+    }
 
     /// A contiguous run of exponential bucket counts starting at `offset`.
     public record Buckets(int offset, List<Long> bucketCounts) {

@@ -25,8 +25,9 @@ import org.slf4j.LoggerFactory;
 /// End-to-end demo compiled only against `dev.nthings.otlp4j.api`.
 ///
 /// The runtime transport is supplied through the SPI. Five spans flow through a gateway
-/// (`Pipeline.from(receiver.traces()) ... .branch().fanOut(exporter).fanOut(counter).join()`)
-/// to a backend that records the surviving spans and the derived count metric.
+/// (`Pipeline.from(receiver.traces()) ... .owns(exporter).branch().fanOut(exporter).fanOut(counter).join()`)
+/// to a backend that records the surviving spans and the derived count metric. The exporter is
+/// handed to the pipeline via `owns(...)`, so the subscription drains it on shutdown.
 public final class OtlpE2eDemo {
 
     private static final Logger log = LoggerFactory.getLogger(OtlpE2eDemo.class);
@@ -87,6 +88,9 @@ public final class OtlpE2eDemo {
                             "deployment.environment", AttributeValue.of("demo")))
                     .transform(Transforms.keepSpansWhere(span -> span.kind() == Span.Kind.SERVER))
                     .filter(traces -> !traces.spans().isEmpty())
+                    // Hand the backend exporter to the pipeline: subscription.shutdown() drains it
+                    // within the shared deadline (method-ref facets can't be auto-discovered).
+                    .owns(backendExporter)
                     .branch()
                         .fanOut(backendExporter.traces())
                         .fanOut(spanCounter)
@@ -99,6 +103,8 @@ public final class OtlpE2eDemo {
             }
             subscription.shutdown(Duration.ofSeconds(5)).toCompletableFuture().join();
         } finally {
+            // The pipeline subscription already drained the owned exporter; close() is idempotent, so
+            // this is only a backstop for a failure before the subscription was built.
             if (backendExporter != null) {
                 backendExporter.close();
             }

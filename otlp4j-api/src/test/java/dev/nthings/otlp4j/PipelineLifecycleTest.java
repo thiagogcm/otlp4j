@@ -8,6 +8,7 @@ import dev.nthings.otlp4j.model.TraceData;
 import dev.nthings.otlp4j.pipeline.ConsumeResult;
 import dev.nthings.otlp4j.pipeline.Pipeline;
 import dev.nthings.otlp4j.pipeline.Source;
+import dev.nthings.otlp4j.pipeline.Subscription;
 import dev.nthings.otlp4j.pipeline.TraceConsumer;
 import dev.nthings.otlp4j.receiver.internal.SignalSource;
 import java.time.Duration;
@@ -16,6 +17,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -102,5 +104,107 @@ class PipelineLifecycleTest {
         } finally {
             sub.close();
         }
+    }
+
+    @DisplayName("owns() drains a registered AutoCloseable not reachable as the terminal")
+    @Test
+    void ownsDrainsRegisteredResource() {
+        var source = new SignalSource<>(TraceData.class);
+        var closed = new AtomicBoolean();
+        AutoCloseable resource = () -> closed.set(true);
+        // The method-reference terminal hides no AutoCloseable, so only owns() can register the drain.
+        TraceConsumer terminal = traces -> ConsumeResult.acceptedStage();
+        var sub = Pipeline.from((Source<TraceData>) source).owns(resource).to(terminal);
+
+        assertThat(closed.get()).isFalse();
+        sub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
+        assertThat(closed.get()).isTrue();
+    }
+
+    @DisplayName("shutdown() shares one deadline across owned resources (shrinking remaining)")
+    @Test
+    void shutdownSharesOneDeadlineAcrossResources() throws Exception {
+        var source = new SignalSource<>(TraceData.class);
+
+        // A resource that is also a Subscription records the remaining timeout it was closed with, and
+        // burns a small slice of it, so the next resource in line must receive a strictly smaller one.
+        class RecordingResource implements Subscription {
+            final AtomicReference<Duration> closedWith = new AtomicReference<>();
+            @Override public CompletionStage<Void> shutdown(Duration timeout) {
+                closedWith.set(timeout);
+                try {
+                    Thread.sleep(30);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                return CompletableFuture.completedFuture(null);
+            }
+        }
+        var first = new RecordingResource();
+        var second = new RecordingResource();
+        TraceConsumer terminal = traces -> ConsumeResult.acceptedStage();
+        var sub = Pipeline.from((Source<TraceData>) source).owns(first).owns(second).to(terminal);
+
+        sub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
+
+        // Both were closed; the second's remaining budget is at most the first's (single shared deadline,
+        // not the full timeout handed to each).
+        assertThat(first.closedWith.get()).isNotNull();
+        assertThat(second.closedWith.get()).isNotNull();
+        assertThat(second.closedWith.get()).isLessThanOrEqualTo(first.closedWith.get());
+        // Sanity: neither received more than the original budget.
+        assertThat(first.closedWith.get()).isLessThanOrEqualTo(Duration.ofSeconds(1));
+    }
+
+    @DisplayName("shutdown() drains a non-Subscription Drainable with the remaining deadline, not close()")
+    @Test
+    void shutdownDrainsDrainableWithRemainingDeadline() {
+        var source = new SignalSource<>(TraceData.class);
+
+        // A plain AutoCloseable (like OtlpGrpcExporter) that is Drainable must receive the deadline-aware
+        // shutdown(Duration), not the fixed-timeout close() that would ignore the pipeline's shared budget.
+        class DrainableResource implements Pipeline.Drainable {
+            final AtomicReference<Duration> shutdownWith = new AtomicReference<>();
+            @Override public CompletionStage<Void> shutdown(Duration timeout) {
+                shutdownWith.set(timeout);
+                return CompletableFuture.completedFuture(null);
+            }
+            @Override public void close() {
+                throw new AssertionError("close() must not be used when Drainable.shutdown is available");
+            }
+        }
+        var resource = new DrainableResource();
+        TraceConsumer terminal = traces -> ConsumeResult.acceptedStage();
+        var sub = Pipeline.from((Source<TraceData>) source).owns(resource).to(terminal);
+
+        sub.shutdown(Duration.ofSeconds(5)).toCompletableFuture().join();
+
+        assertThat(resource.shutdownWith.get())
+                .as("the pipeline's remaining budget reached the Drainable instead of its fixed-timeout close()")
+                .isNotNull()
+                .isLessThanOrEqualTo(Duration.ofSeconds(5));
+    }
+
+    @DisplayName("forceFlush() reaches a Flushable registered via owns()")
+    @Test
+    void forceFlushReachesOwnedFlushable() {
+        var source = new SignalSource<>(TraceData.class);
+        var flushed = new AtomicInteger();
+
+        class FlushableResource implements AutoCloseable, Pipeline.Flushable {
+            @Override public CompletionStage<Void> forceFlush(Duration timeout) {
+                flushed.incrementAndGet();
+                return CompletableFuture.completedFuture(null);
+            }
+            @Override public void close() {}
+        }
+        var resource = new FlushableResource();
+        TraceConsumer terminal = traces -> ConsumeResult.acceptedStage();
+        var sub = Pipeline.from((Source<TraceData>) source).owns(resource).to(terminal);
+
+        sub.forceFlush(Duration.ofSeconds(1)).toCompletableFuture().join();
+        assertThat(flushed.get()).isEqualTo(1);
+
+        sub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
     }
 }

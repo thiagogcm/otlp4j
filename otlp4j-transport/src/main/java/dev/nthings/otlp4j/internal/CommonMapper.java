@@ -67,7 +67,9 @@ final class CommonMapper {
                 yield AttributeValue.of(map);
             }
             // string_value_strindex is a profiling-only reference into ProfilesDictionary.
-            // It cannot be resolved without the dictionary, so it is surfaced as empty.
+            // Forwarded profiles round-trip losslessly via opaque payload passthrough, but the
+            // modeled attribute view still surfaces this as empty because the dictionary is not
+            // resolved into modeled attributes.
             case STRING_VALUE_STRINDEX, VALUE_NOT_SET -> AttributeValue.empty();
         };
     }

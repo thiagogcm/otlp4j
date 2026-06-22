@@ -4,13 +4,14 @@ import dev.nthings.otlp4j.spi.OtlpServer;
 import dev.nthings.otlp4j.spi.OtlpServerProvider;
 import dev.nthings.otlp4j.spi.ServerTransportConfig;
 import dev.nthings.otlp4j.spi.Tls;
-import io.grpc.Grpc;
 import io.grpc.InsecureServerCredentials;
 import io.grpc.Server;
 import io.grpc.ServerCredentials;
 import io.grpc.TlsServerCredentials;
+import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.net.InetSocketAddress;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -23,6 +24,11 @@ import org.slf4j.LoggerFactory;
 /// Serves the four OTLP collector services and routes decoded requests to the per-signal
 /// dispatchers passed in by [GrpcOtlpServerProvider]. [Tls] selects the server credentials:
 /// [Tls.Disabled] is plaintext and [Tls.Custom] supplies the server certificate and key.
+///
+/// Built on Netty's [NettyServerBuilder] so it can bind a specific interface (e.g. loopback-only)
+/// and apply the production-hardening limits from [ServerTransportConfig]: a decoded-request cap,
+/// an optional per-connection concurrency cap, a handshake deadline, and an optional bounded
+/// executor.
 final class GrpcOtlpServer implements OtlpServer {
 
     private static final Logger log = LoggerFactory.getLogger(GrpcOtlpServer.class);
@@ -42,11 +48,35 @@ final class GrpcOtlpServer implements OtlpServer {
         if (server != null) {
             throw new IllegalStateException("server already started");
         }
-        requireBindableHost(config.bindHost());
-        var serverBuilder = Grpc.newServerBuilderForPort(config.port(), serverCredentials(config.tls()));
-        GrpcServiceAdapters.create(dispatchers).forEach(serverBuilder::addService);
-        server = serverBuilder.build().start();
+        var builder = NettyServerBuilder.forAddress(bindAddress(), serverCredentials(config.tls()))
+                .maxInboundMessageSize(config.maxInboundMessageSizeBytes())
+                .handshakeTimeout(config.handshakeTimeout().toNanos(), TimeUnit.NANOSECONDS);
+        if (config.maxConcurrentCallsPerConnection() > 0) {
+            builder.maxConcurrentCallsPerConnection(config.maxConcurrentCallsPerConnection());
+        }
+        if (config.serverExecutor() != null) {
+            builder.executor(config.serverExecutor());
+        }
+        GrpcServiceAdapters.create(dispatchers).forEach(builder::addService);
+        server = builder.build().start();
         log.info("OTLP/gRPC server listening on port {}", server.getPort());
+    }
+
+    /// Resolves the configured bind host to a socket address. A wildcard host binds every
+    /// interface via the any-local-address; any other host binds that specific interface (so e.g.
+    /// `127.0.0.1` yields a loopback-only receiver).
+    private InetSocketAddress bindAddress() {
+        var host = config.bindHost();
+        return isWildcardHost(host)
+                ? new InetSocketAddress(config.port())
+                : new InetSocketAddress(host, config.port());
+    }
+
+    private static boolean isWildcardHost(String host) {
+        return host.isEmpty()
+                || host.equals("0.0.0.0")
+                || host.equals("::")
+                || host.equals("0:0:0:0:0:0:0:0");
     }
 
     @Override
@@ -93,23 +123,6 @@ final class GrpcOtlpServer implements OtlpServer {
                 throw new RuntimeException(e);
             }
         });
-    }
-
-    /// The cross-transport builder binds every interface, so a specific bind host can't be
-    /// honoured — fail fast instead of binding wider than asked.
-    private static void requireBindableHost(String bindHost) {
-        if (!isWildcardHost(bindHost)) {
-            throw new IllegalArgumentException(
-                    "bindHost \"" + bindHost + "\" is not supported by the bundled OTLP/gRPC transport, "
-                            + "which binds all interfaces; use the wildcard \"0.0.0.0\" or \"::\"");
-        }
-    }
-
-    private static boolean isWildcardHost(String host) {
-        return host.isEmpty()
-                || host.equals("0.0.0.0")
-                || host.equals("::")
-                || host.equals("0:0:0:0:0:0:0:0");
     }
 
     private static ServerCredentials serverCredentials(Tls tls) {

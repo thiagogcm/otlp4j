@@ -10,9 +10,9 @@ Everything lives under the `dev.nthings.otlp4j` root. The types you import most 
 | `OtlpGrpcExporter`, `Exporter` | `dev.nthings.otlp4j.exporter` |
 | `Pipeline`, `Source`, `Subscription`, `Consumer` (+ `TraceConsumer` … aliases), `Transform`, `FanOut`, `ConsumeResult`, `Telemetry` | `dev.nthings.otlp4j.pipeline` |
 | `Transforms`, `BatchingProcessor`, `DropPolicy` | `dev.nthings.otlp4j.processor` |
-| `Connector`, `Connectors`, `SpanCountConnector`, `LogRecordCountConnector` | `dev.nthings.otlp4j.connector` |
+| `Connector`, `Connectors`, `SpanCountConnector`, `LogRecordCountConnector`, `FailurePolicy` | `dev.nthings.otlp4j.connector` |
 | Transport SPI: `OtlpClient(Provider)`, `OtlpServer(Provider)`, `ClientTransportConfig`, `ServerTransportConfig`, `Tls`, `Compression`, `RetryPolicy` | `dev.nthings.otlp4j.spi` |
-| Domain records: `TraceData`, `MetricsData`, `LogsData`, `ProfilesData`, `Resource`, `Attributes`, `AttributeValue`, `Span`, `Metric`, `LogRecord`, … | `dev.nthings.otlp4j.model` |
+| Domain records: `TraceData`, `MetricsData`, `LogsData`, `ProfilesData`, `Resource`, `Attributes`, `AttributeValue`, `Span`, `Metric`, `LogRecord`, `Exemplar`, … | `dev.nthings.otlp4j.model` |
 
 ## Domain model
 
@@ -33,7 +33,9 @@ var batch = TraceData.of(Resource.of(attributes), InstrumentationScope.of("my.li
 
 `Attributes.toBuilder()` plus `Builder.putAll(...)` make "copy and add a key" a one-liner instead of a manual map walk.
 
-`Metric.Data` covers gauge, sum, histogram, exponential histogram, and summary. Profiles are marked `@Experimental` and expose only top-level metadata.
+`Metric.Data` covers gauge, sum, histogram, exponential histogram, and summary; it is `null` exactly when the wire metric set no data (`DATA_NOT_SET`), so null-check `Metric.data()` before use. Number, histogram, and exponential-histogram points each carry a `List<Exemplar>` (`filteredAttributes`, `epochNanos`, `value`, `spanId`, `traceId`) mapped in both directions; the list is empty when no exemplars were recorded.
+
+`ProfilesData` is marked `@Experimental` and forwards profiles losslessly via opaque passthrough. Its top-level `Profile` metadata is best-effort inspection only; each `Profile` also carries `rawProfile` (the serialized proto `Profile`) and the batch carries `dictionary` (the serialized `ProfilesDictionary`), so the payload re-emits byte-for-byte. Both are opaque `byte[]` — treat them as opaque and do not mutate; their accessors return defensive clones.
 
 ## Consumers and results
 
@@ -62,7 +64,18 @@ Use an exception or exceptionally completed stage for a transport-level failure.
 
 ## Receive
 
-`OtlpGrpcReceiver` defaults to plaintext `0.0.0.0:4317`; pass a `ServerTransportConfig` with `Tls.Custom(cert, key, …)` through `transport(...)` to serve TLS. Port `0` selects an ephemeral port, available through `port()` after `start()`.
+`OtlpGrpcReceiver` defaults to plaintext `0.0.0.0:4317`; pass a `ServerTransportConfig` with `Tls.Custom(cert, key, …)` through `transport(...)` to serve TLS. Port `0` selects an ephemeral port, available through `port()` after `start()`. A wildcard `bindHost` (empty, `0.0.0.0`, or `::`) binds every interface; any other host binds that specific interface, so `127.0.0.1` yields a loopback-only receiver.
+
+`ServerTransportConfig.builder()` also exposes the receiver-hardening knobs the bundled server applies, all defaulting to gRPC's own behaviour:
+
+| Knob | Default | Effect |
+| --- | --- | --- |
+| `maxInboundMessageSizeBytes` | 4 MiB | Caps a single decoded export request; guards against memory-exhausting oversized requests. |
+| `maxConcurrentCallsPerConnection` | `0` (gRPC default, unlimited) | A positive value caps in-flight calls per connection. |
+| `handshakeTimeout` | 20s | Bounds the transport/TLS handshake only — not a slow request body or an idle connection. |
+| `serverExecutor` | `null` (gRPC's own executor) | Supply a bounded pool to cap admitted concurrent work. |
+
+Compression is asymmetric: the server transparently decodes gzip request bodies via gRPC's default decoder and exposes no server compression knob (response compression is intentionally not configured).
 
 ```java
 var receiver = OtlpGrpcReceiver.builder()
@@ -163,7 +176,7 @@ try (var exporter = OtlpGrpcExporter.builder()
 }
 ```
 
-The exporter itself owns the channel. Its `traces()`, `metrics()`, `logs()`, and `profiles()` facets do not own or close it. `forceFlush` currently completes immediately because the client has no exporter-side buffer.
+The exporter itself owns the channel. Its `traces()`, `metrics()`, `logs()`, and `profiles()` facets are method references, so the pipeline cannot auto-discover the exporter behind them. Register it with `Stage.owns(exporter)` to hand its lifecycle to the subscription: it implements both `Pipeline.Drainable` and `Pipeline.Flushable`, so the subscription drains it on shutdown and reaches it on `forceFlush`. As a `Drainable` it receives the pipeline's *remaining* shared deadline, and its shutdown is cancellation-aware — a timeout interrupts the transport teardown rather than leaving it blocking past the deadline. `forceFlush` itself is a no-op today (the client holds no buffer) but is reachable once the exporter is owned. Without `owns`, close the exporter yourself.
 
 Implement `Exporter<T>` for a custom typed terminal with flush and shutdown hooks. Implement the lower-level client or server SPI when replacing the wire transport.
 
@@ -174,9 +187,19 @@ Implement `Exporter<T>` for a custom typed terminal with flush and shutdown hook
 ```java
 var spanCounter = Connectors.spanCount(exporter.metrics());
 var logCounter = Connectors.logRecordCount(exporter.metrics());
+
+// Or fail the input batch when the derived metric is not delivered:
+var strictSpanCounter = Connectors.spanCount(exporter.metrics(), FailurePolicy.FAIL);
 ```
 
-The built-ins emit `otlp4j.connector.span.count` and `otlp4j.connector.log.record.count`. They always accept the input batch after the downstream stage completes; a downstream partial result or rejection is logged because a metric rejection cannot be relabeled as a trace or log rejection. An exceptionally completed downstream stage still propagates.
+The built-ins emit `otlp4j.connector.span.count` and `otlp4j.connector.log.record.count`, each as a monotonic delta sum whose window runs from the previous flush (so the series carries a real per-series start time). A configurable `FailurePolicy` decides how a downstream metric failure maps back onto the input result; the no-policy `spanCount`/`logRecordCount` overloads default to `BEST_EFFORT`, and `spanCount(downstream, policy)` / `logRecordCount(downstream, policy)` set it explicitly:
+
+| Policy | Downstream `Partial`/`Rejected` | Input result |
+| --- | --- | --- |
+| `BEST_EFFORT` (default) | logged | `Accepted` — derived telemetry never fails the originating request |
+| `FAIL` | logged | `Rejected`, so the caller learns the derived metric was not delivered |
+
+An exceptionally completed downstream stage still propagates either way (a metric rejection cannot be relabeled as a trace or log rejection).
 
 ## Observe live traffic
 
@@ -199,14 +222,14 @@ Implement these pairs and register their providers with JPMS, `META-INF/services
 - `OtlpServerProvider` and `OtlpServer` for receiving;
 - `OtlpClientProvider` and `OtlpClient` for exporting.
 
-Helpers select the first provider returned by `ServiceLoader`; avoid ambiguous provider sets. Configuration arrives through `ServerTransportConfig` or `ClientTransportConfig`. The bundled client honours host, port, timeout, TLS, headers, compression, and retry; the server honours its port and TLS (it does not yet apply `bindHost`).
+Helpers select the first provider returned by `ServiceLoader`; avoid ambiguous provider sets. Configuration arrives through `ServerTransportConfig` or `ClientTransportConfig`. The bundled client honours host, port, timeout, TLS, headers, compression, and retry; the server honours its port, `bindHost`, TLS, and the receiver-hardening limits (inbound size cap, per-connection concurrency, handshake timeout, executor).
 
 ## Shutdown order
 
 Stop ingestion before closing downstream resources:
 
-1. Shut down the pipeline subscription to detach the source and drain directly owned processors.
-2. Close exporter instances and any connector-owned downstream resources explicitly.
+1. Shut down the pipeline subscription to detach the source and drain every owned resource — directly attached processors plus anything registered with `Stage.owns(...)` (e.g. an exporter), all within a single shared deadline.
+2. Close any resources you did not hand to the subscription: exporter instances not registered via `owns`, and connector downstreams (which the subscription does not auto-discover).
 3. Shut down the receiver.
 
 Use `shutdown(Duration)` when completion matters. The convenience `close()` methods drain gracefully with a fixed ten-second default across the receiver, exporter, and subscription; call `Receiver.shutdownNow()` for an immediate stop.

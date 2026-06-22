@@ -1,5 +1,6 @@
 package dev.nthings.otlp4j.internal;
 
+import dev.nthings.otlp4j.model.Exemplar;
 import dev.nthings.otlp4j.model.ExponentialHistogramPoint;
 import dev.nthings.otlp4j.model.HistogramPoint;
 import dev.nthings.otlp4j.model.Metric;
@@ -25,7 +26,8 @@ import java.util.OptionalDouble;
 
 /// Maps metrics between generated proto types and [MetricsData].
 ///
-/// Exemplars are not surfaced in the domain model and are dropped in both directions.
+/// Exemplars are surfaced as [Exemplar] on each number/histogram/exponential-histogram point
+/// and mapped in both directions.
 final class MetricsMapper {
 
     private MetricsMapper() {}
@@ -97,6 +99,8 @@ final class MetricsMapper {
             }
             case SUMMARY ->
                 new Metric.Summary(summaryPointsToDomain(metric.getSummary().getDataPointsList()));
+            // No data on the wire maps to null data — the intentional faithful round-trip
+            // documented on Metric (consumers must null-check Metric#data()).
             case DATA_NOT_SET -> null;
         };
     }
@@ -115,7 +119,8 @@ final class MetricsMapper {
                     point.getStartTimeUnixNano(),
                     point.getTimeUnixNano(),
                     value,
-                    unsignedInt(point.getFlags())));
+                    unsignedInt(point.getFlags()),
+                    exemplarsToDomain(point.getExemplarsList())));
         }
         return result;
     }
@@ -133,7 +138,8 @@ final class MetricsMapper {
                     point.getExplicitBoundsList(),
                     point.hasMin() ? OptionalDouble.of(point.getMin()) : OptionalDouble.empty(),
                     point.hasMax() ? OptionalDouble.of(point.getMax()) : OptionalDouble.empty(),
-                    unsignedInt(point.getFlags())));
+                    unsignedInt(point.getFlags()),
+                    exemplarsToDomain(point.getExemplarsList())));
         }
         return result;
     }
@@ -155,7 +161,8 @@ final class MetricsMapper {
                     point.hasMin() ? OptionalDouble.of(point.getMin()) : OptionalDouble.empty(),
                     point.hasMax() ? OptionalDouble.of(point.getMax()) : OptionalDouble.empty(),
                     point.getZeroThreshold(),
-                    unsignedInt(point.getFlags())));
+                    unsignedInt(point.getFlags()),
+                    exemplarsToDomain(point.getExemplarsList())));
         }
         return result;
     }
@@ -166,6 +173,29 @@ final class MetricsMapper {
         // so it must be preserved rather than collapsed to the zero-offset empty sentinel.
         return new ExponentialHistogramPoint.Buckets(
                 buckets.getOffset(), buckets.getBucketCountsList());
+    }
+
+    private static List<Exemplar> exemplarsToDomain(
+            List<io.opentelemetry.proto.metrics.v1.Exemplar> exemplars) {
+        if (exemplars.isEmpty()) {
+            return List.of();
+        }
+        var result = new ArrayList<Exemplar>(exemplars.size());
+        for (var exemplar : exemplars) {
+            NumberPoint.Value value =
+                    switch (exemplar.getValueCase()) {
+                        case AS_INT -> NumberPoint.longValue(exemplar.getAsInt());
+                        case AS_DOUBLE -> NumberPoint.doubleValue(exemplar.getAsDouble());
+                        case VALUE_NOT_SET -> null;
+                    };
+            result.add(new Exemplar(
+                    CommonMapper.attributes(exemplar.getFilteredAttributesList()),
+                    exemplar.getTimeUnixNano(),
+                    value,
+                    CommonMapper.hex(exemplar.getSpanId()),
+                    CommonMapper.hex(exemplar.getTraceId())));
+        }
+        return result;
     }
 
     private static List<SummaryPoint> summaryPointsToDomain(List<SummaryDataPoint> points) {
@@ -290,6 +320,7 @@ final class MetricsMapper {
                     // point has no recorded value
                 }
             }
+            builder.addAllExemplars(exemplarsToProto(point.exemplars()));
             result.add(builder.build());
         }
         return result;
@@ -309,6 +340,7 @@ final class MetricsMapper {
             point.sum().ifPresent(builder::setSum);
             point.min().ifPresent(builder::setMin);
             point.max().ifPresent(builder::setMax);
+            builder.addAllExemplars(exemplarsToProto(point.exemplars()));
             result.add(builder.build());
         }
         return result;
@@ -332,6 +364,7 @@ final class MetricsMapper {
             point.sum().ifPresent(builder::setSum);
             point.min().ifPresent(builder::setMin);
             point.max().ifPresent(builder::setMax);
+            builder.addAllExemplars(exemplarsToProto(point.exemplars()));
             result.add(builder.build());
         }
         return result;
@@ -343,6 +376,32 @@ final class MetricsMapper {
                 .setOffset(buckets.offset())
                 .addAllBucketCounts(buckets.bucketCounts())
                 .build();
+    }
+
+    private static List<io.opentelemetry.proto.metrics.v1.Exemplar> exemplarsToProto(
+            List<Exemplar> exemplars) {
+        if (exemplars.isEmpty()) {
+            return List.of();
+        }
+        var result =
+                new ArrayList<io.opentelemetry.proto.metrics.v1.Exemplar>(exemplars.size());
+        for (var exemplar : exemplars) {
+            var builder = io.opentelemetry.proto.metrics.v1.Exemplar.newBuilder()
+                    .addAllFilteredAttributes(
+                            CommonMapper.toKeyValues(exemplar.filteredAttributes()))
+                    .setTimeUnixNano(exemplar.epochNanos())
+                    .setSpanId(CommonMapper.bytes(exemplar.spanId()))
+                    .setTraceId(CommonMapper.bytes(exemplar.traceId()));
+            switch (exemplar.value()) {
+                case NumberPoint.LongValue v -> builder.setAsInt(v.value());
+                case NumberPoint.DoubleValue v -> builder.setAsDouble(v.value());
+                case null -> {
+                    // invalid exemplar — value oneof left unset
+                }
+            }
+            result.add(builder.build());
+        }
+        return result;
     }
 
     private static List<SummaryDataPoint> summaryPointsToProto(List<SummaryPoint> points) {

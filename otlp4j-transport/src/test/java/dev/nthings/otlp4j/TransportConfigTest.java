@@ -256,18 +256,17 @@ class TransportConfigTest {
                 .isInstanceOf(CompletionException.class);
     }
 
-    @DisplayName("A non-wildcard bindHost is rejected at start rather than binding all interfaces")
+    @DisplayName("A specific bindHost binds that interface only (e.g. loopback) and starts")
     @Test
-    void bindHostMustBeWildcard() {
+    void specificBindHostBindsThatInterface() {
         var receiver = OtlpGrpcReceiver.builder()
                 .transport(ServerTransportConfig.builder().bindHost("127.0.0.1").port(0).build())
                 .onTraces(t -> ConsumeResult.acceptedStage())
                 .build();
         receivers.add(receiver);
 
-        assertThatThrownBy(receiver::start)
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("bindHost");
+        receiver.start();
+        assertThat(receiver.port()).isPositive();
     }
 
     @DisplayName("Half-specified client mutual-TLS material is rejected instead of connecting anonymously")
@@ -284,7 +283,8 @@ class TransportConfigTest {
     }
 
     private static ServerTransportConfig serverTls() {
-        // Wildcard default; a specific bind host is rejected (see bindHostMustBeWildcard).
+        // Wildcard default; a specific bind host binds that interface only (see
+        // specificBindHostBindsThatInterface).
         return ServerTransportConfig.builder()
                 .port(0)
                 .tls(Tls.custom(resource("/tls/server.crt"), resource("/tls/server.key"), null))

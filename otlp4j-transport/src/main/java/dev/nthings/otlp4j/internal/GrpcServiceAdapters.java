@@ -33,9 +33,25 @@ import org.slf4j.LoggerFactory;
 
 /// Builds gRPC services that decode OTLP requests and call the four per-signal dispatchers.
 ///
-/// `Accepted`/`Partial` map to OTLP `partial_success`. A whole-batch `Rejected` is not a partial
-/// success (`rejected_*=0` would read as "all accepted"), so it maps to a gRPC error: `UNAVAILABLE`
-/// when retryable (no cause), else `INTERNAL`, as do thrown exceptions.
+/// The [ConsumeResult] -> gRPC status contract is deliberate and load-bearing for client retries:
+///
+///   - [ConsumeResult.Accepted] / [ConsumeResult.Partial] -> OTLP `partial_success` on a normal
+///     response. (`Accepted` leaves `partial_success` unset; `Partial` carries the rejected count
+///     and message.)
+///   - A whole-batch [ConsumeResult.Rejected] is NOT a partial success — encoding it as
+///     `rejected_*=0` would read to the client as "all accepted" — so it always maps to a gRPC
+///     error, never a response message:
+///       - Rejected with NO cause => gRPC `UNAVAILABLE`. By design this means "transient/retryable":
+///         a well-behaved OTLP client will retry within its budget. Use it for back-pressure such as
+///         a full queue.
+///       - Rejected WITH a cause => gRPC `INTERNAL`, a non-retryable fault (same mapping as a thrown
+///         exception). The cause is the signal that this is a permanent failure.
+///
+/// Consequence for deterministic/permanent rejections: a dispatcher that will reject the SAME batch
+/// every time (e.g. a content filter dropping disallowed data) MUST attach a cause so it maps to
+/// `INTERNAL`. A no-cause `UNAVAILABLE` would otherwise be retried until the client's budget is
+/// exhausted — wasted work for an outcome that can never change. "No cause == retryable" is the
+/// contract; permanent failures opt out by carrying a cause.
 final class GrpcServiceAdapters {
 
     private static final Logger log = LoggerFactory.getLogger(GrpcServiceAdapters.class);

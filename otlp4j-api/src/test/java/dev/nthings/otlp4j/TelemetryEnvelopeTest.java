@@ -43,7 +43,7 @@ class TelemetryEnvelopeTest {
                 new Telemetry.Traces(new TraceData(List.of())),
                 new Telemetry.Metrics(new MetricsData(List.of())),
                 new Telemetry.Logs(new LogsData(List.of())),
-                new Telemetry.Profiles(new ProfilesData(List.of())));
+                new Telemetry.Profiles(new ProfilesData(List.of(), new byte[0])));
         for (var item : items) {
             String label = switch (item) {
                 case Telemetry.Traces t -> "T";

@@ -64,4 +64,36 @@ class GrpcOtlpServerLifecycleTest {
             server.shutdownNow().toCompletableFuture().join();
         }
     }
+
+    @DisplayName("a loopback-only bindHost binds successfully and reports a positive port")
+    @Test
+    void loopbackBindHostStarts() throws Exception {
+        var config = ServerTransportConfig.builder().bindHost("127.0.0.1").port(0).build();
+        var server = new GrpcOtlpServer(config, NO_OP);
+        server.start();
+        try {
+            assertThat(server.port()).isPositive();
+        } finally {
+            server.shutdownNow().toCompletableFuture().join();
+        }
+    }
+
+    @DisplayName("the hardening knobs are accepted and the server still starts")
+    @Test
+    void hardeningKnobsStart() throws Exception {
+        var config = ServerTransportConfig.builder()
+                .port(0)
+                .maxInboundMessageSizeBytes(1024 * 1024)
+                .maxConcurrentCallsPerConnection(16)
+                .handshakeTimeout(Duration.ofSeconds(5))
+                .serverExecutor(Runnable::run)
+                .build();
+        var server = new GrpcOtlpServer(config, NO_OP);
+        server.start();
+        try {
+            assertThat(server.port()).isPositive();
+        } finally {
+            server.shutdownNow().toCompletableFuture().join();
+        }
+    }
 }

@@ -5,7 +5,9 @@ import java.util.List;
 /// A named metric and its time series. Mirrors `opentelemetry.proto.metrics.v1.Metric`.
 ///
 /// The `data` field is a [sealed type][Data] for gauge, sum, histogram, exponential histogram,
-/// and summary payloads.
+/// and summary payloads. It is **null** exactly when the wire metric set no data (proto
+/// `DATA_NOT_SET`); that empty form is round-tripped faithfully, so consumers MUST null-check
+/// [#data()] before use to avoid a `NullPointerException`.
 public record Metric(String name, String description, String unit, Data data, Attributes metadata) {
 
     public static Builder builder() {

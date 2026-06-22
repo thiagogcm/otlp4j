@@ -35,10 +35,12 @@
             <groupId>dev.nthings.otlp4j</groupId>
             <artifactId>otlp4j-proto</artifactId>
         </dependency>
+        <!-- Compile scope (not runtime): GrpcOtlpServer references NettyServerBuilder directly to
+             bind a specific interface (e.g. loopback-only) and to set production-hardening limits
+             (max inbound size, max concurrent calls, handshake timeout) the generic builder can't. -->
         <dependency>
             <groupId>io.grpc</groupId>
             <artifactId>grpc-netty-shaded</artifactId>
-            <scope>runtime</scope>
         </dependency>
         <!-- Logging facade only; no backend bound here. -->
         <dependency>

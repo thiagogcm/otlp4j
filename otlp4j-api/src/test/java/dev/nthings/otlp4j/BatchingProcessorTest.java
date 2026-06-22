@@ -117,7 +117,7 @@ class BatchingProcessorTest {
     @DisplayName("DROP_NEWEST counts metric data points across every data kind")
     @Test
     void dropNewestCountsMetricDataPoints() {
-        var point = new NumberPoint(Attributes.empty(), 0L, 1L, NumberPoint.longValue(1L), 0L);
+        var point = new NumberPoint(Attributes.empty(), 0L, 1L, NumberPoint.longValue(1L), 0L, List.of());
         // Gauge point + four empty-point kinds + a no-data metric: walks every Metric.Data arm, totals 1.
         var dropped = MetricsData.of(Fixtures.checkoutResource(), Fixtures.testScope(), List.of(
                 Metric.builder().name("g").data(new Metric.Gauge(List.of(point))).build(),

@@ -9,6 +9,9 @@ module dev.nthings.otlp4j.transport {
     requires com.google.protobuf;
     requires io.grpc;
     requires io.grpc.stub;
+    // Netty transport (shaded artifact): the server binds a specific interface and applies the
+    // hardening knobs via NettyServerBuilder, so it is now a compile-time, not runtime-only, dep.
+    requires io.grpc.netty.shaded;
     requires org.slf4j;
 
     // Also declared in META-INF/services so the providers resolve when run on the class path.

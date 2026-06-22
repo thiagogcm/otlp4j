@@ -85,7 +85,7 @@ public final class Transforms {
     public static Transform<ProfilesData> withProfilesResourceAttribute(String key, AttributeValue value) {
         return profiles -> new ProfilesData(profiles.resourceProfiles().stream()
                 .map(rp -> new ProfilesData.ResourceProfiles(enrich(rp.resource(), key, value), rp.schemaUrl(), rp.scopeProfiles()))
-                .toList());
+                .toList(), profiles.dictionary());
     }
 
     private static Resource enrich(Resource resource, String key, AttributeValue value) {

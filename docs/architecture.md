@@ -52,12 +52,13 @@ An unattached source returns `Accepted`. A source has one attachment slot; fan-o
 - `transform` rewrites one batch without changing its signal type.
 - `filter` acknowledges a batch as accepted without forwarding it when the predicate returns false.
 - `peek` invokes a best-effort observer (a plain `java.util.function.Consumer`) and ignores its result. It does not wait for an asynchronous observer or handle its later failure.
+- `owns` registers an `AutoCloseable` (e.g. an exporter reachable only behind a method-reference facet) for the subscription to drain on shutdown and flush on `forceFlush`.
 - `branch` builds a concurrent `FanOut`; `join` attaches it.
 - `to` attaches one terminal consumer.
 
 Fan-out sends the same immutable batch reference to every peer. If any peer rejects the batch, the merged result is rejected. Otherwise, partial rejection uses the largest rejected-item count rather than a sum because all peers saw the same input.
 
-The returned `Subscription` owns the source attachment. It also closes terminal objects that directly implement `AutoCloseable`, including a directly attached `BatchingProcessor`. Method-reference facets such as `exporter.traces()` and downstream resources hidden inside connectors are not discoverable as lifecycle resources; their owners must be closed separately.
+The returned `Subscription` owns the source attachment. It also closes terminal objects that directly implement `AutoCloseable`, including a directly attached `BatchingProcessor`. Method-reference facets such as `exporter.traces()` and downstream resources hidden inside connectors are not auto-discovered, because a lambda hides its owner. Register them explicitly with `Stage.owns(resource)`: the subscription then drains each owned resource on shutdown and, if it is `Pipeline.Flushable`, flushes it on `forceFlush`. All resources — auto-collected and owned alike — share a single shutdown deadline derived from the timeout, so total shutdown is bounded by that timeout, not N × timeout. A `Pipeline.Drainable` resource (such as `OtlpGrpcExporter`) receives the *remaining* shared budget instead of its own fixed-timeout `close()`.
 
 ## Processing and routing
 
@@ -65,7 +66,7 @@ Built-in stateless transforms filter spans or log records and add resource attri
 
 `BatchingProcessor<T>` buffers complete domain batches, then merges their top-level resource groups. It flushes when the queue reaches `maxBatchSize`, on the periodic `maxBatchAge` timer, or through `forceFlush`/`shutdown`. Defaults are 512 queued batches per flush, a five-second timer, a queue capacity of 2048, and `DROP_NEWEST` overflow handling.
 
-`SpanCountConnector` converts a trace batch into the `otlp4j.connector.span.count` metric. `LogRecordCountConnector` similarly emits `otlp4j.connector.log.record.count`. Connectors consume their input signal and send the derived `MetricsData` to a supplied `MetricConsumer`; they do not forward the original batch.
+`SpanCountConnector` converts a trace batch into the `otlp4j.connector.span.count` metric. `LogRecordCountConnector` similarly emits `otlp4j.connector.log.record.count`. Connectors consume their input signal and send the derived `MetricsData` to a supplied `MetricConsumer`; they do not forward the original batch. Each flush carries a real per-series delta window — `[previous flush, now)`, monotonic even under concurrent calls or a backward wall-clock step. A `FailurePolicy` (default `BEST_EFFORT`) decides how a downstream metric failure maps back onto the input: `BEST_EFFORT` accepts the input and logs the failure, while `FAIL` propagates a downstream `Partial`/`Rejected` as a `Rejected` on the input result.
 
 ## Receiver tap
 
@@ -77,14 +78,10 @@ The default buffer holds 256 batches and drops the oldest on overflow. Other str
 
 The built-in client uses blocking gRPC stubs on a virtual-thread-per-task executor and applies the configured deadline to each export. The server exposes trace, metric, log, and experimental profile collector services.
 
-The bundled provider honours the full SPI configuration surface. The client selects channel credentials from `Tls` (plaintext, JVM default trust, or a custom certificate bundle), attaches the configured headers to every call, requests gzip compression when configured, and maps `RetryPolicy` onto gRPC's native retry via the channel's default service config. The server selects its credentials from `Tls` (`Disabled` for plaintext, `Custom` for a server certificate and key; `SystemTrust` is rejected, having no server certificate). The one field still unused is the server's `bindHost`: gRPC binds its default address. Alternate providers can vary any of this without changing the application API.
+The bundled provider honours the full SPI configuration surface. The client selects channel credentials from `Tls` (plaintext, JVM default trust, or a custom certificate bundle), attaches the configured headers to every call, requests gzip compression when configured, and maps `RetryPolicy` onto gRPC's native retry via the channel's default service config. The server, built on `NettyServerBuilder`, selects its credentials from `Tls` (`Disabled` for plaintext, `Custom` for a server certificate and key; `SystemTrust` is rejected, having no server certificate) and binds the configured `bindHost`: a wildcard host (empty, `0.0.0.0`, or `::`) binds every interface, while any other host binds that specific interface, so `127.0.0.1` yields a loopback-only receiver. It also applies the receiver-hardening limits from `ServerTransportConfig` — a decoded-request size cap, an optional per-connection concurrency cap, a handshake deadline, and an optional bounded executor (see the SPI section of [Public API](public-api.md)). Compression is decode-only on the server: gzip request bodies decode via gRPC's default decoder and there is no server compression knob. Alternate providers can vary any of this without changing the application API.
 
 ## Model fidelity
 
-Traces, logs, and the principal metric aggregations round-trip between domain and proto representations. The intentional gaps are:
-
-- metric exemplars;
-- detailed profile sample, location, mapping, and dictionary data;
-- stable profiles support, because the bundled schema is OpenTelemetry `v1development`.
+Traces, logs, and the metric aggregations round-trip between domain and proto representations, including metric exemplars: each number, histogram, and exponential-histogram point carries a `List<Exemplar>` mapped in both directions. A `Metric` whose wire `data` was unset round-trips as `null` data, so consumers must null-check `Metric.data()`. Profiles round-trip losslessly through opaque passthrough rather than a fully modeled payload — each `Profile` carries the serialized proto `Profile` bytes and the batch carries the serialized `ProfilesDictionary`, so samples, locations, mappings, string tables, and the original payload re-emit byte-for-byte while only the resource/scope wrapper is modeled. The remaining gap is stable profiles support, because the bundled schema is OpenTelemetry `v1development`.
 
 Trace and span IDs are hex strings in the domain model. Encoding malformed hex fails at the transport boundary. Span flags use a Java `long`; OTLP encoding keeps the wire-format unsigned 32-bit value.

@@ -29,12 +29,13 @@ class MetricsMapperRoundTripTest {
                 1_000L,
                 2_000L,
                 NumberPoint.longValue(125L),
-                0L);
+                0L,
+                List.of());
     }
 
     private static NumberPoint doublePoint() {
         return new NumberPoint(
-                Attributes.empty(), 1_000L, 2_000L, NumberPoint.doubleValue(0.73), 0L);
+                Attributes.empty(), 1_000L, 2_000L, NumberPoint.doubleValue(0.73), 0L, List.of());
     }
 
     private static HistogramPoint histogramPoint(boolean optionalsPresent) {
@@ -48,7 +49,8 @@ class MetricsMapperRoundTripTest {
                 List.of(1.0, 10.0),
                 optionalsPresent ? OptionalDouble.of(0.5) : OptionalDouble.empty(),
                 optionalsPresent ? OptionalDouble.of(99.9) : OptionalDouble.empty(),
-                0L);
+                0L,
+                List.of());
     }
 
     private static ExponentialHistogramPoint exponentialPoint(boolean optionalsPresent) {
@@ -65,7 +67,8 @@ class MetricsMapperRoundTripTest {
                 optionalsPresent ? OptionalDouble.of(0.1) : OptionalDouble.empty(),
                 optionalsPresent ? OptionalDouble.of(9.9) : OptionalDouble.empty(),
                 0.0,
-                0L);
+                0L,
+                List.of());
     }
 
     static Stream<Metric> everyMetricDataKind() {
@@ -144,7 +147,7 @@ class MetricsMapperRoundTripTest {
     @DisplayName("NumberPoint with unset value oneof round-trips as null")
     @Test
     void roundTripsANumberPointWithNoValue() {
-        var point = new NumberPoint(Attributes.empty(), 1_000L, 2_000L, null, 0L);
+        var point = new NumberPoint(Attributes.empty(), 1_000L, 2_000L, null, 0L, List.of());
         var sent = Fixtures.metricsData(Metric.builder()
                 .name("gauge.no-value")
                 .data(new Metric.Gauge(List.of(point)))

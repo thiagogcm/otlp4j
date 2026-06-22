@@ -42,7 +42,7 @@ public final class Fixtures {
 
     public static Metric metric(String name) {
         var point = new NumberPoint(
-                Attributes.empty(), 0L, 2_000L, NumberPoint.longValue(1L), 0L);
+                Attributes.empty(), 0L, 2_000L, NumberPoint.longValue(1L), 0L, List.of());
         return Metric.builder()
                 .name(name)
                 .data(new Metric.Gauge(List.of(point)))
@@ -54,7 +54,7 @@ public final class Fixtures {
     }
 
     public static ProfilesData.Profile profile(String profileId) {
-        return new ProfilesData.Profile(profileId, 1_000L, 500L, 0L, 0, 0, "");
+        return new ProfilesData.Profile(profileId, 1_000L, 500L, 0L, 0, 0, "", new byte[0]);
     }
 
     public static LogRecord logRecord(String body, LogRecord.Severity severity) {

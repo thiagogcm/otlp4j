@@ -10,6 +10,7 @@ import dev.nthings.otlp4j.pipeline.Consumer;
 import dev.nthings.otlp4j.pipeline.Pipeline;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -310,10 +311,30 @@ public final class BatchingProcessor<T> implements Consumer<T>, Pipeline.Flushab
         return new LogsData(combined);
     }
 
+    /// Profiles carry an opaque, batch-level `ProfilesDictionary`; each profile's payload references
+    /// it by index. Merging is only lossless when the batches agree on that dictionary: the
+    /// resource-profiles are concatenated under the one shared (or only non-empty) dictionary.
+    /// Distinct non-empty dictionaries cannot be merged without re-indexing every reference — which
+    /// the passthrough model deliberately avoids — so this fails loudly (surfaced as a failed flush)
+    /// rather than emitting an index-corrupted batch.
     private static ProfilesData mergeProfiles(List<ProfilesData> snapshot) {
         var combined = new ArrayList<ProfilesData.ResourceProfiles>();
-        snapshot.forEach(p -> combined.addAll(p.resourceProfiles()));
-        return new ProfilesData(combined);
+        byte[] dictionary = new byte[0];
+        for (var p : snapshot) {
+            combined.addAll(p.resourceProfiles());
+            var dict = p.dictionary();
+            if (dict.length == 0) {
+                continue;
+            }
+            if (dictionary.length == 0) {
+                dictionary = dict;
+            } else if (!Arrays.equals(dictionary, dict)) {
+                throw new IllegalStateException(
+                        "cannot batch-merge profiles carrying distinct ProfilesDictionaries without "
+                                + "re-indexing; forward profiles 1:1 or disable profiles batching");
+            }
+        }
+        return new ProfilesData(combined, dictionary);
     }
 
     /// Builder for [BatchingProcessor].

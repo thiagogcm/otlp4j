@@ -81,7 +81,7 @@ var subscription = Pipeline.from(receiver.traces())
 The receiver accepts one consumer per signal source. Use `branch().fanOut(...).join()` when several consumers need the same batch.
 
 > [!IMPORTANT]
-> You own three lifecycles. Shut them down in order — subscription, then exporter, then receiver. Closing the subscription does **not** close the exporter: an exporter facet such as `exporter.traces()` is a consumer view and does not transfer ownership of the exporter to the pipeline.
+> You own three lifecycles. Shut them down in order — subscription, then exporter, then receiver. Closing the subscription does **not** close the exporter by default: an exporter facet such as `exporter.traces()` is a consumer view and does not transfer ownership of the exporter to the pipeline. To hand that ownership over, register it on the stage with `.owns(exporter)`; the subscription then drains it on shutdown (within the shared deadline) and flushes it on `forceFlush`, and you drop the explicit `exporter.close()`.
 
 ```java
 subscription.shutdown(Duration.ofSeconds(10)).toCompletableFuture().join();
@@ -115,7 +115,6 @@ This runs the tests, coverage checks, Protobuf generation, and Javadoc lint. If 
 
 ## Current limits
 
-- The bundled transport applies the full configuration surface — TLS, headers, compression, and retry on the client; TLS on the server — except the server's `bindHost`, which is currently ignored (gRPC binds its default address).
-- Profiles track OpenTelemetry `v1development`. `ProfilesData.Profile` retains top-level metadata but not sample, location, mapping, or dictionary tables.
-- Metric exemplars are not represented in the domain model.
+- The bundled transport applies the full configuration surface — TLS, headers, compression, and retry on the client; TLS, `bindHost`, and the receiver-hardening limits on the server. A non-wildcard `bindHost` (e.g. `127.0.0.1`) now binds that specific interface; a wildcard host binds every interface. Compression is asymmetric: the client requests gzip, and the server transparently decodes it via gRPC's default decoder with no server-side switch.
+- Profiles track OpenTelemetry `v1development`. `ProfilesData.Profile` exposes top-level metadata for inspection but forwards losslessly via opaque passthrough: each profile carries its serialized proto bytes and the batch carries the serialized `ProfilesDictionary`, so samples, locations, mappings, string tables, and the original payload re-emit byte-for-byte. Only the resource/scope wrapper is modeled (standard attributes); the profile payload itself is not introspectable.
 - An unattached receiver source acknowledges a batch as accepted. Attach every signal that must be processed.

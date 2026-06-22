@@ -44,6 +44,11 @@ public final class Pipeline {
         /// [dev.nthings.otlp4j.receiver.TelemetryTap].
         Stage<T> peek(java.util.function.Consumer<? super T> observer);
 
+        /// Registers a lifecycle resource (e.g. an exporter) that the subscription drains on
+        /// shutdown and flushes on forceFlush if it is [Flushable]. Use this to attach resources
+        /// reachable only behind method-reference consumers (e.g. `exporter.traces()`).
+        Stage<T> owns(AutoCloseable resource);
+
         /// Opens a branch — subsequent `.fanOut(...)` calls add peers, `.join()` closes the
         /// branch and returns the active subscription.
         Branch<T> branch();
@@ -108,6 +113,17 @@ public final class Pipeline {
         }
 
         @Override
+        public Stage<T> owns(AutoCloseable resource) {
+            Objects.requireNonNull(resource, "resource");
+            // Copy rather than mutate: sibling stage values share this `resources` reference, so an
+            // in-place append would leak the registration into branches that never asked for it.
+            var next = new ArrayList<AutoCloseable>(resources.size() + 1);
+            next.addAll(resources);
+            next.add(resource);
+            return new StageImpl<>(source, stageFn, next);
+        }
+
+        @Override
         public Branch<T> branch() {
             return new BranchImpl<>(this);
         }
@@ -163,6 +179,10 @@ public final class Pipeline {
         return collected;
     }
 
+    /// Auto-collects lifecycle from the terminal: [FanOut] peers and any node that directly
+    /// implements [AutoCloseable]. It deliberately does NOT see through method-reference consumers
+    /// (`exporter.traces()` is `client::exportTraces`) or connector downstreams — those hide their
+    /// owner behind a lambda, so register them explicitly with [Stage#owns(AutoCloseable)].
     private static void collectLifecycle(Object node, List<AutoCloseable> out) {
         if (node instanceof FanOut<?> f) {
             for (var peer : f.peers()) {
@@ -192,13 +212,20 @@ public final class Pipeline {
             this.resources = Collections.unmodifiableList(resources);
         }
 
-        /// Order: detach the source first, then drain each leaf resource. Mid-stage
-        /// [Pipeline.Flushable] instances would need to be tracked in `resources` to participate.
+        /// Order: detach the source first, then drain each leaf resource in registration order.
+        /// All steps share a single deadline derived from `timeout`, so each resource is closed
+        /// with only the time remaining — total shutdown is bounded by `timeout`, not N × timeout.
+        /// Resources registered via [Stage#owns(AutoCloseable)] participate alongside the
+        /// auto-collected terminals.
         @Override
         public CompletionStage<Void> shutdown(Duration timeout) {
+            long deadlineNanos = System.nanoTime() + timeout.toNanos();
             var future = sourceSubscription.shutdown(timeout).toCompletableFuture();
             for (var resource : resources) {
-                future = future.thenCompose(v -> closeResource(resource, timeout));
+                future = future.thenCompose(v -> {
+                    Duration remaining = Duration.ofNanos(Math.max(0L, deadlineNanos - System.nanoTime()));
+                    return closeResource(resource, remaining);
+                });
             }
             return future;
         }
@@ -215,8 +242,10 @@ public final class Pipeline {
         }
 
         private static CompletionStage<Void> closeResource(AutoCloseable resource, Duration timeout) {
-            if (resource instanceof Subscription s) {
-                return s.shutdown(timeout);
+            // A Subscription and the exporter are both Drainable, so they drain within the remaining
+            // shared budget rather than via their own fixed-timeout close().
+            if (resource instanceof Drainable d) {
+                return d.shutdown(timeout);
             }
             try {
                 resource.close();
@@ -232,5 +261,18 @@ public final class Pipeline {
 
         /// Flushes any in-flight buffers downstream.
         CompletionStage<Void> forceFlush(Duration timeout);
+    }
+
+    /// Optional mixin letting an owned resource drain within the pipeline's shared shutdown deadline.
+    ///
+    /// When a resource registered via [Stage#owns(AutoCloseable)] implements this, the subscription
+    /// passes the *remaining* shared budget to [#shutdown(Duration)] instead of falling back to the
+    /// resource's no-argument [AutoCloseable#close], whose own fixed timeout would ignore the caller's
+    /// deadline. [Subscription] is a `Drainable`, as is [dev.nthings.otlp4j.exporter.OtlpGrpcExporter].
+    public interface Drainable extends AutoCloseable {
+
+        /// Drains the resource, returning a stage that completes successfully on a clean drain and
+        /// exceptionally if `timeout` elapses.
+        CompletionStage<Void> shutdown(Duration timeout);
     }
 }

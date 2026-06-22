@@ -110,6 +110,11 @@ final class GrpcOtlpClient implements OtlpClient {
         return compress ? s.withCompression("gzip") : s;
     }
 
+    /// Blocking, two-phase teardown bounded by [#CLOSE_TIMEOUT_SECONDS] per await. Both awaits are
+    /// interrupt-responsive: when the caller's deadline elapses, the exporter's shutdown executor
+    /// `shutdownNow()`s its thread, which interrupts whichever await is in flight; that path forces
+    /// `shutdownNow()` on both the channel and the executor so teardown stops promptly instead of
+    /// blocking the caller past its deadline.
     @Override
     public void close() {
         channel.shutdown();
@@ -120,12 +125,17 @@ final class GrpcOtlpClient implements OtlpClient {
                 channel.shutdownNow();
             }
         } catch (InterruptedException e) {
+            // Interrupt (typically from the exporter's deadline) unblocks this await; force the
+            // channel down now. The interrupt flag stays set so the finally's executor await below
+            // returns immediately rather than spending another budget, bounding teardown.
             log.warn("interrupted while closing OTLP/gRPC channel; forcing shutdown");
             channel.shutdownNow();
             Thread.currentThread().interrupt();
         } finally {
             // Bound teardown to the close budget: ExecutorService.close() awaits up to a day, so
             // shut down, wait CLOSE_TIMEOUT_SECONDS, then shutdownNow() so no export carrier leaks.
+            // If the interrupt flag is already set (interrupted channel await above), this await
+            // returns at once and we shutdownNow() immediately, so the deadline is honoured.
             executor.shutdown();
             try {
                 if (!executor.awaitTermination(CLOSE_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {

@@ -75,7 +75,7 @@ class ModelRecordInvariantsTest {
                         new ScopeProfiles(InstrumentationScope.EMPTY, "", List.of(
                                 profile("p1"), profile("p2"))))),
                 new ResourceProfiles(Resource.EMPTY, "", List.of(
-                        new ScopeProfiles(InstrumentationScope.EMPTY, "", List.of(profile("p3")))))));
+                        new ScopeProfiles(InstrumentationScope.EMPTY, "", List.of(profile("p3")))))), new byte[0]);
 
         assertThat(profiles.profiles())
                 .extracting(Profile::profileId)
@@ -122,7 +122,7 @@ class ModelRecordInvariantsTest {
         var numberPoints = new ArrayList<NumberPoint>();
         var gauge = new Metric.Gauge(numberPoints);
         var sum = new Metric.Sum(numberPoints, Metric.AggregationTemporality.DELTA, true);
-        numberPoints.add(new NumberPoint(Attributes.empty(), 0, 0, NumberPoint.longValue(1), 0));
+        numberPoints.add(new NumberPoint(Attributes.empty(), 0, 0, NumberPoint.longValue(1), 0, List.of()));
 
         assertThat(gauge.points()).isEmpty();
         assertThat(sum.points()).isEmpty();
@@ -153,7 +153,7 @@ class ModelRecordInvariantsTest {
         var explicitBounds = new ArrayList<Double>(List.of(0.5));
         var point = new HistogramPoint(
                 Attributes.empty(), 0, 0, 3, OptionalDouble.empty(),
-                bucketCounts, explicitBounds, OptionalDouble.empty(), OptionalDouble.empty(), 0);
+                bucketCounts, explicitBounds, OptionalDouble.empty(), OptionalDouble.empty(), 0, List.of());
 
         bucketCounts.add(99L);
         explicitBounds.add(99.0);
@@ -227,19 +227,19 @@ class ModelRecordInvariantsTest {
     }
 
     private static Profile profile(String profileId) {
-        return new Profile(profileId, 0L, 0L, 0L, 0, 0, "");
+        return new Profile(profileId, 0L, 0L, 0L, 0, 0, "", new byte[0]);
     }
 
     private static HistogramPoint histogramPoint() {
         return new HistogramPoint(
                 Attributes.empty(), 0, 0, 0, OptionalDouble.empty(),
-                List.of(), List.of(), OptionalDouble.empty(), OptionalDouble.empty(), 0);
+                List.of(), List.of(), OptionalDouble.empty(), OptionalDouble.empty(), 0, List.of());
     }
 
     private static ExponentialHistogramPoint exponentialHistogramPoint() {
         return new ExponentialHistogramPoint(
                 Attributes.empty(), 0, 0, 0, OptionalDouble.empty(), 0, 0,
                 ExponentialHistogramPoint.Buckets.EMPTY, ExponentialHistogramPoint.Buckets.EMPTY,
-                OptionalDouble.empty(), OptionalDouble.empty(), 0.0, 0);
+                OptionalDouble.empty(), OptionalDouble.empty(), 0.0, 0, List.of());
     }
 }
