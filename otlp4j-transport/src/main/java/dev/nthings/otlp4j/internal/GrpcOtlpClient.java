@@ -27,7 +27,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
-import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -53,7 +52,7 @@ final class GrpcOtlpClient implements OtlpClient {
     private final ProfilesServiceGrpc.ProfilesServiceBlockingStub profilesStub;
     private final ClientTransportConfig config;
     private final boolean compress;
-    private final Executor executor;
+    private final ExecutorService executor;
 
     GrpcOtlpClient(ClientTransportConfig config) {
         this.config = config;
@@ -125,10 +124,18 @@ final class GrpcOtlpClient implements OtlpClient {
             channel.shutdownNow();
             Thread.currentThread().interrupt();
         } finally {
-            // Close the per-export executor so outstanding supplyAsync tasks are interrupted
-            // and no carrier threads leak through repeated channel cycles.
-            if (executor instanceof ExecutorService es) {
-                es.close();
+            // Bound teardown to the close budget: ExecutorService.close() awaits up to a day, so
+            // shut down, wait CLOSE_TIMEOUT_SECONDS, then shutdownNow() so no export carrier leaks.
+            executor.shutdown();
+            try {
+                if (!executor.awaitTermination(CLOSE_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                    log.warn("per-export executor did not terminate within {}s; interrupting outstanding exports",
+                            CLOSE_TIMEOUT_SECONDS);
+                    executor.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                executor.shutdownNow();
+                Thread.currentThread().interrupt();
             }
         }
     }

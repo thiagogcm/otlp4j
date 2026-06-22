@@ -33,8 +33,9 @@ import org.slf4j.LoggerFactory;
 
 /// Builds gRPC services that decode OTLP requests and call the four per-signal dispatchers.
 ///
-/// Each adapter maps the dispatcher's [ConsumeResult] to OTLP `partial_success`; thrown
-/// exceptions become gRPC `INTERNAL`.
+/// `Accepted`/`Partial` map to OTLP `partial_success`. A whole-batch `Rejected` is not a partial
+/// success (`rejected_*=0` would read as "all accepted"), so it maps to a gRPC error: `UNAVAILABLE`
+/// when retryable (no cause), else `INTERNAL`, as do thrown exceptions.
 final class GrpcServiceAdapters {
 
     private static final Logger log = LoggerFactory.getLogger(GrpcServiceAdapters.class);
@@ -65,6 +66,18 @@ final class GrpcServiceAdapters {
                         .asRuntimeException());
                 return;
             }
+            if (result instanceof ConsumeResult.Rejected<SIG>(var message, var cause)) {
+                // Whole-batch rejection is a delivery failure, not a partial success: a gRPC error so
+                // the client retries (UNAVAILABLE) or sees the fault (INTERNAL), not rejected_*=0.
+                var status = (cause == null ? Status.UNAVAILABLE : Status.INTERNAL).withDescription(message);
+                if (cause != null) {
+                    status = status.withCause(cause);
+                }
+                log.warn("dispatcher rejected the whole batch; responding with gRPC {}: {}",
+                        status.getCode(), message);
+                observer.onError(status.asRuntimeException());
+                return;
+            }
             try {
                 observer.onNext(mapResult.apply(result));
                 observer.onCompleted();
@@ -75,6 +88,13 @@ final class GrpcServiceAdapters {
                         .asRuntimeException());
             }
         });
+    }
+
+    /// Guards each adapter's unreachable [ConsumeResult.Rejected] switch arm: [#respond] intercepts
+    /// rejections before `mapResult` runs, so the arm only keeps the switch exhaustive.
+    static IllegalStateException rejectedNotMapped() {
+        return new IllegalStateException(
+                "ConsumeResult.Rejected is mapped to a gRPC error by respond(), not to a response message");
     }
 }
 
@@ -108,8 +128,7 @@ final class TraceServiceAdapter extends TraceServiceGrpc.TraceServiceImplBase {
                     resp.setPartialSuccess(ExportTracePartialSuccess.newBuilder()
                             .setRejectedSpans(rejected)
                             .setErrorMessage(message));
-            case ConsumeResult.Rejected<TraceData>(var message, var _) ->
-                    resp.setPartialSuccess(ExportTracePartialSuccess.newBuilder().setErrorMessage(message));
+            case ConsumeResult.Rejected<TraceData> _ -> throw GrpcServiceAdapters.rejectedNotMapped();
         }
         return resp.build();
     }
@@ -145,8 +164,7 @@ final class MetricsServiceAdapter extends MetricsServiceGrpc.MetricsServiceImplB
                     resp.setPartialSuccess(ExportMetricsPartialSuccess.newBuilder()
                             .setRejectedDataPoints(rejected)
                             .setErrorMessage(message));
-            case ConsumeResult.Rejected<MetricsData>(var message, var _) ->
-                    resp.setPartialSuccess(ExportMetricsPartialSuccess.newBuilder().setErrorMessage(message));
+            case ConsumeResult.Rejected<MetricsData> _ -> throw GrpcServiceAdapters.rejectedNotMapped();
         }
         return resp.build();
     }
@@ -182,8 +200,7 @@ final class LogsServiceAdapter extends LogsServiceGrpc.LogsServiceImplBase {
                     resp.setPartialSuccess(ExportLogsPartialSuccess.newBuilder()
                             .setRejectedLogRecords(rejected)
                             .setErrorMessage(message));
-            case ConsumeResult.Rejected<LogsData>(var message, var _) ->
-                    resp.setPartialSuccess(ExportLogsPartialSuccess.newBuilder().setErrorMessage(message));
+            case ConsumeResult.Rejected<LogsData> _ -> throw GrpcServiceAdapters.rejectedNotMapped();
         }
         return resp.build();
     }
@@ -219,8 +236,7 @@ final class ProfilesServiceAdapter extends ProfilesServiceGrpc.ProfilesServiceIm
                     resp.setPartialSuccess(ExportProfilesPartialSuccess.newBuilder()
                             .setRejectedProfiles(rejected)
                             .setErrorMessage(message));
-            case ConsumeResult.Rejected<ProfilesData>(var message, var _) ->
-                    resp.setPartialSuccess(ExportProfilesPartialSuccess.newBuilder().setErrorMessage(message));
+            case ConsumeResult.Rejected<ProfilesData> _ -> throw GrpcServiceAdapters.rejectedNotMapped();
         }
         return resp.build();
     }

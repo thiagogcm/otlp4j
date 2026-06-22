@@ -9,6 +9,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /// Fluent builder for a per-signal consumer chain.
 ///
@@ -17,6 +19,8 @@ import java.util.function.Predicate;
 /// play). The returned [Subscription] owns the wiring: closing it detaches every leaf and
 /// releases any lifecycle resources attached along the way.
 public final class Pipeline {
+
+    private static final Logger log = LoggerFactory.getLogger(Pipeline.class);
 
     private Pipeline() {}
 
@@ -35,8 +39,9 @@ public final class Pipeline {
         Stage<T> filter(Predicate<? super T> keep);
 
         /// Adds a fire-and-forget side-effect observer that cannot alter or reject the batch.
-        /// Exceptions thrown by `observer` are swallowed so they never affect the main path; for a
-        /// demand-aware live stream use the receiver's [dev.nthings.otlp4j.receiver.TelemetryTap].
+        /// Anything `observer` throws (exceptions and `Error`s alike) is caught and logged so it
+        /// never affects the main path; for a demand-aware live stream use the receiver's
+        /// [dev.nthings.otlp4j.receiver.TelemetryTap].
         Stage<T> peek(java.util.function.Consumer<? super T> observer);
 
         /// Opens a branch — subsequent `.fanOut(...)` calls add peers, `.join()` closes the
@@ -91,8 +96,10 @@ public final class Pipeline {
                 if (batch != null) {
                     try {
                         observer.accept(batch);
-                    } catch (RuntimeException _) {
-                        // peek errors must not affect the main path
+                    } catch (Throwable t) {
+                        // Fire-and-forget: a peek failure (even an Error like AssertionError) must not
+                        // reach the delivery path. Log so it isn't lost.
+                        log.warn("pipeline peek observer threw; ignoring to protect the delivery path", t);
                     }
                 }
                 return batch;

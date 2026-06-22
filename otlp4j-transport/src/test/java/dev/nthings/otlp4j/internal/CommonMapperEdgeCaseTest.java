@@ -31,16 +31,15 @@ class CommonMapperEdgeCaseTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
-    @DisplayName("Malformed traceId is rejected only at TraceMapper.toProto")
+    @DisplayName("Malformed traceId is rejected at construction, before any proto encode")
     @Test
-    void malformedTraceIdThrowsOutOfTraceMapperToProto() {
-        // A Span with a malformed traceId is accepted by the domain model (no validation there
-        // either) and the IllegalArgumentException only surfaces at encode time, from toProto.
-        var traces = TransportFixtures.traceWithTraceId("nothex!!");
-
-        assertThatThrownBy(() -> TraceMapper.toProto(traces))
-                .as("a malformed traceId is only rejected at proto-encode time, not at construction")
-                .isInstanceOf(IllegalArgumentException.class);
+    void malformedTraceIdRejectedAtConstruction() {
+        // Validation now lives in the model constructor, so a malformed traceId fails when the Span
+        // is built, not later in TraceMapper.toProto on the export thread.
+        assertThatThrownBy(() -> TransportFixtures.traceWithTraceId("nothex!!"))
+                .as("a malformed traceId is rejected at model construction, not at proto-encode time")
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("traceId");
     }
 
     @DisplayName("Uppercase hex id lowercases through hex(), not a string-identity round-trip")
@@ -71,20 +70,16 @@ class CommonMapperEdgeCaseTest {
                 .isEqualTo(0xFFFFFFFFL);
     }
 
-    @DisplayName("Span flags above unsigned 32-bit range are truncated by the encode cast")
+    @DisplayName("Span flags above unsigned 32-bit range are rejected at construction, not silently truncated")
     @Test
-    void spanFlagsAboveUnsignedIntRangeAreTruncated() {
-        // A flags value with bits above bit 31 set cannot survive the (int) cast on encode: the
-        // high bits are silently dropped. This pins the lossy truncation, not an identity.
+    void spanFlagsAboveUnsignedIntRangeAreRejectedAtConstruction() {
+        // Bits above bit 31 couldn't survive the (int) encode cast; construction now rejects them
+        // instead of silently truncating on the export thread.
         long oversized = 0x1_0000_0001L; // bit 32 set + low bit
-        var sent = TransportFixtures.traceWithSpanFlags(oversized);
 
-        var roundTripped = TraceMapper.toDomain(TraceMapper.toProto(sent)).spans().getFirst();
-
-        assertThat(roundTripped.flags())
-                .as("flags above the unsigned 32-bit range are truncated by the (int) encode cast")
-                .isEqualTo(oversized & 0xFFFFFFFFL)
-                .isEqualTo(1L)
-                .isNotEqualTo(oversized);
+        assertThatThrownBy(() -> TransportFixtures.traceWithSpanFlags(oversized))
+                .as("flags above the unsigned 32-bit range fail fast at model construction")
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("flags");
     }
 }

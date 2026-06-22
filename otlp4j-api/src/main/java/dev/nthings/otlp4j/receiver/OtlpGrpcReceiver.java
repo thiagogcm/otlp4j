@@ -101,12 +101,14 @@ public final class OtlpGrpcReceiver implements Receiver {
 
     @Override
     public CompletionStage<Void> shutdown(Duration timeout) {
-        tap.close();
-        return server.shutdown(timeout);
+        // Graceful: drain the server first, then close the tap. Closing it up front makes
+        // MulticastPublisher.publish early-return, dropping telemetry accepted during the drain.
+        return server.shutdown(timeout).whenComplete((v, t) -> tap.close());
     }
 
     @Override
     public CompletionStage<Void> shutdownNow() {
+        // Forceful: nothing further will be accepted, so detach subscribers immediately.
         tap.close();
         return server.shutdownNow();
     }

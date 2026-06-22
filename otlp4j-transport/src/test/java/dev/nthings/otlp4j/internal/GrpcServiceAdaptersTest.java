@@ -58,6 +58,35 @@ class GrpcServiceAdaptersTest {
         assertThat(observer.completed).isTrue();
     }
 
+    @DisplayName("A whole-batch Rejected without a cause maps to retryable UNAVAILABLE, not rejected_spans=0")
+    @Test
+    void traceAdapterMapsRejectedToUnavailable() {
+        var observer = new RecordingObserver<ExportTraceServiceResponse>();
+        new TraceServiceAdapter(traces -> CompletableFuture.completedStage(
+                ConsumeResult.rejected("queue full"))).export(
+                        TraceMapper.toProto(TransportFixtures.richTraceData()), observer);
+        observer.await();
+        assertThat(observer.values).isEmpty();
+        assertThat(observer.completed).isFalse();
+        var status = Status.fromThrowable(observer.error);
+        assertThat(status.getCode()).isEqualTo(Status.Code.UNAVAILABLE);
+        assertThat(status.getDescription()).isEqualTo("queue full");
+    }
+
+    @DisplayName("A whole-batch Rejected carrying a cause maps to INTERNAL")
+    @Test
+    void rejectedWithCauseMapsToInternal() {
+        var observer = new RecordingObserver<ExportLogsServiceResponse>();
+        new LogsServiceAdapter(logs -> CompletableFuture.completedStage(
+                ConsumeResult.rejected("stage threw", new IllegalStateException("boom")))).export(
+                        LogsMapper.toProto(TransportFixtures.richLogsData()), observer);
+        observer.await();
+        assertThat(observer.values).isEmpty();
+        var status = Status.fromThrowable(observer.error);
+        assertThat(status.getCode()).isEqualTo(Status.Code.INTERNAL);
+        assertThat(status.getDescription()).isEqualTo("stage threw");
+    }
+
     @DisplayName("MetricsServiceAdapter encodes rejected data points as partial success")
     @Test
     void metricsAdapterEncodesPartialSuccessOntoTheResponse() {

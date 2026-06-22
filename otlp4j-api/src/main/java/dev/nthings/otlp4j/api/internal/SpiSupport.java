@@ -9,12 +9,22 @@ public final class SpiSupport {
 
     private SpiSupport() {}
 
-    /// Returns the first provider for `service`. Throws when none is present.
+    /// Returns the single provider for `service`. Throws when none is present, and (rather than let
+    /// `ServiceLoader` order pick silently) also when more than one is, naming the candidates.
     public static <T> T firstProvider(Class<T> service) {
-        return ServiceLoader.load(service)
-                .findFirst()
-                .orElseThrow(() -> new IllegalStateException(
-                        "No " + service.getSimpleName() + " found on the module/class path. "
-                                + "Add the otlp4j-transport module to provide the OTLP/gRPC transport."));
+        var providers = ServiceLoader.load(service).stream().toList();
+        if (providers.isEmpty()) {
+            throw new IllegalStateException(
+                    "No " + service.getSimpleName() + " found on the module/class path. "
+                            + "Add the otlp4j-transport module to provide the OTLP/gRPC transport.");
+        }
+        if (providers.size() > 1) {
+            var names = providers.stream().map(p -> p.type().getName()).toList();
+            throw new IllegalStateException(
+                    "Multiple " + service.getSimpleName() + " providers found on the module/class path; "
+                            + "provider order is not a configuration mechanism, so the choice is ambiguous: "
+                            + names + ". Keep exactly one transport provider on the path.");
+        }
+        return providers.getFirst().get();
     }
 }

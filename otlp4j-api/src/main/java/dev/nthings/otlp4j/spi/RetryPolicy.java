@@ -7,7 +7,9 @@ import java.util.Objects;
 ///
 /// `maxAttempts` includes the initial attempt; a value of 1 disables retries. The bundled
 /// gRPC transport maps this onto gRPC's native retry (exponential backoff over the OTLP-
-/// recommended retryable status codes); the per-request deadline still bounds total wall time.
+/// recommended retryable status codes) and raises gRPC's channel-level retry cap to match
+/// `maxAttempts`, so the full configured budget is honoured; the per-request deadline still bounds
+/// total wall time.
 public record RetryPolicy(int maxAttempts, Duration initialBackoff, Duration maxBackoff) {
 
     private static final RetryPolicy NONE = new RetryPolicy(1, Duration.ZERO, Duration.ZERO);

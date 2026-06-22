@@ -1,6 +1,7 @@
 package dev.nthings.otlp4j.processor;
 
 import dev.nthings.otlp4j.model.LogsData;
+import dev.nthings.otlp4j.model.Metric;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.TraceData;
@@ -24,6 +25,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.function.ToLongFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -49,6 +51,10 @@ public final class BatchingProcessor<T> implements Consumer<T>, Pipeline.Flushab
     private final AtomicBoolean closed = new AtomicBoolean();
     private final Merger<T> merger;
 
+    /// OTLP item count (spans / data points / log records / profiles) for a batch, so a dropped
+    /// batch reports a true partial-success count, not a Java-batch count of one.
+    private final ToLongFunction<T> itemCounter;
+
     /// Drains run serially here; the timer (on `scheduler`) only decides when to flush.
     private final ExecutorService drainExecutor;
 
@@ -65,6 +71,7 @@ public final class BatchingProcessor<T> implements Consumer<T>, Pipeline.Flushab
         this.dropPolicy = b.dropPolicy;
         this.drops = b.drops == null ? new LongAdder() : b.drops;
         this.merger = b.merger;
+        this.itemCounter = b.itemCounter;
         this.ownsScheduler = b.scheduler == null;
         this.scheduler = b.scheduler == null
                 ? Executors.newSingleThreadScheduledExecutor(r -> {
@@ -99,8 +106,11 @@ public final class BatchingProcessor<T> implements Consumer<T>, Pipeline.Flushab
                 }
                 case DROP_NEWEST -> {
                     drops.increment();
-                    return CompletableFuture.completedFuture(
-                            ConsumeResult.partial(1, "batcher queue full"));
+                    // Report the rejected OTLP item count, not a Java-batch count of one.
+                    long rejectedItems = itemCounter.applyAsLong(batch);
+                    return CompletableFuture.completedFuture(rejectedItems == 0
+                            ? ConsumeResult.accepted()
+                            : ConsumeResult.partial(rejectedItems, "batcher queue full"));
                 }
                 case BLOCK -> {
                     try {
@@ -244,27 +254,42 @@ public final class BatchingProcessor<T> implements Consumer<T>, Pipeline.Flushab
 
     /// Opens a builder for a [BatchingProcessor] over [TraceData].
     public static Builder<TraceData> forTraces() {
-        return new Builder<>(BatchingProcessor::mergeTraces);
+        return new Builder<>(BatchingProcessor::mergeTraces, traces -> traces.spans().size());
     }
 
     /// Opens a builder for a [BatchingProcessor] over [MetricsData].
     public static Builder<MetricsData> forMetrics() {
-        return new Builder<>(BatchingProcessor::mergeMetrics);
+        return new Builder<>(BatchingProcessor::mergeMetrics, BatchingProcessor::countDataPoints);
     }
 
     /// Opens a builder for a [BatchingProcessor] over [LogsData].
     public static Builder<LogsData> forLogs() {
-        return new Builder<>(BatchingProcessor::mergeLogs);
+        return new Builder<>(BatchingProcessor::mergeLogs, logs -> logs.logRecords().size());
     }
 
     /// Opens a builder for a [BatchingProcessor] over [ProfilesData].
     public static Builder<ProfilesData> forProfiles() {
-        return new Builder<>(BatchingProcessor::mergeProfiles);
+        return new Builder<>(BatchingProcessor::mergeProfiles, profiles -> profiles.profiles().size());
     }
 
     @FunctionalInterface
     private interface Merger<T> {
         T merge(List<T> snapshot);
+    }
+
+    /// Metrics report rejected *data points* (nested in each metric's data kind), so this walks the
+    /// [Metric.Data] variants rather than counting [Metric] objects.
+    private static long countDataPoints(MetricsData metrics) {
+        return metrics.metrics().stream()
+                .mapToLong(metric -> switch (metric.data()) {
+                    case null -> 0L;
+                    case Metric.Gauge g -> g.points().size();
+                    case Metric.Sum s -> s.points().size();
+                    case Metric.Histogram h -> h.points().size();
+                    case Metric.ExponentialHistogram e -> e.points().size();
+                    case Metric.Summary s -> s.points().size();
+                })
+                .sum();
     }
 
     private static TraceData mergeTraces(List<TraceData> snapshot) {
@@ -295,6 +320,7 @@ public final class BatchingProcessor<T> implements Consumer<T>, Pipeline.Flushab
     public static final class Builder<T> {
 
         private final Merger<T> merger;
+        private final ToLongFunction<T> itemCounter;
         private Consumer<? super T> downstream;
         private int maxBatchSize = 512;
         private Duration maxBatchAge = Duration.ofSeconds(5);
@@ -303,8 +329,9 @@ public final class BatchingProcessor<T> implements Consumer<T>, Pipeline.Flushab
         private LongAdder drops;
         private ScheduledExecutorService scheduler;
 
-        private Builder(Merger<T> merger) {
+        private Builder(Merger<T> merger, ToLongFunction<T> itemCounter) {
             this.merger = merger;
+            this.itemCounter = itemCounter;
         }
 
         /// The downstream consumer the flushed batch is forwarded to. Required.

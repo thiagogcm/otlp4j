@@ -59,9 +59,12 @@ class BuildersAndSeverityTest {
     @DisplayName("Span.builder links(List) replaces while addLink appends")
     @Test
     void spanBuilderLinksListReplacesWhileAddLinkAppends() {
-        var first = new Span.Link("t1", "s1", "", Attributes.empty(), 0, 0L);
-        var second = new Span.Link("t2", "s2", "", Attributes.empty(), 0, 0L);
-        var third = new Span.Link("t3", "s3", "", Attributes.empty(), 0, 0L);
+        var first = new Span.Link(
+                "0102030405060708090a0b0c0d0e0f10", "0102030405060708", "", Attributes.empty(), 0, 0L);
+        var second = new Span.Link(
+                "1112131415161718191a1b1c1d1e1f20", "1112131415161718", "", Attributes.empty(), 0, 0L);
+        var third = new Span.Link(
+                "2122232425262728292a2b2c2d2e2f30", "2122232425262728", "", Attributes.empty(), 0, 0L);
 
         var span = Span.builder()
                 .addLink(first)
@@ -76,9 +79,9 @@ class BuildersAndSeverityTest {
     @Test
     void spanBuilderRetainsEverySetField() {
         var span = Span.builder()
-                .traceId("abc")
-                .spanId("def")
-                .parentSpanId("ghi")
+                .traceId("0102030405060708090a0b0c0d0e0f10")
+                .spanId("0102030405060708")
+                .parentSpanId("1112131415161718")
                 .traceState("k=v")
                 .flags(7L)
                 .name("op")
@@ -91,7 +94,7 @@ class BuildersAndSeverityTest {
                 .status(new Span.Status(Span.Status.Code.OK, "fine"))
                 .build();
 
-        assertThat(span.traceId()).isEqualTo("abc");
+        assertThat(span.traceId()).isEqualTo("0102030405060708090a0b0c0d0e0f10");
         assertThat(span.kind()).isEqualTo(Span.Kind.SERVER);
         assertThat(span.flags()).isEqualTo(7L);
         assertThat(span.endEpochNanos()).isEqualTo(200L);
@@ -137,14 +140,14 @@ class BuildersAndSeverityTest {
                 .body(AttributeValue.of(42L))
                 .droppedAttributesCount(3)
                 .flags(4L)
-                .traceId("trace")
-                .spanId("span")
+                .traceId("0102030405060708090a0b0c0d0e0f10")
+                .spanId("0102030405060708")
                 .eventName("event")
                 .build();
 
         assertThat(record.severity()).isEqualTo(LogRecord.Severity.ERROR);
         assertThat(record.body()).isEqualTo(AttributeValue.of(42L));
-        assertThat(record.traceId()).isEqualTo("trace");
+        assertThat(record.traceId()).isEqualTo("0102030405060708090a0b0c0d0e0f10");
         assertThat(record.eventName()).isEqualTo("event");
     }
 

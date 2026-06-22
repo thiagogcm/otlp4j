@@ -58,6 +58,42 @@ class ConstructionValidationTest {
                 .isInstanceOf(NullPointerException.class).hasMessageContaining("status");
     }
 
+    @DisplayName("Span rejects ids of the wrong length or with non-hex characters at construction")
+    @Test
+    void spanRejectsMalformedIdentifiers() {
+        assertThatThrownBy(() -> Span.builder().traceId("abc").build())
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("traceId");
+        assertThatThrownBy(() -> Span.builder().spanId("def").build())
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("spanId");
+        // 32 chars but not all hex.
+        assertThatThrownBy(() -> Span.builder().traceId("zz020304050607080910111213141516").build())
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("traceId");
+        // Empty ids are valid (absent) and uppercase hex is accepted.
+        assertThat(Span.builder().traceId("0102030405060708090A0B0C0D0E0F10").build().traceId())
+                .isEqualTo("0102030405060708090A0B0C0D0E0F10");
+    }
+
+    @DisplayName("Span and Span.Link reject flags outside the unsigned 32-bit range at construction")
+    @Test
+    void spanFlagsRejectedOutsideUnsignedIntRange() {
+        assertThatThrownBy(() -> Span.builder().flags(0x1_0000_0001L).build())
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("flags");
+        assertThatThrownBy(() -> Span.builder().flags(-1L).build())
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("flags");
+        // The maximum unsigned 32-bit value is accepted.
+        assertThat(Span.builder().flags(0xFFFFFFFFL).build().flags()).isEqualTo(0xFFFFFFFFL);
+    }
+
+    @DisplayName("Span.Link and LogRecord validate their identifiers at construction")
+    @Test
+    void linkAndLogRecordValidateIdentifiers() {
+        assertThatThrownBy(() ->
+                new Span.Link("tooshort", "0102030405060708", "", Attributes.empty(), 0, 0L))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("traceId");
+        assertThatThrownBy(() -> LogRecord.builder().spanId("nothex-garbage!!").build())
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("spanId");
+    }
+
     @DisplayName("Span.Builder.events/links reject null before mutating the builder")
     @Test
     void spanBuilderRejectsNullEventsAndLinks() {

@@ -27,10 +27,11 @@ public record Span(
         Status status) {
 
     public Span {
-        // Reject nulls at construction, not later on the async export thread.
-        Objects.requireNonNull(traceId, "traceId");
-        Objects.requireNonNull(spanId, "spanId");
-        Objects.requireNonNull(parentSpanId, "parentSpanId");
+        // Validate ids, flags, and nulls at construction, not later on the async export thread.
+        traceId = Ids.traceId(traceId);
+        spanId = Ids.spanId(spanId);
+        parentSpanId = Ids.parentSpanId(parentSpanId);
+        flags = Ids.flags(flags);
         Objects.requireNonNull(traceState, "traceState");
         Objects.requireNonNull(name, "name");
         Objects.requireNonNull(kind, "kind");
@@ -88,7 +89,15 @@ public record Span(
             String traceState,
             Attributes attributes,
             int droppedAttributesCount,
-            long flags) {}
+            long flags) {
+
+        public Link {
+            // Same construction-time guarantees as Span: ids and flags are wire-valid.
+            traceId = Ids.traceId(traceId);
+            spanId = Ids.spanId(spanId);
+            flags = Ids.flags(flags);
+        }
+    }
 
     /// The span's final status.
     public record Status(Code code, String message) {

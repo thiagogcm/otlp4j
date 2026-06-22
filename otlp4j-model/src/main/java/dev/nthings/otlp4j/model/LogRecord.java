@@ -17,6 +17,13 @@ public record LogRecord(
         String spanId,
         String eventName) {
 
+    public LogRecord {
+        // Validate ids and flags at construction, not later on the async export thread.
+        traceId = Ids.traceId(traceId);
+        spanId = Ids.spanId(spanId);
+        flags = Ids.flags(flags);
+    }
+
     public static Builder builder() {
         return new Builder();
     }

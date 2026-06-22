@@ -105,7 +105,8 @@ class ModelRecordInvariantsTest {
         var span = Span.builder().name("op").events(events).links(links).build();
 
         events.add(new Span.Event(1L, "late", Attributes.empty(), 0));
-        links.add(new Span.Link("t", "s", "", Attributes.empty(), 0, 0L));
+        links.add(new Span.Link(
+                "0102030405060708090a0b0c0d0e0f10", "0102030405060708", "", Attributes.empty(), 0, 0L));
 
         assertThat(span.events()).isEmpty();
         assertThat(span.links()).isEmpty();
