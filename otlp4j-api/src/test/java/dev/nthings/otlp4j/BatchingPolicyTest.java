@@ -31,7 +31,7 @@ class BatchingPolicyTest {
                 .maxBatchAge(Duration.ofSeconds(30))
                 .dropPolicy(DropPolicy.DROP_OLDEST)
                 .build()) {
-            for (int i = 0; i < 5; i++) {
+            for (var i = 0; i < 5; i++) {
                 batcher.consume(Fixtures.traceData(Fixtures.span("s" + i, Span.Kind.SERVER)))
                         .toCompletableFuture().join();
             }

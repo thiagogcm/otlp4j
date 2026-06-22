@@ -105,7 +105,7 @@ public sealed interface ConsumeResult<T> permits ConsumeResult.Accepted, Consume
             return accepted();
         }
         Rejected<T> firstRejected = null;
-        long maxRejected = 0;
+        var maxRejected = 0L;
         StringBuilder messages = null;
         for (var peer : peers) {
             switch (peer) {

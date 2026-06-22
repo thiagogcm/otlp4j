@@ -66,7 +66,7 @@ class PipelineTest {
             b.incrementAndGet();
             return ConsumeResult.acceptedStage();
         };
-        Subscription sub = Pipeline.from((Source<TraceData>) source).branch()
+        var sub = Pipeline.from((Source<TraceData>) source).branch()
                 .fanOut(peerA)
                 .fanOut(peerB)
                 .join();

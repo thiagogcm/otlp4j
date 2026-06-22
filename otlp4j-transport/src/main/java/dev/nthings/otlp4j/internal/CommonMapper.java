@@ -15,8 +15,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/// Maps OTLP common/resource types between the generated proto layer and the pure
-/// `dev.nthings.otlp4j.model` domain types, in both directions.
+/// Maps OTLP common/resource types between the generated proto layer and the pure domain model,
+/// in both directions.
 ///
 /// **Internal.** Part of the transport layer; not public API. The generated proto
 /// classes are confined to this package and never escape into the domain or high-level layers.

@@ -40,7 +40,7 @@ class MulticastPublisherTest {
         var pub = new MulticastPublisher<Integer>(drops);
         pub.setOptions(new TapOptions(BackpressureStrategy.DROP_NEWEST, 2));
         pub.subscribe(FlowSubscribers.noOp());
-        for (int i = 0; i < 50; i++) {
+        for (var i = 0; i < 50; i++) {
             pub.publish(i);
         }
         assertThat(drops.sum()).isGreaterThan(0);

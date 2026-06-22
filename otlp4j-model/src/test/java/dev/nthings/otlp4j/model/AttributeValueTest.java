@@ -27,7 +27,7 @@ class AttributeValueTest {
     @DisplayName("BytesValue defensively copies the constructor input")
     @Test
     void bytesValueDefensivelyCopiesTheInputArrayOnConstruction() {
-        byte[] source = {1, 2, 3};
+        var source = new byte[] {1, 2, 3};
         var value = new BytesValue(source);
 
         source[0] = 99;
@@ -42,7 +42,7 @@ class AttributeValueTest {
     void bytesValueAccessorReturnsAFreshCopyEachCall() {
         var value = new BytesValue(new byte[] {1, 2, 3});
 
-        byte[] first = value.value();
+        var first = value.value();
         first[0] = 99;
 
         assertThat(value.value())
@@ -154,11 +154,11 @@ class AttributeValueTest {
     @DisplayName("nested ArrayValue of KeyValueListValue of bytes supports deep equality")
     @Test
     void nestedArrayOfKeyValueListOfBytesSupportsDeepEquality() {
-        AttributeValue nestedA = new ArrayValue(List.of(
+        var nestedA = new ArrayValue(List.of(
                 new KeyValueListValue(Map.of("payload", new BytesValue(new byte[] {1, 2, 3})))));
-        AttributeValue nestedB = new ArrayValue(List.of(
+        var nestedB = new ArrayValue(List.of(
                 new KeyValueListValue(Map.of("payload", new BytesValue(new byte[] {1, 2, 3})))));
-        AttributeValue different = new ArrayValue(List.of(
+        var different = new ArrayValue(List.of(
                 new KeyValueListValue(Map.of("payload", new BytesValue(new byte[] {9})))));
 
         assertThat(nestedA).isEqualTo(nestedB).isNotEqualTo(different);

@@ -121,7 +121,7 @@ public record ProfilesData(List<ResourceProfiles> resourceProfiles, byte[] dicti
 
         @Override
         public int hashCode() {
-            int result = Objects.hashCode(profileId);
+            var result = Objects.hashCode(profileId);
             result = 31 * result + Long.hashCode(timeUnixNano);
             result = 31 * result + Long.hashCode(durationNanos);
             result = 31 * result + Long.hashCode(period);

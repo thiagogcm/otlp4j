@@ -6,11 +6,12 @@ import dev.nthings.otlp4j.pipeline.ConsumeResult;
 import io.opentelemetry.proto.collector.logs.v1.ExportLogsServiceRequest;
 import io.opentelemetry.proto.collector.logs.v1.ExportLogsServiceResponse;
 import io.opentelemetry.proto.logs.v1.SeverityNumber;
+import io.opentelemetry.proto.logs.v1.ResourceLogs;
+import io.opentelemetry.proto.logs.v1.ScopeLogs;
 import java.util.ArrayList;
-import java.util.List;
 
-/// Maps OTLP logs types between the generated proto layer and the `dev.nthings.otlp4j.model`
-/// domain types, in both directions.
+/// Maps OTLP logs types between the generated proto layer and the domain model, in both
+/// directions.
 ///
 /// **Internal.** Part of the transport layer; not public API.
 final class LogsMapper {
@@ -27,7 +28,7 @@ final class LogsMapper {
         return new LogsData(resourceLogs);
     }
 
-    private static LogsData.ResourceLogs toDomain(io.opentelemetry.proto.logs.v1.ResourceLogs rl) {
+    private static LogsData.ResourceLogs toDomain(ResourceLogs rl) {
         var scopeLogs = new ArrayList<LogsData.ScopeLogs>(rl.getScopeLogsCount());
         for (var sl : rl.getScopeLogsList()) {
             scopeLogs.add(toDomain(sl));
@@ -36,7 +37,7 @@ final class LogsMapper {
                 CommonMapper.resource(rl.getResource()), rl.getSchemaUrl(), scopeLogs);
     }
 
-    private static LogsData.ScopeLogs toDomain(io.opentelemetry.proto.logs.v1.ScopeLogs sl) {
+    private static LogsData.ScopeLogs toDomain(ScopeLogs sl) {
         var logRecords = new ArrayList<LogRecord>(sl.getLogRecordsCount());
         for (var record : sl.getLogRecordsList()) {
             logRecords.add(toDomain(record));
@@ -85,9 +86,9 @@ final class LogsMapper {
         return request.build();
     }
 
-    private static io.opentelemetry.proto.logs.v1.ResourceLogs toProto(LogsData.ResourceLogs rl) {
+    private static ResourceLogs toProto(LogsData.ResourceLogs rl) {
         var builder =
-                io.opentelemetry.proto.logs.v1.ResourceLogs.newBuilder()
+                ResourceLogs.newBuilder()
                         .setResource(CommonMapper.toProtoResource(rl.resource()))
                         .setSchemaUrl(rl.schemaUrl());
         for (var sl : rl.scopeLogs()) {
@@ -96,9 +97,9 @@ final class LogsMapper {
         return builder.build();
     }
 
-    private static io.opentelemetry.proto.logs.v1.ScopeLogs toProto(LogsData.ScopeLogs sl) {
+    private static ScopeLogs toProto(LogsData.ScopeLogs sl) {
         var builder =
-                io.opentelemetry.proto.logs.v1.ScopeLogs.newBuilder()
+                ScopeLogs.newBuilder()
                         .setScope(CommonMapper.toProtoScope(sl.scope()))
                         .setSchemaUrl(sl.schemaUrl());
         for (var record : sl.logRecords()) {

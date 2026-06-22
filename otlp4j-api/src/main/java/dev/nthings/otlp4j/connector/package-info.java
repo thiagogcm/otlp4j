@@ -5,6 +5,6 @@
 /// the `Connectors` factory (`spanCount`, `logRecordCount`).
 ///
 /// The count connectors emit a DELTA sum whose per-series window start is the previous flush, and
-/// expose a configurable [dev.nthings.otlp4j.connector.FailurePolicy] (default `BEST_EFFORT`)
+/// expose a configurable [FailurePolicy] (default `BEST_EFFORT`)
 /// governing whether a downstream metric failure is propagated onto the input result.
 package dev.nthings.otlp4j.connector;

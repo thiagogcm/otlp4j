@@ -6,6 +6,9 @@ import dev.nthings.otlp4j.pipeline.ConsumeResult;
 import io.opentelemetry.proto.collector.profiles.v1development.ExportProfilesServiceRequest;
 import io.opentelemetry.proto.collector.profiles.v1development.ExportProfilesServiceResponse;
 import io.opentelemetry.proto.profiles.v1development.ProfilesDictionary;
+import io.opentelemetry.proto.profiles.v1development.Profile;
+import io.opentelemetry.proto.profiles.v1development.ResourceProfiles;
+import io.opentelemetry.proto.profiles.v1development.ScopeProfiles;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -32,7 +35,7 @@ final class ProfilesMapper {
     }
 
     private static ProfilesData.ResourceProfiles toDomain(
-            io.opentelemetry.proto.profiles.v1development.ResourceProfiles rp) {
+            ResourceProfiles rp) {
         var scopeProfiles =
                 new ArrayList<ProfilesData.ScopeProfiles>(rp.getScopeProfilesCount());
         for (var sp : rp.getScopeProfilesList()) {
@@ -43,7 +46,7 @@ final class ProfilesMapper {
     }
 
     private static ProfilesData.ScopeProfiles toDomain(
-            io.opentelemetry.proto.profiles.v1development.ScopeProfiles sp) {
+            ScopeProfiles sp) {
         var profiles = new ArrayList<ProfilesData.Profile>(sp.getProfilesCount());
         for (var profile : sp.getProfilesList()) {
             profiles.add(toDomain(profile));
@@ -53,7 +56,7 @@ final class ProfilesMapper {
     }
 
     private static ProfilesData.Profile toDomain(
-            io.opentelemetry.proto.profiles.v1development.Profile profile) {
+            Profile profile) {
         return new ProfilesData.Profile(
                 CommonMapper.hex(profile.getProfileId()),
                 profile.getTimeUnixNano(),
@@ -98,10 +101,10 @@ final class ProfilesMapper {
         return request.build();
     }
 
-    private static io.opentelemetry.proto.profiles.v1development.ResourceProfiles toProto(
+    private static ResourceProfiles toProto(
             ProfilesData.ResourceProfiles rp) {
         var builder =
-                io.opentelemetry.proto.profiles.v1development.ResourceProfiles.newBuilder()
+                ResourceProfiles.newBuilder()
                         .setResource(CommonMapper.toProtoResource(rp.resource()))
                         .setSchemaUrl(rp.schemaUrl());
         for (var sp : rp.scopeProfiles()) {
@@ -110,10 +113,10 @@ final class ProfilesMapper {
         return builder.build();
     }
 
-    private static io.opentelemetry.proto.profiles.v1development.ScopeProfiles toProto(
+    private static ScopeProfiles toProto(
             ProfilesData.ScopeProfiles sp) {
         var builder =
-                io.opentelemetry.proto.profiles.v1development.ScopeProfiles.newBuilder()
+                ScopeProfiles.newBuilder()
                         .setScope(CommonMapper.toProtoScope(sp.scope()))
                         .setSchemaUrl(sp.schemaUrl());
         for (var profile : sp.profiles()) {
@@ -122,20 +125,20 @@ final class ProfilesMapper {
         return builder.build();
     }
 
-    private static io.opentelemetry.proto.profiles.v1development.Profile toProto(
+    private static Profile toProto(
             ProfilesData.Profile profile) {
         var rawProfile = profile.rawProfile();
         if (rawProfile.length > 0) {
             try {
                 // Lossless passthrough: re-emit the captured bytes verbatim, preserving samples,
                 // dictionary references, and the original payload.
-                return io.opentelemetry.proto.profiles.v1development.Profile.parseFrom(rawProfile);
+                return Profile.parseFrom(rawProfile);
             } catch (InvalidProtocolBufferException e) {
                 throw new IllegalStateException("malformed opaque profile payload", e);
             }
         }
         // Scalar-only profile: rebuild the modeled metadata.
-        return io.opentelemetry.proto.profiles.v1development.Profile.newBuilder()
+        return Profile.newBuilder()
                 .setProfileId(CommonMapper.bytes(profile.profileId()))
                 .setTimeUnixNano(profile.timeUnixNano())
                 .setDurationNano(profile.durationNanos())

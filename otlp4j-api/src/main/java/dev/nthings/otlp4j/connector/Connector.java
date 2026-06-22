@@ -2,11 +2,12 @@ package dev.nthings.otlp4j.connector;
 
 import dev.nthings.otlp4j.pipeline.Consumer;
 import dev.nthings.otlp4j.pipeline.ConsumeResult;
+import dev.nthings.otlp4j.pipeline.Transform;
 import java.util.concurrent.CompletionStage;
 
 /// Derives telemetry of one signal `O` from telemetry of another signal `I`.
 ///
-/// Unlike a [dev.nthings.otlp4j.pipeline.Transform] a connector is allowed to change the signal
+/// Unlike a [Transform] a connector is allowed to change the signal
 /// type and to emit batches that do not correspond 1:1 with the input. The framework treats a
 /// connector as a [Consumer] of `I` that holds a downstream [Consumer] of `O`.
 ///

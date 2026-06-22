@@ -88,7 +88,7 @@ public final class BatchingProcessor<T> implements Consumer<T>, Drainable, Flush
             t.setDaemon(true);
             return t;
         });
-        long ageNanos = b.maxBatchAge.toNanos();
+        var ageNanos = b.maxBatchAge.toNanos();
         this.timer = scheduler.scheduleAtFixedRate(this::flushIfDue, ageNanos, ageNanos, TimeUnit.NANOSECONDS);
     }
 
@@ -97,7 +97,7 @@ public final class BatchingProcessor<T> implements Consumer<T>, Drainable, Flush
         if (closed.get()) {
             return CompletableFuture.completedFuture(ConsumeResult.rejected("batcher closed"));
         }
-        boolean offered = queue.offer(batch);
+        var offered = queue.offer(batch);
         if (!offered) {
             switch (dropPolicy) {
                 case DROP_OLDEST -> {
@@ -110,7 +110,7 @@ public final class BatchingProcessor<T> implements Consumer<T>, Drainable, Flush
                 case DROP_NEWEST -> {
                     drops.increment();
                     // Report the rejected OTLP item count, not a Java-batch count of one.
-                    long rejectedItems = itemCounter.applyAsLong(batch);
+                    var rejectedItems = itemCounter.applyAsLong(batch);
                     return CompletableFuture.completedFuture(rejectedItems == 0
                             ? ConsumeResult.accepted()
                             : ConsumeResult.partial(rejectedItems, "batcher queue full"));
@@ -210,7 +210,7 @@ public final class BatchingProcessor<T> implements Consumer<T>, Drainable, Flush
     /// Enqueues a serialized drain; the returned future completes when this drain's delivery does.
     private CompletableFuture<Void> enqueueDrain() {
         synchronized (drainMutex) {
-            CompletableFuture<Void> drain =
+            var drain =
                     drainTail.thenComposeAsync(ignored -> drainOnce(), drainExecutor);
             // Error-isolated so a failed drain doesn't block the next.
             drainTail = drain.exceptionally(t -> null);
@@ -322,7 +322,7 @@ public final class BatchingProcessor<T> implements Consumer<T>, Drainable, Flush
     /// rather than emitting an index-corrupted batch.
     private static ProfilesData mergeProfiles(List<ProfilesData> snapshot) {
         var combined = new ArrayList<ProfilesData.ResourceProfiles>();
-        byte[] dictionary = new byte[0];
+        var dictionary = new byte[0];
         for (var p : snapshot) {
             combined.addAll(p.resourceProfiles());
             var dict = p.dictionary();

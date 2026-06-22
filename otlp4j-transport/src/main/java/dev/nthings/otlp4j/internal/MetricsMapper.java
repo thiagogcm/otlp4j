@@ -17,6 +17,8 @@ import io.opentelemetry.proto.metrics.v1.Gauge;
 import io.opentelemetry.proto.metrics.v1.Histogram;
 import io.opentelemetry.proto.metrics.v1.HistogramDataPoint;
 import io.opentelemetry.proto.metrics.v1.NumberDataPoint;
+import io.opentelemetry.proto.metrics.v1.ResourceMetrics;
+import io.opentelemetry.proto.metrics.v1.ScopeMetrics;
 import io.opentelemetry.proto.metrics.v1.Sum;
 import io.opentelemetry.proto.metrics.v1.Summary;
 import io.opentelemetry.proto.metrics.v1.SummaryDataPoint;
@@ -44,7 +46,7 @@ final class MetricsMapper {
     }
 
     private static MetricsData.ResourceMetrics toDomain(
-            io.opentelemetry.proto.metrics.v1.ResourceMetrics rm) {
+            ResourceMetrics rm) {
         var scopeMetrics = new ArrayList<MetricsData.ScopeMetrics>(rm.getScopeMetricsCount());
         for (var sm : rm.getScopeMetricsList()) {
             scopeMetrics.add(toDomain(sm));
@@ -54,7 +56,7 @@ final class MetricsMapper {
     }
 
     private static MetricsData.ScopeMetrics toDomain(
-            io.opentelemetry.proto.metrics.v1.ScopeMetrics sm) {
+            ScopeMetrics sm) {
         var metrics = new ArrayList<Metric>(sm.getMetricsCount());
         for (var metric : sm.getMetricsList()) {
             metrics.add(toDomain(metric));
@@ -108,7 +110,7 @@ final class MetricsMapper {
     private static List<NumberPoint> numberPointsToDomain(List<NumberDataPoint> points) {
         var result = new ArrayList<NumberPoint>(points.size());
         for (var point : points) {
-            NumberPoint.Value value =
+            var value =
                     switch (point.getValueCase()) {
                         case AS_INT -> NumberPoint.longValue(point.getAsInt());
                         case AS_DOUBLE -> NumberPoint.doubleValue(point.getAsDouble());
@@ -182,7 +184,7 @@ final class MetricsMapper {
         }
         var result = new ArrayList<Exemplar>(exemplars.size());
         for (var exemplar : exemplars) {
-            NumberPoint.Value value =
+            var value =
                     switch (exemplar.getValueCase()) {
                         case AS_INT -> NumberPoint.longValue(exemplar.getAsInt());
                         case AS_DOUBLE -> NumberPoint.doubleValue(exemplar.getAsDouble());
@@ -247,10 +249,10 @@ final class MetricsMapper {
         return request.build();
     }
 
-    private static io.opentelemetry.proto.metrics.v1.ResourceMetrics toProto(
+    private static ResourceMetrics toProto(
             MetricsData.ResourceMetrics rm) {
         var builder =
-                io.opentelemetry.proto.metrics.v1.ResourceMetrics.newBuilder()
+                ResourceMetrics.newBuilder()
                         .setResource(CommonMapper.toProtoResource(rm.resource()))
                         .setSchemaUrl(rm.schemaUrl());
         for (var sm : rm.scopeMetrics()) {
@@ -259,10 +261,10 @@ final class MetricsMapper {
         return builder.build();
     }
 
-    private static io.opentelemetry.proto.metrics.v1.ScopeMetrics toProto(
+    private static ScopeMetrics toProto(
             MetricsData.ScopeMetrics sm) {
         var builder =
-                io.opentelemetry.proto.metrics.v1.ScopeMetrics.newBuilder()
+                ScopeMetrics.newBuilder()
                         .setScope(CommonMapper.toProtoScope(sm.scope()))
                         .setSchemaUrl(sm.schemaUrl());
         for (var metric : sm.metrics()) {

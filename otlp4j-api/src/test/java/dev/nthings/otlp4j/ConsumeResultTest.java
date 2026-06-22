@@ -15,8 +15,8 @@ class ConsumeResultTest {
     @DisplayName("accepted() returns a shared singleton instance")
     @Test
     void acceptedIsShared() {
-        ConsumeResult<TraceData> a = ConsumeResult.accepted();
-        ConsumeResult<TraceData> b = ConsumeResult.accepted();
+        var a = ConsumeResult.accepted();
+        var b = ConsumeResult.accepted();
         assertThat(a).isSameAs(b);
     }
 
@@ -32,7 +32,7 @@ class ConsumeResultTest {
     @DisplayName("partial() normalises a null message to empty")
     @Test
     void partialNormalisesNullMessage() {
-        ConsumeResult<TraceData> result = ConsumeResult.partial(2L, null);
+        var result = ConsumeResult.<TraceData>partial(2L, null);
         var r = (ConsumeResult.Partial<TraceData>) result;
         assertThat(r.message()).isEmpty();
     }
@@ -40,7 +40,7 @@ class ConsumeResultTest {
     @DisplayName("rejected() normalises null message and leaves cause null")
     @Test
     void rejectedNormalisesNullMessage() {
-        ConsumeResult<TraceData> result = ConsumeResult.rejected(null);
+        var result = ConsumeResult.<TraceData>rejected(null);
         var r = (ConsumeResult.Rejected<TraceData>) result;
         assertThat(r.message()).isEmpty();
         assertThat(r.cause()).isNull();
@@ -49,7 +49,7 @@ class ConsumeResultTest {
     @DisplayName("retryableRejected() yields a Rejected with no cause (retryable)")
     @Test
     void retryableRejectedHasNoCause() {
-        ConsumeResult<TraceData> result = ConsumeResult.retryableRejected("queue full");
+        var result = ConsumeResult.<TraceData>retryableRejected("queue full");
         assertThat(result).isInstanceOf(ConsumeResult.Rejected.class);
         var r = (ConsumeResult.Rejected<TraceData>) result;
         assertThat(r.message()).isEqualTo("queue full");
@@ -60,7 +60,7 @@ class ConsumeResultTest {
     @Test
     void permanentRejectedCarriesCause() {
         var cause = new IllegalArgumentException("invalid tenant");
-        ConsumeResult<TraceData> result = ConsumeResult.permanentRejected("rejected by policy", cause);
+        var result = ConsumeResult.<TraceData>permanentRejected("rejected by policy", cause);
         assertThat(result).isInstanceOf(ConsumeResult.Rejected.class);
         var r = (ConsumeResult.Rejected<TraceData>) result;
         assertThat(r.message()).isEqualTo("rejected by policy");

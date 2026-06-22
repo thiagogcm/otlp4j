@@ -35,7 +35,7 @@ final class Ids {
 
     private static String hexId(String value, String field, int hexLength) {
         Objects.requireNonNull(value, field);
-        int len = value.length();
+        var len = value.length();
         if (len == 0) {
             return value; // an empty id means "absent"
         }
@@ -43,8 +43,8 @@ final class Ids {
             throw new IllegalArgumentException(
                     field + " must be " + hexLength + " hex characters (or empty), got length " + len);
         }
-        for (int i = 0; i < len; i++) {
-            char c = value.charAt(i);
+        for (var i = 0; i < len; i++) {
+            var c = value.charAt(i);
             if (!HexFormat.isHexDigit(c)) {
                 throw new IllegalArgumentException(
                         field + " must be hex; invalid character '" + c + "' at index " + i);

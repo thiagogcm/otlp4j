@@ -45,7 +45,7 @@ class BatchingProcessorTest {
                 .queueCapacity(16)
                 .maxBatchAge(Duration.ofSeconds(30))
                 .build()) {
-            for (int i = 0; i < 3; i++) {
+            for (var i = 0; i < 3; i++) {
                 batcher.consume(Fixtures.traceData(Fixtures.span("s" + i, Span.Kind.SERVER)))
                         .toCompletableFuture().join();
             }

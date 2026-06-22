@@ -1,6 +1,7 @@
 package dev.nthings.otlp4j;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.nthings.otlp4j.model.TraceData;
 import dev.nthings.otlp4j.pipeline.ConsumeResult;
@@ -42,9 +43,9 @@ class FanOutTest {
     @DisplayName("of() rejects an empty peer set")
     @Test
     void rejectsEmptyPeerSet() {
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> FanOut.<TraceData>of(List.of()))
+        assertThatThrownBy(() -> FanOut.<TraceData>of(List.of()))
                 .isInstanceOf(IllegalArgumentException.class);
-        org.assertj.core.api.Assertions.assertThatThrownBy(FanOut::of)
+        assertThatThrownBy(FanOut::of)
                 .isInstanceOf(IllegalArgumentException.class);
     }
 

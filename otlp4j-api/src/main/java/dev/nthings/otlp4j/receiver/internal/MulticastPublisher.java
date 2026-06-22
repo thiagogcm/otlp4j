@@ -164,7 +164,7 @@ public final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoClose
                     if (cancelled.get()) {
                         return;
                     }
-                    T item = queue.take();
+                    var item = queue.take();
                     if (cancelled.get()) {
                         return;
                     }
@@ -210,7 +210,7 @@ public final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoClose
                 return;
             }
             // Saturate at Integer.MAX_VALUE outstanding permits; effectively unbounded demand.
-            int headroom = Integer.MAX_VALUE - demand.availablePermits();
+            var headroom = Integer.MAX_VALUE - demand.availablePermits();
             if (headroom > 0) {
                 demand.release((int) Math.min(n, headroom));
             }

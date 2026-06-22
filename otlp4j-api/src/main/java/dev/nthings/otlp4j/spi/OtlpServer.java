@@ -1,11 +1,12 @@
 package dev.nthings.otlp4j.spi;
 
 import dev.nthings.otlp4j.pipeline.Drainable;
+import dev.nthings.otlp4j.receiver.OtlpGrpcReceiver;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.concurrent.CompletionStage;
 
-/// Transport-side server backing a [dev.nthings.otlp4j.receiver.Receiver].
+/// Transport-side server backing an [OtlpGrpcReceiver].
 ///
 /// Implementations are obtained via [OtlpServerProvider]; application code normally uses
 /// `OtlpGrpcReceiver` instead. Lifecycle methods return [CompletionStage] so the receiver can

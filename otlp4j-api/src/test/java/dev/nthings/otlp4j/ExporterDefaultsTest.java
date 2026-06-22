@@ -25,7 +25,7 @@ class ExporterDefaultsTest {
     void defaultsAreSafeNoOpsThatCloseInvokesShutdown() {
         var consumed = new AtomicBoolean();
         var shutdownCalled = new AtomicBoolean();
-        Exporter<TraceData> exporter = new Exporter<>() {
+        var exporter = new Exporter<TraceData>() {
             @Override
             public CompletionStage<ConsumeResult<TraceData>> consume(TraceData batch) {
                 consumed.set(true);

@@ -5,11 +5,15 @@ import dev.nthings.otlp4j.model.TraceData;
 import dev.nthings.otlp4j.pipeline.ConsumeResult;
 import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceRequest;
 import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceResponse;
+import io.opentelemetry.proto.trace.v1.ResourceSpans;
+import io.opentelemetry.proto.trace.v1.ScopeSpans;
+import io.opentelemetry.proto.trace.v1.Span.Event;
+import io.opentelemetry.proto.trace.v1.Span.Link;
+import io.opentelemetry.proto.trace.v1.Span.SpanKind;
 import java.util.ArrayList;
-import java.util.List;
 
-/// Maps OTLP trace types between the generated proto layer and the `dev.nthings.otlp4j.model`
-/// domain types, in both directions.
+/// Maps OTLP trace types between the generated proto layer and the domain model, in both
+/// directions.
 ///
 /// **Internal.** Part of the transport layer; not public API.
 final class TraceMapper {
@@ -27,7 +31,7 @@ final class TraceMapper {
     }
 
     private static TraceData.ResourceSpans toDomain(
-            io.opentelemetry.proto.trace.v1.ResourceSpans rs) {
+            ResourceSpans rs) {
         var scopeSpans = new ArrayList<TraceData.ScopeSpans>(rs.getScopeSpansCount());
         for (var ss : rs.getScopeSpansList()) {
             scopeSpans.add(toDomain(ss));
@@ -36,7 +40,7 @@ final class TraceMapper {
                 CommonMapper.resource(rs.getResource()), rs.getSchemaUrl(), scopeSpans);
     }
 
-    private static TraceData.ScopeSpans toDomain(io.opentelemetry.proto.trace.v1.ScopeSpans ss) {
+    private static TraceData.ScopeSpans toDomain(ScopeSpans ss) {
         var spans = new ArrayList<Span>(ss.getSpansCount());
         for (var span : ss.getSpansList()) {
             spans.add(toDomain(span));
@@ -119,10 +123,10 @@ final class TraceMapper {
         return request.build();
     }
 
-    private static io.opentelemetry.proto.trace.v1.ResourceSpans toProto(
+    private static ResourceSpans toProto(
             TraceData.ResourceSpans rs) {
         var builder =
-                io.opentelemetry.proto.trace.v1.ResourceSpans.newBuilder()
+                ResourceSpans.newBuilder()
                         .setResource(CommonMapper.toProtoResource(rs.resource()))
                         .setSchemaUrl(rs.schemaUrl());
         for (var ss : rs.scopeSpans()) {
@@ -131,9 +135,9 @@ final class TraceMapper {
         return builder.build();
     }
 
-    private static io.opentelemetry.proto.trace.v1.ScopeSpans toProto(TraceData.ScopeSpans ss) {
+    private static ScopeSpans toProto(TraceData.ScopeSpans ss) {
         var builder =
-                io.opentelemetry.proto.trace.v1.ScopeSpans.newBuilder()
+                ScopeSpans.newBuilder()
                         .setScope(CommonMapper.toProtoScope(ss.scope()))
                         .setSchemaUrl(ss.schemaUrl());
         for (var span : ss.spans()) {
@@ -151,7 +155,7 @@ final class TraceMapper {
                         .setTraceState(span.traceState())
                         .setFlags((int) span.flags())
                         .setName(span.name())
-                        .setKind(io.opentelemetry.proto.trace.v1.Span.SpanKind.forNumber(
+                        .setKind(SpanKind.forNumber(
                                 span.kind().number()))
                         .setStartTimeUnixNano(span.startEpochNanos())
                         .setEndTimeUnixNano(span.endEpochNanos())
@@ -164,14 +168,14 @@ final class TraceMapper {
                                         .forNumber(span.status().code().number()))
                                 .setMessage(span.status().message()));
         for (var event : span.events()) {
-            builder.addEvents(io.opentelemetry.proto.trace.v1.Span.Event.newBuilder()
+            builder.addEvents(Event.newBuilder()
                     .setTimeUnixNano(event.epochNanos())
                     .setName(event.name())
                     .addAllAttributes(CommonMapper.toKeyValues(event.attributes()))
                     .setDroppedAttributesCount(event.droppedAttributesCount()));
         }
         for (var link : span.links()) {
-            builder.addLinks(io.opentelemetry.proto.trace.v1.Span.Link.newBuilder()
+            builder.addLinks(Link.newBuilder()
                     .setTraceId(CommonMapper.bytes(link.traceId()))
                     .setSpanId(CommonMapper.bytes(link.spanId()))
                     .setTraceState(link.traceState())

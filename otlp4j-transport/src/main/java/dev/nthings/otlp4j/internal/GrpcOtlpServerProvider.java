@@ -5,10 +5,10 @@ import dev.nthings.otlp4j.spi.OtlpServerProvider;
 import dev.nthings.otlp4j.spi.ServerTransportConfig;
 
 /// [OtlpServerProvider] backed by gRPC — the service this module provides for `OtlpGrpcReceiver`
-/// to discover via [java.util.ServiceLoader].
+/// to discover via `ServiceLoader`.
 public final class GrpcOtlpServerProvider implements OtlpServerProvider {
 
-    /// Public no-arg constructor required by [java.util.ServiceLoader].
+    /// Public no-arg constructor required by `ServiceLoader`.
     public GrpcOtlpServerProvider() {}
 
     @Override

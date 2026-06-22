@@ -70,7 +70,7 @@ final class OtlpEnv {
             throw new IllegalArgumentException(
                     ENDPOINT + " must be an absolute http:// or https:// URL: " + raw);
         }
-        boolean tls =
+        var tls =
                 switch (scheme.toLowerCase(Locale.ROOT)) {
                     case "http" -> false;
                     case "https" -> true;
@@ -160,8 +160,8 @@ final class OtlpEnv {
             return value;
         }
         var bytes = new ByteArrayOutputStream(value.length());
-        for (int i = 0; i < value.length(); i++) {
-            char c = value.charAt(i);
+        for (var i = 0; i < value.length(); i++) {
+            var c = value.charAt(i);
             if (c != '%') {
                 bytes.write(c);
                 continue;
@@ -170,8 +170,8 @@ final class OtlpEnv {
                 throw new IllegalArgumentException(
                         HEADERS + " has a truncated percent-escape: " + value);
             }
-            int hi = Character.digit(value.charAt(i + 1), 16);
-            int lo = Character.digit(value.charAt(i + 2), 16);
+            var hi = Character.digit(value.charAt(i + 1), 16);
+            var lo = Character.digit(value.charAt(i + 2), 16);
             if (hi < 0 || lo < 0) {
                 throw new IllegalArgumentException(
                         HEADERS + " has an invalid percent-escape: " + value);

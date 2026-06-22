@@ -48,8 +48,8 @@ public final class FanOut<T> implements Consumer<T> {
     public CompletionStage<ConsumeResult<T>> consume(T batch) {
         @SuppressWarnings("unchecked")
         CompletableFuture<ConsumeResult<T>>[] futures = new CompletableFuture[peers.size()];
-        for (int i = 0; i < peers.size(); i++) {
-            final int idx = i;
+        for (var i = 0; i < peers.size(); i++) {
+            final var idx = i;
             CompletionStage<ConsumeResult<T>> peerStage;
             try {
                 peerStage = peers.get(i).consume(batch);

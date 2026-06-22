@@ -59,7 +59,7 @@ public final class OtlpGrpcReceiver implements Receiver {
     }
 
     /// Builds — but does not [#start()] — a receiver bound to `port` on all interfaces. Mirrors the
-    /// exporter's [dev.nthings.otlp4j.exporter.OtlpGrpcExporter#to(String, int)] convenience; wire
+    /// exporter's `OtlpGrpcExporter.to(String, int)` convenience; wire
     /// consumers through the per-signal [Source]s, then call [#start()].
     public static OtlpGrpcReceiver on(int port) {
         return builder().port(port).build();

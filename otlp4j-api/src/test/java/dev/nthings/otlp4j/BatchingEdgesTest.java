@@ -45,7 +45,7 @@ class BatchingEdgesTest {
                 .maxBatchAge(Duration.ofSeconds(30))
                 .dropPolicy(DropPolicy.BLOCK)
                 .build()) {
-            for (int i = 0; i < 6; i++) {
+            for (var i = 0; i < 6; i++) {
                 batcher.consume(Fixtures.traceData(Fixtures.span("s" + i, Span.Kind.SERVER)))
                         .toCompletableFuture().join();
             }
@@ -134,7 +134,7 @@ class BatchingEdgesTest {
     @DisplayName("External scheduler drives age-based flush and is not shut down")
     @Test
     void externalSchedulerIsHonoured() {
-        ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+        var scheduler = Executors.newSingleThreadScheduledExecutor();
         try {
             var captured = new AtomicInteger();
             TraceConsumer downstream = traces -> {

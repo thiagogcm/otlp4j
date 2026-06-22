@@ -6,6 +6,8 @@ import com.google.protobuf.ByteString;
 import dev.nthings.otlp4j.model.ProfilesData;
 import io.opentelemetry.proto.collector.profiles.v1development.ExportProfilesServiceRequest;
 import io.opentelemetry.proto.common.v1.AnyValue;
+import io.opentelemetry.proto.common.v1.InstrumentationScope;
+import io.opentelemetry.proto.common.v1.KeyValue;
 import io.opentelemetry.proto.profiles.v1development.KeyValueAndUnit;
 import io.opentelemetry.proto.profiles.v1development.Profile;
 import io.opentelemetry.proto.profiles.v1development.ProfilesDictionary;
@@ -13,6 +15,7 @@ import io.opentelemetry.proto.profiles.v1development.ResourceProfiles;
 import io.opentelemetry.proto.profiles.v1development.Sample;
 import io.opentelemetry.proto.profiles.v1development.ScopeProfiles;
 import io.opentelemetry.proto.profiles.v1development.ValueType;
+import io.opentelemetry.proto.resource.v1.Resource;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -56,13 +59,13 @@ class ProfilesRoundTripTest {
 
         var request = ExportProfilesServiceRequest.newBuilder()
                 .addResourceProfiles(ResourceProfiles.newBuilder()
-                        .setResource(io.opentelemetry.proto.resource.v1.Resource.newBuilder()
-                                .addAttributes(io.opentelemetry.proto.common.v1.KeyValue.newBuilder()
+                        .setResource(Resource.newBuilder()
+                                .addAttributes(KeyValue.newBuilder()
                                         .setKey("service.name")
                                         .setValue(AnyValue.newBuilder().setStringValue("checkout"))))
                         .setSchemaUrl("https://schema/resource")
                         .addScopeProfiles(ScopeProfiles.newBuilder()
-                                .setScope(io.opentelemetry.proto.common.v1.InstrumentationScope.newBuilder()
+                                .setScope(InstrumentationScope.newBuilder()
                                         .setName("otlp4j-test")
                                         .setVersion("1.0.0"))
                                 .setSchemaUrl("https://schema/scope")

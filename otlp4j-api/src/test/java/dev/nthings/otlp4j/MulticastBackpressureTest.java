@@ -28,7 +28,7 @@ class MulticastBackpressureTest {
         pub.setOptions(new TapOptions(BackpressureStrategy.DROP_OLDEST, 2));
         try {
             pub.subscribe(FlowSubscribers.noOp());
-            for (int i = 0; i < 10; i++) {
+            for (var i = 0; i < 10; i++) {
                 pub.publish(i);
             }
             assertThat(drops.sum()).isGreaterThan(0L);
@@ -51,7 +51,7 @@ class MulticastBackpressureTest {
                 @Override public void onError(Throwable t) { error.set(t); }
                 @Override public void onComplete() {}
             });
-            for (int i = 0; i < 10; i++) {
+            for (var i = 0; i < 10; i++) {
                 pub.publish(i);
             }
             await().atMost(Duration.ofSeconds(2)).until(() -> error.get() != null);
@@ -83,7 +83,7 @@ class MulticastBackpressureTest {
                 @Override public void onError(Throwable t) {}
                 @Override public void onComplete() {}
             });
-            for (int i = 0; i < 6; i++) {
+            for (var i = 0; i < 6; i++) {
                 pub.publish(i);
             }
             await().atMost(Duration.ofSeconds(3)).until(() -> sink.size() == 6);
@@ -110,7 +110,7 @@ class MulticastBackpressureTest {
                 @Override public void onError(Throwable t) {}
                 @Override public void onComplete() {}
             });
-            for (int i = 0; i < 5; i++) {
+            for (var i = 0; i < 5; i++) {
                 pub.publish(i);
             }
 
@@ -151,7 +151,7 @@ class MulticastBackpressureTest {
         var producerReturned = new AtomicBoolean();
         var producer = new Thread(() -> {
             // The capacity-1 queue fills on the first item; the next publish blocks in offer().
-            for (int i = 0; i < 5; i++) {
+            for (var i = 0; i < 5; i++) {
                 pub.publish(i);
             }
             producerReturned.set(true);

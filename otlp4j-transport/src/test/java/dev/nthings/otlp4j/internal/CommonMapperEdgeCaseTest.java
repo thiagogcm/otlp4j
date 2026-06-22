@@ -75,7 +75,7 @@ class CommonMapperEdgeCaseTest {
     void spanFlagsAboveUnsignedIntRangeAreRejectedAtConstruction() {
         // Bits above bit 31 couldn't survive the (int) encode cast; construction now rejects them
         // instead of silently truncating on the export thread.
-        long oversized = 0x1_0000_0001L; // bit 32 set + low bit
+        var oversized = 0x1_0000_0001L; // bit 32 set + low bit
 
         assertThatThrownBy(() -> TransportFixtures.traceWithSpanFlags(oversized))
                 .as("flags above the unsigned 32-bit range fail fast at model construction")

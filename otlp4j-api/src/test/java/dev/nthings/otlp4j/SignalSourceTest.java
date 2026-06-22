@@ -65,7 +65,7 @@ class SignalSourceTest {
         TraceConsumer c = traces -> { throw new RuntimeException("boom"); };
         var sub = source.subscribe(c);
         try {
-            org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+            assertThatThrownBy(() ->
                     source.dispatch(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER))))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessageContaining("boom");

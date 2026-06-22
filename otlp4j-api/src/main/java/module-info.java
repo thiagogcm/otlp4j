@@ -1,7 +1,7 @@
 /// The high-level, user-facing otlp4j API.
 ///
 /// This pure module exposes typed model objects and transport SPI contracts, but does not require
-/// generated proto code or gRPC. Runtime transports are discovered with [java.util.ServiceLoader].
+/// generated proto code or gRPC. Runtime transports are discovered with `ServiceLoader`.
 module dev.nthings.otlp4j.api {
     // The domain model is its own module; re-export it transitively so consumers of this API
     // see the model types in api signatures without an explicit `requires`.

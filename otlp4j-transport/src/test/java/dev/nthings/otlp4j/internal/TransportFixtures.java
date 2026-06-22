@@ -225,7 +225,7 @@ public final class TransportFixtures {
     /// exercise the multi-resource / multi-scope mapper loops.
     public static TraceData traceWithScopes(int scopeCount) {
         var scopes = new ArrayList<TraceData.ScopeSpans>(scopeCount);
-        for (int i = 0; i < scopeCount; i++) {
+        for (var i = 0; i < scopeCount; i++) {
             scopes.add(new TraceData.ScopeSpans(
                     new InstrumentationScope("scope-" + i, "1.0." + i, Attributes.empty(), i),
                     "https://schema/scope/" + i,

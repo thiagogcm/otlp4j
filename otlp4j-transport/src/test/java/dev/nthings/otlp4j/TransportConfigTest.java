@@ -84,7 +84,7 @@ class TransportConfigTest {
     @Test
     void attachesConfiguredHeaders() {
         var capture = new CapturingInterceptor();
-        int port = startRawServer(capture);
+        var port = startRawServer(capture);
         var exporter = exporter(ClientTransportConfig.builder()
                 .endpoint("localhost", port)
                 .header("x-otlp-api-key", "secret")
@@ -100,7 +100,7 @@ class TransportConfigTest {
     @Test
     void requestsGzipCompressionWhenConfigured() {
         var capture = new CapturingInterceptor();
-        int port = startRawServer(capture);
+        var port = startRawServer(capture);
         var exporter = exporter(ClientTransportConfig.builder()
                 .endpoint("localhost", port)
                 .compression(Compression.GZIP)
@@ -115,7 +115,7 @@ class TransportConfigTest {
     @Test
     void doesNotCompressByDefault() {
         var capture = new CapturingInterceptor();
-        int port = startRawServer(capture);
+        var port = startRawServer(capture);
         var exporter = exporter(ClientTransportConfig.builder().endpoint("localhost", port).build());
 
         exporter.traces().consume(traces()).toCompletableFuture().join();
@@ -127,7 +127,7 @@ class TransportConfigTest {
     @Test
     void retriesRetryableServerErrors() {
         var flaky = new FlakyInterceptor(2); // first two attempts fail, third succeeds
-        int port = startRawServer(flaky);
+        var port = startRawServer(flaky);
         var exporter = exporter(ClientTransportConfig.builder()
                 .endpoint("localhost", port)
                 .timeout(Duration.ofSeconds(10))
@@ -144,7 +144,7 @@ class TransportConfigTest {
     @Test
     void doesNotRetryWhenPolicyDisabled() {
         var flaky = new FlakyInterceptor(1); // fails the only attempt
-        int port = startRawServer(flaky);
+        var port = startRawServer(flaky);
         var exporter = exporter(ClientTransportConfig.builder()
                 .endpoint("localhost", port)
                 .timeout(Duration.ofSeconds(5))

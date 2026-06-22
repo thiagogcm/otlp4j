@@ -22,7 +22,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/// End-to-end demo compiled only against `dev.nthings.otlp4j.api`.
+/// End-to-end demo compiled only against the public API module.
 ///
 /// The runtime transport is supplied through the SPI. Five spans flow through a gateway
 /// (`Pipeline.from(receiver.traces()) ... .owns(exporter).branch().fanOut(exporter).fanOut(counter).join()`)

@@ -47,7 +47,7 @@ public final class SignalSource<T> implements Source<T> {
             return ConsumeResult.acceptedStage();
         }
         @SuppressWarnings("unchecked")
-        Consumer<T> typed = (Consumer<T>) c;
+        var typed = (Consumer<T>) c;
         return typed.consume(batch);
     }
 }

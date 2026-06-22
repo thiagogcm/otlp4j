@@ -63,8 +63,8 @@ final class CountConnector<I> implements Connector<I, MetricsData> {
 
     @Override
     public CompletionStage<ConsumeResult<I>> consume(I batch) {
-        long now = nowEpochNanos();
-        long start = previousFlushNanos.getAndAccumulate(now, Math::max);
+        var now = nowEpochNanos();
+        var start = previousFlushNanos.getAndAccumulate(now, Math::max);
         var metric = deltaSum(counter.applyAsLong(batch), start, Math.max(start, now));
         return downstream.consume(metric).thenApply(this::applyPolicy);
     }

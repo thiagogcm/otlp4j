@@ -1,5 +1,7 @@
 package dev.nthings.otlp4j.processor;
 
+import dev.nthings.otlp4j.pipeline.ConsumeResult;
+
 /// Strategy for handling a batch that arrives while the [BatchingProcessor] queue is full.
 public enum DropPolicy {
 
@@ -12,6 +14,6 @@ public enum DropPolicy {
     /// Block the caller's stage until the queue has capacity.
     BLOCK,
 
-    /// Reject the incoming batch and return [dev.nthings.otlp4j.pipeline.ConsumeResult.Rejected].
+    /// Reject the incoming batch and return [ConsumeResult.Rejected].
     ERROR
 }

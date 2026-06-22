@@ -16,6 +16,7 @@ import dev.nthings.otlp4j.testing.FlowSubscribers;
 import java.time.Duration;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Flow;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.LongAdder;
 import org.junit.jupiter.api.DisplayName;
@@ -50,7 +51,7 @@ class TapAndMulticastEdgesTest {
         tap.setOptions(new TapOptions(BackpressureStrategy.DROP_NEWEST, 1));
         try {
             tap.traces().subscribe(FlowSubscribers.noOp());
-            for (int i = 0; i < 50; i++) {
+            for (var i = 0; i < 50; i++) {
                 tap.publishTraces(Fixtures.traceData(Fixtures.span("s" + i, Span.Kind.SERVER)));
             }
             assertThat(tap.droppedCount()).isGreaterThan(0L);
@@ -65,7 +66,7 @@ class TapAndMulticastEdgesTest {
         var drops = new LongAdder();
         var pub = new MulticastPublisher<String>(drops);
         pub.close();
-        var completed = new java.util.concurrent.atomic.AtomicBoolean();
+        var completed = new AtomicBoolean();
         pub.subscribe(new Flow.Subscriber<>() {
             @Override public void onSubscribe(Flow.Subscription s) { s.request(1); }
             @Override public void onNext(String item) {}
@@ -95,8 +96,8 @@ class TapAndMulticastEdgesTest {
             pub.publish("a");
             await().atMost(Duration.ofSeconds(2)).until(() -> !received.isEmpty());
             subRef.get().cancel();
-            int sizeAtCancel = received.size();
-            for (int i = 0; i < 5; i++) {
+            var sizeAtCancel = received.size();
+            for (var i = 0; i < 5; i++) {
                 pub.publish("after-cancel-" + i);
             }
             await().pollDelay(Duration.ofMillis(150))

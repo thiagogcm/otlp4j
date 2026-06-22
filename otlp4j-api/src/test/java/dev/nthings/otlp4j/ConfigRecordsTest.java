@@ -8,6 +8,7 @@ import dev.nthings.otlp4j.spi.Compression;
 import dev.nthings.otlp4j.spi.RetryPolicy;
 import dev.nthings.otlp4j.spi.ServerTransportConfig;
 import dev.nthings.otlp4j.spi.Tls;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.concurrent.Executor;
 import org.junit.jupiter.api.DisplayName;
@@ -129,10 +130,10 @@ class ConfigRecordsTest {
     void tlsFactoriesExposeSharedSingletonsAndBuildCustomBundles() {
         assertThat(Tls.disabled()).isSameAs(Tls.disabled()).isInstanceOf(Tls.Disabled.class);
         assertThat(Tls.systemTrust()).isSameAs(Tls.systemTrust()).isInstanceOf(Tls.SystemTrust.class);
-        assertThat(Tls.trust(java.nio.file.Path.of("ca.pem")))
-                .isEqualTo(new Tls.Custom(null, null, java.nio.file.Path.of("ca.pem")));
-        assertThat(Tls.custom(java.nio.file.Path.of("c"), java.nio.file.Path.of("k"), null))
-                .isEqualTo(new Tls.Custom(java.nio.file.Path.of("c"), java.nio.file.Path.of("k"), null));
+        assertThat(Tls.trust(Path.of("ca.pem")))
+                .isEqualTo(new Tls.Custom(null, null, Path.of("ca.pem")));
+        assertThat(Tls.custom(Path.of("c"), Path.of("k"), null))
+                .isEqualTo(new Tls.Custom(Path.of("c"), Path.of("k"), null));
     }
 
     @DisplayName("RetryPolicy.exponential builds a validated retrying policy")

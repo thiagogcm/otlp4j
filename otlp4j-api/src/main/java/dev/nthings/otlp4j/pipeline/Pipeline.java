@@ -41,7 +41,7 @@ public final class Pipeline {
         /// Adds a fire-and-forget side-effect observer that cannot alter or reject the batch.
         /// Anything `observer` throws (exceptions and `Error`s alike) is caught and logged so it
         /// never affects the main path; for a demand-aware live stream use the receiver's
-        /// [dev.nthings.otlp4j.receiver.TelemetryTap].
+        /// `TelemetryTap`.
         Stage<T> peek(java.util.function.Consumer<? super T> observer);
 
         /// Registers a lifecycle resource (e.g. an exporter) that the subscription drains on
@@ -228,11 +228,11 @@ public final class Pipeline {
         /// auto-collected terminals.
         @Override
         public CompletionStage<Void> shutdown(Duration timeout) {
-            long deadlineNanos = System.nanoTime() + timeout.toNanos();
+            var deadlineNanos = System.nanoTime() + timeout.toNanos();
             var future = sourceSubscription.shutdown(timeout).toCompletableFuture();
             for (var resource : resources) {
                 future = future.thenCompose(v -> {
-                    Duration remaining = Duration.ofNanos(Math.max(0L, deadlineNanos - System.nanoTime()));
+                    var remaining = Duration.ofNanos(Math.max(0L, deadlineNanos - System.nanoTime()));
                     return closeResource(resource, remaining);
                 });
             }
@@ -241,7 +241,7 @@ public final class Pipeline {
 
         @Override
         public CompletionStage<Void> forceFlush(Duration timeout) {
-            CompletableFuture<Void> chained = CompletableFuture.completedFuture(null);
+            var chained = CompletableFuture.<Void>completedFuture(null);
             for (var resource : resources) {
                 if (resource instanceof Flushable f) {
                     chained = chained.thenCompose(v -> f.forceFlush(timeout).toCompletableFuture());

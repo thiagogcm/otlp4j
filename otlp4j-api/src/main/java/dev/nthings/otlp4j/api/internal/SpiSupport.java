@@ -2,9 +2,9 @@ package dev.nthings.otlp4j.api.internal;
 
 import java.util.ServiceLoader;
 
-/// Locates transport service providers for the API module via [java.util.ServiceLoader].
+/// Locates transport service providers for the API module via `ServiceLoader`.
 ///
-/// Internal to `dev.nthings.otlp4j.api`; not part of the public surface.
+/// Internal to the API module; not part of the public surface.
 public final class SpiSupport {
 
     private SpiSupport() {}
