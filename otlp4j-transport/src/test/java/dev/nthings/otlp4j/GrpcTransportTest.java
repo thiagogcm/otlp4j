@@ -14,8 +14,10 @@ import dev.nthings.otlp4j.pipeline.ConsumeResult;
 import dev.nthings.otlp4j.pipeline.Pipeline;
 import dev.nthings.otlp4j.processor.Transforms;
 import dev.nthings.otlp4j.receiver.OtlpGrpcReceiver;
+import dev.nthings.otlp4j.spi.Compression;
 import dev.nthings.otlp4j.spi.OtlpClientProvider;
 import dev.nthings.otlp4j.spi.OtlpServerProvider;
+import dev.nthings.otlp4j.spi.RetryPolicy;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -244,6 +246,33 @@ class GrpcTransportTest {
                     assertThat(p.service()).isEqualTo(OtlpClientProvider.class.getName());
                     assertThat(p.providers()).allMatch(impl -> impl.startsWith("dev.nthings.otlp4j.internal."));
                 });
+    }
+
+    @DisplayName("Facade builder convenience knobs (compression, retry, receiver hardening) wire through")
+    @Test
+    void facadeBuilderConvenienceKnobsRoundTrip() {
+        var received = new AtomicReference<TraceData>();
+        var receiver = startReceiver(OtlpGrpcReceiver.builder()
+                .maxInboundMessageSizeBytes(8 * 1024 * 1024)
+                .maxConcurrentCallsPerConnection(64)
+                .handshakeTimeout(Duration.ofSeconds(10))
+                .onTraces(traces -> {
+                    received.set(traces);
+                    return ConsumeResult.acceptedStage();
+                }));
+        var exporter = OtlpGrpcExporter.builder()
+                .endpoint("localhost", receiver.port())
+                .compression(Compression.GZIP)
+                .retry(RetryPolicy.exponential(3, Duration.ofMillis(50), Duration.ofSeconds(1)))
+                .timeout(Duration.ofSeconds(5))
+                .build();
+        closeables.add(exporter);
+        var sent = TransportFixtures.richTraceData();
+
+        var result = exporter.traces().consume(sent).toCompletableFuture().join();
+
+        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(received.get()).isEqualTo(sent);
     }
 
     private OtlpGrpcReceiver startReceiver(OtlpGrpcReceiver.Builder builder) {

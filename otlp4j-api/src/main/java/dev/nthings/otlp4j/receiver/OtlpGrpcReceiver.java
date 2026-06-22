@@ -16,10 +16,12 @@ import dev.nthings.otlp4j.receiver.internal.SignalSource;
 import dev.nthings.otlp4j.spi.OtlpServer;
 import dev.nthings.otlp4j.spi.OtlpServerProvider;
 import dev.nthings.otlp4j.spi.ServerTransportConfig;
+import dev.nthings.otlp4j.spi.Tls;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.Duration;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.Executor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -161,6 +163,39 @@ public final class OtlpGrpcReceiver implements Receiver {
 
         public Builder ephemeralPort() {
             return port(0);
+        }
+
+        /// Selects the server TLS mode (e.g. [Tls#custom] to serve TLS). Defaults to plaintext.
+        public Builder tls(Tls tls) {
+            config.tls(tls);
+            return this;
+        }
+
+        /// Caps a single decoded export request; guards against memory-exhausting oversized
+        /// requests. Defaults to 4 MiB.
+        public Builder maxInboundMessageSizeBytes(int bytes) {
+            config.maxInboundMessageSizeBytes(bytes);
+            return this;
+        }
+
+        /// Caps in-flight calls per connection; `0` (the default) leaves it unlimited.
+        public Builder maxConcurrentCallsPerConnection(int max) {
+            config.maxConcurrentCallsPerConnection(max);
+            return this;
+        }
+
+        /// Bounds the transport/TLS handshake only — not a slow request body or idle connection.
+        /// Defaults to 20s.
+        public Builder handshakeTimeout(Duration handshakeTimeout) {
+            config.handshakeTimeout(handshakeTimeout);
+            return this;
+        }
+
+        /// Supplies the executor that runs admitted calls; a bounded pool caps concurrent work.
+        /// Defaults to gRPC's own executor.
+        public Builder serverExecutor(Executor serverExecutor) {
+            config.serverExecutor(serverExecutor);
+            return this;
         }
 
         public Builder onTraces(TraceConsumer consumer) {

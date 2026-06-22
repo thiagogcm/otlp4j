@@ -75,17 +75,16 @@ var subscription = Pipeline.from(receiver.traces())
         .transform(Transforms.withTracesResourceAttribute(
                 "deployment.environment", AttributeValue.of("production")))
         .filter(traces -> !traces.spans().isEmpty())
-        .to(exporter.traces());
+        .to(exporter.traces(), exporter);
 ```
 
 The receiver accepts one consumer per signal source. Use `branch().fanOut(...).join()` when several consumers need the same batch.
 
 > [!IMPORTANT]
-> You own three lifecycles. Shut them down in order — subscription, then exporter, then receiver. Closing the subscription does **not** close the exporter by default: an exporter facet such as `exporter.traces()` is a consumer view and does not transfer ownership of the exporter to the pipeline. To hand that ownership over, register it on the stage with `.owns(exporter)`; the subscription then drains it on shutdown (within the shared deadline) and flushes it on `forceFlush`, and you drop the explicit `exporter.close()`.
+> An exporter facet such as `exporter.traces()` is a consumer view and does **not** transfer ownership of the exporter to the pipeline — so the plain `.to(exporter.traces())` terminal leaks the exporter's lifecycle. Hand ownership to the subscription with the two-arg `.to(exporter.traces(), exporter)` overload above (equivalently, `.owns(exporter)` before the terminal); the subscription then drains it on shutdown within the shared deadline and flushes it on `forceFlush`. With ownership transferred you shut down just two lifecycles, in order — subscription, then receiver. If you keep the one-arg terminal, you must close the exporter yourself between the two.
 
 ```java
 subscription.shutdown(Duration.ofSeconds(10)).toCompletableFuture().join();
-exporter.close();
 receiver.shutdown(Duration.ofSeconds(10)).toCompletableFuture().join();
 ```
 

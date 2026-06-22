@@ -8,10 +8,6 @@ Scope: public APIs exported by `otlp4j-api` and `otlp4j-model`, README/docs/samp
 
 `otlp4j` has a coherent and promising public API. The strongest choices are the proto-free immutable model, explicit JPMS module boundaries, signal-specific consumer aliases, a small receiver/exporter facade, and a pipeline DSL that covers filtering, transforms, fan-out, batching, connectors, and taps without forcing users into generated protobuf or gRPC types.
 
-The main ergonomic risk is lifecycle ownership. The most natural code, `.to(exporter.traces())`, does not close or flush the exporter because the facet is a method-reference consumer. Users must remember `.owns(exporter)`, which is documented but easy to miss. This should be fixed with an API affordance before the API is stabilized.
-
-The main correctness/documentation risk is `ConsumeResult.Rejected` semantics. Public docs currently describe normal `Rejected` as an OTLP partial-success response, but the gRPC server adapter maps whole-batch rejections to gRPC errors. That implementation choice is defensible, but the docs and Javadocs need to match it. The cause/no-cause distinction also carries retry semantics and needs a first-class explanation or clearer factory names.
-
 Compared with the official Go APIs, `otlp4j` intentionally sits closer to a small Collector-style gateway library than a direct SDK exporter package. That is fine, but users coming from Go will expect signal/transport-specific discoverability, standard OTEL environment variable behavior, context-aware cancellation/error semantics, secure defaults or explicit insecure defaults, HTTP/gRPC separation, and clear ownership rules for injected channels/clients. The report below recommends which differences to preserve and which to close.
 
 ## Public Surface Reviewed
@@ -42,10 +38,10 @@ Classpath users can still see public classes under non-exported `internal` packa
 
 | Dimension | Assessment | Main reason |
 | --- | --- | --- |
-| Ergonomics | Good, with one major footgun | Simple happy path and builders, but lifecycle ownership is not inferred from exporter facets. |
+| Ergonomics | Good | Simple happy path and builders cover the common flows. |
 | Discoverability | Good | README and `docs/public-api.md` name the main entry points clearly; exported package structure is understandable. |
 | Composability | Good for per-signal flows, moderate for cross-signal graphs | Pipeline/filter/transform/fan-out/batch/tap compose well; connectors are terminal consumers rather than graph stages. |
-| Documentation | Strong for a pre-1.0 API, with important fixes needed | Public guide is detailed, but two behavior mismatches and several advanced examples are missing. |
+| Documentation | Strong for a pre-1.0 API | Public guide is detailed; a few advanced examples (metrics construction, a full tap subscriber) are still missing. |
 | Complexity | Moderate | The API hides protobuf/gRPC complexity, but introduces pipeline ownership, partial-success semantics, async stages, batching, taps, and SPI concepts. |
 | Go API alignment | Partial and intentionally different | Strong on signal-specific consumers and OTLP partial success; missing env config, context/error shape, HTTP split, secure defaults, and Go's package-level discoverability. |
 
@@ -62,22 +58,17 @@ Strengths:
 
 Friction points:
 
-- Lifecycle ownership is too easy to get wrong. `exporter.traces()` looks like a terminal exporter, but it is only a consumer facet. The pipeline cannot close or flush the owning exporter unless users add `.owns(exporter)`. This creates a mismatch between what the code visually says and what the runtime owns.
 - The receiver and exporter convenience names are asymmetric. `OtlpGrpcExporter.to(host, port)` builds a ready-to-use exporter, while `OtlpGrpcReceiver.on(host, port)` builds but does not start. The comments say this, but the method names do not communicate lifecycle state equally well.
 - A receiver source has exactly one attachment slot. This is a reasonable design, but users may expect multiple subscriptions to work because the type is named `Source`. The required `branch().fanOut(...).join()` pattern should be prominent in every receiver example that mentions multiple consumers.
 - `Metric.data()` being nullable is a sharp Java edge. It preserves OTLP `DATA_NOT_SET`, but it weakens the otherwise strong typed model. A sealed `Metric.Unset` data variant or `Optional<Metric.Data>` would make the exceptional state explicit.
 - Many model records still require long positional constructors, especially metric points, histograms, summaries, exemplars, and profiles. Builders exist for common top-level records, but realistic metric construction remains verbose and error-prone.
 - `CompletionStage<ConsumeResult<T>>` is correct for async delivery, but the API currently has no context object for request deadline, cancellation, metadata, peer identity, or retry intent. That keeps the API simple, but it means advanced receivers cannot make decisions with the same information Go consumers receive through `context.Context`.
-- `Rejected` overloads business rejection, retryable backpressure, and permanent failure through `cause == null` versus `cause != null` at the transport adapter. That is powerful but non-obvious.
 
 Recommended ergonomic changes:
 
 | Priority | Recommendation |
 | --- | --- |
-| P0 | Make exporter facets ownership-aware, or add an owner-aware terminal method. Good options are `Pipeline.Stage.to(Consumer<T>, AutoCloseable owner)`, `toOwned(...)`, or returning facet objects from `OtlpGrpcExporter.traces()` that implement `TraceConsumer`, `Drainable`, and `Flushable`. |
-| P0 | Clarify `ConsumeResult.Rejected` with explicit factories such as `retryableRejected(...)` and `permanentRejected(...)`, or document the cause-based retry mapping prominently in `ConsumeResult` and `docs/public-api.md`. |
-| P1 | Add convenience builder methods on `OtlpGrpcExporter.Builder` for common transport settings: `tls(...)`, `header(...)`, `headers(...)`, `compression(...)`, and `retry(...)`. Requiring users to build a full `ClientTransportConfig` for common exporter options is discoverable only after reading the SPI section. |
-| P1 | Consider `Metric.Unset` or `Optional<Metric.Data>` before stabilizing the model API. If null is retained for wire fidelity, add a visible helper such as `metric.hasData()` or `metric.dataOrThrow()`. |
+| P1 | Consider `Metric.Unset` or `Optional<Metric.Data>` before stabilizing the model API, so the `DATA_NOT_SET` state is explicit in the type rather than only in a nullable accessor. |
 | P2 | Add model factories/builders for common metric data points, especially `NumberPoint`, `HistogramPoint`, `ExponentialHistogramPoint`, and `Exemplar`. |
 
 ## Discoverability
@@ -100,7 +91,6 @@ Recommended discoverability changes:
 
 | Priority | Recommendation |
 | --- | --- |
-| P0 | Fix docs that currently disagree with implementation: `ConsumeResult.Rejected` wire mapping and SPI provider selection. |
 | P1 | Add a short "If you know OpenTelemetry Go" or "Concept map" section mapping Go packages/concepts to `otlp4j` concepts. |
 | P1 | Add a configuration discovery table showing defaults, builder methods, environment variable support status, and Go/OTEL defaults. |
 | P2 | Split SPI documentation into an "extension authors" section so application users can ignore it until needed. |
@@ -138,15 +128,10 @@ Recommended composability changes:
 
 The existing documentation is better than typical pre-release libraries. The README and `docs/public-api.md` are practical, the architecture doc explains module boundaries and request flow, and the sample tests the public API through two real gRPC hops.
 
-Important documentation fixes:
+Remaining documentation additions:
 
 | Priority | Issue | Current state | Needed change |
 | --- | --- | --- | --- |
-| P0 | `ConsumeResult.Rejected` mapping | `docs/public-api.md` says a normal `Rejected` is encoded as signal-specific partial-success data. The gRPC adapter maps whole-batch `Rejected` to gRPC `UNAVAILABLE` or `INTERNAL`. | Document that `Accepted` and `Partial` are normal OTLP responses, while whole-batch `Rejected` is a gRPC error in the bundled transport. Explain retryable/permanent mapping. |
-| P0 | Provider selection | `docs/public-api.md` says helpers select the first `ServiceLoader` provider. `SpiSupport` rejects multiple providers as ambiguous. | Say exactly one provider must be present, and multiple providers fail fast. |
-| P1 | Environment variables | Go package docs document all standard `OTEL_EXPORTER_OTLP_*` variables. `otlp4j` does not appear to read env vars. | Document "not supported yet" or add `fromEnvironment()` support. |
-| P1 | TLS/compression/retry examples | The capability is documented, but users need to assemble `ClientTransportConfig` or `ServerTransportConfig`. | Add copy-paste examples for TLS, mTLS, headers, gzip, retry, and receiver hardening. |
-| P1 | Profiles batching limitation | Source comments explain distinct profile dictionaries cannot be batch-merged. README mentions profiles are opaque, but the batching failure mode deserves more visibility. | Add a profiles warning in batching docs: forward profiles 1:1 unless dictionary compatibility is guaranteed. |
 | P2 | Metrics model examples | Metrics have the highest constructor complexity. | Add examples for sum, gauge, histogram, exemplars, and null/`DATA_NOT_SET` handling. |
 | P2 | Tap usage | Docs show publishers but not a full subscriber. | Add a minimal `Flow.Subscriber` example. |
 
@@ -166,9 +151,7 @@ The API removes low-level wire complexity but still requires users to understand
 This is acceptable complexity for a gateway/collector-style library, but it should be staged in docs and APIs:
 
 - The simple path should need no SPI knowledge.
-- Lifecycle ownership should be hard to forget in code, not only documented.
 - Partial-success and retry semantics should be described once in precise language and linked from receiver, exporter, and batching docs.
-- Advanced transport configuration should be visible from the concrete builder, even if implemented by the SPI config record.
 
 ## Upstream Official Go API Differences
 
@@ -212,9 +195,7 @@ var exporter = OtlpGrpcExporter.builder()
         .build();
 ```
 
-The Java builder style is appropriate. The gap is not builder versus options; the gap is option coverage at the concrete facade. Go exposes endpoint, endpoint URL, insecure, TLS credentials, headers, compression, retry, timeout, max request size, reconnection period, service config, and injected gRPC connection directly in the transport package. `otlp4j` exposes endpoint and timeout directly, with TLS/headers/compression/retry behind `ClientTransportConfig`.
-
-Recommendation: expose common client knobs on `OtlpGrpcExporter.Builder` and common server knobs on `OtlpGrpcReceiver.Builder`, while still allowing `transport(config)` for full replacement.
+The Java builder style is appropriate. Go exposes endpoint, endpoint URL, insecure, TLS credentials, headers, compression, retry, timeout, max request size, reconnection period, service config, and injected gRPC connection directly in the transport package; `otlp4j` exposes endpoint, timeout, TLS, headers, compression, and retry directly on `OtlpGrpcExporter.Builder` (and the common server knobs on `OtlpGrpcReceiver.Builder`), with `transport(config)` for full replacement and the less common knobs left to the config record.
 
 ### Context, Cancellation, and Errors
 
@@ -246,7 +227,7 @@ Go SDK OTLP exporters read standard environment variables by default, including 
 
 `otlp4j` currently appears to be explicit-code-only. That is acceptable for a library that is not an SDK autoconfiguration module, but it diverges from OTEL user expectations.
 
-Recommendation: either add `ClientTransportConfig.fromEnvironment()` and document precedence, or explicitly state that the library does not read process environment by default. A good compromise is opt-in environment loading so library construction remains deterministic in embedded tests.
+Recommendation: add `ClientTransportConfig.fromEnvironment()` with documented precedence, ideally as opt-in environment loading so library construction remains deterministic in embedded tests.
 
 ### Defaults and Security
 
@@ -293,22 +274,13 @@ Go metric exporters expose temporality and aggregation selectors because they in
 
 OTLP responses support partial success fields such as rejected spans, rejected data points, rejected log records, rejected profiles, and error messages. `otlp4j` models this with `ConsumeResult.Partial<T>`, maps inbound partial success to `ConsumeResult`, and maps server-side partial results to OTLP partial-success responses. This is a strong alignment with OTLP.
 
-The key difference is whole-batch failure. Go APIs generally return `error`; Collector receivers only acknowledge upstream after downstream `Consume*` returns successfully. `otlp4j` exposes `ConsumeResult.Rejected<T>`, and the bundled gRPC server maps that to gRPC errors rather than partial-success responses. This is coherent, but the public API needs to make the retry consequences obvious.
-
-Recommendation: treat `Partial` as "normal response with item-level rejection" and `Rejected` as "delivery failed for the whole batch" in all docs and names.
+The key difference is whole-batch failure. Go APIs generally return `error`; Collector receivers only acknowledge upstream after downstream `Consume*` returns successfully. `otlp4j` exposes `ConsumeResult.Rejected<T>`, and the bundled gRPC server maps that to gRPC errors rather than partial-success responses. This is coherent.
 
 ## Prioritized Recommendations
 
 | Priority | Recommendation | Rationale |
 | --- | --- | --- |
-| P0 | Fix `ConsumeResult.Rejected` documentation and Javadocs. | Public docs currently conflict with the transport implementation and can lead users to choose the wrong result. |
-| P0 | Fix SPI provider docs to say multiple providers fail. | Current docs say first provider wins, but implementation rejects ambiguity. |
-| P0 | Add an ownership-aware pipeline/exporter API. | `.to(exporter.traces())` is the most likely example users will copy, and it leaks lifecycle unless `.owns(exporter)` is remembered. |
-| P1 | Add direct builder methods for common client/server transport options. | Users should not need to discover the SPI section to enable TLS, headers, gzip, or retry. |
-| P1 | Decide and document environment variable behavior. | Go/OTEL users expect `OTEL_EXPORTER_OTLP_*`; explicit opt-in is fine, silent absence is surprising. |
 | P1 | Revisit `Metric.data()` nullability before API stabilization. | Null is inconsistent with the otherwise typed sealed model. |
-| P1 | Add advanced examples for TLS/mTLS, headers, gzip, retry, receiver hardening, and batching with shutdown. | The capability exists but is not copy-paste discoverable. |
-| P1 | Add profile batching warning to public docs. | Distinct dictionaries can make profile batch merging fail at flush time. |
 | P2 | Add metric construction helpers/builders for points and common metric forms. | Metrics are the hardest model objects to construct correctly today. |
 | P2 | Add a `TelemetryTap` subscriber example. | `Flow.Publisher` is standard but verbose; users need one complete pattern. |
 | P2 | Reduce classpath-visible internal public classes. | JPMS users are protected, classpath users are not. |
@@ -316,30 +288,6 @@ Recommendation: treat `Partial` as "normal response with item-level rejection" a
 ## Suggested API Sketches
 
 These are illustrative, not prescriptive.
-
-Ownership-aware terminal:
-
-```java
-var subscription = Pipeline.from(receiver.traces())
-        .transform(Transforms.keepSpansWhere(span -> span.kind() == Span.Kind.SERVER))
-        .to(exporter.traces(), exporter);
-```
-
-Owned facet object:
-
-```java
-// traces() returns a TraceConsumer that also implements Drainable/Flushable.
-var subscription = Pipeline.from(receiver.traces())
-        .to(exporter.traces());
-```
-
-Clear rejection factories:
-
-```java
-return ConsumeResult.partial(rejectedSpans, "filtered by policy");
-return ConsumeResult.retryableRejected("queue full");
-return ConsumeResult.permanentRejected("invalid tenant", cause);
-```
 
 Opt-in environment configuration:
 
@@ -350,19 +298,6 @@ var exporter = OtlpGrpcExporter.builder()
         .build();
 ```
 
-Direct transport options on facade builders:
-
-```java
-var exporter = OtlpGrpcExporter.builder()
-        .endpoint("collector.example.com", 4317)
-        .tls(Tls.systemTrust())
-        .header("authorization", "Bearer ...")
-        .compression(Compression.GZIP)
-        .retry(RetryPolicy.exponential(5, Duration.ofSeconds(1), Duration.ofSeconds(30)))
-        .timeout(Duration.ofSeconds(10))
-        .build();
-```
-
 ## Bottom Line
 
-The API direction is strong: Java records plus a typed pipeline give a clearer application surface than generated OTLP protobufs, and the module boundary is well designed. The biggest improvements before wider use are not large rewrites. They are precise API/documentation fixes around lifecycle ownership, whole-batch rejection semantics, provider selection, standard configuration expectations, and metric construction ergonomics.
+The API direction is strong: Java records plus a typed pipeline give a clearer application surface than generated OTLP protobufs, and the module boundary is well designed. The biggest improvements before wider use are not large rewrites. They are precise API/documentation fixes around standard configuration expectations and metric construction ergonomics.

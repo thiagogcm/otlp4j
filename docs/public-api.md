@@ -60,20 +60,37 @@ TraceConsumer report = traces -> {
 - `Partial<T>`: a positive item count was rejected; the rest was accepted.
 - `Rejected<T>`: the complete batch was rejected.
 
-Use an exception or exceptionally completed stage for a transport-level failure. A normal `Rejected` is still an OTLP response and is encoded as signal-specific partial-success data.
+`Accepted` and `Partial` are normal OTLP responses: `Accepted` leaves `partial_success` unset, and `Partial` carries the rejected count and message. A whole-batch `Rejected` is **not** a partial success (encoding it as `rejected_*=0` would read to the client as "all accepted"), so the bundled gRPC transport maps it to a gRPC error instead of a response message. The presence of a cause selects the retry semantics:
+
+- `Rejected` with **no cause** → gRPC `UNAVAILABLE` (retryable); use it for transient back-pressure such as a full queue. Build it with `ConsumeResult.retryableRejected(message)`.
+- `Rejected` with **a cause** → gRPC `INTERNAL` (non-retryable); use it for a permanent fault such as a policy or validation failure that would reject the same batch every time. Build it with `ConsumeResult.permanentRejected(message, cause)`.
+
+Use an exception or exceptionally completed stage for a transport-level failure.
 
 ## Receive
 
-`OtlpGrpcReceiver` defaults to plaintext `0.0.0.0:4317`; pass a `ServerTransportConfig` with `Tls.Custom(cert, key, …)` through `transport(...)` to serve TLS. Port `0` selects an ephemeral port, available through `port()` after `start()`. A wildcard `bindHost` (empty, `0.0.0.0`, or `::`) binds every interface; any other host binds that specific interface, so `127.0.0.1` yields a loopback-only receiver.
+`OtlpGrpcReceiver` defaults to plaintext `0.0.0.0:4317`; call `.tls(Tls.custom(cert, key, …))` on the builder to serve TLS. Port `0` selects an ephemeral port, available through `port()` after `start()`. A wildcard `bindHost` (empty, `0.0.0.0`, or `::`) binds every interface; any other host binds that specific interface, so `127.0.0.1` yields a loopback-only receiver.
 
-`ServerTransportConfig.builder()` also exposes the receiver-hardening knobs the bundled server applies, all defaulting to gRPC's own behaviour:
+The receiver builder exposes the receiver-hardening knobs the bundled server applies directly (or set them on a `ServerTransportConfig` and pass it through `transport(...)`), all defaulting to gRPC's own behaviour:
 
-| Knob | Default | Effect |
+| Builder knob | Default | Effect |
 | --- | --- | --- |
 | `maxInboundMessageSizeBytes` | 4 MiB | Caps a single decoded export request; guards against memory-exhausting oversized requests. |
 | `maxConcurrentCallsPerConnection` | `0` (gRPC default, unlimited) | A positive value caps in-flight calls per connection. |
 | `handshakeTimeout` | 20s | Bounds the transport/TLS handshake only — not a slow request body or an idle connection. |
 | `serverExecutor` | `null` (gRPC's own executor) | Supply a bounded pool to cap admitted concurrent work. |
+
+```java
+var receiver = OtlpGrpcReceiver.builder()
+        .endpoint("0.0.0.0", 4317)
+        .tls(Tls.custom(certFile, keyFile, trustFile))
+        .maxInboundMessageSizeBytes(8 * 1024 * 1024)
+        .maxConcurrentCallsPerConnection(256)
+        .serverExecutor(Executors.newFixedThreadPool(32))
+        .onTraces(report)
+        .build()
+        .start();
+```
 
 Compression is asymmetric: the server transparently decodes gzip request bodies via gRPC's default decoder and exposes no server compression knob (response compression is intentionally not configured).
 
@@ -160,9 +177,14 @@ Overflow behavior:
 
 `forceFlush` drains the current queue. `shutdown` stops the timer and drains once; the processor then rejects new batches. A pipeline subscription closes a directly attached batcher.
 
+> [!WARNING]
+> Profiles batching is constrained by the OTLP profile dictionary. A `ProfilesData` batch carries an opaque, batch-level `ProfilesDictionary` that each profile references by index, so merging is only lossless when the batches agree on that dictionary (a shared, or single non-empty, dictionary). `forProfiles()` merges only same-dictionary batches; a flush that drains profiles carrying **distinct non-empty dictionaries** fails — the merge throws and the whole drained batch surfaces as a `BatchDeliveryException` from `forceFlush`/`shutdown`, since re-indexing every reference is out of scope. Forward profiles 1:1 (do not batch them) unless every producer shares one dictionary.
+
 ## Export
 
-`OtlpGrpcExporter` defaults to plaintext `localhost:4317` with a ten-second deadline per request. It owns one client channel and exposes a consumer facet for each signal. TLS, authentication headers, gzip compression, and retries are configured by passing a fully built `ClientTransportConfig` through `transport(...)`.
+`OtlpGrpcExporter` defaults to plaintext `localhost:4317` with a ten-second deadline per request. It owns one client channel and exposes a consumer facet for each signal. TLS, authentication headers, gzip compression, and retries are available directly on the builder (`tls`, `header`/`headers`, `compression`, `retry`); pass a fully built `ClientTransportConfig` through `transport(...)` only when you want to replace the whole config at once.
+
+The exporter does **not** read `OTEL_EXPORTER_OTLP_*` environment variables — configure it explicitly through the builder.
 
 ```java
 try (var exporter = OtlpGrpcExporter.builder()
@@ -176,7 +198,20 @@ try (var exporter = OtlpGrpcExporter.builder()
 }
 ```
 
-The exporter itself owns the channel. Its `traces()`, `metrics()`, `logs()`, and `profiles()` facets are method references, so the pipeline cannot auto-discover the exporter behind them. Register it with `Stage.owns(exporter)` to hand its lifecycle to the subscription: it implements both `Drainable` and `Flushable`, so the subscription drains it on shutdown and reaches it on `forceFlush`. As a `Drainable` it receives the pipeline's *remaining* shared deadline, and its shutdown is cancellation-aware — a timeout interrupts the transport teardown rather than leaving it blocking past the deadline. `forceFlush` itself is a no-op today (the client holds no buffer) but is reachable once the exporter is owned. Without `owns`, close the exporter yourself.
+A hardened exporter — system-trust TLS (or `Tls.custom(cert, key, trust)` for mTLS), a bearer header, gzip, and exponential retry:
+
+```java
+var exporter = OtlpGrpcExporter.builder()
+        .endpoint("collector.example.com", 4317)
+        .tls(Tls.systemTrust())
+        .header("authorization", "Bearer " + token)
+        .compression(Compression.GZIP)
+        .retry(RetryPolicy.exponential(5, Duration.ofSeconds(1), Duration.ofSeconds(30)))
+        .timeout(Duration.ofSeconds(10))
+        .build();
+```
+
+The exporter itself owns the channel. Its `traces()`, `metrics()`, `logs()`, and `profiles()` facets are method references, so the pipeline cannot auto-discover the exporter behind them. Hand its lifecycle to the subscription with the two-arg terminal `to(exporter.traces(), exporter)` (equivalently, `Stage.owns(exporter)` before the terminal): it implements both `Drainable` and `Flushable`, so the subscription drains it on shutdown and reaches it on `forceFlush`. As a `Drainable` it receives the pipeline's *remaining* shared deadline, and its shutdown is cancellation-aware — a timeout interrupts the transport teardown rather than leaving it blocking past the deadline. `forceFlush` itself is a no-op today (the client holds no buffer) but is reachable once the exporter is owned. Without `owns`, close the exporter yourself.
 
 Implement `Exporter<T>` for a custom typed terminal with flush and shutdown hooks. Implement the lower-level client or server SPI when replacing the wire transport.
 
@@ -222,7 +257,7 @@ Implement these pairs and register their providers with JPMS, `META-INF/services
 - `OtlpServerProvider` and `OtlpServer` for receiving;
 - `OtlpClientProvider` and `OtlpClient` for exporting.
 
-Helpers select the first provider returned by `ServiceLoader`; avoid ambiguous provider sets. Configuration arrives through `ServerTransportConfig` or `ClientTransportConfig`. The bundled client honours host, port, timeout, TLS, headers, compression, and retry; the server honours its port, `bindHost`, TLS, and the receiver-hardening limits (inbound size cap, per-connection concurrency, handshake timeout, executor).
+Exactly one provider for each role must be on the module or class path: the helpers fail fast with `IllegalStateException` when none is found and, because provider order is not a configuration mechanism, also when more than one is found. Keep exactly one transport provider on the path. Configuration arrives through `ServerTransportConfig` or `ClientTransportConfig`. The bundled client honours host, port, timeout, TLS, headers, compression, and retry; the server honours its port, `bindHost`, TLS, and the receiver-hardening limits (inbound size cap, per-connection concurrency, handshake timeout, executor).
 
 ## Shutdown order
 

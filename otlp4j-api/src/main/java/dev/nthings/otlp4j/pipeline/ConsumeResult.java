@@ -1,6 +1,7 @@
 package dev.nthings.otlp4j.pipeline;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
@@ -39,7 +40,13 @@ public sealed interface ConsumeResult<T> permits ConsumeResult.Accepted, Consume
         }
     }
 
-    /// The whole batch was rejected; `cause` may be `null` when no exception is associated.
+    /// The whole batch was rejected.
+    ///
+    /// The presence of `cause` carries retry intent in the bundled gRPC transport: a `null` cause
+    /// means the rejection is **transient** and the sender should retry (mapped to gRPC
+    /// `UNAVAILABLE`), while a non-null `cause` means the rejection is **permanent** and must not
+    /// be retried (mapped to gRPC `INTERNAL`). Prefer the [#retryableRejected(String)] and
+    /// [#permanentRejected(String, Throwable)] factories to make that intent explicit.
     record Rejected<T>(String message, Throwable cause) implements ConsumeResult<T> {
 
         public Rejected {
@@ -65,6 +72,19 @@ public sealed interface ConsumeResult<T> permits ConsumeResult.Accepted, Consume
     /// Returns a [Rejected] result wrapping the given throwable.
     static <T> ConsumeResult<T> rejected(String message, Throwable cause) {
         return new Rejected<>(message, cause);
+    }
+
+    /// A whole-batch rejection the sender SHOULD retry (transient, e.g. a full queue). Maps to gRPC
+    /// `UNAVAILABLE` in the bundled transport. Equivalent to [#rejected(String)].
+    static <T> ConsumeResult<T> retryableRejected(String message) {
+        return rejected(message);
+    }
+
+    /// A whole-batch rejection the sender MUST NOT retry (permanent, e.g. a policy or validation
+    /// fault). The non-null `cause` is what maps it to gRPC `INTERNAL` rather than the retryable
+    /// `UNAVAILABLE`, so it is required.
+    static <T> ConsumeResult<T> permanentRejected(String message, Throwable cause) {
+        return rejected(message, Objects.requireNonNull(cause, "cause"));
     }
 
     /// Completed stage shorthand for [#accepted()].

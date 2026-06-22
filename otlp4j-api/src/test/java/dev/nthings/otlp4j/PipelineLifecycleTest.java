@@ -123,6 +123,37 @@ class PipelineLifecycleTest {
         assertThat(closed.get()).isTrue();
     }
 
+    @DisplayName("to(terminal, owner) drains and flushes the owner like owns(owner).to(terminal)")
+    @Test
+    void twoArgTerminalOwnsResource() {
+        var source = new SignalSource<>(TraceData.class);
+        var flushed = new AtomicInteger();
+        var closed = new AtomicBoolean();
+
+        // A method-reference terminal hides no AutoCloseable; the owner is reached only because the
+        // two-arg terminal registers it. The owner is a separate resource, not the terminal itself.
+        class OwnedResource implements Drainable, Flushable {
+            @Override public CompletionStage<Void> forceFlush(Duration timeout) {
+                flushed.incrementAndGet();
+                return CompletableFuture.completedFuture(null);
+            }
+            @Override public CompletionStage<Void> shutdown(Duration timeout) {
+                closed.set(true);
+                return CompletableFuture.completedFuture(null);
+            }
+        }
+        var owner = new OwnedResource();
+        TraceConsumer terminal = traces -> ConsumeResult.acceptedStage();
+        var sub = Pipeline.from((Source<TraceData>) source).to(terminal, owner);
+
+        sub.forceFlush(Duration.ofSeconds(1)).toCompletableFuture().join();
+        assertThat(flushed.get()).isEqualTo(1);
+
+        assertThat(closed.get()).isFalse();
+        sub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
+        assertThat(closed.get()).isTrue();
+    }
+
     @DisplayName("shutdown() shares one deadline across owned resources (shrinking remaining)")
     @Test
     void shutdownSharesOneDeadlineAcrossResources() throws Exception {

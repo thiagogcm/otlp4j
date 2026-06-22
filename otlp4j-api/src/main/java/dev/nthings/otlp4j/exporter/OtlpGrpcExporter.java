@@ -8,9 +8,13 @@ import dev.nthings.otlp4j.pipeline.MetricConsumer;
 import dev.nthings.otlp4j.pipeline.ProfileConsumer;
 import dev.nthings.otlp4j.pipeline.TraceConsumer;
 import dev.nthings.otlp4j.spi.ClientTransportConfig;
+import dev.nthings.otlp4j.spi.Compression;
 import dev.nthings.otlp4j.spi.OtlpClient;
 import dev.nthings.otlp4j.spi.OtlpClientProvider;
+import dev.nthings.otlp4j.spi.RetryPolicy;
+import dev.nthings.otlp4j.spi.Tls;
 import java.time.Duration;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ExecutorService;
@@ -131,6 +135,37 @@ public final class OtlpGrpcExporter implements Drainable, Flushable {
 
         public Builder timeout(Duration timeout) {
             config.timeout(timeout);
+            return this;
+        }
+
+        /// Selects the client TLS mode (e.g. [Tls#systemTrust()] or [Tls#custom]). Defaults to
+        /// plaintext.
+        public Builder tls(Tls tls) {
+            config.tls(tls);
+            return this;
+        }
+
+        /// Adds one request metadata header (e.g. `authorization`) sent on every export.
+        public Builder header(String key, String value) {
+            config.header(key, value);
+            return this;
+        }
+
+        /// Adds all of `headers` as request metadata, on top of any already set.
+        public Builder headers(Map<String, String> headers) {
+            config.headers(headers);
+            return this;
+        }
+
+        /// Selects request-body compression (e.g. [Compression#GZIP]). Defaults to none.
+        public Builder compression(Compression compression) {
+            config.compression(compression);
+            return this;
+        }
+
+        /// Sets the transport retry policy (e.g. [RetryPolicy#exponential]). Defaults to no retries.
+        public Builder retry(RetryPolicy retry) {
+            config.retry(retry);
             return this;
         }
 

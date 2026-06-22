@@ -46,6 +46,34 @@ class ConsumeResultTest {
         assertThat(r.cause()).isNull();
     }
 
+    @DisplayName("retryableRejected() yields a Rejected with no cause (retryable)")
+    @Test
+    void retryableRejectedHasNoCause() {
+        ConsumeResult<TraceData> result = ConsumeResult.retryableRejected("queue full");
+        assertThat(result).isInstanceOf(ConsumeResult.Rejected.class);
+        var r = (ConsumeResult.Rejected<TraceData>) result;
+        assertThat(r.message()).isEqualTo("queue full");
+        assertThat(r.cause()).isNull();
+    }
+
+    @DisplayName("permanentRejected() carries the given cause (non-retryable)")
+    @Test
+    void permanentRejectedCarriesCause() {
+        var cause = new IllegalArgumentException("invalid tenant");
+        ConsumeResult<TraceData> result = ConsumeResult.permanentRejected("rejected by policy", cause);
+        assertThat(result).isInstanceOf(ConsumeResult.Rejected.class);
+        var r = (ConsumeResult.Rejected<TraceData>) result;
+        assertThat(r.message()).isEqualTo("rejected by policy");
+        assertThat(r.cause()).isSameAs(cause);
+    }
+
+    @DisplayName("permanentRejected() requires a non-null cause")
+    @Test
+    void permanentRejectedRejectsNullCause() {
+        assertThatThrownBy(() -> ConsumeResult.permanentRejected("nope", null))
+                .isInstanceOf(NullPointerException.class);
+    }
+
     @DisplayName("fanOutMerge of all Accepted yields Accepted")
     @Test
     void fanOutMergeOfAllAcceptedIsAccepted() {

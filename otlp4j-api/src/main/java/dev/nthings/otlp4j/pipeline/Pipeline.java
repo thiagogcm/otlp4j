@@ -56,6 +56,15 @@ public final class Pipeline {
         /// Terminates the pipeline by delivering to `terminal`. Returns the subscription that
         /// owns the wiring.
         Subscription to(Consumer<T> terminal);
+
+        /// Terminates the pipeline by delivering to `terminal`, also registering `owner` as a
+        /// lifecycle resource so the subscription drains it on shutdown and flushes it on
+        /// forceFlush if it is [Flushable]. Shorthand for `owns(owner).to(terminal)`; use it when
+        /// the terminal is a method-reference facet such as `exporter.traces()` whose owner the
+        /// pipeline cannot otherwise infer.
+        default Subscription to(Consumer<T> terminal, AutoCloseable owner) {
+            return owns(owner).to(terminal);
+        }
     }
 
     /// A branch builder collecting peers for a fan-out.

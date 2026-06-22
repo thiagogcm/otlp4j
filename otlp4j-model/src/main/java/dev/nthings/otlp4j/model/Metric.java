@@ -14,6 +14,19 @@ public record Metric(String name, String description, String unit, Data data, At
         return new Builder();
     }
 
+    /// Whether this metric carries a data payload. `false` mirrors the wire `DATA_NOT_SET` form.
+    public boolean hasData() {
+        return data != null;
+    }
+
+    /// Returns the data payload, or throws if this metric is the empty `DATA_NOT_SET` form.
+    public Data dataOrThrow() {
+        if (data == null) {
+            throw new IllegalStateException("metric '" + name + "' has no data (DATA_NOT_SET)");
+        }
+        return data;
+    }
+
     /// The aggregation kind of a metric and its data points.
     public sealed interface Data permits Gauge, Sum, Histogram, ExponentialHistogram, Summary {}
 
