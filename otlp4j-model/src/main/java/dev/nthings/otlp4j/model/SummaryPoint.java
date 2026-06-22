@@ -17,6 +17,17 @@ public record SummaryPoint(
         quantileValues = List.copyOf(quantileValues);
     }
 
+    /// A summary point with no flags set.
+    public static SummaryPoint of(
+            Attributes attributes,
+            long startEpochNanos,
+            long epochNanos,
+            long count,
+            double sum,
+            List<Quantile> quantileValues) {
+        return new SummaryPoint(attributes, startEpochNanos, epochNanos, count, sum, quantileValues, 0L);
+    }
+
     /// The value at a given quantile of the distribution.
     public record Quantile(double quantile, double value) {}
 }

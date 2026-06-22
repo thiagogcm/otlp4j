@@ -118,6 +118,14 @@ public final class OtlpGrpcExporter implements Drainable, Flushable {
             return this;
         }
 
+        /// Applies the standard `OTEL_EXPORTER_OTLP_*` variables (see
+        /// [ClientTransportConfig.Builder#fromEnvironment()]). Opt-in; call it first so explicit
+        /// setters override the environment.
+        public Builder fromEnvironment() {
+            config.fromEnvironment();
+            return this;
+        }
+
         public Builder endpoint(String host, int port) {
             config.endpoint(host, port);
             return this;

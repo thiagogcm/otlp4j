@@ -15,6 +15,7 @@ The project is currently experimental `0.1.0-SNAPSHOT` and requires JDK 25. Its 
 - Queue-backed batching with bounded buffers and configurable overflow policy
 - Trace-to-metric and log-to-metric count connectors
 - Independent `Flow.Publisher` streams for live telemetry observation
+- Opt-in `OTEL_EXPORTER_OTLP_*` exporter configuration via `fromEnvironment()`
 - A transport SPI with a gRPC implementation loaded through `ServiceLoader`
 
 ## Use from Maven

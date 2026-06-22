@@ -3,6 +3,7 @@ package dev.nthings.otlp4j.internal;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.nthings.otlp4j.model.Attributes;
+import dev.nthings.otlp4j.model.Exemplar;
 import dev.nthings.otlp4j.model.ExponentialHistogramPoint;
 import dev.nthings.otlp4j.model.HistogramPoint;
 import dev.nthings.otlp4j.model.Metric;
@@ -142,6 +143,72 @@ class MetricsMapperRoundTripTest {
     void roundTripsAnEmptyMetricsData() {
         var sent = Fixtures.metricsData();
         assertThat(MetricsMapper.toDomain(MetricsMapper.toProto(sent))).isEqualTo(sent);
+    }
+
+    @DisplayName("A metric assembled via the ergonomic builders/factories round-trips faithfully")
+    @Test
+    void roundTripsAMetricBuiltViaBuildersAndFactories() {
+        var exemplar = Exemplar.builder()
+                .longValue(7L)
+                .traceId("4bf92f3577b34da6a3ce929d0e0e4736")
+                .spanId("00f067aa0ba902b7")
+                .epochNanos(1_500L)
+                .build();
+        var gauge = Metric.builder()
+                .name("queue.depth")
+                .data(Metric.gauge(NumberPoint.builder()
+                        .epochNanos(2_000L)
+                        .longValue(42L)
+                        .addExemplar(exemplar)
+                        .build()))
+                .build();
+        var sum = Metric.builder()
+                .name("http.requests")
+                .data(Metric.sum(
+                        Metric.AggregationTemporality.CUMULATIVE,
+                        true,
+                        NumberPoint.of(Attributes.empty(), 2_000L, NumberPoint.doubleValue(3.5))))
+                .build();
+        var histogram = Metric.builder()
+                .name("http.duration")
+                .data(Metric.histogram(
+                        Metric.AggregationTemporality.DELTA,
+                        HistogramPoint.builder()
+                                .count(10L)
+                                .sum(123.4)
+                                .min(0.5)
+                                .max(99.9)
+                                .bucketCounts(List.of(2L, 3L, 5L))
+                                .explicitBounds(List.of(1.0, 10.0))
+                                .build()))
+                .build();
+        var exponential = Metric.builder()
+                .name("rpc.duration")
+                .data(Metric.exponentialHistogram(
+                        Metric.AggregationTemporality.DELTA,
+                        ExponentialHistogramPoint.builder()
+                                .count(4L)
+                                .scale(2)
+                                .zeroCount(1L)
+                                .positive(new ExponentialHistogramPoint.Buckets(0, List.of(1L, 2L, 1L)))
+                                .build()))
+                .build();
+        var summary = Metric.builder()
+                .name("latency.summary")
+                .data(Metric.summary(SummaryPoint.of(
+                        Attributes.empty(),
+                        1_000L,
+                        2_000L,
+                        100L,
+                        543.2,
+                        List.of(new SummaryPoint.Quantile(0.5, 10.0)))))
+                .build();
+
+        var sent = Fixtures.metricsData(gauge, sum, histogram, exponential, summary);
+
+        assertThat(MetricsMapper.toDomain(MetricsMapper.toProto(sent)))
+                .as("metrics built via the new ergonomic API must be wire-faithful")
+                .isEqualTo(sent);
     }
 
     @DisplayName("NumberPoint with unset value oneof round-trips as null")

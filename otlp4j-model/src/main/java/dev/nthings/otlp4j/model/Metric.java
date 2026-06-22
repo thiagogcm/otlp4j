@@ -27,6 +27,32 @@ public record Metric(String name, String description, String unit, Data data, At
         return data;
     }
 
+    /// A [Gauge] payload over the given points. For a `List`, use `new Gauge(points)`.
+    public static Gauge gauge(NumberPoint... points) {
+        return new Gauge(List.of(points));
+    }
+
+    /// A [Sum] payload with the given temporality and monotonicity.
+    public static Sum sum(AggregationTemporality temporality, boolean monotonic, NumberPoint... points) {
+        return new Sum(List.of(points), temporality, monotonic);
+    }
+
+    /// A [Histogram] payload with the given temporality.
+    public static Histogram histogram(AggregationTemporality temporality, HistogramPoint... points) {
+        return new Histogram(List.of(points), temporality);
+    }
+
+    /// An [ExponentialHistogram] payload with the given temporality.
+    public static ExponentialHistogram exponentialHistogram(
+            AggregationTemporality temporality, ExponentialHistogramPoint... points) {
+        return new ExponentialHistogram(List.of(points), temporality);
+    }
+
+    /// A [Summary] payload over the given points. For a `List`, use `new Summary(points)`.
+    public static Summary summary(SummaryPoint... points) {
+        return new Summary(List.of(points));
+    }
+
     /// The aggregation kind of a metric and its data points.
     public sealed interface Data permits Gauge, Sum, Histogram, ExponentialHistogram, Summary {}
 

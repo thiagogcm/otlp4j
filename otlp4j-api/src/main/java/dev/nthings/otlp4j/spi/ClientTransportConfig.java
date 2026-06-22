@@ -5,6 +5,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.UnaryOperator;
 
 /// Configuration for an OTLP exporter transport.
 ///
@@ -107,6 +108,21 @@ public record ClientTransportConfig(
 
         public Builder retry(RetryPolicy retry) {
             this.retry = retry;
+            return this;
+        }
+
+        /// Applies the standard general `OTEL_EXPORTER_OTLP_*` exporter variables onto this builder
+        /// when present (endpoint URL, timeout, headers, compression, TLS cert paths). Opt-in and
+        /// deterministic — the process environment is read only on this call. Call it first:
+        /// explicit setters invoked afterwards override the environment. Malformed values throw
+        /// [IllegalArgumentException].
+        public Builder fromEnvironment() {
+            return fromEnvironment(System::getenv);
+        }
+
+        // Package-private seam: tests supply a map-backed lookup so they never read process env.
+        Builder fromEnvironment(UnaryOperator<String> env) {
+            OtlpEnv.applyTo(this, env);
             return this;
         }
 

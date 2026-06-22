@@ -25,7 +25,7 @@ Each signal preserves OTLP's resource and instrumentation-scope grouping while p
 | `LogsData` | `ResourceLogs` → `ScopeLogs` → `LogRecord` | `logRecords()` |
 | `ProfilesData` | `ResourceProfiles` → `ScopeProfiles` → `Profile` | `profiles()` |
 
-Records copy incoming lists and are safe to share between fan-out peers. `Attributes` and the sealed `AttributeValue` hierarchy represent OTLP values. Builders are available for `Attributes`, `Span`, `Metric`, and `LogRecord`; the remaining records use canonical constructors. To avoid hand-nesting the resource/scope wrappers, each signal type has an `of(resource, scope, items)` factory, and `Resource.of(...)` / `InstrumentationScope.of(...)` cover the common cases:
+Records copy incoming lists and are safe to share between fan-out peers. `Attributes` and the sealed `AttributeValue` hierarchy represent OTLP values. Builders are available for `Attributes`, `Span`, `Metric`, and `LogRecord`, plus the metric data points (`NumberPoint`, `HistogramPoint`, `ExponentialHistogramPoint`) and `Exemplar`; `NumberPoint`, `Exemplar`, and `SummaryPoint` also offer `of(...)` factories for the common case. The remaining records use canonical constructors. To avoid hand-nesting the resource/scope wrappers, each signal type has an `of(resource, scope, items)` factory, and `Resource.of(...)` / `InstrumentationScope.of(...)` cover the common cases:
 
 ```java
 var batch = TraceData.of(Resource.of(attributes), InstrumentationScope.of("my.lib", "1.0"), spans);
@@ -34,6 +34,40 @@ var batch = TraceData.of(Resource.of(attributes), InstrumentationScope.of("my.li
 `Attributes.toBuilder()` plus `Builder.putAll(...)` make "copy and add a key" a one-liner instead of a manual map walk.
 
 `Metric.Data` covers gauge, sum, histogram, exponential histogram, and summary; it is `null` exactly when the wire metric set no data (`DATA_NOT_SET`), so null-check `Metric.data()` before use. Number, histogram, and exponential-histogram points each carry a `List<Exemplar>` (`filteredAttributes`, `epochNanos`, `value`, `spanId`, `traceId`) mapped in both directions; the list is empty when no exemplars were recorded.
+
+The `Metric.gauge/sum/histogram/exponentialHistogram/summary` factories build the sealed `Data` variants, and the point builders keep realistic construction terse and safe:
+
+```java
+// A gauge with one long point.
+var gauge = Metric.builder()
+        .name("queue.depth")
+        .data(Metric.gauge(NumberPoint.of(attributes, epochNanos, NumberPoint.longValue(42))))
+        .build();
+
+// A monotonic cumulative counter.
+var counter = Metric.builder()
+        .name("http.server.requests")
+        .data(Metric.sum(AggregationTemporality.CUMULATIVE, true,
+                NumberPoint.of(attributes, epochNanos, NumberPoint.doubleValue(3.5))))
+        .build();
+
+// A histogram. Construction enforces the bucket invariant: bucketCounts has one
+// more element than explicitBounds (or both are empty for a count/sum-only point).
+var histogram = Metric.builder()
+        .name("http.server.duration")
+        .data(Metric.histogram(AggregationTemporality.DELTA,
+                HistogramPoint.builder()
+                        .count(10).sum(123.4).min(0.5).max(99.9)
+                        .bucketCounts(List.of(2L, 3L, 5L))
+                        .explicitBounds(List.of(1.0, 10.0))
+                        .build()))
+        .build();
+
+// An exemplar linking a point back to a sampled span.
+var exemplar = Exemplar.builder()
+        .longValue(7).traceId(traceId).spanId(spanId).epochNanos(epochNanos)
+        .build();
+```
 
 `ProfilesData` is marked `@Experimental` and forwards profiles losslessly via opaque passthrough. Its top-level `Profile` metadata is best-effort inspection only; each `Profile` also carries `rawProfile` (the serialized proto `Profile`) and the batch carries `dictionary` (the serialized `ProfilesDictionary`), so the payload re-emits byte-for-byte. Both are opaque `byte[]` — treat them as opaque and do not mutate; their accessors return defensive clones.
 
@@ -184,7 +218,27 @@ Overflow behavior:
 
 `OtlpGrpcExporter` defaults to plaintext `localhost:4317` with a ten-second deadline per request. It owns one client channel and exposes a consumer facet for each signal. TLS, authentication headers, gzip compression, and retries are available directly on the builder (`tls`, `header`/`headers`, `compression`, `retry`); pass a fully built `ClientTransportConfig` through `transport(...)` only when you want to replace the whole config at once.
 
-The exporter does **not** read `OTEL_EXPORTER_OTLP_*` environment variables — configure it explicitly through the builder.
+By default the exporter reads no environment — construction is fully explicit and deterministic. Opt in to the standard general OTLP variables with `fromEnvironment()` on the exporter or `ClientTransportConfig` builder. It reads each variable only when present and only on that call; precedence is "call it first, explicit setters afterwards win"; malformed values throw. Only general (non-signal-specific) variables are read today:
+
+| Setting | Builder method | Environment variable | otlp4j default | Notes |
+| --- | --- | --- | --- | --- |
+| Endpoint host/port/scheme | `.endpoint(host, port)` / `.host` / `.port` / `.tls` | `OTEL_EXPORTER_OTLP_ENDPOINT` | `localhost:4317`, plaintext | A URL; `http` is plaintext, `https` selects TLS. gRPC uses the authority as-is — no `/v1/<signal>` path is appended. Port defaults to `4317`. |
+| Request timeout | `.timeout(Duration)` | `OTEL_EXPORTER_OTLP_TIMEOUT` | `10s` | Integer milliseconds; must be > 0. |
+| Headers | `.header(k, v)` / `.headers(map)` | `OTEL_EXPORTER_OTLP_HEADERS` | none | `k=v,k2=v2`; values are percent-decoded (`+` stays literal). Merged onto headers already set — env wins per key, unrelated keys are kept. |
+| Compression | `.compression(Compression)` | `OTEL_EXPORTER_OTLP_COMPRESSION` | `NONE` | `gzip` or `none`. |
+| Server CA / trust | `.tls(Tls.trust(path))` | `OTEL_EXPORTER_OTLP_CERTIFICATE` | system trust when TLS is on | Applies only when the endpoint is `https`. |
+| Client cert (mTLS) | `.tls(Tls.custom(cert, key, trust))` | `OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE` | none | Requires the client key; ignored on an `http` endpoint. |
+| Client key (mTLS) | `.tls(Tls.custom(cert, key, trust))` | `OTEL_EXPORTER_OTLP_CLIENT_KEY` | none | Requires the client certificate. |
+
+Deliberately not read: `OTEL_EXPORTER_OTLP_PROTOCOL` (this transport is gRPC only) and `OTEL_EXPORTER_OTLP_INSECURE` (the endpoint scheme decides — `http` is plaintext). Signal-specific overrides such as `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` are not read either, because one exporter drives all four signals.
+
+```java
+// Load env, then let an explicit endpoint win over OTEL_EXPORTER_OTLP_ENDPOINT.
+var exporter = OtlpGrpcExporter.builder()
+        .fromEnvironment()
+        .endpoint("collector.example.com", 4317)
+        .build();
+```
 
 ```java
 try (var exporter = OtlpGrpcExporter.builder()

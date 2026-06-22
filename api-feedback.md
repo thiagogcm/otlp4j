@@ -8,7 +8,7 @@ Scope: public APIs exported by `otlp4j-api` and `otlp4j-model`, README/docs/samp
 
 `otlp4j` has a coherent and promising public API. The strongest choices are the proto-free immutable model, explicit JPMS module boundaries, signal-specific consumer aliases, a small receiver/exporter facade, and a pipeline DSL that covers filtering, transforms, fan-out, batching, connectors, and taps without forcing users into generated protobuf or gRPC types.
 
-Compared with the official Go APIs, `otlp4j` intentionally sits closer to a small Collector-style gateway library than a direct SDK exporter package. That is fine, but users coming from Go will expect signal/transport-specific discoverability, standard OTEL environment variable behavior, context-aware cancellation/error semantics, secure defaults or explicit insecure defaults, HTTP/gRPC separation, and clear ownership rules for injected channels/clients. The report below recommends which differences to preserve and which to close.
+Compared with the official Go APIs, `otlp4j` intentionally sits closer to a small Collector-style gateway library than a direct SDK exporter package. That is fine, but users coming from Go will expect signal/transport-specific discoverability, context-aware cancellation/error semantics, secure defaults or explicit insecure defaults, HTTP/gRPC separation, and clear ownership rules for injected channels/clients. The report below recommends which differences to preserve and which to close.
 
 ## Public Surface Reviewed
 
@@ -41,9 +41,9 @@ Classpath users can still see public classes under non-exported `internal` packa
 | Ergonomics | Good | Simple happy path and builders cover the common flows. |
 | Discoverability | Good | README and `docs/public-api.md` name the main entry points clearly; exported package structure is understandable. |
 | Composability | Good for per-signal flows, moderate for cross-signal graphs | Pipeline/filter/transform/fan-out/batch/tap compose well; connectors are terminal consumers rather than graph stages. |
-| Documentation | Strong for a pre-1.0 API | Public guide is detailed; a few advanced examples (metrics construction, a full tap subscriber) are still missing. |
+| Documentation | Strong for a pre-1.0 API | Public guide is detailed; a full tap subscriber example is still missing. |
 | Complexity | Moderate | The API hides protobuf/gRPC complexity, but introduces pipeline ownership, partial-success semantics, async stages, batching, taps, and SPI concepts. |
-| Go API alignment | Partial and intentionally different | Strong on signal-specific consumers and OTLP partial success; missing env config, context/error shape, HTTP split, secure defaults, and Go's package-level discoverability. |
+| Go API alignment | Partial and intentionally different | Strong on signal-specific consumers and OTLP partial success; missing context/error shape, HTTP split, secure defaults, and Go's package-level discoverability. |
 
 ## Ergonomics
 
@@ -61,7 +61,6 @@ Friction points:
 - The receiver and exporter convenience names are asymmetric. `OtlpGrpcExporter.to(host, port)` builds a ready-to-use exporter, while `OtlpGrpcReceiver.on(host, port)` builds but does not start. The comments say this, but the method names do not communicate lifecycle state equally well.
 - A receiver source has exactly one attachment slot. This is a reasonable design, but users may expect multiple subscriptions to work because the type is named `Source`. The required `branch().fanOut(...).join()` pattern should be prominent in every receiver example that mentions multiple consumers.
 - `Metric.data()` being nullable is a sharp Java edge. It preserves OTLP `DATA_NOT_SET`, but it weakens the otherwise strong typed model. A sealed `Metric.Unset` data variant or `Optional<Metric.Data>` would make the exceptional state explicit.
-- Many model records still require long positional constructors, especially metric points, histograms, summaries, exemplars, and profiles. Builders exist for common top-level records, but realistic metric construction remains verbose and error-prone.
 - `CompletionStage<ConsumeResult<T>>` is correct for async delivery, but the API currently has no context object for request deadline, cancellation, metadata, peer identity, or retry intent. That keeps the API simple, but it means advanced receivers cannot make decisions with the same information Go consumers receive through `context.Context`.
 
 Recommended ergonomic changes:
@@ -69,7 +68,6 @@ Recommended ergonomic changes:
 | Priority | Recommendation |
 | --- | --- |
 | P1 | Consider `Metric.Unset` or `Optional<Metric.Data>` before stabilizing the model API, so the `DATA_NOT_SET` state is explicit in the type rather than only in a nullable accessor. |
-| P2 | Add model factories/builders for common metric data points, especially `NumberPoint`, `HistogramPoint`, `ExponentialHistogramPoint`, and `Exemplar`. |
 
 ## Discoverability
 
@@ -85,14 +83,12 @@ Friction points:
 - The public `spi` package is exported next to user-facing packages. This is valid for extension authors, but application users may discover `OtlpClientProvider`, `OtlpServerProvider`, `ClientTransportConfig`, and `ServerTransportConfig` before they understand the simpler receiver/exporter facade.
 - Official Go discoverability is package-name driven: `otlptracegrpc`, `otlpmetricgrpc`, `otlploggrpc`, `otlphttp`, Collector `consumer`, Collector `component`. `otlp4j` relies more on a documentation table and class names. That is idiomatic for Java, but the docs should keep mapping "signal + transport + role" explicitly.
 - Generated proto and transport internals are hidden by modules, which is good, but public classes in `internal` packages still appear on the classpath.
-- There is no standard environment variable entry point such as `OtlpGrpcExporter.builder().fromEnvironment()` or `ClientTransportConfig.fromEnvironment()`. Users coming from OTEL SDKs will search for OTEL env vars early.
 
 Recommended discoverability changes:
 
 | Priority | Recommendation |
 | --- | --- |
 | P1 | Add a short "If you know OpenTelemetry Go" or "Concept map" section mapping Go packages/concepts to `otlp4j` concepts. |
-| P1 | Add a configuration discovery table showing defaults, builder methods, environment variable support status, and Go/OTEL defaults. |
 | P2 | Split SPI documentation into an "extension authors" section so application users can ignore it until needed. |
 | P2 | Make classpath-visible internal classes package-private where feasible, or add a stronger internal naming convention. |
 
@@ -132,7 +128,6 @@ Remaining documentation additions:
 
 | Priority | Issue | Current state | Needed change |
 | --- | --- | --- | --- |
-| P2 | Metrics model examples | Metrics have the highest constructor complexity. | Add examples for sum, gauge, histogram, exemplars, and null/`DATA_NOT_SET` handling. |
 | P2 | Tap usage | Docs show publishers but not a full subscriber. | Add a minimal `Flow.Subscriber` example. |
 
 ## Complexity
@@ -211,24 +206,6 @@ Go methods receive `context.Context` and return `error`:
 
 Recommendation: do not add context to every API unless needed, but document this deliberate difference. If request metadata becomes important, add a parallel contextual interface such as `ContextualConsumer<T>` rather than breaking the simple `Consumer<T>` SAM.
 
-### Environment Configuration
-
-Go SDK OTLP exporters read standard environment variables by default, including signal-specific overrides:
-
-- `OTEL_EXPORTER_OTLP_ENDPOINT`
-- `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`
-- `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`
-- `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`
-- `OTEL_EXPORTER_OTLP_HEADERS` and signal-specific header variables
-- `OTEL_EXPORTER_OTLP_TIMEOUT` and signal-specific timeout variables
-- `OTEL_EXPORTER_OTLP_COMPRESSION` and signal-specific compression variables
-- TLS certificate/client certificate/client key variables
-- Metrics temporality and histogram aggregation variables for metric exporters
-
-`otlp4j` currently appears to be explicit-code-only. That is acceptable for a library that is not an SDK autoconfiguration module, but it diverges from OTEL user expectations.
-
-Recommendation: add `ClientTransportConfig.fromEnvironment()` with documented precedence, ideally as opt-in environment loading so library construction remains deterministic in embedded tests.
-
 ### Defaults and Security
 
 Go gRPC exporters document secure transport as the default, with `WithInsecure()` to opt out. They default to `https://localhost:4317` in package docs, while also supporting endpoint schemes and env vars.
@@ -281,23 +258,9 @@ The key difference is whole-batch failure. Go APIs generally return `error`; Col
 | Priority | Recommendation | Rationale |
 | --- | --- | --- |
 | P1 | Revisit `Metric.data()` nullability before API stabilization. | Null is inconsistent with the otherwise typed sealed model. |
-| P2 | Add metric construction helpers/builders for points and common metric forms. | Metrics are the hardest model objects to construct correctly today. |
 | P2 | Add a `TelemetryTap` subscriber example. | `Flow.Publisher` is standard but verbose; users need one complete pattern. |
 | P2 | Reduce classpath-visible internal public classes. | JPMS users are protected, classpath users are not. |
 
-## Suggested API Sketches
-
-These are illustrative, not prescriptive.
-
-Opt-in environment configuration:
-
-```java
-var exporter = OtlpGrpcExporter.builder()
-        .fromEnvironment()
-        .endpoint("collector.example.com", 4317) // explicit builder wins
-        .build();
-```
-
 ## Bottom Line
 
-The API direction is strong: Java records plus a typed pipeline give a clearer application surface than generated OTLP protobufs, and the module boundary is well designed. The biggest improvements before wider use are not large rewrites. They are precise API/documentation fixes around standard configuration expectations and metric construction ergonomics.
+The API direction is strong: Java records plus a typed pipeline give a clearer application surface than generated OTLP protobufs, and the module boundary is well designed. The biggest improvements before wider use are not large rewrites. They are precise API/documentation fixes around the remaining standard-alignment gaps.

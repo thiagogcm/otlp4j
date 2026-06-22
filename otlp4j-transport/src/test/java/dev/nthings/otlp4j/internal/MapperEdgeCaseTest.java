@@ -1,6 +1,7 @@
 package dev.nthings.otlp4j.internal;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.nthings.otlp4j.model.Attributes;
 import dev.nthings.otlp4j.model.ExponentialHistogramPoint;
@@ -10,11 +11,16 @@ import dev.nthings.otlp4j.testing.Fixtures;
 import io.opentelemetry.proto.collector.logs.v1.ExportLogsPartialSuccess;
 import io.opentelemetry.proto.collector.logs.v1.ExportLogsServiceResponse;
 import io.opentelemetry.proto.collector.metrics.v1.ExportMetricsPartialSuccess;
+import io.opentelemetry.proto.collector.metrics.v1.ExportMetricsServiceRequest;
 import io.opentelemetry.proto.collector.metrics.v1.ExportMetricsServiceResponse;
 import io.opentelemetry.proto.collector.profiles.v1development.ExportProfilesPartialSuccess;
 import io.opentelemetry.proto.collector.profiles.v1development.ExportProfilesServiceResponse;
 import io.opentelemetry.proto.collector.trace.v1.ExportTracePartialSuccess;
 import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceResponse;
+import io.opentelemetry.proto.metrics.v1.Histogram;
+import io.opentelemetry.proto.metrics.v1.HistogramDataPoint;
+import io.opentelemetry.proto.metrics.v1.ResourceMetrics;
+import io.opentelemetry.proto.metrics.v1.ScopeMetrics;
 import java.util.List;
 import java.util.OptionalDouble;
 import org.junit.jupiter.api.DisplayName;
@@ -51,6 +57,25 @@ class MapperEdgeCaseTest {
         var roundTripped = MetricsMapper.toDomain(MetricsMapper.toProto(sent));
 
         assertThat(roundTripped).isEqualTo(sent);
+    }
+
+    @DisplayName("A malformed inbound histogram point (buckets != bounds + 1) is rejected on decode")
+    @Test
+    void aMalformedHistogramWirePointIsRejectedOnDecode() {
+        // 2 bucket counts with 0 explicit bounds violates the buckets == bounds + 1 invariant.
+        var request = ExportMetricsServiceRequest.newBuilder()
+                .addResourceMetrics(ResourceMetrics.newBuilder()
+                        .addScopeMetrics(ScopeMetrics.newBuilder()
+                                .addMetrics(io.opentelemetry.proto.metrics.v1.Metric.newBuilder()
+                                        .setName("bad.histogram")
+                                        .setHistogram(Histogram.newBuilder()
+                                                .addDataPoints(HistogramDataPoint.newBuilder()
+                                                        .addBucketCounts(1L)
+                                                        .addBucketCounts(2L))))))
+                .build();
+
+        assertThatThrownBy(() -> MetricsMapper.toDomain(request))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @DisplayName("Metric with no data maps back to null data")
