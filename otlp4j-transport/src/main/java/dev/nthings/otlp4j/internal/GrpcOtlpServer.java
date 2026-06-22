@@ -42,6 +42,7 @@ final class GrpcOtlpServer implements OtlpServer {
         if (server != null) {
             throw new IllegalStateException("server already started");
         }
+        requireBindableHost(config.bindHost());
         var serverBuilder = Grpc.newServerBuilderForPort(config.port(), serverCredentials(config.tls()));
         GrpcServiceAdapters.create(dispatchers).forEach(serverBuilder::addService);
         server = serverBuilder.build().start();
@@ -92,6 +93,23 @@ final class GrpcOtlpServer implements OtlpServer {
                 throw new RuntimeException(e);
             }
         });
+    }
+
+    /// The cross-transport builder binds every interface, so a specific bind host can't be
+    /// honoured — fail fast instead of binding wider than asked.
+    private static void requireBindableHost(String bindHost) {
+        if (!isWildcardHost(bindHost)) {
+            throw new IllegalArgumentException(
+                    "bindHost \"" + bindHost + "\" is not supported by the bundled OTLP/gRPC transport, "
+                            + "which binds all interfaces; use the wildcard \"0.0.0.0\" or \"::\"");
+        }
+    }
+
+    private static boolean isWildcardHost(String host) {
+        return host.isEmpty()
+                || host.equals("0.0.0.0")
+                || host.equals("::")
+                || host.equals("0:0:0:0:0:0:0:0");
     }
 
     private static ServerCredentials serverCredentials(Tls tls) {

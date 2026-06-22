@@ -60,9 +60,12 @@ public record LogRecord(
             return number;
         }
 
+        // Cached to avoid values()'s per-call array clone on the decode hot path.
+        private static final Severity[] VALUES = values();
+
         /// Resolves a severity from its protocol number, falling back to [#UNSPECIFIED].
         public static Severity fromNumber(int number) {
-            for (var severity : values()) {
+            for (var severity : VALUES) {
                 if (severity.number == number) {
                     return severity;
                 }

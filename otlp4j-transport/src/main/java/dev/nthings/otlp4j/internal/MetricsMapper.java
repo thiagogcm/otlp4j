@@ -28,9 +28,6 @@ import java.util.OptionalDouble;
 /// Exemplars are not surfaced in the domain model and are dropped in both directions.
 final class MetricsMapper {
 
-    private static final Metric.AggregationTemporality[] TEMPORALITIES =
-            Metric.AggregationTemporality.values();
-
     private MetricsMapper() {}
 
     // --- proto -> domain ---------------------------------------------------------------------
@@ -80,20 +77,23 @@ final class MetricsMapper {
                 var sum = metric.getSum();
                 yield new Metric.Sum(
                         numberPointsToDomain(sum.getDataPointsList()),
-                        temporality(sum.getAggregationTemporality().getNumber()),
+                        Metric.AggregationTemporality.fromNumber(
+                                sum.getAggregationTemporalityValue()),
                         sum.getIsMonotonic());
             }
             case HISTOGRAM -> {
                 var histogram = metric.getHistogram();
                 yield new Metric.Histogram(
                         histogramPointsToDomain(histogram.getDataPointsList()),
-                        temporality(histogram.getAggregationTemporality().getNumber()));
+                        Metric.AggregationTemporality.fromNumber(
+                                histogram.getAggregationTemporalityValue()));
             }
             case EXPONENTIAL_HISTOGRAM -> {
                 var histogram = metric.getExponentialHistogram();
                 yield new Metric.ExponentialHistogram(
                         exponentialHistogramPointsToDomain(histogram.getDataPointsList()),
-                        temporality(histogram.getAggregationTemporality().getNumber()));
+                        Metric.AggregationTemporality.fromNumber(
+                                histogram.getAggregationTemporalityValue()));
             }
             case SUMMARY ->
                 new Metric.Summary(summaryPointsToDomain(metric.getSummary().getDataPointsList()));
@@ -186,12 +186,6 @@ final class MetricsMapper {
                     unsignedInt(point.getFlags())));
         }
         return result;
-    }
-
-    private static Metric.AggregationTemporality temporality(int number) {
-        return number >= 0 && number < TEMPORALITIES.length
-                ? TEMPORALITIES[number]
-                : Metric.AggregationTemporality.UNSPECIFIED;
     }
 
     private static long unsignedInt(int value) {
@@ -372,6 +366,6 @@ final class MetricsMapper {
     }
 
     private static AggregationTemporality temporality(Metric.AggregationTemporality temporality) {
-        return AggregationTemporality.forNumber(temporality.ordinal());
+        return AggregationTemporality.forNumber(temporality.number());
     }
 }

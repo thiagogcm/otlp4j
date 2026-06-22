@@ -2,6 +2,7 @@ package dev.nthings.otlp4j.model;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /// A single operation within a trace. Mirrors `opentelemetry.proto.trace.v1.Span`.
 ///
@@ -26,6 +27,15 @@ public record Span(
         Status status) {
 
     public Span {
+        // Reject nulls at construction, not later on the async export thread.
+        Objects.requireNonNull(traceId, "traceId");
+        Objects.requireNonNull(spanId, "spanId");
+        Objects.requireNonNull(parentSpanId, "parentSpanId");
+        Objects.requireNonNull(traceState, "traceState");
+        Objects.requireNonNull(name, "name");
+        Objects.requireNonNull(kind, "kind");
+        Objects.requireNonNull(attributes, "attributes");
+        Objects.requireNonNull(status, "status");
         events = List.copyOf(events);
         links = List.copyOf(links);
     }
@@ -34,13 +44,38 @@ public record Span(
         return new Builder();
     }
 
+    /// Explicit OTLP wire numbers decouple the encoding from declaration order.
     public enum Kind {
-        UNSPECIFIED,
-        INTERNAL,
-        SERVER,
-        CLIENT,
-        PRODUCER,
-        CONSUMER
+        UNSPECIFIED(0),
+        INTERNAL(1),
+        SERVER(2),
+        CLIENT(3),
+        PRODUCER(4),
+        CONSUMER(5);
+
+        private final int number;
+
+        Kind(int number) {
+            this.number = number;
+        }
+
+        /// The numeric span kind as defined by the protocol.
+        public int number() {
+            return number;
+        }
+
+        // Cached to avoid values()'s per-call array clone on the decode hot path.
+        private static final Kind[] VALUES = values();
+
+        /// Resolves a kind from its protocol number, falling back to [#UNSPECIFIED].
+        public static Kind fromNumber(int number) {
+            for (var kind : VALUES) {
+                if (kind.number == number) {
+                    return kind;
+                }
+            }
+            return UNSPECIFIED;
+        }
     }
 
     /// A timestamped annotation on a span.
@@ -61,9 +96,33 @@ public record Span(
         public static final Status UNSET = new Status(Code.UNSET, "");
 
         public enum Code {
-            UNSET,
-            OK,
-            ERROR
+            UNSET(0),
+            OK(1),
+            ERROR(2);
+
+            private final int number;
+
+            Code(int number) {
+                this.number = number;
+            }
+
+            /// The numeric status code as defined by the protocol.
+            public int number() {
+                return number;
+            }
+
+            // Cached to avoid values()'s per-call array clone on the decode hot path.
+            private static final Code[] VALUES = values();
+
+            /// Resolves a status code from its protocol number, falling back to [#UNSET].
+            public static Code fromNumber(int number) {
+                for (var code : VALUES) {
+                    if (code.number == number) {
+                        return code;
+                    }
+                }
+                return UNSET;
+            }
         }
     }
 
@@ -145,6 +204,8 @@ public record Span(
         }
 
         public Builder events(List<Event> events) {
+            // Null-check before clear() so a bad arg can't half-mutate the builder.
+            Objects.requireNonNull(events, "events");
             this.events.clear();
             this.events.addAll(events);
             return this;
@@ -161,6 +222,7 @@ public record Span(
         }
 
         public Builder links(List<Link> links) {
+            Objects.requireNonNull(links, "links");
             this.links.clear();
             this.links.addAll(links);
             return this;

@@ -49,7 +49,7 @@ final class LogsMapper {
         return new LogRecord(
                 record.getTimeUnixNano(),
                 record.getObservedTimeUnixNano(),
-                LogRecord.Severity.fromNumber(record.getSeverityNumber().getNumber()),
+                LogRecord.Severity.fromNumber(record.getSeverityNumberValue()),
                 record.getSeverityText(),
                 CommonMapper.attributeValue(record.getBody()),
                 CommonMapper.attributes(record.getAttributesList()),

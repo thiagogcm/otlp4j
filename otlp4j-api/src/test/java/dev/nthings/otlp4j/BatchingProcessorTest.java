@@ -14,9 +14,13 @@ import dev.nthings.otlp4j.testing.Fixtures;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 @DisplayName("BatchingProcessor")
 class BatchingProcessorTest {
@@ -113,5 +117,74 @@ class BatchingProcessorTest {
     void rejectsBuilderWithoutDownstream() {
         var builder = BatchingProcessor.forTraces().maxBatchSize(1);
         assertThatThrownBy(builder::build).isInstanceOf(IllegalStateException.class);
+    }
+
+    @DisplayName("shutdown does not report success while an in-flight flush has not completed")
+    @Test
+    @Timeout(15)
+    void shutdownAwaitsInFlightFlushAndTimesOut() {
+        // A downstream that never completes: the size-triggered flush stays in flight forever.
+        TraceConsumer stalling = traces -> new CompletableFuture<>();
+        var batcher = BatchingProcessor.forTraces()
+                .downstream(stalling)
+                .maxBatchSize(1) // flush immediately on the first consume
+                .queueCapacity(16)
+                .maxBatchAge(Duration.ofSeconds(30))
+                .build();
+        batcher.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
+                .toCompletableFuture().join();
+
+        var shutdown = batcher.shutdown(Duration.ofMillis(300)).toCompletableFuture();
+
+        // Old code reported instant success; the redesign surfaces the timeout.
+        assertThatThrownBy(() -> shutdown.get(5, TimeUnit.SECONDS))
+                .isInstanceOf(ExecutionException.class)
+                .hasCauseInstanceOf(TimeoutException.class);
+    }
+
+    @DisplayName("shutdown propagates a downstream rejection instead of swallowing it")
+    @Test
+    @Timeout(15)
+    void shutdownPropagatesDownstreamRejection() {
+        TraceConsumer rejecting = traces ->
+                CompletableFuture.completedFuture(ConsumeResult.rejected("backend unavailable"));
+        var batcher = BatchingProcessor.forTraces()
+                .downstream(rejecting)
+                .maxBatchSize(100) // no size-trigger; the queued batch drains on shutdown
+                .queueCapacity(100)
+                .maxBatchAge(Duration.ofSeconds(30))
+                .build();
+        batcher.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
+                .toCompletableFuture().join();
+
+        var shutdown = batcher.shutdown(Duration.ofSeconds(2)).toCompletableFuture();
+
+        assertThatThrownBy(() -> shutdown.get(5, TimeUnit.SECONDS))
+                .isInstanceOf(ExecutionException.class)
+                .hasCauseInstanceOf(BatchingProcessor.BatchDeliveryException.class)
+                .cause()
+                .hasMessageContaining("backend unavailable");
+    }
+
+    @DisplayName("shutdown propagates a downstream failure instead of swallowing it")
+    @Test
+    @Timeout(15)
+    void shutdownPropagatesDownstreamFailure() {
+        TraceConsumer failing = traces -> CompletableFuture.failedFuture(new RuntimeException("kaboom"));
+        var batcher = BatchingProcessor.forTraces()
+                .downstream(failing)
+                .maxBatchSize(100)
+                .queueCapacity(100)
+                .maxBatchAge(Duration.ofSeconds(30))
+                .build();
+        batcher.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
+                .toCompletableFuture().join();
+
+        var shutdown = batcher.shutdown(Duration.ofSeconds(2)).toCompletableFuture();
+
+        assertThatThrownBy(() -> shutdown.get(5, TimeUnit.SECONDS))
+                .isInstanceOf(ExecutionException.class)
+                .cause()
+                .hasMessageContaining("kaboom");
     }
 }

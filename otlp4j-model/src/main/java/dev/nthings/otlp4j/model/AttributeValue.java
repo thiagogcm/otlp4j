@@ -47,9 +47,19 @@ public sealed interface AttributeValue {
         }
     }
 
-    record ArrayValue(List<AttributeValue> values) implements AttributeValue {}
+    /// A heterogeneous array, defensively copied on construction.
+    record ArrayValue(List<AttributeValue> values) implements AttributeValue {
+        public ArrayValue {
+            values = List.copyOf(values);
+        }
+    }
 
-    record KeyValueListValue(Map<String, AttributeValue> values) implements AttributeValue {}
+    /// A nested key/value map, defensively copied on construction (iteration order preserved).
+    record KeyValueListValue(Map<String, AttributeValue> values) implements AttributeValue {
+        public KeyValueListValue {
+            values = Collections.unmodifiableMap(new LinkedHashMap<>(values));
+        }
+    }
 
     /// The "empty" value: an attribute value with none of its variants set.
     record Empty() implements AttributeValue {}
@@ -77,13 +87,12 @@ public sealed interface AttributeValue {
     }
 
     static AttributeValue of(List<AttributeValue> values) {
-        return new ArrayValue(List.copyOf(values));
+        return new ArrayValue(values);
     }
 
     /// Wraps a copy of the map, preserving iteration order.
     static AttributeValue of(Map<String, AttributeValue> values) {
-        return new KeyValueListValue(
-                Collections.unmodifiableMap(new LinkedHashMap<>(values)));
+        return new KeyValueListValue(values);
     }
 
     static AttributeValue empty() {

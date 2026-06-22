@@ -12,13 +12,15 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.LongAdder;
@@ -45,8 +47,15 @@ public final class BatchingProcessor<T> implements Consumer<T>, Pipeline.Flushab
     private final boolean ownsScheduler;
     private final ScheduledFuture<?> timer;
     private final AtomicBoolean closed = new AtomicBoolean();
-    private final Semaphore flushLock = new Semaphore(1);
     private final Merger<T> merger;
+
+    /// Drains run serially here; the timer (on `scheduler`) only decides when to flush.
+    private final ExecutorService drainExecutor;
+
+    /// Each drain chains after the previous (guarded by `drainMutex`); the tail is error-isolated
+    /// so one failure doesn't wedge the next.
+    private final Object drainMutex = new Object();
+    private CompletableFuture<Void> drainTail = CompletableFuture.completedFuture(null);
 
     private BatchingProcessor(Builder<T> b) {
         this.downstream = Objects.requireNonNull(b.downstream, "downstream");
@@ -64,6 +73,11 @@ public final class BatchingProcessor<T> implements Consumer<T>, Pipeline.Flushab
                     return t;
                 })
                 : b.scheduler;
+        this.drainExecutor = Executors.newSingleThreadExecutor(r -> {
+            var t = new Thread(r, "otlp4j-batcher-drain");
+            t.setDaemon(true);
+            return t;
+        });
         long ageNanos = b.maxBatchAge.toNanos();
         this.timer = scheduler.scheduleAtFixedRate(this::flushIfDue, ageNanos, ageNanos, TimeUnit.NANOSECONDS);
     }
@@ -105,12 +119,11 @@ public final class BatchingProcessor<T> implements Consumer<T>, Pipeline.Flushab
             }
         }
         if (queue.size() >= maxBatchSize) {
-            // Run the drain on our scheduler so the caller never blocks on downstream I/O.
+            // Drain asynchronously so the caller never blocks on downstream I/O.
             try {
-                scheduler.execute(this::flushNow);
+                scheduleDrain();
             } catch (RejectedExecutionException rex) {
-                // The scheduler shut down between consume()'s closed-check and now; the batch
-                // is already enqueued but no longer reachable.
+                // Executor shut down after the closed-check; the batch is enqueued but unreachable.
                 return CompletableFuture.completedFuture(
                         ConsumeResult.rejected("batcher shutting down"));
             }
@@ -130,56 +143,102 @@ public final class BatchingProcessor<T> implements Consumer<T>, Pipeline.Flushab
 
     @Override
     public CompletionStage<Void> forceFlush(Duration timeout) {
-        return flushNow();
+        // Drain and await real downstream completion, bounded by `timeout`, propagating failures.
+        return enqueueDrain().orTimeout(timeout.toNanos(), TimeUnit.NANOSECONDS);
     }
 
-    /// Drains buffered batches downstream and stops the timer; completes on drain or `timeout`.
+    /// Stops the timer and drains downstream. Completes only when the final drain's delivery
+    /// finishes; propagates timeout/failure/rejection instead of a false success.
     public CompletionStage<Void> shutdown(Duration timeout) {
         if (!closed.compareAndSet(false, true)) {
             return CompletableFuture.completedFuture(null);
         }
         timer.cancel(false);
-        var drained = flushNow()
+        // Chain after any in-flight drain so shutdown can't report success mid-export.
+        return enqueueDrain()
                 .orTimeout(timeout.toNanos(), TimeUnit.NANOSECONDS)
-                .exceptionally(t -> null);
-        if (ownsScheduler) {
-            drained = drained.whenComplete((_, _) -> scheduler.shutdown()).toCompletableFuture();
-        }
-        return drained;
+                .whenComplete((ignored, t) -> {
+                    drainExecutor.shutdown();
+                    if (ownsScheduler) {
+                        scheduler.shutdown();
+                    }
+                });
     }
 
     @Override
     public void close() {
-        shutdown(Duration.ofSeconds(2)).toCompletableFuture().join();
+        // Best-effort: await the drain but don't throw out of close(); use shutdown() to observe.
+        try {
+            shutdown(Duration.ofSeconds(2)).toCompletableFuture().join();
+        } catch (CompletionException | CancellationException e) {
+            log.warn("batcher did not cleanly drain on close: {}",
+                    e.getCause() != null ? e.getCause().toString() : e.toString());
+        }
     }
 
     private void flushIfDue() {
-        flushNow().whenComplete((_, t) -> {
+        try {
+            scheduleDrain();
+        } catch (RejectedExecutionException rex) {
+            // Timer tick raced shutdown teardown; nothing to drain.
+        }
+    }
+
+    /// Fire-and-forget drain (size/timer); logs failures since nobody awaits it.
+    private void scheduleDrain() {
+        enqueueDrain().whenComplete((ignored, t) -> {
             if (t != null) {
-                log.warn("scheduled flush failed", t);
+                log.warn("flush failed", t);
             }
         });
     }
 
-    private CompletableFuture<Void> flushNow() {
-        // Coalesce concurrent flushes — drain whatever is queued under the lock.
-        if (!flushLock.tryAcquire()) {
+    /// Enqueues a serialized drain; the returned future completes when this drain's delivery does.
+    private CompletableFuture<Void> enqueueDrain() {
+        synchronized (drainMutex) {
+            CompletableFuture<Void> drain =
+                    drainTail.thenComposeAsync(ignored -> drainOnce(), drainExecutor);
+            // Error-isolated so a failed drain doesn't block the next.
+            drainTail = drain.exceptionally(t -> null);
+            return drain;
+        }
+    }
+
+    private CompletableFuture<Void> drainOnce() {
+        var snapshot = new ArrayList<T>(queue.size());
+        queue.drainTo(snapshot);
+        if (snapshot.isEmpty()) {
             return CompletableFuture.completedFuture(null);
         }
         try {
-            var snapshot = new ArrayList<T>(queue.size());
-            queue.drainTo(snapshot);
-            if (snapshot.isEmpty()) {
-                return CompletableFuture.completedFuture(null);
-            }
             var merged = merger.merge(snapshot);
-            try {
-                return downstream.consume(merged).toCompletableFuture().thenApply(r -> null);
-            } catch (RuntimeException e) {
-                return CompletableFuture.failedFuture(e);
-            }
-        } finally {
-            flushLock.release();
+            return downstream.consume(merged).toCompletableFuture()
+                    .thenCompose(BatchingProcessor::asDeliveryOutcome);
+        } catch (RuntimeException e) {
+            return CompletableFuture.failedFuture(e);
+        }
+    }
+
+    /// Maps a downstream result to success/failure so a `Partial`/`Rejected` is surfaced, not discarded.
+    private static CompletableFuture<Void> asDeliveryOutcome(ConsumeResult<?> result) {
+        return switch (result) {
+            case ConsumeResult.Accepted<?> _ -> CompletableFuture.completedFuture(null);
+            case ConsumeResult.Partial<?> p -> CompletableFuture.failedFuture(new BatchDeliveryException(
+                    "downstream partially rejected " + p.rejectedItems() + " item(s): " + p.message()));
+            case ConsumeResult.Rejected<?> r -> CompletableFuture.failedFuture(
+                    new BatchDeliveryException("downstream rejected batch: " + r.message(), r.cause()));
+        };
+    }
+
+    /// A batch could not be fully delivered downstream (threw, rejected, or partially rejected).
+    /// Surfaced from [#shutdown] and [#forceFlush] so a failed flush is observable.
+    public static final class BatchDeliveryException extends RuntimeException {
+        BatchDeliveryException(String message) {
+            super(message);
+        }
+
+        BatchDeliveryException(String message, Throwable cause) {
+            super(message, cause);
         }
     }
 

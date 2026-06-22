@@ -51,9 +51,33 @@ public record Metric(String name, String description, String unit, Data data, At
 
     /// How a metric aggregator reports values relative to time.
     public enum AggregationTemporality {
-        UNSPECIFIED,
-        DELTA,
-        CUMULATIVE
+        UNSPECIFIED(0),
+        DELTA(1),
+        CUMULATIVE(2);
+
+        private final int number;
+
+        AggregationTemporality(int number) {
+            this.number = number;
+        }
+
+        /// The numeric aggregation temporality as defined by the protocol.
+        public int number() {
+            return number;
+        }
+
+        // Cached to avoid values()'s per-call array clone on the decode hot path.
+        private static final AggregationTemporality[] VALUES = values();
+
+        /// Resolves a temporality from its protocol number, falling back to [#UNSPECIFIED].
+        public static AggregationTemporality fromNumber(int number) {
+            for (var temporality : VALUES) {
+                if (temporality.number == number) {
+                    return temporality;
+                }
+            }
+            return UNSPECIFIED;
+        }
     }
 
     /// Fluent builder for [Metric]. `name`/`description`/`unit` default to

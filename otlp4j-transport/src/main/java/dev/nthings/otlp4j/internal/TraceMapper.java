@@ -14,9 +14,6 @@ import java.util.List;
 /// **Internal.** Part of the transport layer; not public API.
 final class TraceMapper {
 
-    private static final Span.Kind[] KINDS = Span.Kind.values();
-    private static final Span.Status.Code[] STATUS_CODES = Span.Status.Code.values();
-
     private TraceMapper() {}
 
     // --- proto -> domain ---------------------------------------------------------------------
@@ -74,7 +71,7 @@ final class TraceMapper {
                 span.getTraceState(),
                 unsignedInt(span.getFlags()),
                 span.getName(),
-                kind(span.getKind().getNumber()),
+                Span.Kind.fromNumber(span.getKindValue()),
                 span.getStartTimeUnixNano(),
                 span.getEndTimeUnixNano(),
                 CommonMapper.attributes(span.getAttributesList()),
@@ -87,16 +84,9 @@ final class TraceMapper {
     }
 
     private static Span.Status status(io.opentelemetry.proto.trace.v1.Status status) {
-        var code = status.getCode().getNumber();
-        var mapped =
-                code >= 0 && code < STATUS_CODES.length
-                        ? STATUS_CODES[code]
-                        : Span.Status.Code.UNSET;
-        return new Span.Status(mapped, status.getMessage());
-    }
-
-    private static Span.Kind kind(int number) {
-        return number >= 0 && number < KINDS.length ? KINDS[number] : Span.Kind.UNSPECIFIED;
+        // Raw-int accessor: UNRECOGNIZED degrades to UNSET instead of throwing.
+        return new Span.Status(
+                Span.Status.Code.fromNumber(status.getCodeValue()), status.getMessage());
     }
 
     private static long unsignedInt(int value) {
@@ -162,7 +152,7 @@ final class TraceMapper {
                         .setFlags((int) span.flags())
                         .setName(span.name())
                         .setKind(io.opentelemetry.proto.trace.v1.Span.SpanKind.forNumber(
-                                span.kind().ordinal()))
+                                span.kind().number()))
                         .setStartTimeUnixNano(span.startEpochNanos())
                         .setEndTimeUnixNano(span.endEpochNanos())
                         .addAllAttributes(CommonMapper.toKeyValues(span.attributes()))
@@ -171,7 +161,7 @@ final class TraceMapper {
                         .setDroppedLinksCount(span.droppedLinksCount())
                         .setStatus(io.opentelemetry.proto.trace.v1.Status.newBuilder()
                                 .setCode(io.opentelemetry.proto.trace.v1.Status.StatusCode
-                                        .forNumber(span.status().code().ordinal()))
+                                        .forNumber(span.status().code().number()))
                                 .setMessage(span.status().message()));
         for (var event : span.events()) {
             builder.addEvents(io.opentelemetry.proto.trace.v1.Span.Event.newBuilder()

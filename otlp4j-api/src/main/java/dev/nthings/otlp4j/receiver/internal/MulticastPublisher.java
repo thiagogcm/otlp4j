@@ -7,6 +7,7 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Flow;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.LongAdder;
 import org.slf4j.Logger;
@@ -80,6 +81,10 @@ public final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoClose
 
     private static final class SubscriptionImpl<T> implements Flow.Subscription {
 
+        /// How long a BLOCK producer parks for capacity before re-checking cancellation, so it
+        /// can't hang forever after terminateDispatch.
+        private static final long BLOCK_OFFER_POLL_NANOS = TimeUnit.MILLISECONDS.toNanos(100);
+
         private final Flow.Subscriber<? super T> subscriber;
         private final BackpressureStrategy strategy;
         private final ArrayBlockingQueue<T> queue;
@@ -121,8 +126,13 @@ public final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoClose
                     }
                 }
                 case BLOCK -> {
+                    // Park for capacity, but poll so cancel/close (via terminateDispatch) releases
+                    // the producer instead of hanging it.
                     try {
-                        queue.put(item);
+                        while (!cancelled.get()
+                                && !queue.offer(item, BLOCK_OFFER_POLL_NANOS, TimeUnit.NANOSECONDS)) {
+                            // retry; the loop condition re-checks cancellation each poll
+                        }
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                     }
@@ -145,13 +155,12 @@ public final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoClose
             }
         }
 
-        /// Blocks for demand, then for an item, then delivers — no polling, no spinning.
+        /// Blocks for demand, then an item, then delivers. Demand gates every strategy including
+        /// BLOCK (a `Flow.Publisher` must not exceed demand); BLOCK back-pressure is in [#offer].
         private void dispatchLoop() {
             try {
                 while (!cancelled.get()) {
-                    if (strategy != BackpressureStrategy.BLOCK) {
-                        demand.acquire();
-                    }
+                    demand.acquire();
                     if (cancelled.get()) {
                         return;
                     }
@@ -173,7 +182,7 @@ public final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoClose
 
         void complete() {
             if (cancelled.compareAndSet(false, true)) {
-                interruptDispatcher();
+                terminateDispatch();
                 try {
                     subscriber.onComplete();
                 } catch (RuntimeException _) {
@@ -184,7 +193,7 @@ public final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoClose
 
         void completeExceptionally(Throwable t) {
             if (cancelled.compareAndSet(false, true)) {
-                interruptDispatcher();
+                terminateDispatch();
                 try {
                     subscriber.onError(t);
                 } catch (RuntimeException _) {
@@ -200,9 +209,6 @@ public final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoClose
                 completeExceptionally(new IllegalArgumentException("request must be positive"));
                 return;
             }
-            if (strategy == BackpressureStrategy.BLOCK) {
-                return; // BLOCK delivers regardless of demand
-            }
             // Saturate at Integer.MAX_VALUE outstanding permits; effectively unbounded demand.
             int headroom = Integer.MAX_VALUE - demand.availablePermits();
             if (headroom > 0) {
@@ -214,15 +220,18 @@ public final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoClose
         public void cancel() {
             if (cancelled.compareAndSet(false, true)) {
                 roster.remove(this);
-                interruptDispatcher();
+                terminateDispatch();
             }
         }
 
-        private void interruptDispatcher() {
+        /// Interrupts the dispatcher and drains the queue so a producer parked in a BLOCK [#offer]
+        /// gets capacity and returns instead of hanging.
+        private void terminateDispatch() {
             var d = dispatcher;
             if (d != null) {
                 d.interrupt();
             }
+            queue.clear();
         }
     }
 }
