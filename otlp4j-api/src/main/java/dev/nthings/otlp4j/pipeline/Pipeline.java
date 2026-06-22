@@ -255,24 +255,4 @@ public final class Pipeline {
             return CompletableFuture.completedFuture(null);
         }
     }
-
-    /// Optional mixin allowing a consumer chain element to participate in `forceFlush(...)`.
-    public interface Flushable {
-
-        /// Flushes any in-flight buffers downstream.
-        CompletionStage<Void> forceFlush(Duration timeout);
-    }
-
-    /// Optional mixin letting an owned resource drain within the pipeline's shared shutdown deadline.
-    ///
-    /// When a resource registered via [Stage#owns(AutoCloseable)] implements this, the subscription
-    /// passes the *remaining* shared budget to [#shutdown(Duration)] instead of falling back to the
-    /// resource's no-argument [AutoCloseable#close], whose own fixed timeout would ignore the caller's
-    /// deadline. [Subscription] is a `Drainable`, as is [dev.nthings.otlp4j.exporter.OtlpGrpcExporter].
-    public interface Drainable extends AutoCloseable {
-
-        /// Drains the resource, returning a stage that completes successfully on a clean drain and
-        /// exceptionally if `timeout` elapses.
-        CompletionStage<Void> shutdown(Duration timeout);
-    }
 }

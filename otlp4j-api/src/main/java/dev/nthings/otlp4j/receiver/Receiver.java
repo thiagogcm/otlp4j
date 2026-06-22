@@ -4,6 +4,7 @@ import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.TraceData;
+import dev.nthings.otlp4j.pipeline.Drainable;
 import dev.nthings.otlp4j.pipeline.Source;
 import java.time.Duration;
 import java.util.concurrent.CompletionStage;
@@ -13,7 +14,7 @@ import java.util.concurrent.CompletionStage;
 /// A receiver exposes one [Source] per signal — these are the typed attachment points the
 /// pipeline DSL consumes — plus a [TelemetryTap] for side-channel live streaming. Concrete
 /// receivers (`OtlpGrpcReceiver`, future `OtlpHttpReceiver`, etc.) implement this interface.
-public interface Receiver extends AutoCloseable {
+public interface Receiver extends Drainable {
 
     /// The trace ingest source.
     Source<TraceData> traces();
@@ -37,17 +38,11 @@ public interface Receiver extends AutoCloseable {
     /// The port the receiver is bound to (gRPC, HTTP, etc.). Zero before [#start] completes.
     int port();
 
-    /// Drains in-flight requests and stops the transport.
+    /// Drains in-flight requests and stops the transport. [#close()] applies the default 10-second
+    /// grace; use [#shutdownNow()] for an immediate stop.
+    @Override
     CompletionStage<Void> shutdown(Duration timeout);
 
     /// Forcibly stops the transport.
     CompletionStage<Void> shutdownNow();
-
-    /// Gracefully drains and stops the transport with a default 10-second timeout, matching the
-    /// `close()` semantics of [dev.nthings.otlp4j.exporter.OtlpGrpcExporter] and
-    /// [dev.nthings.otlp4j.pipeline.Subscription]. Use [#shutdownNow()] for an immediate stop.
-    @Override
-    default void close() {
-        shutdown(Duration.ofSeconds(10)).toCompletableFuture().join();
-    }
 }

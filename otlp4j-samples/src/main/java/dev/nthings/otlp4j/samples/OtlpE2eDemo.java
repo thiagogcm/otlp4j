@@ -42,7 +42,7 @@ public final class OtlpE2eDemo {
         log.info("=== otlp4j end-to-end demo ===");
         log.info("Client sent 5 spans (3 SERVER, 2 INTERNAL) to the gateway.");
         log.info("Gateway pipeline: enrich resource attribute -> filter SERVER spans -> "
-                + "fan out to exporter + SpanCountConnector.");
+                + "fan out to exporter + span count connector.");
         log.info("Backend received:");
         log.info("  filtered spans          : {} (expected 3)", result.spansAtBackend());
         log.info("  derived span-count metric: {} (expected 3)", result.derivedSpanCount());

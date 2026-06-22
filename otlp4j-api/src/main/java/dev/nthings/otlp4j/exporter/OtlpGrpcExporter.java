@@ -1,9 +1,10 @@
 package dev.nthings.otlp4j.exporter;
 
 import dev.nthings.otlp4j.api.internal.SpiSupport;
+import dev.nthings.otlp4j.pipeline.Drainable;
+import dev.nthings.otlp4j.pipeline.Flushable;
 import dev.nthings.otlp4j.pipeline.LogConsumer;
 import dev.nthings.otlp4j.pipeline.MetricConsumer;
-import dev.nthings.otlp4j.pipeline.Pipeline;
 import dev.nthings.otlp4j.pipeline.ProfileConsumer;
 import dev.nthings.otlp4j.pipeline.TraceConsumer;
 import dev.nthings.otlp4j.spi.ClientTransportConfig;
@@ -28,10 +29,10 @@ import org.slf4j.LoggerFactory;
 ///
 /// Because the facets are method references, the pipeline cannot auto-discover this exporter behind
 /// them — register it explicitly with `Stage.owns(exporter)` so the pipeline drains it on shutdown
-/// and flushes it on forceFlush. As a [Pipeline.Drainable] it receives the pipeline's *remaining*
-/// shared deadline on shutdown. Shutdown is cancellation-aware: a timeout interrupts the transport
-/// teardown rather than leaving it blocking on a background thread past the caller's deadline.
-public final class OtlpGrpcExporter implements Pipeline.Drainable, Pipeline.Flushable {
+/// and flushes it on forceFlush. As a [Drainable] it receives the pipeline's *remaining* shared
+/// deadline on shutdown. Shutdown is cancellation-aware: a timeout interrupts the transport teardown
+/// rather than leaving it blocking on a background thread past the caller's deadline.
+public final class OtlpGrpcExporter implements Drainable, Flushable {
 
     private static final Logger log = LoggerFactory.getLogger(OtlpGrpcExporter.class);
 
@@ -65,8 +66,8 @@ public final class OtlpGrpcExporter implements Pipeline.Drainable, Pipeline.Flus
     public LogConsumer      logs()     { return client::exportLogs; }
     public ProfileConsumer  profiles() { return client::exportProfiles; }
 
-    /// No-op today (the exporter holds no buffer), but reachable: the exporter is [Pipeline.Flushable],
-    /// so a pipeline `forceFlush` reaches it once it is registered via `Stage.owns(exporter)`.
+    /// No-op today (the exporter holds no buffer), but reachable: the exporter is [Flushable], so a
+    /// pipeline `forceFlush` reaches it once it is registered via `Stage.owns(exporter)`.
     @Override
     public CompletionStage<Void> forceFlush(Duration timeout) {
         return CompletableFuture.completedFuture(null);
@@ -78,7 +79,7 @@ public final class OtlpGrpcExporter implements Pipeline.Drainable, Pipeline.Flus
     ///
     /// Idempotent: once the close has run the executor is shut down, so a repeat call sees a rejected
     /// submission and returns a completed stage rather than re-closing. This matters because an owned
-    /// exporter can be drained by both `Subscription.shutdown` (via [Pipeline.Drainable]) and a later
+    /// exporter can be drained by both `Subscription.shutdown` (via [Drainable]) and a later
     /// explicit `close()`.
     @Override
     public CompletionStage<Void> shutdown(Duration timeout) {
@@ -99,10 +100,7 @@ public final class OtlpGrpcExporter implements Pipeline.Drainable, Pipeline.Flus
         });
     }
 
-    @Override
-    public void close() {
-        shutdown(Duration.ofSeconds(10)).toCompletableFuture().join();
-    }
+    // close() is inherited from Drainable: shutdown(10s) on this exporter's own shutdown thread.
 
     /// Builder for [OtlpGrpcExporter]. Defaults to `localhost:4317` with a 10s deadline.
     public static final class Builder {

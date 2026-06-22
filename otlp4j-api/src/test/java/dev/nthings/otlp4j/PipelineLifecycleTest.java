@@ -6,6 +6,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.nthings.otlp4j.model.TraceData;
 import dev.nthings.otlp4j.pipeline.ConsumeResult;
+import dev.nthings.otlp4j.pipeline.Drainable;
+import dev.nthings.otlp4j.pipeline.Flushable;
 import dev.nthings.otlp4j.pipeline.Pipeline;
 import dev.nthings.otlp4j.pipeline.Source;
 import dev.nthings.otlp4j.pipeline.Subscription;
@@ -42,7 +44,7 @@ class PipelineLifecycleTest {
         var forceFlushed = new AtomicInteger();
         var closed = new AtomicBoolean();
 
-        class FlushableTerminal implements TraceConsumer, Pipeline.Flushable, AutoCloseable {
+        class FlushableTerminal implements TraceConsumer, Flushable, AutoCloseable {
             @Override public CompletionStage<ConsumeResult<TraceData>> consume(TraceData batch) {
                 return ConsumeResult.acceptedStage();
             }
@@ -163,7 +165,7 @@ class PipelineLifecycleTest {
 
         // A plain AutoCloseable (like OtlpGrpcExporter) that is Drainable must receive the deadline-aware
         // shutdown(Duration), not the fixed-timeout close() that would ignore the pipeline's shared budget.
-        class DrainableResource implements Pipeline.Drainable {
+        class DrainableResource implements Drainable {
             final AtomicReference<Duration> shutdownWith = new AtomicReference<>();
             @Override public CompletionStage<Void> shutdown(Duration timeout) {
                 shutdownWith.set(timeout);
@@ -191,7 +193,7 @@ class PipelineLifecycleTest {
         var source = new SignalSource<>(TraceData.class);
         var flushed = new AtomicInteger();
 
-        class FlushableResource implements AutoCloseable, Pipeline.Flushable {
+        class FlushableResource implements AutoCloseable, Flushable {
             @Override public CompletionStage<Void> forceFlush(Duration timeout) {
                 flushed.incrementAndGet();
                 return CompletableFuture.completedFuture(null);

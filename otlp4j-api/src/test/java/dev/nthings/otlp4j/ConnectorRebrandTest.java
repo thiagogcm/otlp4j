@@ -17,7 +17,7 @@ import org.junit.jupiter.api.Test;
 @DisplayName("Connector result rebranding")
 class ConnectorRebrandTest {
 
-    @DisplayName("SpanCountConnector accepts input despite downstream Partial")
+    @DisplayName("spanCount connector accepts input despite downstream Partial")
     @Test
     void spanCountConnectorAcceptsInputDespiteDownstreamPartial() {
         MetricConsumer downstream = metrics -> CompletableFuture.completedStage(
@@ -30,7 +30,7 @@ class ConnectorRebrandTest {
                 .isInstanceOf(ConsumeResult.Accepted.class);
     }
 
-    @DisplayName("SpanCountConnector accepts input despite downstream Rejected")
+    @DisplayName("spanCount connector accepts input despite downstream Rejected")
     @Test
     void spanCountConnectorAcceptsInputDespiteDownstreamRejected() {
         MetricConsumer downstream = metrics -> CompletableFuture.completedStage(
@@ -41,7 +41,7 @@ class ConnectorRebrandTest {
         assertThat(r).isInstanceOf(ConsumeResult.Accepted.class);
     }
 
-    @DisplayName("LogRecordCountConnector accepts input despite downstream Partial")
+    @DisplayName("logRecordCount connector accepts input despite downstream Partial")
     @Test
     void logRecordCountConnectorAcceptsInputDespiteDownstreamPartial() {
         MetricConsumer downstream = metrics -> CompletableFuture.completedStage(
@@ -52,7 +52,7 @@ class ConnectorRebrandTest {
         assertThat(r).isInstanceOf(ConsumeResult.Accepted.class);
     }
 
-    @DisplayName("LogRecordCountConnector accepts input despite downstream Rejected")
+    @DisplayName("logRecordCount connector accepts input despite downstream Rejected")
     @Test
     void logRecordCountConnectorAcceptsInputDespiteDownstreamRejected() {
         MetricConsumer downstream = metrics -> CompletableFuture.completedStage(

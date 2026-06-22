@@ -7,7 +7,8 @@ import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.TraceData;
 import dev.nthings.otlp4j.pipeline.ConsumeResult;
 import dev.nthings.otlp4j.pipeline.Consumer;
-import dev.nthings.otlp4j.pipeline.Pipeline;
+import dev.nthings.otlp4j.pipeline.Drainable;
+import dev.nthings.otlp4j.pipeline.Flushable;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -32,11 +33,12 @@ import org.slf4j.LoggerFactory;
 
 /// An asynchronous, queue-backed, timer-triggered batching processor.
 ///
-/// Flushes downstream when either the size threshold or `maxBatchAge` is reached. Implements
-/// [Pipeline.Flushable] and is closed via [#shutdown].
+/// Flushes downstream when either the size threshold or `maxBatchAge` is reached. As a [Drainable]
+/// and [Flushable], a directly-attached batcher drains within a pipeline's shared shutdown budget
+/// and participates in `forceFlush`.
 ///
 /// @param <T> the OTLP signal carried by this batcher
-public final class BatchingProcessor<T> implements Consumer<T>, Pipeline.Flushable, AutoCloseable {
+public final class BatchingProcessor<T> implements Consumer<T>, Drainable, Flushable {
 
     private static final Logger log = LoggerFactory.getLogger(BatchingProcessor.class);
 
@@ -160,6 +162,7 @@ public final class BatchingProcessor<T> implements Consumer<T>, Pipeline.Flushab
 
     /// Stops the timer and drains downstream. Completes only when the final drain's delivery
     /// finishes; propagates timeout/failure/rejection instead of a false success.
+    @Override
     public CompletionStage<Void> shutdown(Duration timeout) {
         if (!closed.compareAndSet(false, true)) {
             return CompletableFuture.completedFuture(null);

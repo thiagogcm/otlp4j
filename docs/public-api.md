@@ -8,9 +8,9 @@ Everything lives under the `dev.nthings.otlp4j` root. The types you import most 
 | --- | --- |
 | `OtlpGrpcReceiver`, `Receiver`, `TelemetryTap` | `dev.nthings.otlp4j.receiver` |
 | `OtlpGrpcExporter`, `Exporter` | `dev.nthings.otlp4j.exporter` |
-| `Pipeline`, `Source`, `Subscription`, `Consumer` (+ `TraceConsumer` … aliases), `Transform`, `FanOut`, `ConsumeResult`, `Telemetry` | `dev.nthings.otlp4j.pipeline` |
+| `Pipeline`, `Source`, `Subscription`, `Consumer` (+ `TraceConsumer` … aliases), `Transform`, `FanOut`, `ConsumeResult`, `Telemetry`, `Drainable`, `Flushable` | `dev.nthings.otlp4j.pipeline` |
 | `Transforms`, `BatchingProcessor`, `DropPolicy` | `dev.nthings.otlp4j.processor` |
-| `Connector`, `Connectors`, `SpanCountConnector`, `LogRecordCountConnector`, `FailurePolicy` | `dev.nthings.otlp4j.connector` |
+| `Connector`, `Connectors`, `FailurePolicy` | `dev.nthings.otlp4j.connector` |
 | Transport SPI: `OtlpClient(Provider)`, `OtlpServer(Provider)`, `ClientTransportConfig`, `ServerTransportConfig`, `Tls`, `Compression`, `RetryPolicy` | `dev.nthings.otlp4j.spi` |
 | Domain records: `TraceData`, `MetricsData`, `LogsData`, `ProfilesData`, `Resource`, `Attributes`, `AttributeValue`, `Span`, `Metric`, `LogRecord`, `Exemplar`, … | `dev.nthings.otlp4j.model` |
 
@@ -176,7 +176,7 @@ try (var exporter = OtlpGrpcExporter.builder()
 }
 ```
 
-The exporter itself owns the channel. Its `traces()`, `metrics()`, `logs()`, and `profiles()` facets are method references, so the pipeline cannot auto-discover the exporter behind them. Register it with `Stage.owns(exporter)` to hand its lifecycle to the subscription: it implements both `Pipeline.Drainable` and `Pipeline.Flushable`, so the subscription drains it on shutdown and reaches it on `forceFlush`. As a `Drainable` it receives the pipeline's *remaining* shared deadline, and its shutdown is cancellation-aware — a timeout interrupts the transport teardown rather than leaving it blocking past the deadline. `forceFlush` itself is a no-op today (the client holds no buffer) but is reachable once the exporter is owned. Without `owns`, close the exporter yourself.
+The exporter itself owns the channel. Its `traces()`, `metrics()`, `logs()`, and `profiles()` facets are method references, so the pipeline cannot auto-discover the exporter behind them. Register it with `Stage.owns(exporter)` to hand its lifecycle to the subscription: it implements both `Drainable` and `Flushable`, so the subscription drains it on shutdown and reaches it on `forceFlush`. As a `Drainable` it receives the pipeline's *remaining* shared deadline, and its shutdown is cancellation-aware — a timeout interrupts the transport teardown rather than leaving it blocking past the deadline. `forceFlush` itself is a no-op today (the client holds no buffer) but is reachable once the exporter is owned. Without `owns`, close the exporter yourself.
 
 Implement `Exporter<T>` for a custom typed terminal with flush and shutdown hooks. Implement the lower-level client or server SPI when replacing the wire transport.
 
