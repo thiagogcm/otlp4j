@@ -40,6 +40,7 @@
         <grpc.version>1.82.0</grpc.version>
         <slf4j.version>2.0.18</slf4j.version>
         <logback.version>1.5.34</logback.version>
+        <jspecify.version>1.0.0</jspecify.version>
         <junit.version>6.1.0</junit.version>
         <assertj.version>3.27.7</assertj.version>
         <awaitility.version>4.3.0</awaitility.version>
@@ -143,6 +144,11 @@
                 <groupId>org.slf4j</groupId>
                 <artifactId>slf4j-api</artifactId>
                 <version>${slf4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jspecify</groupId>
+                <artifactId>jspecify</artifactId>
+                <version>${jspecify.version}</version>
             </dependency>
             <dependency>
                 <groupId>ch.qos.logback</groupId>

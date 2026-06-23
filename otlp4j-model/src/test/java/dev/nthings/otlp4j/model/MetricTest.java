@@ -42,4 +42,37 @@ class MetricTest {
         assertThatThrownBy(() -> Metric.builder().data(null))
                 .isInstanceOf(NullPointerException.class);
     }
+
+    @DisplayName("the record rejects null required metadata")
+    @Test
+    void rejectsNullRequiredMetadata() {
+        var data = new Metric.Gauge(List.of());
+
+        assertThatThrownBy(() -> new Metric(null, "", "", data, Attributes.empty()))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("name");
+        assertThatThrownBy(() -> new Metric("m", null, "", data, Attributes.empty()))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("description");
+        assertThatThrownBy(() -> new Metric("m", "", null, data, Attributes.empty()))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("unit");
+        assertThatThrownBy(() -> new Metric("m", "", "", data, null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("metadata");
+    }
+
+    @DisplayName("metric data records reject null temporality")
+    @Test
+    void rejectsNullTemporality() {
+        assertThatThrownBy(() -> new Metric.Sum(List.of(), null, true))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("temporality");
+        assertThatThrownBy(() -> new Metric.Histogram(List.of(), null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("temporality");
+        assertThatThrownBy(() -> new Metric.ExponentialHistogram(List.of(), null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("temporality");
+    }
 }

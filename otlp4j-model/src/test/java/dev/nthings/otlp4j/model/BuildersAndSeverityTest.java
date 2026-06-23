@@ -1,6 +1,7 @@
 package dev.nthings.otlp4j.model;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
@@ -149,6 +150,35 @@ class BuildersAndSeverityTest {
         assertThat(record.body()).isEqualTo(AttributeValue.of(42L));
         assertThat(record.traceId()).isEqualTo("0102030405060708090a0b0c0d0e0f10");
         assertThat(record.eventName()).isEqualTo("event");
+    }
+
+    @DisplayName("LogRecord rejects null required fields")
+    @Test
+    void logRecordRejectsNullRequiredFields() {
+        assertThatThrownBy(() -> new LogRecord(
+                        0, 0, null, "", AttributeValue.empty(), Attributes.empty(), 0, 0, "", "", ""))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("severity");
+        assertThatThrownBy(() -> new LogRecord(
+                        0, 0, LogRecord.Severity.UNSPECIFIED, null,
+                        AttributeValue.empty(), Attributes.empty(), 0, 0, "", "", ""))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("severityText");
+        assertThatThrownBy(() -> new LogRecord(
+                        0, 0, LogRecord.Severity.UNSPECIFIED, "", null,
+                        Attributes.empty(), 0, 0, "", "", ""))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("body");
+        assertThatThrownBy(() -> new LogRecord(
+                        0, 0, LogRecord.Severity.UNSPECIFIED, "", AttributeValue.empty(),
+                        null, 0, 0, "", "", ""))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("attributes");
+        assertThatThrownBy(() -> new LogRecord(
+                        0, 0, LogRecord.Severity.UNSPECIFIED, "", AttributeValue.empty(),
+                        Attributes.empty(), 0, 0, "", "", null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("eventName");
     }
 
     // --- Metric.builder ---------------------------------------------------------------------

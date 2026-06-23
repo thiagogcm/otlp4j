@@ -1,5 +1,9 @@
 package dev.nthings.otlp4j.model;
 
+import java.util.Objects;
+import org.jspecify.annotations.NullMarked;
+import org.jspecify.annotations.Nullable;
+
 /// An exemplar attached to a metric data point. Mirrors
 /// `opentelemetry.proto.metrics.v1.Exemplar`.
 ///
@@ -11,15 +15,22 @@ package dev.nthings.otlp4j.model;
 /// trace, and rejected when encoded to the wire if not valid hex. `value` reuses
 /// [NumberPoint.Value]; it may be null for an invalid exemplar whose wire `value` oneof
 /// recognized neither an integer nor a double.
+@NullMarked
 public record Exemplar(
         Attributes filteredAttributes,
         long epochNanos,
-        NumberPoint.Value value,
+        NumberPoint.@Nullable Value value,
         String spanId,
         String traceId) {
 
+    public Exemplar {
+        Objects.requireNonNull(filteredAttributes, "filteredAttributes");
+        spanId = Ids.spanId(spanId);
+        traceId = Ids.traceId(traceId);
+    }
+
     /// An exemplar not linked to a sampled trace (empty `spanId`/`traceId`).
-    public static Exemplar of(Attributes filteredAttributes, long epochNanos, NumberPoint.Value value) {
+    public static Exemplar of(Attributes filteredAttributes, long epochNanos, NumberPoint.@Nullable Value value) {
         return new Exemplar(filteredAttributes, epochNanos, value, "", "");
     }
 
@@ -33,7 +44,7 @@ public record Exemplar(
 
         private Attributes filteredAttributes = Attributes.empty();
         private long epochNanos;
-        private NumberPoint.Value value;
+        private NumberPoint.@Nullable Value value;
         private String spanId = "";
         private String traceId = "";
 
@@ -49,7 +60,7 @@ public record Exemplar(
             return this;
         }
 
-        public Builder value(NumberPoint.Value value) {
+        public Builder value(NumberPoint.@Nullable Value value) {
             this.value = value;
             return this;
         }

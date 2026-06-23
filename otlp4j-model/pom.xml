@@ -17,7 +17,13 @@
         dependency on the generated proto code or the wire transport; the shared vocabulary the
         api and transport modules are both expressed in.</description>
 
-    <!-- No dependencies: the model is intentionally pure (JDK only). -->
+    <dependencies>
+        <!-- Nullness contracts are part of the public model API; keep them visible to consumers. -->
+        <dependency>
+            <groupId>org.jspecify</groupId>
+            <artifactId>jspecify</artifactId>
+        </dependency>
+    </dependencies>
 
     <build>
         <plugins>

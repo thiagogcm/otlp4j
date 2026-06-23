@@ -106,6 +106,24 @@ class PipelineLifecycleTest {
         }
     }
 
+    @DisplayName("A null transform result yields a Rejected result")
+    @Test
+    void nullTransformResultProducesRejected() {
+        var source = new ManualSource<TraceData>();
+        TraceSink terminal = traces -> ConsumeResult.acceptedStage();
+        var sub = Pipeline.from(source)
+                .transform(batch -> null)
+                .to(terminal);
+        try {
+            var r = source.dispatch(new TraceData(List.of())).toCompletableFuture().join();
+            assertThat(r).isInstanceOf(ConsumeResult.Rejected.class);
+            assertThat(((ConsumeResult.Rejected<?>) r).message())
+                    .contains("pipeline transform returned null");
+        } finally {
+            sub.close();
+        }
+    }
+
     @DisplayName("owns() drains a registered AutoCloseable not reachable as the terminal")
     @Test
     void ownsDrainsRegisteredResource() {
