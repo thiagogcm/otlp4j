@@ -273,7 +273,7 @@ By default the exporter reads no environment — construction is fully explicit 
 | --- | --- | --- | --- | --- |
 | Endpoint host/port/scheme | `.endpoint(host, port)` / `.host` / `.port` / `.tls` | `OTEL_EXPORTER_OTLP_ENDPOINT` | gRPC `localhost:4317`, HTTP `localhost:4318`, plaintext | A URL; `http` is plaintext, `https` selects TLS. gRPC uses the authority as-is; HTTP appends the standard `/v1/<signal>` paths. A URL without a port keeps the exporter's protocol default (4317 gRPC, 4318 HTTP). |
 | Request timeout | `.timeout(Duration)` | `OTEL_EXPORTER_OTLP_TIMEOUT` | `10s` | Integer milliseconds; must be > 0. |
-| Headers | `.header(k, v)` / `.headers(map)` / `.addHeaders(map)` | `OTEL_EXPORTER_OTLP_HEADERS` | none | `k=v,k2=v2`; values are percent-decoded (`+` stays literal). `.headers(map)` replaces all existing headers, while `.addHeaders(map)` and the env variable merge onto headers already set. |
+| Headers | `.header(k, v)` / `.headers(map)` / `.addHeaders(map)` | `OTEL_EXPORTER_OTLP_HEADERS` | none | `k=v,k2=v2`; values are percent-decoded (`+` stays literal). `.headers(map)` replaces all existing headers, while `.addHeaders(map)` and the env variable merge onto headers already set — env wins per key, unrelated keys are kept. |
 | Compression | `.compression(Compression)` | `OTEL_EXPORTER_OTLP_COMPRESSION` | `NONE` | `gzip` or `none`. |
 | Server CA / trust | `.tls(Tls.trust(path))` | `OTEL_EXPORTER_OTLP_CERTIFICATE` | system trust when TLS is on | Applies only when the endpoint is `https`. |
 | Client cert (mTLS) | `.tls(Tls.custom(cert, key, trust))` | `OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE` | none | Requires the client key; ignored on an `http` endpoint. |
