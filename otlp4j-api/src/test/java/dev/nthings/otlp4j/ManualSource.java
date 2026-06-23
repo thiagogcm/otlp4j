@@ -1,9 +1,9 @@
 package dev.nthings.otlp4j;
 
-import dev.nthings.otlp4j.pipeline.ConsumeResult;
-import dev.nthings.otlp4j.pipeline.Consumer;
-import dev.nthings.otlp4j.pipeline.Source;
-import dev.nthings.otlp4j.pipeline.Subscription;
+import dev.nthings.otlp4j.model.ConsumeResult;
+import dev.nthings.otlp4j.core.Sink;
+import dev.nthings.otlp4j.core.Source;
+import dev.nthings.otlp4j.core.Subscription;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -14,10 +14,10 @@ import java.util.concurrent.atomic.AtomicReference;
 /// package-private receiver plumbing.
 final class ManualSource<T> implements Source<T> {
 
-    private final AtomicReference<Consumer<? super T>> attached = new AtomicReference<>();
+    private final AtomicReference<Sink<? super T>> attached = new AtomicReference<>();
 
     @Override
-    public Subscription subscribe(Consumer<? super T> consumer) {
+    public Subscription subscribe(Sink<? super T> consumer) {
         if (!attached.compareAndSet(null, consumer)) {
             throw new IllegalStateException("source already has a consumer");
         }
@@ -34,7 +34,7 @@ final class ManualSource<T> implements Source<T> {
             return ConsumeResult.acceptedStage();
         }
         @SuppressWarnings("unchecked")
-        var typed = (Consumer<T>) c;
+        var typed = (Sink<T>) c;
         return typed.consume(batch);
     }
 }

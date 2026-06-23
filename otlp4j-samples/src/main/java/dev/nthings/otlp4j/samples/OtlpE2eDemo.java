@@ -1,7 +1,6 @@
 package dev.nthings.otlp4j.samples;
 
 import dev.nthings.otlp4j.connector.Connectors;
-import dev.nthings.otlp4j.exporter.OtlpGrpcExporter;
 import dev.nthings.otlp4j.model.AttributeValue;
 import dev.nthings.otlp4j.model.Attributes;
 import dev.nthings.otlp4j.model.InstrumentationScope;
@@ -10,10 +9,11 @@ import dev.nthings.otlp4j.model.NumberPoint;
 import dev.nthings.otlp4j.model.Resource;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TraceData;
-import dev.nthings.otlp4j.pipeline.ConsumeResult;
+import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.pipeline.Pipeline;
 import dev.nthings.otlp4j.processor.Transforms;
-import dev.nthings.otlp4j.receiver.OtlpGrpcReceiver;
+import dev.nthings.otlp4j.transport.grpc.OtlpGrpcExporter;
+import dev.nthings.otlp4j.transport.grpc.OtlpGrpcReceiver;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -22,9 +22,9 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/// End-to-end demo compiled only against the public API module.
+/// End-to-end demo using the pipeline DSL and the OTLP/gRPC entry points.
 ///
-/// The runtime transport is supplied through the SPI. Five spans flow through a gateway
+/// Five spans flow through a gateway
 /// (`Pipeline.from(receiver.traces()) ... .owns(exporter).branch().fanOut(exporter).fanOut(counter).join()`)
 /// to a backend that records the surviving spans and the derived count metric. The exporter is
 /// handed to the pipeline via `owns(...)`, so the subscription drains it on shutdown.

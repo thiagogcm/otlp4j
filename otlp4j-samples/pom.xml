@@ -13,20 +13,19 @@
     <artifactId>otlp4j-samples</artifactId>
     <name>otlp4j-samples</name>
     <description>Runnable end-to-end demonstrations of otlp4j. JPMS module dev.nthings.otlp4j.samples
-        — compiles against otlp4j-api only; the transport implementation is supplied at runtime,
-        so this module cannot see the generated proto code.</description>
+        — uses the pipeline DSL from otlp4j-api and the concrete OTLP/gRPC entry points from
+        otlp4j-transport-grpc; it never touches the generated proto code.</description>
 
     <dependencies>
-        <!-- Compile only against the pure, user-facing API. -->
+        <!-- The pipeline DSL, processors and connectors. -->
         <dependency>
             <groupId>dev.nthings.otlp4j</groupId>
             <artifactId>otlp4j-api</artifactId>
         </dependency>
-        <!-- The transport implementation is bound at runtime via the SPI. -->
+        <!-- The concrete OTLP/gRPC exporter and receiver the demo wires up. -->
         <dependency>
             <groupId>dev.nthings.otlp4j</groupId>
-            <artifactId>otlp4j-transport</artifactId>
-            <scope>runtime</scope>
+            <artifactId>otlp4j-transport-grpc</artifactId>
         </dependency>
         <dependency>
             <groupId>org.slf4j</groupId>
@@ -71,50 +70,6 @@
                                 <buildArg>--no-fallback</buildArg>
                             </buildArgs>
                         </configuration>
-                    </plugin>
-                </plugins>
-            </build>
-        </profile>
-
-        <!-- jlink runtime image of the pure-API side; the automatic-module transport stack
-             cannot be linked and is supplied at runtime on the module path. -->
-        <profile>
-            <id>jlink</id>
-            <build>
-                <plugins>
-                    <plugin>
-                        <groupId>org.moditect</groupId>
-                        <artifactId>moditect-maven-plugin</artifactId>
-                        <executions>
-                            <execution>
-                                <id>jlink-image</id>
-                                <phase>package</phase>
-                                <goals>
-                                    <goal>create-runtime-image</goal>
-                                </goals>
-                                <configuration>
-                                    <modulePath>
-                                        <path>${project.build.directory}/${project.build.finalName}.jar</path>
-                                        <path>${project.basedir}/../otlp4j-api/target/otlp4j-api-${project.version}.jar</path>
-                                    </modulePath>
-                                    <modules>
-                                        <module>dev.nthings.otlp4j.samples</module>
-                                        <!-- Platform modules the runtime gRPC transport needs,
-                                             unreachable from the linked closure. -->
-                                        <module>java.logging</module>
-                                        <module>java.naming</module>
-                                        <module>java.sql</module>
-                                        <module>jdk.unsupported</module>
-                                    </modules>
-                                    <outputDirectory>${project.build.directory}/jlink-image</outputDirectory>
-                                    <jarInclusionPolicy>NONE</jarInclusionPolicy>
-                                    <compression>zip-6</compression>
-                                    <stripDebug>true</stripDebug>
-                                    <noManPages>true</noManPages>
-                                    <noHeaderFiles>true</noHeaderFiles>
-                                </configuration>
-                            </execution>
-                        </executions>
                     </plugin>
                 </plugins>
             </build>

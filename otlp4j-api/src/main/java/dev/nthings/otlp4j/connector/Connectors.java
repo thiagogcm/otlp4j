@@ -3,7 +3,7 @@ package dev.nthings.otlp4j.connector;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.TraceData;
-import dev.nthings.otlp4j.pipeline.MetricConsumer;
+import dev.nthings.otlp4j.core.MetricSink;
 
 /// Factories for the built-in count [Connector]s.
 ///
@@ -15,13 +15,13 @@ public final class Connectors {
 
     /// A trace-to-metrics connector emitting `otlp4j.connector.span.count` into `downstream`,
     /// best-effort (a downstream metric failure does not fail the input trace batch).
-    public static Connector<TraceData, MetricsData> spanCount(MetricConsumer downstream) {
+    public static Connector<TraceData, MetricsData> spanCount(MetricSink downstream) {
         return spanCount(downstream, FailurePolicy.BEST_EFFORT);
     }
 
     /// A trace-to-metrics connector emitting `otlp4j.connector.span.count` into `downstream` under
     /// the given [FailurePolicy].
-    public static Connector<TraceData, MetricsData> spanCount(MetricConsumer downstream, FailurePolicy policy) {
+    public static Connector<TraceData, MetricsData> spanCount(MetricSink downstream, FailurePolicy policy) {
         return new CountConnector<>(
                 downstream,
                 policy,
@@ -32,13 +32,13 @@ public final class Connectors {
 
     /// A logs-to-metrics connector emitting `otlp4j.connector.log.record.count` into `downstream`,
     /// best-effort (a downstream metric failure does not fail the input log batch).
-    public static Connector<LogsData, MetricsData> logRecordCount(MetricConsumer downstream) {
+    public static Connector<LogsData, MetricsData> logRecordCount(MetricSink downstream) {
         return logRecordCount(downstream, FailurePolicy.BEST_EFFORT);
     }
 
     /// A logs-to-metrics connector emitting `otlp4j.connector.log.record.count` into `downstream`
     /// under the given [FailurePolicy].
-    public static Connector<LogsData, MetricsData> logRecordCount(MetricConsumer downstream, FailurePolicy policy) {
+    public static Connector<LogsData, MetricsData> logRecordCount(MetricSink downstream, FailurePolicy policy) {
         return new CountConnector<>(
                 downstream,
                 policy,

@@ -5,10 +5,10 @@ import dev.nthings.otlp4j.model.Metric;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.TraceData;
-import dev.nthings.otlp4j.pipeline.ConsumeResult;
-import dev.nthings.otlp4j.pipeline.Consumer;
-import dev.nthings.otlp4j.pipeline.Drainable;
-import dev.nthings.otlp4j.pipeline.Flushable;
+import dev.nthings.otlp4j.model.ConsumeResult;
+import dev.nthings.otlp4j.core.Sink;
+import dev.nthings.otlp4j.core.Drainable;
+import dev.nthings.otlp4j.core.Flushable;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -38,11 +38,11 @@ import org.slf4j.LoggerFactory;
 /// and participates in `forceFlush`.
 ///
 /// @param <T> the OTLP signal carried by this batcher
-public final class BatchingProcessor<T> implements Consumer<T>, Drainable, Flushable {
+public final class BatchingProcessor<T> implements Sink<T>, Drainable, Flushable {
 
     private static final Logger log = LoggerFactory.getLogger(BatchingProcessor.class);
 
-    private final Consumer<? super T> downstream;
+    private final Sink<? super T> downstream;
     private final int maxBatchSize;
     private final Duration maxBatchAge;
     private final ArrayBlockingQueue<T> queue;
@@ -345,7 +345,7 @@ public final class BatchingProcessor<T> implements Consumer<T>, Drainable, Flush
 
         private final Merger<T> merger;
         private final ToLongFunction<T> itemCounter;
-        private Consumer<? super T> downstream;
+        private Sink<? super T> downstream;
         private int maxBatchSize = 512;
         private Duration maxBatchAge = Duration.ofSeconds(5);
         private int queueCapacity = 2048;
@@ -359,7 +359,7 @@ public final class BatchingProcessor<T> implements Consumer<T>, Drainable, Flush
         }
 
         /// The downstream consumer the flushed batch is forwarded to. Required.
-        public Builder<T> downstream(Consumer<? super T> downstream) {
+        public Builder<T> downstream(Sink<? super T> downstream) {
             this.downstream = downstream;
             return this;
         }

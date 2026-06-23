@@ -6,9 +6,9 @@ import dev.nthings.otlp4j.model.Metric;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.NumberPoint;
 import dev.nthings.otlp4j.model.Resource;
-import dev.nthings.otlp4j.pipeline.ConsumeResult;
-import dev.nthings.otlp4j.pipeline.Consumer;
-import dev.nthings.otlp4j.pipeline.MetricConsumer;
+import dev.nthings.otlp4j.model.ConsumeResult;
+import dev.nthings.otlp4j.core.Sink;
+import dev.nthings.otlp4j.core.MetricSink;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
@@ -36,7 +36,7 @@ final class CountConnector<I> implements Connector<I, MetricsData> {
             InstrumentationScope.of("otlp4j-count-connector", "0.1.0");
     private static final Logger log = LoggerFactory.getLogger(CountConnector.class);
 
-    private final MetricConsumer downstream;
+    private final MetricSink downstream;
     private final FailurePolicy policy;
     private final String metricName;
     private final String description;
@@ -44,7 +44,7 @@ final class CountConnector<I> implements Connector<I, MetricsData> {
     private final AtomicLong previousFlushNanos = new AtomicLong(nowEpochNanos());
 
     CountConnector(
-            MetricConsumer downstream,
+            MetricSink downstream,
             FailurePolicy policy,
             String metricName,
             String description,
@@ -57,7 +57,7 @@ final class CountConnector<I> implements Connector<I, MetricsData> {
     }
 
     @Override
-    public Consumer<? super MetricsData> downstream() {
+    public Sink<? super MetricsData> downstream() {
         return downstream;
     }
 

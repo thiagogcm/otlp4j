@@ -1,16 +1,12 @@
 package dev.nthings.otlp4j.exporter;
 
-import dev.nthings.otlp4j.api.internal.SpiSupport;
-import dev.nthings.otlp4j.pipeline.Drainable;
-import dev.nthings.otlp4j.pipeline.Flushable;
-import dev.nthings.otlp4j.pipeline.LogConsumer;
-import dev.nthings.otlp4j.pipeline.MetricConsumer;
-import dev.nthings.otlp4j.pipeline.ProfileConsumer;
-import dev.nthings.otlp4j.pipeline.TraceConsumer;
-import dev.nthings.otlp4j.spi.ClientTransportConfig;
+import dev.nthings.otlp4j.core.Drainable;
+import dev.nthings.otlp4j.core.Flushable;
+import dev.nthings.otlp4j.core.LogSink;
+import dev.nthings.otlp4j.core.MetricSink;
+import dev.nthings.otlp4j.core.ProfileSink;
+import dev.nthings.otlp4j.core.TraceSink;
 import dev.nthings.otlp4j.spi.OtlpClient;
-import dev.nthings.otlp4j.spi.OtlpClientProvider;
-import dev.nthings.otlp4j.spi.Protocol;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -22,21 +18,14 @@ import java.util.concurrent.TimeoutException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/// Shared lifecycle for the OTLP exporters. One instance handles all four signals: the per-signal
-/// facets ([#traces()], [#metrics()], [#logs()], [#profiles()]) are typed `Consumer`s the pipeline
-/// attaches to, while lifecycle lives on the exporter itself.
+/// Shared lifecycle for the OTLP exporters: one instance handles all four signals through the typed
+/// facets ([#traces()], [#metrics()], [#logs()], [#profiles()]). A concrete subclass (in a transport
+/// module) supplies the [OtlpClient] it speaks through; the facets, flush and shutdown live here.
 ///
-/// The concrete [OtlpGrpcExporter] / [OtlpHttpExporter] differ only in the [Protocol] they resolve a
-/// transport [OtlpClient] for; everything below — facets, flush, and the cancellation-aware
-/// shutdown — is identical and lives here.
-///
-/// Because the facets are method references, the pipeline cannot auto-discover the exporter behind
-/// them — register it explicitly with `Stage.owns(exporter)` so the pipeline drains it on shutdown
-/// and flushes it on forceFlush. As a [Drainable] it receives the pipeline's *remaining* shared
-/// deadline on shutdown. Shutdown is cancellation-aware: a timeout interrupts the transport teardown
-/// rather than leaving it blocking on a background thread past the caller's deadline.
-sealed abstract class AbstractOtlpExporter implements Drainable, Flushable
-        permits OtlpGrpcExporter, OtlpHttpExporter {
+/// The facets are method references, so a pipeline can't auto-discover the exporter behind them —
+/// register it with `Stage.owns(exporter)` to drain/flush it. Shutdown is cancellation-aware: the
+/// caller's deadline interrupts the transport teardown rather than leaving it blocking in the background.
+public abstract class AbstractOtlpExporter implements Drainable, Flushable {
 
     private static final Logger log = LoggerFactory.getLogger(AbstractOtlpExporter.class);
 
@@ -50,31 +39,27 @@ sealed abstract class AbstractOtlpExporter implements Drainable, Flushable
         return t;
     });
 
-    AbstractOtlpExporter(ClientTransportConfig config, Protocol protocol) {
-        this.client = SpiSupport.provider(OtlpClientProvider.class, protocol).create(config);
-        log.debug("created {} exporter for endpoint {}:{}", protocol, config.host(), config.port());
+    /// Wraps the transport `client` a concrete exporter has built for its protocol.
+    protected AbstractOtlpExporter(OtlpClient client) {
+        this.client = client;
     }
 
-    public final TraceConsumer    traces()   { return client::exportTraces; }
-    public final MetricConsumer   metrics()  { return client::exportMetrics; }
-    public final LogConsumer      logs()     { return client::exportLogs; }
-    public final ProfileConsumer  profiles() { return client::exportProfiles; }
+    public final TraceSink    traces()   { return client::exportTraces; }
+    public final MetricSink   metrics()  { return client::exportMetrics; }
+    public final LogSink      logs()     { return client::exportLogs; }
+    public final ProfileSink  profiles() { return client::exportProfiles; }
 
-    /// No-op today (the exporter holds no buffer), but reachable: the exporter is [Flushable], so a
-    /// pipeline `forceFlush` reaches it once it is registered via `Stage.owns(exporter)`.
+    /// No-op: the exporter holds no buffer. Still reachable via a pipeline `forceFlush` once owned.
     @Override
     public final CompletionStage<Void> forceFlush(Duration timeout) {
         return CompletableFuture.completedFuture(null);
     }
 
-    /// Closes the underlying transport on this exporter's own shutdown thread, completing on a clean
-    /// close or `timeout`. On timeout we `shutdownNow()` the executor so the interrupt unblocks the
-    /// transport's awaits, honouring the caller's deadline instead of blocking in the background.
+    /// Closes the transport on this exporter's own shutdown thread, completing on a clean close or
+    /// `timeout`; on timeout we `shutdownNow()` the executor to interrupt the transport's awaits.
     ///
-    /// Idempotent: once the close has run the executor is shut down, so a repeat call sees a rejected
-    /// submission and returns a completed stage rather than re-closing. This matters because an owned
-    /// exporter can be drained by both `Subscription.shutdown` (via [Drainable]) and a later
-    /// explicit `close()`.
+    /// Idempotent: once closed the executor is shut down, so a repeat call sees a rejected submission
+    /// and returns completed — an owned exporter can be drained by both the subscription and `close()`.
     @Override
     public final CompletionStage<Void> shutdown(Duration timeout) {
         CompletableFuture<Void> closing;

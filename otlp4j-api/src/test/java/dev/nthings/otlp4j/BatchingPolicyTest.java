@@ -5,8 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TraceData;
-import dev.nthings.otlp4j.pipeline.ConsumeResult;
-import dev.nthings.otlp4j.pipeline.TraceConsumer;
+import dev.nthings.otlp4j.model.ConsumeResult;
+import dev.nthings.otlp4j.core.TraceSink;
 import dev.nthings.otlp4j.processor.BatchingProcessor;
 import dev.nthings.otlp4j.processor.DropPolicy;
 import dev.nthings.otlp4j.testing.Fixtures;
@@ -23,7 +23,7 @@ class BatchingPolicyTest {
     @DisplayName("DROP_OLDEST evicts oldest entries when the queue is full")
     @Test
     void dropOldestEvictsAndKeepsLatest() {
-        TraceConsumer stuck = traces -> new CompletableFuture<>();
+        TraceSink stuck = traces -> new CompletableFuture<>();
         try (var batcher = BatchingProcessor.forTraces()
                 .downstream(stuck)
                 .maxBatchSize(100)
@@ -42,7 +42,7 @@ class BatchingPolicyTest {
     @DisplayName("ERROR policy reports Rejected when the queue is full")
     @Test
     void errorPolicyReportsRejected() {
-        TraceConsumer stuck = traces -> new CompletableFuture<>();
+        TraceSink stuck = traces -> new CompletableFuture<>();
         try (var batcher = BatchingProcessor.forTraces()
                 .downstream(stuck)
                 .maxBatchSize(100)
@@ -61,7 +61,7 @@ class BatchingPolicyTest {
     @Test
     void externalDropCounterReceivesEvents() {
         var counter = new LongAdder();
-        TraceConsumer stuck = traces -> new CompletableFuture<>();
+        TraceSink stuck = traces -> new CompletableFuture<>();
         try (var batcher = BatchingProcessor.forTraces()
                 .downstream(stuck)
                 .maxBatchSize(100)
@@ -81,7 +81,7 @@ class BatchingPolicyTest {
     @Test
     void forceFlushDelegatesToFlushNow() {
         var captured = new AtomicReference<TraceData>();
-        TraceConsumer downstream = traces -> {
+        TraceSink downstream = traces -> {
             captured.set(traces);
             return ConsumeResult.acceptedStage();
         };
@@ -123,7 +123,7 @@ class BatchingPolicyTest {
     @DisplayName("consume after shutdown returns Rejected")
     @Test
     void consumeAfterCloseReturnsRejected() {
-        TraceConsumer downstream = traces -> ConsumeResult.acceptedStage();
+        TraceSink downstream = traces -> ConsumeResult.acceptedStage();
         var batcher = BatchingProcessor.forTraces()
                 .downstream(downstream)
                 .maxBatchSize(10)

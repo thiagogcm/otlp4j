@@ -11,8 +11,8 @@ import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.NumberPoint;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TraceData;
-import dev.nthings.otlp4j.pipeline.ConsumeResult;
-import dev.nthings.otlp4j.pipeline.TraceConsumer;
+import dev.nthings.otlp4j.model.ConsumeResult;
+import dev.nthings.otlp4j.core.TraceSink;
 import dev.nthings.otlp4j.processor.BatchingProcessor;
 import dev.nthings.otlp4j.processor.DropPolicy;
 import dev.nthings.otlp4j.testing.Fixtures;
@@ -35,7 +35,7 @@ class BatchingProcessorTest {
     @Test
     void flushesOnSizeThreshold() {
         var captured = new ArrayList<TraceData>();
-        TraceConsumer downstream = traces -> {
+        TraceSink downstream = traces -> {
             captured.add(traces);
             return ConsumeResult.acceptedStage();
         };
@@ -59,7 +59,7 @@ class BatchingProcessorTest {
     @Test
     void flushesOnAgeThreshold() {
         var captured = new ArrayList<TraceData>();
-        TraceConsumer downstream = traces -> {
+        TraceSink downstream = traces -> {
             captured.add(traces);
             return ConsumeResult.acceptedStage();
         };
@@ -80,7 +80,7 @@ class BatchingProcessorTest {
     @Test
     void dropNewestReportsPartialSuccess() {
         var ignore = new AtomicInteger();
-        TraceConsumer downstream = traces -> {
+        TraceSink downstream = traces -> {
             ignore.incrementAndGet();
             return new CompletableFuture<>();
         };
@@ -191,7 +191,7 @@ class BatchingProcessorTest {
     @Test
     void shutdownDrains() {
         var captured = new ArrayList<TraceData>();
-        TraceConsumer downstream = traces -> {
+        TraceSink downstream = traces -> {
             captured.add(traces);
             return ConsumeResult.acceptedStage();
         };
@@ -218,7 +218,7 @@ class BatchingProcessorTest {
     @Timeout(15)
     void shutdownAwaitsInFlightFlushAndTimesOut() {
         // A downstream that never completes: the size-triggered flush stays in flight forever.
-        TraceConsumer stalling = traces -> new CompletableFuture<>();
+        TraceSink stalling = traces -> new CompletableFuture<>();
         var batcher = BatchingProcessor.forTraces()
                 .downstream(stalling)
                 .maxBatchSize(1) // flush immediately on the first consume
@@ -240,7 +240,7 @@ class BatchingProcessorTest {
     @Test
     @Timeout(15)
     void shutdownPropagatesDownstreamRejection() {
-        TraceConsumer rejecting = traces ->
+        TraceSink rejecting = traces ->
                 CompletableFuture.completedFuture(ConsumeResult.rejected("backend unavailable"));
         var batcher = BatchingProcessor.forTraces()
                 .downstream(rejecting)
@@ -264,7 +264,7 @@ class BatchingProcessorTest {
     @Test
     @Timeout(15)
     void shutdownPropagatesDownstreamFailure() {
-        TraceConsumer failing = traces -> CompletableFuture.failedFuture(new RuntimeException("kaboom"));
+        TraceSink failing = traces -> CompletableFuture.failedFuture(new RuntimeException("kaboom"));
         var batcher = BatchingProcessor.forTraces()
                 .downstream(failing)
                 .maxBatchSize(100)

@@ -16,7 +16,9 @@
         <module>otlp4j-model</module>
         <module>otlp4j-proto</module>
         <module>otlp4j-api</module>
-        <module>otlp4j-transport</module>
+        <module>otlp4j-codec</module>
+        <module>otlp4j-transport-grpc</module>
+        <module>otlp4j-transport-http</module>
         <module>otlp4j-samples</module>
         <module>otlp4j-testing</module>
         <module>otlp4j-coverage</module>
@@ -78,7 +80,17 @@
             </dependency>
             <dependency>
                 <groupId>dev.nthings.otlp4j</groupId>
-                <artifactId>otlp4j-transport</artifactId>
+                <artifactId>otlp4j-codec</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>dev.nthings.otlp4j</groupId>
+                <artifactId>otlp4j-transport-grpc</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>dev.nthings.otlp4j</groupId>
+                <artifactId>otlp4j-transport-http</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

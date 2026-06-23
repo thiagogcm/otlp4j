@@ -1,5 +1,11 @@
 package dev.nthings.otlp4j.pipeline;
 
+import dev.nthings.otlp4j.core.Drainable;
+import dev.nthings.otlp4j.core.Flushable;
+import dev.nthings.otlp4j.core.Sink;
+import dev.nthings.otlp4j.core.Source;
+import dev.nthings.otlp4j.core.Subscription;
+import dev.nthings.otlp4j.model.ConsumeResult;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -55,14 +61,14 @@ public final class Pipeline {
 
         /// Terminates the pipeline by delivering to `terminal`. Returns the subscription that
         /// owns the wiring.
-        Subscription to(Consumer<T> terminal);
+        Subscription to(Sink<T> terminal);
 
         /// Terminates the pipeline by delivering to `terminal`, also registering `owner` as a
         /// lifecycle resource so the subscription drains it on shutdown and flushes it on
         /// forceFlush if it is [Flushable]. Shorthand for `owns(owner).to(terminal)`; use it when
         /// the terminal is a method-reference facet such as `exporter.traces()` whose owner the
         /// pipeline cannot otherwise infer.
-        default Subscription to(Consumer<T> terminal, AutoCloseable owner) {
+        default Subscription to(Sink<T> terminal, AutoCloseable owner) {
             return owns(owner).to(terminal);
         }
     }
@@ -71,7 +77,7 @@ public final class Pipeline {
     public sealed interface Branch<T> permits BranchImpl {
 
         /// Adds a peer consumer to the fan-out.
-        Branch<T> fanOut(Consumer<T> peer);
+        Branch<T> fanOut(Sink<T> peer);
 
         /// Closes the branch, attaches the fan-out to the source, and returns the subscription.
         Subscription join();
@@ -138,9 +144,9 @@ public final class Pipeline {
         }
 
         @Override
-        public Subscription to(Consumer<T> terminal) {
+        public Subscription to(Sink<T> terminal) {
             Objects.requireNonNull(terminal, "terminal");
-            Consumer<T> chain = batch -> {
+            Sink<T> chain = batch -> {
                 T after;
                 try {
                     after = stageFn.apply(batch);
@@ -161,14 +167,14 @@ public final class Pipeline {
     static final class BranchImpl<T> implements Branch<T> {
 
         private final StageImpl<T> stage;
-        private final List<Consumer<T>> peers = new ArrayList<>();
+        private final List<Sink<T>> peers = new ArrayList<>();
 
         BranchImpl(StageImpl<T> stage) {
             this.stage = stage;
         }
 
         @Override
-        public Branch<T> fanOut(Consumer<T> peer) {
+        public Branch<T> fanOut(Sink<T> peer) {
             peers.add(Objects.requireNonNull(peer, "peer"));
             return this;
         }
@@ -182,7 +188,7 @@ public final class Pipeline {
         }
     }
 
-    private static List<AutoCloseable> leafResources(Consumer<?> terminal) {
+    private static List<AutoCloseable> leafResources(Sink<?> terminal) {
         var collected = new ArrayList<AutoCloseable>();
         collectLifecycle(terminal, collected);
         return collected;

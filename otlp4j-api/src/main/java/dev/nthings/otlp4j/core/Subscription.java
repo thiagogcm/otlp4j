@@ -1,0 +1,30 @@
+package dev.nthings.otlp4j.core;
+
+import java.time.Duration;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
+
+/// A handle that owns a wired-up pipeline graph.
+///
+/// Closing a subscription detaches the consumer from its source and drains any lifecycle resources
+/// the chain owns — both those auto-collected from the terminal (e.g. fan-out peers that implement
+/// `AutoCloseable`) and those registered explicitly via `Stage.owns(...)` for resources hidden
+/// behind method-reference consumers. All resources share a single shutdown deadline.
+///
+/// As a [Drainable], [#close()] performs a best-effort synchronous drain with a default timeout and
+/// [#shutdown(Duration)] returns a stage that completes when the drain finishes or the timeout
+/// elapses. As a [Flushable], [#forceFlush(Duration)] pushes buffered batches downstream without
+/// tearing the subscription down.
+public interface Subscription extends Drainable, Flushable {
+
+    /// Drains all in-flight batches and releases resources, returning a stage that completes
+    /// successfully on a clean drain and exceptionally if the timeout elapses.
+    @Override
+    CompletionStage<Void> shutdown(Duration timeout);
+
+    /// Flushes any buffered batches downstream without tearing the subscription down.
+    @Override
+    default CompletionStage<Void> forceFlush(Duration timeout) {
+        return CompletableFuture.completedFuture(null);
+    }
+}

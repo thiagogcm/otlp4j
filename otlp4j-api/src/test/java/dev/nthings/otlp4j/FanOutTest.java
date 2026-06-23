@@ -4,9 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.nthings.otlp4j.model.TraceData;
-import dev.nthings.otlp4j.pipeline.ConsumeResult;
+import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.pipeline.FanOut;
-import dev.nthings.otlp4j.pipeline.TraceConsumer;
+import dev.nthings.otlp4j.core.TraceSink;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -20,7 +20,7 @@ class FanOutTest {
     @Test
     void deliversToEveryPeer() {
         var hits = new AtomicInteger();
-        TraceConsumer peer = traces -> {
+        TraceSink peer = traces -> {
             hits.incrementAndGet();
             return ConsumeResult.acceptedStage();
         };
@@ -33,8 +33,8 @@ class FanOutTest {
     @DisplayName("One failing peer still produces a merged Rejected result")
     @Test
     void onePeerFailureDoesNotBlockOthers() {
-        TraceConsumer healthy = traces -> ConsumeResult.acceptedStage();
-        TraceConsumer broken = traces -> CompletableFuture.failedStage(new RuntimeException("nope"));
+        TraceSink healthy = traces -> ConsumeResult.acceptedStage();
+        TraceSink broken = traces -> CompletableFuture.failedStage(new RuntimeException("nope"));
         var fan = FanOut.<TraceData>of(broken, healthy);
         var result = fan.consume(new TraceData(List.of())).toCompletableFuture().join();
         assertThat(result).isInstanceOf(ConsumeResult.Rejected.class);
@@ -52,8 +52,8 @@ class FanOutTest {
     @DisplayName("consume() merges peer Partial counts using the max")
     @Test
     void mergesRejectionCountsWithMax() {
-        TraceConsumer p1 = traces -> CompletableFuture.completedStage(ConsumeResult.partial(3L, "one"));
-        TraceConsumer p2 = traces -> CompletableFuture.completedStage(ConsumeResult.partial(7L, "two"));
+        TraceSink p1 = traces -> CompletableFuture.completedStage(ConsumeResult.partial(3L, "one"));
+        TraceSink p2 = traces -> CompletableFuture.completedStage(ConsumeResult.partial(7L, "two"));
         var fan = FanOut.<TraceData>of(p1, p2);
         var result = fan.consume(new TraceData(List.of())).toCompletableFuture().join();
         assertThat(result).isInstanceOf(ConsumeResult.Partial.class);

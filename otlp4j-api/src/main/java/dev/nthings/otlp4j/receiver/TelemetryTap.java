@@ -4,7 +4,7 @@ import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.TraceData;
-import dev.nthings.otlp4j.pipeline.Telemetry;
+import dev.nthings.otlp4j.core.Telemetry;
 import java.util.concurrent.Flow;
 
 /// A live, non-blocking side-channel that emits a copy of every batch a receiver accepts.

@@ -28,7 +28,7 @@
 
     <!-- Depending on the modules under test is what lets report-aggregate find their
          classes, sources and exec data. otlp4j-model has no tests of its own, but its records
-         are exercised by the api and transport suites, so it is included to attribute that
+         are exercised by the api, codec and transport suites, so it is included to attribute that
          coverage. otlp4j-proto is intentionally omitted: it is generated code with no tests. -->
     <dependencies>
         <dependency>
@@ -41,7 +41,15 @@
         </dependency>
         <dependency>
             <groupId>dev.nthings.otlp4j</groupId>
-            <artifactId>otlp4j-transport</artifactId>
+            <artifactId>otlp4j-codec</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-transport-grpc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-transport-http</artifactId>
         </dependency>
         <dependency>
             <groupId>dev.nthings.otlp4j</groupId>

@@ -3,11 +3,8 @@ package dev.nthings.otlp4j;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.nthings.otlp4j.exporter.Exporter;
-import dev.nthings.otlp4j.exporter.OtlpGrpcExporter;
 import dev.nthings.otlp4j.model.TraceData;
-import dev.nthings.otlp4j.pipeline.ConsumeResult;
-import dev.nthings.otlp4j.pipeline.Drainable;
-import dev.nthings.otlp4j.pipeline.Flushable;
+import dev.nthings.otlp4j.model.ConsumeResult;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -51,16 +48,5 @@ class ExporterDefaultsTest {
         exporter.forceFlush(Duration.ofSeconds(1)).toCompletableFuture().join();
         exporter.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
         exporter.close();
-    }
-
-    /// Type-only check (no instance): without a transport SPI provider on this module's test path
-    /// OtlpGrpcExporter cannot be constructed here, but the [Drainable]/[Flushable] contracts are what
-    /// let a pipeline drain and `forceFlush` it once registered via `Stage.owns(exporter)`. The network
-    /// paths are exercised by the otlp4j-transport suite.
-    @DisplayName("OtlpGrpcExporter is a Drainable Flushable")
-    @Test
-    void otlpGrpcExporterIsDrainableFlushable() {
-        assertThat(Flushable.class).isAssignableFrom(OtlpGrpcExporter.class);
-        assertThat(Drainable.class).isAssignableFrom(OtlpGrpcExporter.class);
     }
 }

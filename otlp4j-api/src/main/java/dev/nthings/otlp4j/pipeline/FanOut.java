@@ -1,12 +1,14 @@
 package dev.nthings.otlp4j.pipeline;
 
+import dev.nthings.otlp4j.core.Sink;
+import dev.nthings.otlp4j.model.ConsumeResult;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
-/// A [Consumer] that delivers the same batch to several peers concurrently.
+/// A [Sink] that delivers the same batch to several peers concurrently.
 ///
 /// All peers run in parallel; their results are aggregated with [ConsumeResult#fanOutMerge]
 /// (worst-case rejection count, not sum). A peer that throws is captured as a per-peer
@@ -16,11 +18,11 @@ import java.util.concurrent.CompletionStage;
 /// concurrent delivery is safe.
 ///
 /// @param <T> the OTLP signal carried by this fan-out
-public final class FanOut<T> implements Consumer<T> {
+public final class FanOut<T> implements Sink<T> {
 
-    private final List<Consumer<T>> peers;
+    private final List<Sink<T>> peers;
 
-    private FanOut(List<Consumer<T>> peers) {
+    private FanOut(List<Sink<T>> peers) {
         if (peers.isEmpty()) {
             throw new IllegalArgumentException("FanOut requires at least one peer");
         }
@@ -29,18 +31,18 @@ public final class FanOut<T> implements Consumer<T> {
 
     /// Returns a [FanOut] over the given peers. Peers run concurrently; at least one is required.
     @SafeVarargs
-    public static <T> FanOut<T> of(Consumer<T>... peers) {
+    public static <T> FanOut<T> of(Sink<T>... peers) {
         return new FanOut<>(List.of(peers));
     }
 
     /// Returns a [FanOut] over the given peers. Peers run concurrently; at least one is required.
-    public static <T> FanOut<T> of(List<? extends Consumer<T>> peers) {
+    public static <T> FanOut<T> of(List<? extends Sink<T>> peers) {
         Objects.requireNonNull(peers, "peers");
         return new FanOut<>(new ArrayList<>(peers));
     }
 
     /// The peers this fan-out delivers each batch to.
-    public List<Consumer<T>> peers() {
+    public List<Sink<T>> peers() {
         return peers;
     }
 

@@ -4,7 +4,7 @@ import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.TraceData;
-import dev.nthings.otlp4j.pipeline.ConsumeResult;
+import dev.nthings.otlp4j.model.ConsumeResult;
 import java.util.concurrent.CompletionStage;
 
 /// Transport-side client used by exporters.

@@ -9,8 +9,8 @@ import dev.nthings.otlp4j.model.Metric;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.NumberPoint;
 import dev.nthings.otlp4j.model.Span;
-import dev.nthings.otlp4j.pipeline.ConsumeResult;
-import dev.nthings.otlp4j.pipeline.MetricConsumer;
+import dev.nthings.otlp4j.model.ConsumeResult;
+import dev.nthings.otlp4j.core.MetricSink;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.util.ArrayList;
 import java.util.List;
@@ -25,7 +25,7 @@ class ConnectorsTest {
     @Test
     void spanCountConnectorEmitsCountMetric() {
         var captured = new ArrayList<MetricsData>();
-        MetricConsumer downstream = metrics -> {
+        MetricSink downstream = metrics -> {
             captured.add(metrics);
             return ConsumeResult.acceptedStage();
         };
@@ -46,7 +46,7 @@ class ConnectorsTest {
     @Test
     void logRecordCountConnectorEmitsCountMetric() {
         var captured = new ArrayList<MetricsData>();
-        MetricConsumer downstream = metrics -> {
+        MetricSink downstream = metrics -> {
             captured.add(metrics);
             return ConsumeResult.acceptedStage();
         };
@@ -64,7 +64,7 @@ class ConnectorsTest {
     @DisplayName("BEST_EFFORT (default) accepts input despite downstream Rejected")
     @Test
     void bestEffortAcceptsInputDespiteDownstreamRejected() {
-        MetricConsumer downstream = metrics ->
+        MetricSink downstream = metrics ->
                 CompletableFuture.completedStage(ConsumeResult.rejected("backend down"));
         var connector = Connectors.spanCount(downstream);
         var result = connector.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
@@ -75,7 +75,7 @@ class ConnectorsTest {
     @DisplayName("FAIL propagates a downstream Rejected onto the input result")
     @Test
     void failPropagatesDownstreamRejected() {
-        MetricConsumer downstream = metrics ->
+        MetricSink downstream = metrics ->
                 CompletableFuture.completedStage(ConsumeResult.rejected("backend down"));
         var connector = Connectors.spanCount(downstream, FailurePolicy.FAIL);
         var result = connector.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
@@ -86,7 +86,7 @@ class ConnectorsTest {
     @DisplayName("FAIL propagates a downstream Partial onto the input result")
     @Test
     void failPropagatesDownstreamPartial() {
-        MetricConsumer downstream = metrics ->
+        MetricSink downstream = metrics ->
                 CompletableFuture.completedStage(ConsumeResult.partial(1L, "metric pushback"));
         var connector = Connectors.logRecordCount(downstream, FailurePolicy.FAIL);
         var result = connector.consume(Fixtures.logsData(Fixtures.logRecord("hi", LogRecord.Severity.INFO)))
@@ -98,7 +98,7 @@ class ConnectorsTest {
     @Test
     void deltaWindowIsContiguousAcrossFlushes() {
         var captured = new ArrayList<MetricsData>();
-        MetricConsumer downstream = metrics -> {
+        MetricSink downstream = metrics -> {
             captured.add(metrics);
             return ConsumeResult.acceptedStage();
         };

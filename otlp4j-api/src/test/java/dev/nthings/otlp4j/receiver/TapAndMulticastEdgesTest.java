@@ -6,7 +6,7 @@ import static org.awaitility.Awaitility.await;
 
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TraceData;
-import dev.nthings.otlp4j.pipeline.Telemetry;
+import dev.nthings.otlp4j.core.Telemetry;
 import dev.nthings.otlp4j.testing.Fixtures;
 import dev.nthings.otlp4j.testing.FlowSubscribers;
 import java.time.Duration;

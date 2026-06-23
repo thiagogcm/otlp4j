@@ -5,8 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TraceData;
-import dev.nthings.otlp4j.pipeline.ConsumeResult;
-import dev.nthings.otlp4j.pipeline.TraceConsumer;
+import dev.nthings.otlp4j.model.ConsumeResult;
+import dev.nthings.otlp4j.core.TraceSink;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -18,7 +18,7 @@ class SignalSourceTest {
 
     @DisplayName("dispatch returns Accepted when no consumer is attached")
     @Test
-    void dispatchWithoutConsumerReturnsAccepted() {
+    void dispatchWithoutSinkReturnsAccepted() {
         var source = new SignalSource<>(TraceData.class);
         var result = source.dispatch(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
                 .toCompletableFuture().join();
@@ -27,10 +27,10 @@ class SignalSourceTest {
 
     @DisplayName("dispatch invokes the attached consumer once per batch")
     @Test
-    void dispatchInvokesAttachedConsumer() {
+    void dispatchInvokesAttachedSink() {
         var source = new SignalSource<>(TraceData.class);
         var hits = new AtomicInteger();
-        TraceConsumer c = traces -> {
+        TraceSink c = traces -> {
             hits.incrementAndGet();
             return ConsumeResult.acceptedStage();
         };
@@ -59,9 +59,9 @@ class SignalSourceTest {
 
     @DisplayName("dispatch propagates exceptions thrown by the consumer")
     @Test
-    void dispatchPropagatesConsumerException() {
+    void dispatchPropagatesSinkException() {
         var source = new SignalSource<>(TraceData.class);
-        TraceConsumer c = traces -> { throw new RuntimeException("boom"); };
+        TraceSink c = traces -> { throw new RuntimeException("boom"); };
         var sub = source.subscribe(c);
         try {
             assertThatThrownBy(() ->

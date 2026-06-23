@@ -9,11 +9,11 @@ import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TraceData;
-import dev.nthings.otlp4j.pipeline.ConsumeResult;
-import dev.nthings.otlp4j.pipeline.LogConsumer;
-import dev.nthings.otlp4j.pipeline.MetricConsumer;
-import dev.nthings.otlp4j.pipeline.ProfileConsumer;
-import dev.nthings.otlp4j.pipeline.TraceConsumer;
+import dev.nthings.otlp4j.model.ConsumeResult;
+import dev.nthings.otlp4j.core.LogSink;
+import dev.nthings.otlp4j.core.MetricSink;
+import dev.nthings.otlp4j.core.ProfileSink;
+import dev.nthings.otlp4j.core.TraceSink;
 import dev.nthings.otlp4j.processor.BatchingProcessor;
 import dev.nthings.otlp4j.processor.DropPolicy;
 import dev.nthings.otlp4j.testing.Fixtures;
@@ -34,7 +34,7 @@ class BatchingEdgesTest {
     @Test
     void blockPolicyEventuallyDeliversAllBatches() {
         var captured = new CopyOnWriteArrayList<TraceData>();
-        TraceConsumer downstream = traces -> {
+        TraceSink downstream = traces -> {
             captured.add(traces);
             return ConsumeResult.acceptedStage();
         };
@@ -59,7 +59,7 @@ class BatchingEdgesTest {
     @DisplayName("shutdown is idempotent across repeated calls")
     @Test
     void shutdownIsIdempotent() {
-        TraceConsumer downstream = traces -> ConsumeResult.acceptedStage();
+        TraceSink downstream = traces -> ConsumeResult.acceptedStage();
         var batcher = BatchingProcessor.forTraces()
                 .downstream(downstream)
                 .maxBatchSize(10)
@@ -73,7 +73,7 @@ class BatchingEdgesTest {
     @DisplayName("queued reflects buffered items while downstream stalls")
     @Test
     void queuedReflectsBufferSize() {
-        TraceConsumer slow = traces -> new CompletableFuture<>();
+        TraceSink slow = traces -> new CompletableFuture<>();
         try (var batcher = BatchingProcessor.forTraces()
                 .downstream(slow)
                 .maxBatchSize(100)
@@ -90,7 +90,7 @@ class BatchingEdgesTest {
     @Test
     void everyPerSignalFactoryFlushesAtThreshold() {
         var traceCaptured = new AtomicReference<TraceData>();
-        TraceConsumer traceDownstream = traces -> {
+        TraceSink traceDownstream = traces -> {
             traceCaptured.set(traces);
             return ConsumeResult.acceptedStage();
         };
@@ -100,7 +100,7 @@ class BatchingEdgesTest {
             await().atMost(Duration.ofSeconds(2)).until(() -> traceCaptured.get() != null);
         }
         var metricsCaptured = new AtomicReference<MetricsData>();
-        MetricConsumer metricsDownstream = m -> {
+        MetricSink metricsDownstream = m -> {
             metricsCaptured.set(m);
             return ConsumeResult.acceptedStage();
         };
@@ -110,7 +110,7 @@ class BatchingEdgesTest {
             await().atMost(Duration.ofSeconds(2)).until(() -> metricsCaptured.get() != null);
         }
         var logsCaptured = new AtomicReference<LogsData>();
-        LogConsumer logsDownstream = l -> {
+        LogSink logsDownstream = l -> {
             logsCaptured.set(l);
             return ConsumeResult.acceptedStage();
         };
@@ -120,7 +120,7 @@ class BatchingEdgesTest {
             await().atMost(Duration.ofSeconds(2)).until(() -> logsCaptured.get() != null);
         }
         var profilesCaptured = new AtomicReference<ProfilesData>();
-        ProfileConsumer profilesDownstream = p -> {
+        ProfileSink profilesDownstream = p -> {
             profilesCaptured.set(p);
             return ConsumeResult.acceptedStage();
         };
@@ -137,7 +137,7 @@ class BatchingEdgesTest {
         var scheduler = Executors.newSingleThreadScheduledExecutor();
         try {
             var captured = new AtomicInteger();
-            TraceConsumer downstream = traces -> {
+            TraceSink downstream = traces -> {
                 captured.incrementAndGet();
                 return ConsumeResult.acceptedStage();
             };

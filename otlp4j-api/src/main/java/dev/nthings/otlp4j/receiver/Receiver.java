@@ -4,8 +4,8 @@ import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.TraceData;
-import dev.nthings.otlp4j.pipeline.Drainable;
-import dev.nthings.otlp4j.pipeline.Source;
+import dev.nthings.otlp4j.core.Drainable;
+import dev.nthings.otlp4j.core.Source;
 import java.time.Duration;
 import java.util.concurrent.CompletionStage;
 

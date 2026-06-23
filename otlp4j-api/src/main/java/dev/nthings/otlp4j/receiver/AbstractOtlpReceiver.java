@@ -1,35 +1,31 @@
 package dev.nthings.otlp4j.receiver;
 
-import dev.nthings.otlp4j.api.internal.SpiSupport;
+import dev.nthings.otlp4j.core.LogSink;
+import dev.nthings.otlp4j.core.MetricSink;
+import dev.nthings.otlp4j.core.ProfileSink;
+import dev.nthings.otlp4j.core.Source;
+import dev.nthings.otlp4j.core.TraceSink;
+import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.TraceData;
-import dev.nthings.otlp4j.pipeline.ConsumeResult;
-import dev.nthings.otlp4j.pipeline.LogConsumer;
-import dev.nthings.otlp4j.pipeline.MetricConsumer;
-import dev.nthings.otlp4j.pipeline.ProfileConsumer;
-import dev.nthings.otlp4j.pipeline.Source;
-import dev.nthings.otlp4j.pipeline.TraceConsumer;
+import dev.nthings.otlp4j.spi.Dispatchers;
 import dev.nthings.otlp4j.spi.OtlpServer;
-import dev.nthings.otlp4j.spi.OtlpServerProvider;
-import dev.nthings.otlp4j.spi.Protocol;
-import dev.nthings.otlp4j.spi.ServerTransportConfig;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.Duration;
 import java.util.concurrent.CompletionStage;
+import java.util.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /// Shared machinery for the OTLP receivers: per-signal [Source]s, the live [TelemetryTap], and the
 /// dispatch wiring that feeds decoded batches to subscribers while mirroring them to the tap.
 ///
-/// The concrete [OtlpGrpcReceiver] / [OtlpHttpReceiver] differ only in the [Protocol] they resolve a
-/// transport [OtlpServer] for, and in the concrete type their [#start()] returns; the rest lives
-/// here.
-sealed abstract class AbstractOtlpReceiver implements Receiver
-        permits OtlpGrpcReceiver, OtlpHttpReceiver {
+/// A concrete subclass (in a transport module) supplies a factory turning the [Dispatchers] built
+/// here into its transport [OtlpServer], plus a display name for logs; the rest lives here.
+public abstract class AbstractOtlpReceiver implements Receiver {
 
     private static final Logger log = LoggerFactory.getLogger(AbstractOtlpReceiver.class);
 
@@ -41,31 +37,26 @@ sealed abstract class AbstractOtlpReceiver implements Receiver
     private final OtlpServer server;
     private final String transportName;
 
-    AbstractOtlpReceiver(
-            ServerTransportConfig config,
-            Protocol protocol,
-            TraceConsumer onTraces,
-            MetricConsumer onMetrics,
-            LogConsumer onLogs,
-            ProfileConsumer onProfiles) {
-        this.transportName = displayName(protocol);
-        var dispatchers = new OtlpServerProvider.Dispatchers(
+    /// Builds the dispatch wiring, then asks `serverFactory` for the transport server bound to it.
+    /// `transportName` (e.g. `OTLP/gRPC`) is used only for log messages.
+    protected AbstractOtlpReceiver(
+            String transportName,
+            Function<Dispatchers, OtlpServer> serverFactory,
+            TraceSink onTraces,
+            MetricSink onMetrics,
+            LogSink onLogs,
+            ProfileSink onProfiles) {
+        this.transportName = transportName;
+        var dispatchers = new Dispatchers(
                 this::dispatchTraces,
                 this::dispatchMetrics,
                 this::dispatchLogs,
                 this::dispatchProfiles);
-        this.server = SpiSupport.provider(OtlpServerProvider.class, protocol).create(config, dispatchers);
+        this.server = serverFactory.apply(dispatchers);
         if (onTraces != null)   traces.subscribe(onTraces);
         if (onMetrics != null)  metrics.subscribe(onMetrics);
         if (onLogs != null)     logs.subscribe(onLogs);
         if (onProfiles != null) profiles.subscribe(onProfiles);
-    }
-
-    private static String displayName(Protocol protocol) {
-        return switch (protocol) {
-            case GRPC -> "OTLP/gRPC";
-            case HTTP_PROTOBUF -> "OTLP/HTTP";
-        };
     }
 
     @Override

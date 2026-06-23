@@ -5,12 +5,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.nthings.otlp4j.model.TraceData;
-import dev.nthings.otlp4j.pipeline.ConsumeResult;
-import dev.nthings.otlp4j.pipeline.Drainable;
-import dev.nthings.otlp4j.pipeline.Flushable;
+import dev.nthings.otlp4j.model.ConsumeResult;
+import dev.nthings.otlp4j.core.Drainable;
+import dev.nthings.otlp4j.core.Flushable;
 import dev.nthings.otlp4j.pipeline.Pipeline;
-import dev.nthings.otlp4j.pipeline.Subscription;
-import dev.nthings.otlp4j.pipeline.TraceConsumer;
+import dev.nthings.otlp4j.core.Subscription;
+import dev.nthings.otlp4j.core.TraceSink;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -28,7 +28,7 @@ class PipelineLifecycleTest {
     @Test
     void closeCallsShutdown() {
         var source = new ManualSource<TraceData>();
-        TraceConsumer terminal = traces -> ConsumeResult.acceptedStage();
+        TraceSink terminal = traces -> ConsumeResult.acceptedStage();
         var sub = Pipeline.from(source).to(terminal);
         sub.close();
         // no exception
@@ -42,7 +42,7 @@ class PipelineLifecycleTest {
         var forceFlushed = new AtomicInteger();
         var closed = new AtomicBoolean();
 
-        class FlushableTerminal implements TraceConsumer, Flushable, AutoCloseable {
+        class FlushableTerminal implements TraceSink, Flushable, AutoCloseable {
             @Override public CompletionStage<ConsumeResult<TraceData>> consume(TraceData batch) {
                 return ConsumeResult.acceptedStage();
             }
@@ -67,7 +67,7 @@ class PipelineLifecycleTest {
     @Test
     void shutdownPropagatesAutoCloseableExceptions() {
         var source = new ManualSource<TraceData>();
-        class FailingTerminal implements TraceConsumer, AutoCloseable {
+        class FailingTerminal implements TraceSink, AutoCloseable {
             @Override public CompletionStage<ConsumeResult<TraceData>> consume(TraceData batch) {
                 return ConsumeResult.acceptedStage();
             }
@@ -94,7 +94,7 @@ class PipelineLifecycleTest {
     @Test
     void pipelineStageThrowingProducesRejected() {
         var source = new ManualSource<TraceData>();
-        TraceConsumer terminal = traces -> ConsumeResult.acceptedStage();
+        TraceSink terminal = traces -> ConsumeResult.acceptedStage();
         var sub = Pipeline.from(source)
                 .transform(batch -> { throw new RuntimeException("transform exploded"); })
                 .to(terminal);
@@ -113,7 +113,7 @@ class PipelineLifecycleTest {
         var closed = new AtomicBoolean();
         AutoCloseable resource = () -> closed.set(true);
         // The method-reference terminal hides no AutoCloseable, so only owns() can register the drain.
-        TraceConsumer terminal = traces -> ConsumeResult.acceptedStage();
+        TraceSink terminal = traces -> ConsumeResult.acceptedStage();
         var sub = Pipeline.from(source).owns(resource).to(terminal);
 
         assertThat(closed.get()).isFalse();
@@ -141,7 +141,7 @@ class PipelineLifecycleTest {
             }
         }
         var owner = new OwnedResource();
-        TraceConsumer terminal = traces -> ConsumeResult.acceptedStage();
+        TraceSink terminal = traces -> ConsumeResult.acceptedStage();
         var sub = Pipeline.from(source).to(terminal, owner);
 
         sub.forceFlush(Duration.ofSeconds(1)).toCompletableFuture().join();
@@ -173,7 +173,7 @@ class PipelineLifecycleTest {
         }
         var first = new RecordingResource();
         var second = new RecordingResource();
-        TraceConsumer terminal = traces -> ConsumeResult.acceptedStage();
+        TraceSink terminal = traces -> ConsumeResult.acceptedStage();
         var sub = Pipeline.from(source).owns(first).owns(second).to(terminal);
 
         sub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
@@ -205,7 +205,7 @@ class PipelineLifecycleTest {
             }
         }
         var resource = new DrainableResource();
-        TraceConsumer terminal = traces -> ConsumeResult.acceptedStage();
+        TraceSink terminal = traces -> ConsumeResult.acceptedStage();
         var sub = Pipeline.from(source).owns(resource).to(terminal);
 
         sub.shutdown(Duration.ofSeconds(5)).toCompletableFuture().join();
@@ -230,7 +230,7 @@ class PipelineLifecycleTest {
             @Override public void close() {}
         }
         var resource = new FlushableResource();
-        TraceConsumer terminal = traces -> ConsumeResult.acceptedStage();
+        TraceSink terminal = traces -> ConsumeResult.acceptedStage();
         var sub = Pipeline.from(source).owns(resource).to(terminal);
 
         sub.forceFlush(Duration.ofSeconds(1)).toCompletableFuture().join();

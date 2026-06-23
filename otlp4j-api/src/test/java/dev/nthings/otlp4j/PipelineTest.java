@@ -5,10 +5,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import dev.nthings.otlp4j.model.AttributeValue;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TraceData;
-import dev.nthings.otlp4j.pipeline.ConsumeResult;
+import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.pipeline.Pipeline;
-import dev.nthings.otlp4j.pipeline.Subscription;
-import dev.nthings.otlp4j.pipeline.TraceConsumer;
+import dev.nthings.otlp4j.core.Subscription;
+import dev.nthings.otlp4j.core.TraceSink;
 import dev.nthings.otlp4j.processor.Transforms;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.time.Duration;
@@ -26,7 +26,7 @@ class PipelineTest {
     void transformAndFilterApplyInOrder() {
         var source = new ManualSource<TraceData>();
         var captured = new ArrayList<TraceData>();
-        TraceConsumer terminal = traces -> {
+        TraceSink terminal = traces -> {
             captured.add(traces);
             return ConsumeResult.acceptedStage();
         };
@@ -56,11 +56,11 @@ class PipelineTest {
         var source = new ManualSource<TraceData>();
         var a = new AtomicInteger();
         var b = new AtomicInteger();
-        TraceConsumer peerA = traces -> {
+        TraceSink peerA = traces -> {
             a.incrementAndGet();
             return ConsumeResult.acceptedStage();
         };
-        TraceConsumer peerB = traces -> {
+        TraceSink peerB = traces -> {
             b.incrementAndGet();
             return ConsumeResult.acceptedStage();
         };
@@ -82,7 +82,7 @@ class PipelineTest {
     void peekErrorsDoNotAffectMainPath() {
         var source = new ManualSource<TraceData>();
         var captured = new ArrayList<TraceData>();
-        TraceConsumer terminal = traces -> {
+        TraceSink terminal = traces -> {
             captured.add(traces);
             return ConsumeResult.acceptedStage();
         };
@@ -107,7 +107,7 @@ class PipelineTest {
         var source = new ManualSource<TraceData>();
         var observedByTransform = new AtomicInteger();
         var delivered = new ArrayList<TraceData>();
-        TraceConsumer terminal = traces -> {
+        TraceSink terminal = traces -> {
             delivered.add(traces);
             return ConsumeResult.acceptedStage();
         };
@@ -131,10 +131,10 @@ class PipelineTest {
 
     @DisplayName("Shutting down the Subscription detaches the consumer")
     @Test
-    void closingSubscriptionDetachesConsumer() {
+    void closingSubscriptionDetachesSink() {
         var source = new ManualSource<TraceData>();
         var captured = new ArrayList<TraceData>();
-        TraceConsumer terminal = traces -> {
+        TraceSink terminal = traces -> {
             captured.add(traces);
             return ConsumeResult.acceptedStage();
         };

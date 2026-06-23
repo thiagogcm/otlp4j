@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>dev.nthings.otlp4j</groupId>
+        <artifactId>otlp4j-parent</artifactId>
+        <version>${revision}</version>
+    </parent>
+
+    <artifactId>otlp4j-codec</artifactId>
+    <name>otlp4j-codec</name>
+    <description>Marshalling between the otlp4j domain model and the generated OTLP protobuf
+        messages. JPMS module dev.nthings.otlp4j.codec — shared by the gRPC and HTTP transports and
+        free of any gRPC dependency in code (it touches only protobuf messages, never the service
+        stubs). Its package is exported only to the two transport modules.</description>
+
+    <properties>
+        <!-- Internal module: no exported packages, so no Javadoc report (compiler doclint still runs). -->
+        <maven.javadoc.skip>true</maven.javadoc.skip>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-model</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-proto</artifactId>
+        </dependency>
+
+        <!-- Shared OTLP test fixtures (Fixtures, TransportFixtures). -->
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-testing</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>check-coverage</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                        <configuration>
+                            <!-- Mappers are gated by this module's round-trip suites; SignalResponses
+                                 and Transports are exercised by the transport suites + aggregate. -->
+                            <excludes>
+                                <exclude>dev/nthings/otlp4j/codec/SignalResponses*</exclude>
+                                <exclude>dev/nthings/otlp4j/codec/Transports*</exclude>
+                            </excludes>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

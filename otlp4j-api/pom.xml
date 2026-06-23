@@ -39,11 +39,9 @@
 
     <build>
         <plugins>
-            <!-- Opt in to the shared coverage floor (rules defined in the parent POM).
-                 OtlpReceiver/OtlpGrpcExporter and the transport SPI interfaces cannot be
-                 exercised without a transport provider, which is not on this pure module's own
-                 test path; they are covered by the otlp4j-transport integration suite and
-                 verified in the aggregate report, so they are excluded from this module's floor. -->
+            <!-- Opt in to the shared coverage floor (parent POM). The abstract exporter/receiver
+                 bases and SPI contracts need a concrete transport to exercise — covered by the
+                 transport suites + aggregate — so they're excluded from this module's floor. -->
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
@@ -55,20 +53,11 @@
                             <goal>check</goal>
                         </goals>
                         <configuration>
-                            <!-- Classes excluded from this module's floor cannot run without
-                                 the otlp4j-transport SPI provider on the test classpath. They
-                                 are exercised end-to-end by the otlp4j-transport suite and
-                                 counted in the aggregate coverage report. -->
                             <excludes>
                                 <exclude>dev/nthings/otlp4j/receiver/Receiver</exclude>
                                 <exclude>dev/nthings/otlp4j/receiver/AbstractOtlpReceiver*</exclude>
-                                <exclude>dev/nthings/otlp4j/receiver/OtlpGrpcReceiver*</exclude>
-                                <exclude>dev/nthings/otlp4j/receiver/OtlpHttpReceiver*</exclude>
                                 <exclude>dev/nthings/otlp4j/exporter/AbstractOtlpExporter*</exclude>
-                                <exclude>dev/nthings/otlp4j/exporter/OtlpGrpcExporter*</exclude>
-                                <exclude>dev/nthings/otlp4j/exporter/OtlpHttpExporter*</exclude>
                                 <exclude>dev/nthings/otlp4j/spi/*</exclude>
-                                <exclude>dev/nthings/otlp4j/api/internal/SpiSupport*</exclude>
                             </excludes>
                         </configuration>
                     </execution>

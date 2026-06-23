@@ -18,16 +18,16 @@ module dev.nthings.otlp4j.proto {
     // — only this module's own generated code needs it readable — so it is not transitive.
     requires com.google.common.util.concurrent.internal;
 
-    exports io.opentelemetry.proto.common.v1 to dev.nthings.otlp4j.transport;
-    exports io.opentelemetry.proto.resource.v1 to dev.nthings.otlp4j.transport;
-    exports io.opentelemetry.proto.trace.v1 to dev.nthings.otlp4j.transport;
-    exports io.opentelemetry.proto.metrics.v1 to dev.nthings.otlp4j.transport;
-    exports io.opentelemetry.proto.logs.v1 to dev.nthings.otlp4j.transport;
-    exports io.opentelemetry.proto.profiles.v1development to dev.nthings.otlp4j.transport;
-    exports io.opentelemetry.proto.collector.trace.v1 to dev.nthings.otlp4j.transport;
-    exports io.opentelemetry.proto.collector.metrics.v1 to dev.nthings.otlp4j.transport;
-    exports io.opentelemetry.proto.collector.logs.v1 to dev.nthings.otlp4j.transport;
-    exports io.opentelemetry.proto.collector.profiles.v1development to dev.nthings.otlp4j.transport;
+    exports io.opentelemetry.proto.common.v1 to dev.nthings.otlp4j.codec, dev.nthings.otlp4j.transport.grpc, dev.nthings.otlp4j.transport.http;
+    exports io.opentelemetry.proto.resource.v1 to dev.nthings.otlp4j.codec, dev.nthings.otlp4j.transport.grpc, dev.nthings.otlp4j.transport.http;
+    exports io.opentelemetry.proto.trace.v1 to dev.nthings.otlp4j.codec, dev.nthings.otlp4j.transport.grpc, dev.nthings.otlp4j.transport.http;
+    exports io.opentelemetry.proto.metrics.v1 to dev.nthings.otlp4j.codec, dev.nthings.otlp4j.transport.grpc, dev.nthings.otlp4j.transport.http;
+    exports io.opentelemetry.proto.logs.v1 to dev.nthings.otlp4j.codec, dev.nthings.otlp4j.transport.grpc, dev.nthings.otlp4j.transport.http;
+    exports io.opentelemetry.proto.profiles.v1development to dev.nthings.otlp4j.codec, dev.nthings.otlp4j.transport.grpc, dev.nthings.otlp4j.transport.http;
+    exports io.opentelemetry.proto.collector.trace.v1 to dev.nthings.otlp4j.codec, dev.nthings.otlp4j.transport.grpc, dev.nthings.otlp4j.transport.http;
+    exports io.opentelemetry.proto.collector.metrics.v1 to dev.nthings.otlp4j.codec, dev.nthings.otlp4j.transport.grpc, dev.nthings.otlp4j.transport.http;
+    exports io.opentelemetry.proto.collector.logs.v1 to dev.nthings.otlp4j.codec, dev.nthings.otlp4j.transport.grpc, dev.nthings.otlp4j.transport.http;
+    exports io.opentelemetry.proto.collector.profiles.v1development to dev.nthings.otlp4j.codec, dev.nthings.otlp4j.transport.grpc, dev.nthings.otlp4j.transport.http;
 
     // processcontext.v1development is generated but intentionally not exported: ProcessContext is a
     // non-OTLP, memory-mapped sidecar (not collector-exchanged), so the transport has no mapper for

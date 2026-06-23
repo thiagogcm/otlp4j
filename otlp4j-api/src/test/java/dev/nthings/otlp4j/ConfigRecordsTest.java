@@ -3,11 +3,11 @@ package dev.nthings.otlp4j;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import dev.nthings.otlp4j.spi.ClientTransportConfig;
-import dev.nthings.otlp4j.spi.Compression;
-import dev.nthings.otlp4j.spi.RetryPolicy;
-import dev.nthings.otlp4j.spi.ServerTransportConfig;
-import dev.nthings.otlp4j.spi.Tls;
+import dev.nthings.otlp4j.config.ClientConfig;
+import dev.nthings.otlp4j.config.Compression;
+import dev.nthings.otlp4j.config.RetryPolicy;
+import dev.nthings.otlp4j.config.ServerConfig;
+import dev.nthings.otlp4j.config.Tls;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.concurrent.Executor;
@@ -17,10 +17,10 @@ import org.junit.jupiter.api.Test;
 @DisplayName("Transport config records")
 class ConfigRecordsTest {
 
-    @DisplayName("ClientTransportConfig builder applies sensible defaults")
+    @DisplayName("ClientConfig builder applies sensible defaults")
     @Test
     void clientConfigDefaults() {
-        var c = ClientTransportConfig.builder().build();
+        var c = ClientConfig.builder().build();
         assertThat(c.host()).isEqualTo("localhost");
         assertThat(c.port()).isEqualTo(4317);
         assertThat(c.timeout()).isEqualTo(Duration.ofSeconds(10));
@@ -30,10 +30,10 @@ class ConfigRecordsTest {
         assertThat(c.headers()).isEmpty();
     }
 
-    @DisplayName("ClientTransportConfig builder applies fluent overrides")
+    @DisplayName("ClientConfig builder applies fluent overrides")
     @Test
     void clientConfigBuilderFluentOverrides() {
-        var c = ClientTransportConfig.builder()
+        var c = ClientConfig.builder()
                 .endpoint("collector.example.com", 4318)
                 .header("x-tenant", "abc")
                 .compression(Compression.GZIP)
@@ -46,17 +46,17 @@ class ConfigRecordsTest {
         assertThat(c.timeout()).isEqualTo(Duration.ofSeconds(3));
     }
 
-    @DisplayName("ClientTransportConfig rejects a zero timeout")
+    @DisplayName("ClientConfig rejects a zero timeout")
     @Test
     void clientConfigRejectsZeroTimeout() {
-        assertThatThrownBy(() -> ClientTransportConfig.builder().timeout(Duration.ZERO).build())
+        assertThatThrownBy(() -> ClientConfig.builder().timeout(Duration.ZERO).build())
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
-    @DisplayName("ServerTransportConfig builder applies sensible defaults")
+    @DisplayName("ServerConfig builder applies sensible defaults")
     @Test
     void serverConfigDefaults() {
-        var c = ServerTransportConfig.builder().build();
+        var c = ServerConfig.builder().build();
         assertThat(c.bindHost()).isEqualTo("0.0.0.0");
         assertThat(c.port()).isEqualTo(4317);
         assertThat(c.tls()).isEqualTo(Tls.disabled());
@@ -66,11 +66,11 @@ class ConfigRecordsTest {
         assertThat(c.serverExecutor()).isNull();
     }
 
-    @DisplayName("ServerTransportConfig.toBuilder round-trips and preserves untouched fields")
+    @DisplayName("ServerConfig.toBuilder round-trips and preserves untouched fields")
     @Test
     void serverConfigToBuilderRoundTrips() {
         Executor executor = Runnable::run;
-        var original = ServerTransportConfig.builder()
+        var original = ServerConfig.builder()
                 .bindHost("127.0.0.1")
                 .port(5000)
                 .tls(Tls.systemTrust())
@@ -92,21 +92,21 @@ class ConfigRecordsTest {
         assertThat(original.port()).isEqualTo(5000);
     }
 
-    @DisplayName("ServerTransportConfig rejects an out-of-range port")
+    @DisplayName("ServerConfig rejects an out-of-range port")
     @Test
     void serverConfigRejectsBadPort() {
-        assertThatThrownBy(() -> ServerTransportConfig.builder().port(70000).build())
+        assertThatThrownBy(() -> ServerConfig.builder().port(70000).build())
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
-    @DisplayName("ServerTransportConfig rejects non-positive hardening limits and a non-positive handshake timeout")
+    @DisplayName("ServerConfig rejects non-positive hardening limits and a non-positive handshake timeout")
     @Test
     void serverConfigRejectsBadHardeningLimits() {
-        assertThatThrownBy(() -> ServerTransportConfig.builder().maxInboundMessageSizeBytes(0).build())
+        assertThatThrownBy(() -> ServerConfig.builder().maxInboundMessageSizeBytes(0).build())
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> ServerTransportConfig.builder().maxConcurrentCallsPerConnection(-1).build())
+        assertThatThrownBy(() -> ServerConfig.builder().maxConcurrentCallsPerConnection(-1).build())
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> ServerTransportConfig.builder().handshakeTimeout(Duration.ZERO).build())
+        assertThatThrownBy(() -> ServerConfig.builder().handshakeTimeout(Duration.ZERO).build())
                 .isInstanceOf(IllegalArgumentException.class);
     }
 

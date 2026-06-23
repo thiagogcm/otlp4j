@@ -1,0 +1,85 @@
+package dev.nthings.otlp4j.transport.http;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import dev.nthings.otlp4j.config.ClientConfig;
+import dev.nthings.otlp4j.config.Compression;
+import dev.nthings.otlp4j.config.RetryPolicy;
+import dev.nthings.otlp4j.config.ServerConfig;
+import dev.nthings.otlp4j.config.Tls;
+import dev.nthings.otlp4j.model.ConsumeResult;
+import java.time.Duration;
+import java.util.Map;
+import java.util.concurrent.Executors;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+/// Exercises every builder knob on the HTTP entry points. No network I/O: the JDK HttpClient does
+/// not connect on build and the receiver is never started, so each `build()` only wires config.
+@DisplayName("HTTP entry-point builders")
+class HttpEntryPointBuilderTest {
+
+    @DisplayName("OtlpHttpExporter builder applies every knob")
+    @Test
+    void exporterBuilderAppliesEveryKnob() {
+        try (var exporter = OtlpHttpExporter.builder()
+                .fromEnvironment()
+                .endpoint("collector.example", 4318)
+                .host("collector.example")
+                .port(4318)
+                .timeout(Duration.ofSeconds(3))
+                .tls(Tls.systemTrust())
+                .header("authorization", "Bearer x")
+                .headers(Map.of("x-tenant", "acme"))
+                .compression(Compression.GZIP)
+                .retry(RetryPolicy.exponential(3, Duration.ofMillis(50), Duration.ofSeconds(1)))
+                .build()) {
+            assertThat(exporter.traces()).isNotNull();
+            assertThat(exporter.metrics()).isNotNull();
+            assertThat(exporter.logs()).isNotNull();
+            assertThat(exporter.profiles()).isNotNull();
+        }
+    }
+
+    @DisplayName("OtlpHttpExporter.transport(config) and to(...) build a client")
+    @Test
+    void exporterFromConfigAndConvenience() {
+        var config = ClientConfig.builder().endpoint("h", 4318).build();
+        try (var fromConfig = OtlpHttpExporter.builder().transport(config).build()) {
+            assertThat(fromConfig.traces()).isNotNull();
+        }
+        try (var convenience = OtlpHttpExporter.to("h", 4318)) {
+            assertThat(convenience.traces()).isNotNull();
+        }
+    }
+
+    @DisplayName("OtlpHttpReceiver builder applies every knob")
+    @Test
+    void receiverBuilderAppliesEveryKnob() {
+        var executor = Executors.newVirtualThreadPerTaskExecutor();
+        var receiver = OtlpHttpReceiver.builder()
+                .transport(ServerConfig.builder().build())
+                .endpoint("127.0.0.1", 0)
+                .port(0)
+                .ephemeralPort()
+                .tls(Tls.disabled())
+                .maxInboundMessageSizeBytes(1024)
+                .maxConcurrentCallsPerConnection(8)
+                .handshakeTimeout(Duration.ofSeconds(5))
+                .serverExecutor(executor)
+                .onTraces(t -> ConsumeResult.acceptedStage())
+                .onMetrics(m -> ConsumeResult.acceptedStage())
+                .onLogs(l -> ConsumeResult.acceptedStage())
+                .onProfiles(p -> ConsumeResult.acceptedStage())
+                .build();
+        assertThat(receiver.port()).isZero(); // never started
+        executor.shutdown();
+    }
+
+    @DisplayName("OtlpHttpReceiver.on(...) convenience builds a receiver")
+    @Test
+    void receiverConvenienceFactories() {
+        assertThat(OtlpHttpReceiver.on(0).port()).isZero();
+        assertThat(OtlpHttpReceiver.on("127.0.0.1", 0).port()).isZero();
+    }
+}

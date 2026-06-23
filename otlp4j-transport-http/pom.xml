@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>dev.nthings.otlp4j</groupId>
+        <artifactId>otlp4j-parent</artifactId>
+        <version>${revision}</version>
+    </parent>
+
+    <artifactId>otlp4j-transport-http</artifactId>
+    <name>otlp4j-transport-http</name>
+    <description>The OTLP/HTTP transport: the concrete OtlpHttpExporter and OtlpHttpReceiver built on
+        the JDK (java.net.http client, jdk.httpserver server). JPMS module
+        dev.nthings.otlp4j.transport.http — it carries no gRPC or Netty dependency. Proto mapping is
+        shared with the gRPC transport via otlp4j-codec.</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-codec</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-proto</artifactId>
+        </dependency>
+        <!-- The HTTP client/handlers parse and serialize the OTLP protobuf messages directly. -->
+        <dependency>
+            <groupId>com.google.protobuf</groupId>
+            <artifactId>protobuf-java</artifactId>
+        </dependency>
+        <!-- Logging facade only; no backend bound here. -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
+
+        <!-- Shared OTLP test fixtures (Fixtures, TransportFixtures). -->
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-testing</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Opt in to the shared coverage floor (rules defined in the parent POM). -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>check-coverage</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>
