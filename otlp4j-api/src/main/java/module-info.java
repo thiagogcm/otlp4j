@@ -4,7 +4,7 @@
 module dev.nthings.otlp4j.api {
     // Re-export the model so api signatures expose model types without an explicit `requires`.
     requires transitive dev.nthings.otlp4j.model;
-    requires transitive org.jspecify;
+    requires static transitive org.jspecify;
 
     // Logging facade; not transitive — consumers bring their own backend.
     requires org.slf4j;

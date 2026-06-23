@@ -12,7 +12,7 @@ import org.jspecify.annotations.Nullable;
 /// `filteredAttributes` are the key/values the aggregator dropped when collapsing the
 /// measurement into its series but kept on the exemplar. `spanId`/`traceId` are
 /// lowercase-hex strings — empty when the measurement was not recorded inside a sampled
-/// trace, and rejected when encoded to the wire if not valid hex. `value` reuses
+/// trace, and rejected at construction time if not valid hex. `value` reuses
 /// [NumberPoint.Value]; it may be null for an invalid exemplar whose wire `value` oneof
 /// recognized neither an integer nor a double.
 @NullMarked
