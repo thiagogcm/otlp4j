@@ -4,8 +4,7 @@ otlp4j is a JPMS-modular Java SDK for receiving, processing, and exporting [Open
 
 The project is currently experimental `0.1.0-SNAPSHOT` and requires JDK 25. Its built-in transport carries OTLP/gRPC for traces, metrics, logs, and experimental profiles, over plaintext or TLS, with authentication headers, gzip compression, and gRPC-native retries.
 
-> [!WARNING]
-> This project was developed with the assistance of AI agents and has not undergone thorough testing. Please report any issues you encounter.
+> [!WARNING] This project was developed with the assistance of AI agents and has not undergone thorough testing. Please report any issues you encounter.
 
 ## Capabilities
 
@@ -81,8 +80,7 @@ var subscription = Pipeline.from(receiver.traces())
 
 The receiver accepts one consumer per signal source. Use `branch().fanOut(...).join()` when several consumers need the same batch.
 
-> [!IMPORTANT]
-> An exporter facet such as `exporter.traces()` is a consumer view and does **not** transfer ownership of the exporter to the pipeline — so the plain `.to(exporter.traces())` terminal leaks the exporter's lifecycle. Hand ownership to the subscription with the two-arg `.to(exporter.traces(), exporter)` overload above (equivalently, `.owns(exporter)` before the terminal); the subscription then drains it on shutdown within the shared deadline and flushes it on `forceFlush`. With ownership transferred you shut down just two lifecycles, in order — subscription, then receiver. If you keep the one-arg terminal, you must close the exporter yourself between the two.
+> [!IMPORTANT] An exporter facet such as `exporter.traces()` is a consumer view and does **not** transfer ownership of the exporter to the pipeline — so the plain `.to(exporter.traces())` terminal leaks the exporter's lifecycle. Hand ownership to the subscription with the two-arg `.to(exporter.traces(), exporter)` overload above (equivalently, `.owns(exporter)` before the terminal); the subscription then drains it on shutdown within the shared deadline and flushes it on `forceFlush`. With ownership transferred you shut down just two lifecycles, in order — subscription, then receiver. If you keep the one-arg terminal, you must close the exporter yourself between the two.
 
 ```java
 subscription.shutdown(Duration.ofSeconds(10)).toCompletableFuture().join();
