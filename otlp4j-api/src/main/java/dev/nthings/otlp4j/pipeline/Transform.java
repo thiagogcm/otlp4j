@@ -1,5 +1,7 @@
 package dev.nthings.otlp4j.pipeline;
 
+import org.jspecify.annotations.NullMarked;
+
 /// A pure 1→1 transformation over a signal batch.
 ///
 /// Transforms are the building block of `Pipeline.transform(...)` and the most common pipeline
@@ -7,9 +9,10 @@ package dev.nthings.otlp4j.pipeline;
 /// hold immutable configuration but must not retain or mutate batches.
 ///
 /// @param <T> the OTLP signal carried by this transform
+@NullMarked
 @FunctionalInterface
 public interface Transform<T> {
 
-    /// Returns a new batch derived from `batch`. May return `batch` unchanged.
+    /// Returns a non-null batch derived from `batch`. May return `batch` unchanged.
     T apply(T batch);
 }

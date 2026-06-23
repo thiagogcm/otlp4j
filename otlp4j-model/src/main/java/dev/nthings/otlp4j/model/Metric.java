@@ -2,15 +2,21 @@ package dev.nthings.otlp4j.model;
 
 import java.util.List;
 import java.util.Objects;
+import org.jspecify.annotations.NullMarked;
 
 /// A named metric and its time series. Mirrors `opentelemetry.proto.metrics.v1.Metric`.
 ///
 /// The `data` field is a non-null [sealed type][Data]; the empty [NoData] variant models the
 /// wire `DATA_NOT_SET` form (round-tripped faithfully), so [#data()] is never null.
+@NullMarked
 public record Metric(String name, String description, String unit, Data data, Attributes metadata) {
 
     public Metric {
+        Objects.requireNonNull(name, "name");
+        Objects.requireNonNull(description, "description");
+        Objects.requireNonNull(unit, "unit");
         Objects.requireNonNull(data, "data (use Metric.noData() for the empty DATA_NOT_SET form)");
+        Objects.requireNonNull(metadata, "metadata");
     }
 
     public static Builder builder() {
@@ -74,6 +80,7 @@ public record Metric(String name, String description, String unit, Data data, At
     public record Sum(List<NumberPoint> points, AggregationTemporality temporality, boolean monotonic)
             implements Data {
         public Sum {
+            Objects.requireNonNull(temporality, "temporality");
             points = List.copyOf(points);
         }
     }
@@ -81,6 +88,7 @@ public record Metric(String name, String description, String unit, Data data, At
     public record Histogram(List<HistogramPoint> points, AggregationTemporality temporality)
             implements Data {
         public Histogram {
+            Objects.requireNonNull(temporality, "temporality");
             points = List.copyOf(points);
         }
     }
@@ -89,6 +97,7 @@ public record Metric(String name, String description, String unit, Data data, At
             List<ExponentialHistogramPoint> points, AggregationTemporality temporality)
             implements Data {
         public ExponentialHistogram {
+            Objects.requireNonNull(temporality, "temporality");
             points = List.copyOf(points);
         }
     }

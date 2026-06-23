@@ -212,6 +212,23 @@ class ModelRecordInvariantsTest {
         assertThat(AttributeValue.EMPTY).isInstanceOf(AttributeValue.Empty.class);
     }
 
+    @DisplayName("Exemplar validates required fields while preserving unset values")
+    @Test
+    void exemplarValidatesRequiredFieldsWhilePreservingUnsetValues() {
+        assertThat(new Exemplar(Attributes.empty(), 5_000L, null, "", "").value()).isNull();
+        assertThatThrownBy(() -> new Exemplar(null, 5_000L, null, "", ""))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("filteredAttributes");
+        assertThatThrownBy(() -> new Exemplar(
+                        Attributes.empty(), 5_000L, null, "not-hex", ""))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("spanId");
+        assertThatThrownBy(() -> new Exemplar(
+                        Attributes.empty(), 5_000L, null, "", "not-hex"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("traceId");
+    }
+
     // --- helpers ----------------------------------------------------------------------------
 
     private static Span span(String name) {

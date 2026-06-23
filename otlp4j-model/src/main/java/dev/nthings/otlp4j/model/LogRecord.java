@@ -1,9 +1,13 @@
 package dev.nthings.otlp4j.model;
 
+import java.util.Objects;
+import org.jspecify.annotations.NullMarked;
+
 /// A single log record. Mirrors `opentelemetry.proto.logs.v1.LogRecord`.
 ///
 /// `body` is an arbitrary [AttributeValue]. Trace and span identifiers are lowercase-hex strings
 /// when present. Prefer [#builder()] over the positional constructor.
+@NullMarked
 public record LogRecord(
         long epochNanos,
         long observedEpochNanos,
@@ -19,6 +23,11 @@ public record LogRecord(
 
     public LogRecord {
         // Validate ids and flags at construction, not later on the async export thread.
+        Objects.requireNonNull(severity, "severity");
+        Objects.requireNonNull(severityText, "severityText");
+        Objects.requireNonNull(body, "body");
+        Objects.requireNonNull(attributes, "attributes");
+        Objects.requireNonNull(eventName, "eventName");
         traceId = Ids.traceId(traceId);
         spanId = Ids.spanId(spanId);
         flags = Ids.flags(flags);

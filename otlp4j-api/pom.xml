@@ -23,6 +23,11 @@
             <groupId>dev.nthings.otlp4j</groupId>
             <artifactId>otlp4j-model</artifactId>
         </dependency>
+        <!-- Nullness contracts are part of the public API; keep them visible to consumers. -->
+        <dependency>
+            <groupId>org.jspecify</groupId>
+            <artifactId>jspecify</artifactId>
+        </dependency>
         <!-- Logging facade only; the consuming application binds a backend. -->
         <dependency>
             <groupId>org.slf4j</groupId>
