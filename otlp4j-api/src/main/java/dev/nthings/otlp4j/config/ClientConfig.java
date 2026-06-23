@@ -109,7 +109,7 @@ public record ClientConfig(
             return this;
         }
 
-        /// Adds all of `headers` on top of any already set (merge semantics).
+        /// Adds all of `headers` on top of any already set; values overwrite existing ones per key.
         public Builder addHeaders(Map<String, String> headers) {
             this.headers.putAll(headers);
             return this;
