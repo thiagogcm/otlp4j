@@ -82,4 +82,26 @@ class HttpEntryPointBuilderTest {
         assertThat(OtlpHttpReceiver.on(0).port()).isZero();
         assertThat(OtlpHttpReceiver.on("127.0.0.1", 0).port()).isZero();
     }
+
+    @DisplayName("OtlpHttpExporter.Builder headers(map) replaces, and addHeaders(map) merges")
+    @Test
+    void exporterBuilderHeadersAndAddHeaders() throws Exception {
+        var builder = OtlpHttpExporter.builder()
+                .header("k1", "v1")
+                .headers(Map.of("k2", "v2", "k3", "v3"));
+
+        var field = OtlpHttpExporter.Builder.class.getDeclaredField("config");
+        field.setAccessible(true);
+        var clientConfigBuilder = (ClientConfig.Builder) field.get(builder);
+        var c = clientConfigBuilder.build();
+        assertThat(c.headers()).containsExactlyInAnyOrderEntriesOf(Map.of("k2", "v2", "k3", "v3"));
+
+        var builder2 = OtlpHttpExporter.builder()
+                .header("k1", "v1")
+                .addHeaders(Map.of("k2", "v2", "k3", "v3"));
+
+        var clientConfigBuilder2 = (ClientConfig.Builder) field.get(builder2);
+        var c2 = clientConfigBuilder2.build();
+        assertThat(c2.headers()).containsExactlyInAnyOrderEntriesOf(Map.of("k1", "v1", "k2", "v2", "k3", "v3"));
+    }
 }

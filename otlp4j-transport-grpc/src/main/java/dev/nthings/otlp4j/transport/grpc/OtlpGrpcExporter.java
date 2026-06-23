@@ -82,9 +82,15 @@ public final class OtlpGrpcExporter extends AbstractOtlpExporter {
             return this;
         }
 
-        /// Adds all of `headers` as request metadata, on top of any already set.
+        /// Replaces any existing headers with the supplied map.
         public Builder headers(Map<String, String> headers) {
             config.headers(headers);
+            return this;
+        }
+
+        /// Adds all of `headers` as request metadata, on top of any already set.
+        public Builder addHeaders(Map<String, String> headers) {
+            config.addHeaders(headers);
             return this;
         }
 

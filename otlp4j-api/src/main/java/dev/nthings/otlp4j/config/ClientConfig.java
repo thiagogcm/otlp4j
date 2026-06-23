@@ -102,8 +102,15 @@ public record ClientConfig(
             return this;
         }
 
+        /// Replaces all existing headers with the supplied map.
         public Builder headers(Map<String, String> headers) {
             this.headers.clear();
+            this.headers.putAll(headers);
+            return this;
+        }
+
+        /// Adds all of `headers` on top of any already set (merge semantics).
+        public Builder addHeaders(Map<String, String> headers) {
             this.headers.putAll(headers);
             return this;
         }

@@ -82,4 +82,26 @@ class GrpcEntryPointBuilderTest {
         assertThat(OtlpGrpcReceiver.on(0).port()).isZero();
         assertThat(OtlpGrpcReceiver.on("127.0.0.1", 0).port()).isZero();
     }
+
+    @DisplayName("OtlpGrpcExporter.Builder headers(map) replaces, and addHeaders(map) merges")
+    @Test
+    void exporterBuilderHeadersAndAddHeaders() throws Exception {
+        var builder = OtlpGrpcExporter.builder()
+                .header("k1", "v1")
+                .headers(Map.of("k2", "v2", "k3", "v3"));
+
+        var field = OtlpGrpcExporter.Builder.class.getDeclaredField("config");
+        field.setAccessible(true);
+        var clientConfigBuilder = (ClientConfig.Builder) field.get(builder);
+        var c = clientConfigBuilder.build();
+        assertThat(c.headers()).containsExactlyInAnyOrderEntriesOf(Map.of("k2", "v2", "k3", "v3"));
+
+        var builder2 = OtlpGrpcExporter.builder()
+                .header("k1", "v1")
+                .addHeaders(Map.of("k2", "v2", "k3", "v3"));
+
+        var clientConfigBuilder2 = (ClientConfig.Builder) field.get(builder2);
+        var c2 = clientConfigBuilder2.build();
+        assertThat(c2.headers()).containsExactlyInAnyOrderEntriesOf(Map.of("k1", "v1", "k2", "v2", "k3", "v3"));
+    }
 }

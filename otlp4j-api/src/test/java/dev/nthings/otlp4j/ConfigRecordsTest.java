@@ -10,6 +10,7 @@ import dev.nthings.otlp4j.config.ServerConfig;
 import dev.nthings.otlp4j.config.Tls;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Map;
 import java.util.concurrent.Executor;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -145,5 +146,21 @@ class ConfigRecordsTest {
         assertThat(policy.maxBackoff()).isEqualTo(Duration.ofSeconds(2));
         assertThatThrownBy(() -> RetryPolicy.exponential(3, Duration.ofMillis(200), Duration.ofMillis(50)))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @DisplayName("ClientConfig builder headers(map) replaces, and addHeaders(map) merges")
+    @Test
+    void clientConfigBuilderHeadersAndAddHeaders() {
+        var c = ClientConfig.builder()
+                .header("k1", "v1")
+                .headers(Map.of("k2", "v2", "k3", "v3"))
+                .build();
+        assertThat(c.headers()).containsExactlyInAnyOrderEntriesOf(Map.of("k2", "v2", "k3", "v3"));
+
+        var c2 = ClientConfig.builder()
+                .header("k1", "v1")
+                .addHeaders(Map.of("k2", "v2", "k3", "v3"))
+                .build();
+        assertThat(c2.headers()).containsExactlyInAnyOrderEntriesOf(Map.of("k1", "v1", "k2", "v2", "k3", "v3"));
     }
 }
