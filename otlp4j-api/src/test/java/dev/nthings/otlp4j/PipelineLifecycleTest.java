@@ -9,10 +9,8 @@ import dev.nthings.otlp4j.pipeline.ConsumeResult;
 import dev.nthings.otlp4j.pipeline.Drainable;
 import dev.nthings.otlp4j.pipeline.Flushable;
 import dev.nthings.otlp4j.pipeline.Pipeline;
-import dev.nthings.otlp4j.pipeline.Source;
 import dev.nthings.otlp4j.pipeline.Subscription;
 import dev.nthings.otlp4j.pipeline.TraceConsumer;
-import dev.nthings.otlp4j.receiver.internal.SignalSource;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -29,9 +27,9 @@ class PipelineLifecycleTest {
     @DisplayName("close() shuts the subscription down without error")
     @Test
     void closeCallsShutdown() {
-        var source = new SignalSource<>(TraceData.class);
+        var source = new ManualSource<TraceData>();
         TraceConsumer terminal = traces -> ConsumeResult.acceptedStage();
-        var sub = Pipeline.from((Source<TraceData>) source).to(terminal);
+        var sub = Pipeline.from(source).to(terminal);
         sub.close();
         // no exception
         assertThat(true).isTrue();
@@ -40,7 +38,7 @@ class PipelineLifecycleTest {
     @DisplayName("forceFlush() delegates to Flushable terminal resources")
     @Test
     void forceFlushDelegatesToFlushableResources() {
-        var source = new SignalSource<>(TraceData.class);
+        var source = new ManualSource<TraceData>();
         var forceFlushed = new AtomicInteger();
         var closed = new AtomicBoolean();
 
@@ -58,7 +56,7 @@ class PipelineLifecycleTest {
         }
 
         var terminal = new FlushableTerminal();
-        var sub = Pipeline.from((Source<TraceData>) source).to(terminal);
+        var sub = Pipeline.from(source).to(terminal);
         sub.forceFlush(Duration.ofSeconds(1)).toCompletableFuture().join();
         assertThat(forceFlushed.get()).isEqualTo(1);
         sub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
@@ -68,7 +66,7 @@ class PipelineLifecycleTest {
     @DisplayName("shutdown() propagates AutoCloseable close exceptions")
     @Test
     void shutdownPropagatesAutoCloseableExceptions() {
-        var source = new SignalSource<>(TraceData.class);
+        var source = new ManualSource<TraceData>();
         class FailingTerminal implements TraceConsumer, AutoCloseable {
             @Override public CompletionStage<ConsumeResult<TraceData>> consume(TraceData batch) {
                 return ConsumeResult.acceptedStage();
@@ -77,7 +75,7 @@ class PipelineLifecycleTest {
                 throw new IllegalStateException("close failed");
             }
         }
-        var sub = Pipeline.from((Source<TraceData>) source).to(new FailingTerminal());
+        var sub = Pipeline.from(source).to(new FailingTerminal());
         var stage = sub.shutdown(Duration.ofSeconds(1)).toCompletableFuture();
         assertThatThrownBy(stage::join)
                 .hasCauseInstanceOf(IllegalStateException.class)
@@ -87,17 +85,17 @@ class PipelineLifecycleTest {
     @DisplayName("branch() with no peers throws IllegalStateException")
     @Test
     void branchRequiresAtLeastOnePeer() {
-        var source = new SignalSource<>(TraceData.class);
-        var branch = Pipeline.from((Source<TraceData>) source).branch();
+        var source = new ManualSource<TraceData>();
+        var branch = Pipeline.from(source).branch();
         assertThatThrownBy(branch::join).isInstanceOf(IllegalStateException.class);
     }
 
     @DisplayName("A throwing transform stage yields a Rejected result")
     @Test
     void pipelineStageThrowingProducesRejected() {
-        var source = new SignalSource<>(TraceData.class);
+        var source = new ManualSource<TraceData>();
         TraceConsumer terminal = traces -> ConsumeResult.acceptedStage();
-        var sub = Pipeline.from((Source<TraceData>) source)
+        var sub = Pipeline.from(source)
                 .transform(batch -> { throw new RuntimeException("transform exploded"); })
                 .to(terminal);
         try {
@@ -111,12 +109,12 @@ class PipelineLifecycleTest {
     @DisplayName("owns() drains a registered AutoCloseable not reachable as the terminal")
     @Test
     void ownsDrainsRegisteredResource() {
-        var source = new SignalSource<>(TraceData.class);
+        var source = new ManualSource<TraceData>();
         var closed = new AtomicBoolean();
         AutoCloseable resource = () -> closed.set(true);
         // The method-reference terminal hides no AutoCloseable, so only owns() can register the drain.
         TraceConsumer terminal = traces -> ConsumeResult.acceptedStage();
-        var sub = Pipeline.from((Source<TraceData>) source).owns(resource).to(terminal);
+        var sub = Pipeline.from(source).owns(resource).to(terminal);
 
         assertThat(closed.get()).isFalse();
         sub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
@@ -126,7 +124,7 @@ class PipelineLifecycleTest {
     @DisplayName("to(terminal, owner) drains and flushes the owner like owns(owner).to(terminal)")
     @Test
     void twoArgTerminalOwnsResource() {
-        var source = new SignalSource<>(TraceData.class);
+        var source = new ManualSource<TraceData>();
         var flushed = new AtomicInteger();
         var closed = new AtomicBoolean();
 
@@ -144,7 +142,7 @@ class PipelineLifecycleTest {
         }
         var owner = new OwnedResource();
         TraceConsumer terminal = traces -> ConsumeResult.acceptedStage();
-        var sub = Pipeline.from((Source<TraceData>) source).to(terminal, owner);
+        var sub = Pipeline.from(source).to(terminal, owner);
 
         sub.forceFlush(Duration.ofSeconds(1)).toCompletableFuture().join();
         assertThat(flushed.get()).isEqualTo(1);
@@ -157,7 +155,7 @@ class PipelineLifecycleTest {
     @DisplayName("shutdown() shares one deadline across owned resources (shrinking remaining)")
     @Test
     void shutdownSharesOneDeadlineAcrossResources() throws Exception {
-        var source = new SignalSource<>(TraceData.class);
+        var source = new ManualSource<TraceData>();
 
         // A resource that is also a Subscription records the remaining timeout it was closed with, and
         // burns a small slice of it, so the next resource in line must receive a strictly smaller one.
@@ -176,7 +174,7 @@ class PipelineLifecycleTest {
         var first = new RecordingResource();
         var second = new RecordingResource();
         TraceConsumer terminal = traces -> ConsumeResult.acceptedStage();
-        var sub = Pipeline.from((Source<TraceData>) source).owns(first).owns(second).to(terminal);
+        var sub = Pipeline.from(source).owns(first).owns(second).to(terminal);
 
         sub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
 
@@ -192,7 +190,7 @@ class PipelineLifecycleTest {
     @DisplayName("shutdown() drains a non-Subscription Drainable with the remaining deadline, not close()")
     @Test
     void shutdownDrainsDrainableWithRemainingDeadline() {
-        var source = new SignalSource<>(TraceData.class);
+        var source = new ManualSource<TraceData>();
 
         // A plain AutoCloseable (like OtlpGrpcExporter) that is Drainable must receive the deadline-aware
         // shutdown(Duration), not the fixed-timeout close() that would ignore the pipeline's shared budget.
@@ -208,7 +206,7 @@ class PipelineLifecycleTest {
         }
         var resource = new DrainableResource();
         TraceConsumer terminal = traces -> ConsumeResult.acceptedStage();
-        var sub = Pipeline.from((Source<TraceData>) source).owns(resource).to(terminal);
+        var sub = Pipeline.from(source).owns(resource).to(terminal);
 
         sub.shutdown(Duration.ofSeconds(5)).toCompletableFuture().join();
 
@@ -221,7 +219,7 @@ class PipelineLifecycleTest {
     @DisplayName("forceFlush() reaches a Flushable registered via owns()")
     @Test
     void forceFlushReachesOwnedFlushable() {
-        var source = new SignalSource<>(TraceData.class);
+        var source = new ManualSource<TraceData>();
         var flushed = new AtomicInteger();
 
         class FlushableResource implements AutoCloseable, Flushable {
@@ -233,7 +231,7 @@ class PipelineLifecycleTest {
         }
         var resource = new FlushableResource();
         TraceConsumer terminal = traces -> ConsumeResult.acceptedStage();
-        var sub = Pipeline.from((Source<TraceData>) source).owns(resource).to(terminal);
+        var sub = Pipeline.from(source).owns(resource).to(terminal);
 
         sub.forceFlush(Duration.ofSeconds(1)).toCompletableFuture().join();
         assertThat(flushed.get()).isEqualTo(1);

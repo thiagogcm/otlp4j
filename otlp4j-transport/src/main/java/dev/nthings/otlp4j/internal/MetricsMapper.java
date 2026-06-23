@@ -101,9 +101,8 @@ final class MetricsMapper {
             }
             case SUMMARY ->
                 new Metric.Summary(summaryPointsToDomain(metric.getSummary().getDataPointsList()));
-            // No data on the wire maps to null data — the intentional faithful round-trip
-            // documented on Metric (consumers must null-check Metric#data()).
-            case DATA_NOT_SET -> null;
+            // No data on the wire → the empty NoData form (faithful round-trip).
+            case DATA_NOT_SET -> Metric.NoData.INSTANCE;
         };
     }
 
@@ -288,8 +287,8 @@ final class MetricsMapper {
             case Metric.Summary summary ->
                 builder.setSummary(Summary.newBuilder()
                         .addAllDataPoints(summaryPointsToProto(summary.points())));
-            case null -> {
-                // metric carries no data points
+            case Metric.NoData _ -> {
+                // leave the data oneof unset (DATA_NOT_SET)
             }
         }
         return builder.build();

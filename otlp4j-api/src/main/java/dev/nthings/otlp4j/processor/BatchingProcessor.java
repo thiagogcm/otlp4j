@@ -286,7 +286,7 @@ public final class BatchingProcessor<T> implements Consumer<T>, Drainable, Flush
     private static long countDataPoints(MetricsData metrics) {
         return metrics.metrics().stream()
                 .mapToLong(metric -> switch (metric.data()) {
-                    case null -> 0L;
+                    case Metric.NoData _ -> 0L;
                     case Metric.Gauge g -> g.points().size();
                     case Metric.Sum s -> s.points().size();
                     case Metric.Histogram h -> h.points().size();

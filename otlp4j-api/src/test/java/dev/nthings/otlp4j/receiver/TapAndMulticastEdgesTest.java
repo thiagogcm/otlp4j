@@ -1,4 +1,4 @@
-package dev.nthings.otlp4j;
+package dev.nthings.otlp4j.receiver;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -7,10 +7,6 @@ import static org.awaitility.Awaitility.await;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TraceData;
 import dev.nthings.otlp4j.pipeline.Telemetry;
-import dev.nthings.otlp4j.receiver.BackpressureStrategy;
-import dev.nthings.otlp4j.receiver.TapOptions;
-import dev.nthings.otlp4j.receiver.internal.MulticastPublisher;
-import dev.nthings.otlp4j.receiver.internal.ReceiverTap;
 import dev.nthings.otlp4j.testing.Fixtures;
 import dev.nthings.otlp4j.testing.FlowSubscribers;
 import java.time.Duration;

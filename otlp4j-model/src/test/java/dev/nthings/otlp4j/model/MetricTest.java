@@ -23,14 +23,23 @@ class MetricTest {
     @DisplayName("hasData() is false and dataOrThrow() throws for the DATA_NOT_SET form")
     @Test
     void absentData() {
-        // data defaults to null, mirroring the wire DATA_NOT_SET case.
+        // data defaults to NoData (the wire DATA_NOT_SET case).
         var metric = Metric.builder().name("m").build();
 
         assertThat(metric.hasData()).isFalse();
-        assertThat(metric.data()).isNull();
+        assertThat(metric.data()).isEqualTo(Metric.NoData.INSTANCE);
         assertThatThrownBy(metric::dataOrThrow)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("m")
                 .hasMessageContaining("DATA_NOT_SET");
+    }
+
+    @DisplayName("the record rejects null data")
+    @Test
+    void rejectsNullData() {
+        assertThatThrownBy(() -> new Metric("m", "", "", null, Attributes.empty()))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> Metric.builder().data(null))
+                .isInstanceOf(NullPointerException.class);
     }
 }

@@ -7,11 +7,9 @@ import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TraceData;
 import dev.nthings.otlp4j.pipeline.ConsumeResult;
 import dev.nthings.otlp4j.pipeline.Pipeline;
-import dev.nthings.otlp4j.pipeline.Source;
 import dev.nthings.otlp4j.pipeline.Subscription;
 import dev.nthings.otlp4j.pipeline.TraceConsumer;
 import dev.nthings.otlp4j.processor.Transforms;
-import dev.nthings.otlp4j.receiver.internal.SignalSource;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -26,13 +24,13 @@ class PipelineTest {
     @DisplayName("Transform and filter stages apply in declared order")
     @Test
     void transformAndFilterApplyInOrder() {
-        var source = new SignalSource<>(TraceData.class);
+        var source = new ManualSource<TraceData>();
         var captured = new ArrayList<TraceData>();
         TraceConsumer terminal = traces -> {
             captured.add(traces);
             return ConsumeResult.acceptedStage();
         };
-        var sub = Pipeline.from((Source<TraceData>) source)
+        var sub = Pipeline.from(source)
                 .transform(Transforms.withTracesResourceAttribute("env", AttributeValue.of("prod")))
                 .transform(Transforms.keepSpansWhere(span -> span.kind() == Span.Kind.SERVER))
                 .filter(traces -> !traces.spans().isEmpty())
@@ -55,7 +53,7 @@ class PipelineTest {
     @DisplayName("branch() fans out each item to every peer consumer")
     @Test
     void branchFansOutToEveryPeer() {
-        var source = new SignalSource<>(TraceData.class);
+        var source = new ManualSource<TraceData>();
         var a = new AtomicInteger();
         var b = new AtomicInteger();
         TraceConsumer peerA = traces -> {
@@ -66,7 +64,7 @@ class PipelineTest {
             b.incrementAndGet();
             return ConsumeResult.acceptedStage();
         };
-        var sub = Pipeline.from((Source<TraceData>) source).branch()
+        var sub = Pipeline.from(source).branch()
                 .fanOut(peerA)
                 .fanOut(peerB)
                 .join();
@@ -82,13 +80,13 @@ class PipelineTest {
     @DisplayName("Exceptions thrown by a peek observer do not break the main path")
     @Test
     void peekErrorsDoNotAffectMainPath() {
-        var source = new SignalSource<>(TraceData.class);
+        var source = new ManualSource<TraceData>();
         var captured = new ArrayList<TraceData>();
         TraceConsumer terminal = traces -> {
             captured.add(traces);
             return ConsumeResult.acceptedStage();
         };
-        var sub = Pipeline.from((Source<TraceData>) source)
+        var sub = Pipeline.from(source)
                 .peek(traces -> {
                     throw new RuntimeException("peek exploded");
                 })
@@ -106,14 +104,14 @@ class PipelineTest {
     @DisplayName("A transform after a filter is not invoked on a dropped (null) batch")
     @Test
     void transformAfterFilterIsNotInvokedOnDroppedBatch() {
-        var source = new SignalSource<>(TraceData.class);
+        var source = new ManualSource<TraceData>();
         var observedByTransform = new AtomicInteger();
         var delivered = new ArrayList<TraceData>();
         TraceConsumer terminal = traces -> {
             delivered.add(traces);
             return ConsumeResult.acceptedStage();
         };
-        var sub = Pipeline.from((Source<TraceData>) source)
+        var sub = Pipeline.from(source)
                 .filter(traces -> !traces.spans().isEmpty())
                 .transform(traces -> {
                     observedByTransform.incrementAndGet();
@@ -134,13 +132,13 @@ class PipelineTest {
     @DisplayName("Shutting down the Subscription detaches the consumer")
     @Test
     void closingSubscriptionDetachesConsumer() {
-        var source = new SignalSource<>(TraceData.class);
+        var source = new ManualSource<TraceData>();
         var captured = new ArrayList<TraceData>();
         TraceConsumer terminal = traces -> {
             captured.add(traces);
             return ConsumeResult.acceptedStage();
         };
-        var sub = Pipeline.from((Source<TraceData>) source).to(terminal);
+        var sub = Pipeline.from(source).to(terminal);
         sub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
         var result = source.dispatch(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
                 .toCompletableFuture().join();

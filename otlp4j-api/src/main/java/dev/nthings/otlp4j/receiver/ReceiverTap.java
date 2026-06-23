@@ -1,17 +1,15 @@
-package dev.nthings.otlp4j.receiver.internal;
+package dev.nthings.otlp4j.receiver;
 
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.TraceData;
 import dev.nthings.otlp4j.pipeline.Telemetry;
-import dev.nthings.otlp4j.receiver.TapOptions;
-import dev.nthings.otlp4j.receiver.TelemetryTap;
 import java.util.concurrent.Flow;
 import java.util.concurrent.atomic.LongAdder;
 
 /// Internal [TelemetryTap] implementation backed by per-signal [MulticastPublisher]s.
-public final class ReceiverTap implements TelemetryTap, AutoCloseable {
+final class ReceiverTap implements TelemetryTap, AutoCloseable {
 
     private final LongAdder drops = new LongAdder();
     private final MulticastPublisher<TraceData>    traces    = new MulticastPublisher<>(drops);

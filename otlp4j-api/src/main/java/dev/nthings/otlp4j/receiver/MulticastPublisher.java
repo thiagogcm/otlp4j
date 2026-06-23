@@ -1,7 +1,5 @@
-package dev.nthings.otlp4j.receiver.internal;
+package dev.nthings.otlp4j.receiver;
 
-import dev.nthings.otlp4j.receiver.BackpressureStrategy;
-import dev.nthings.otlp4j.receiver.TapOptions;
 import java.util.Objects;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -17,7 +15,7 @@ import org.slf4j.LoggerFactory;
 ///
 /// Each subscription owns a bounded queue and a virtual-thread dispatcher; a slow subscriber
 /// drains its own queue under [TapOptions] without back-pressuring the producer.
-public final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoCloseable {
+final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(MulticastPublisher.class);
 

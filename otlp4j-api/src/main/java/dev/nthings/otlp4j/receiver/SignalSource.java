@@ -1,4 +1,4 @@
-package dev.nthings.otlp4j.receiver.internal;
+package dev.nthings.otlp4j.receiver;
 
 import dev.nthings.otlp4j.pipeline.ConsumeResult;
 import dev.nthings.otlp4j.pipeline.Consumer;
@@ -14,7 +14,7 @@ import java.util.concurrent.atomic.AtomicReference;
 ///
 /// Throws on a second [#subscribe] attach — multi-consumer fan-out is the caller's
 /// responsibility via `FanOut` in the pipeline package.
-public final class SignalSource<T> implements Source<T> {
+final class SignalSource<T> implements Source<T> {
 
     private final Class<T> signalType;
     private final AtomicReference<Consumer<? super T>> attached = new AtomicReference<>();

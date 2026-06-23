@@ -32,7 +32,7 @@ The main user-facing types are:
 | Connectors | `Connector`, `Connectors`, `FailurePolicy`. |
 | SPI | `OtlpClient`, `OtlpServer`, providers, transport config records, `Tls`, `Compression`, `RetryPolicy`. |
 
-Classpath users can still see public classes under non-exported `internal` packages such as `dev.nthings.otlp4j.receiver.internal` and `dev.nthings.otlp4j.api.internal`. JPMS hides them, but a classpath user or IDE search can discover them. Before publishing a stable artifact, consider making internal top-level classes package-private where possible or moving them to a clearly non-consumable artifact/package convention.
+A few public classes remain under non-exported `internal` packages — the transport `ServiceLoader` providers (which must stay public for discovery) and `dev.nthings.otlp4j.api.internal.SpiSupport` (shared by the `receiver` and `exporter` packages). JPMS hides them, but a classpath user or IDE search can still discover them.
 
 ## Scorecard
 
@@ -41,7 +41,7 @@ Classpath users can still see public classes under non-exported `internal` packa
 | Ergonomics | Good | Simple happy path and builders cover the common flows. |
 | Discoverability | Good | README and `docs/public-api.md` name the main entry points clearly; exported package structure is understandable. |
 | Composability | Good for per-signal flows, moderate for cross-signal graphs | Pipeline/filter/transform/fan-out/batch/tap compose well; connectors are terminal consumers rather than graph stages. |
-| Documentation | Strong for a pre-1.0 API | Public guide is detailed; a full tap subscriber example is still missing. |
+| Documentation | Strong for a pre-1.0 API | Public guide is detailed, including a complete tap subscriber example and a Go concept map. |
 | Complexity | Moderate | The API hides protobuf/gRPC complexity, but introduces pipeline ownership, partial-success semantics, async stages, batching, taps, and SPI concepts. |
 | Go API alignment | Partial and intentionally different | Strong on signal-specific consumers and OTLP partial success; missing context/error shape, HTTP split, secure defaults, and Go's package-level discoverability. |
 
@@ -60,14 +60,7 @@ Friction points:
 
 - The receiver and exporter convenience names are asymmetric. `OtlpGrpcExporter.to(host, port)` builds a ready-to-use exporter, while `OtlpGrpcReceiver.on(host, port)` builds but does not start. The comments say this, but the method names do not communicate lifecycle state equally well.
 - A receiver source has exactly one attachment slot. This is a reasonable design, but users may expect multiple subscriptions to work because the type is named `Source`. The required `branch().fanOut(...).join()` pattern should be prominent in every receiver example that mentions multiple consumers.
-- `Metric.data()` being nullable is a sharp Java edge. It preserves OTLP `DATA_NOT_SET`, but it weakens the otherwise strong typed model. A sealed `Metric.Unset` data variant or `Optional<Metric.Data>` would make the exceptional state explicit.
 - `CompletionStage<ConsumeResult<T>>` is correct for async delivery, but the API currently has no context object for request deadline, cancellation, metadata, peer identity, or retry intent. That keeps the API simple, but it means advanced receivers cannot make decisions with the same information Go consumers receive through `context.Context`.
-
-Recommended ergonomic changes:
-
-| Priority | Recommendation |
-| --- | --- |
-| P1 | Consider `Metric.Unset` or `Optional<Metric.Data>` before stabilizing the model API, so the `DATA_NOT_SET` state is explicit in the type rather than only in a nullable accessor. |
 
 ## Discoverability
 
@@ -80,17 +73,7 @@ Strengths:
 
 Friction points:
 
-- The public `spi` package is exported next to user-facing packages. This is valid for extension authors, but application users may discover `OtlpClientProvider`, `OtlpServerProvider`, `ClientTransportConfig`, and `ServerTransportConfig` before they understand the simpler receiver/exporter facade.
 - Official Go discoverability is package-name driven: `otlptracegrpc`, `otlpmetricgrpc`, `otlploggrpc`, `otlphttp`, Collector `consumer`, Collector `component`. `otlp4j` relies more on a documentation table and class names. That is idiomatic for Java, but the docs should keep mapping "signal + transport + role" explicitly.
-- Generated proto and transport internals are hidden by modules, which is good, but public classes in `internal` packages still appear on the classpath.
-
-Recommended discoverability changes:
-
-| Priority | Recommendation |
-| --- | --- |
-| P1 | Add a short "If you know OpenTelemetry Go" or "Concept map" section mapping Go packages/concepts to `otlp4j` concepts. |
-| P2 | Split SPI documentation into an "extension authors" section so application users can ignore it until needed. |
-| P2 | Make classpath-visible internal classes package-private where feasible, or add a stronger internal naming convention. |
 
 ## Composability
 
@@ -109,26 +92,16 @@ Friction points:
 - Ownership registration happens at the stage level, not per branch peer. Users need to understand that hidden resources behind any peer must be registered before `branch()`/`join()`.
 - `Pipeline.peek` is synchronous and swallows all throwables. That is good for non-disruptive observation, but users may confuse it with a real processing stage or an async observer. The docs correctly point to `TelemetryTap`; examples should reinforce that distinction.
 - `TelemetryTap.setOptions(...)` applies to future subscriptions only. This is documented, but it is a subtle composability rule for Flow users.
-- The immutable model eliminates mutability hazards, but flattened accessors such as `spans()`, `metrics()`, and `logRecords()` allocate a new flattened list each call. Connectors already avoid this for counts; user docs should mention it for hot paths.
 
 Recommended composability changes:
 
 | Priority | Recommendation |
 | --- | --- |
-| P1 | Add branch examples with multiple owned resources, not just one exporter. |
 | P1 | Consider a connector stage API only if more built-in connectors appear. Do not add it prematurely; the current consumer-based connector is minimal and adequate for two count connectors. |
-| P2 | Add a `TelemetryTap` complete subscriber example using `Flow.Subscriber`, demand, cancellation, and backpressure options. |
-| P2 | Document flattened accessor allocation costs in the model section. |
 
 ## Documentation
 
 The existing documentation is better than typical pre-release libraries. The README and `docs/public-api.md` are practical, the architecture doc explains module boundaries and request flow, and the sample tests the public API through two real gRPC hops.
-
-Remaining documentation additions:
-
-| Priority | Issue | Current state | Needed change |
-| --- | --- | --- | --- |
-| P2 | Tap usage | Docs show publishers but not a full subscriber. | Add a minimal `Flow.Subscriber` example. |
 
 ## Complexity
 
@@ -212,7 +185,7 @@ Go gRPC exporters document secure transport as the default, with `WithInsecure()
 
 `otlp4j` defaults to plaintext `localhost:4317` for exporters and plaintext `0.0.0.0:4317` for receivers. That is convenient for local collector-style development, but it is a notable difference from SDK exporter expectations and a production-security hazard if users expose receivers accidentally.
 
-Recommendation: if plaintext defaults are retained, keep the README warning prominent and add a "production receiver checklist" covering bind host, TLS, executor, inbound size cap, concurrency cap, and auth story. If the API stabilizes for general use, consider secure-by-default clients or named constructors such as `toInsecure(...)` versus `to(...)`.
+Recommendation: if plaintext defaults are retained, keep the README warning prominent. If the API stabilizes for general use, consider secure-by-default clients or named constructors such as `toInsecure(...)` versus `to(...)`.
 
 ### HTTP and gRPC Split
 
@@ -252,14 +225,6 @@ Go metric exporters expose temporality and aggregation selectors because they in
 OTLP responses support partial success fields such as rejected spans, rejected data points, rejected log records, rejected profiles, and error messages. `otlp4j` models this with `ConsumeResult.Partial<T>`, maps inbound partial success to `ConsumeResult`, and maps server-side partial results to OTLP partial-success responses. This is a strong alignment with OTLP.
 
 The key difference is whole-batch failure. Go APIs generally return `error`; Collector receivers only acknowledge upstream after downstream `Consume*` returns successfully. `otlp4j` exposes `ConsumeResult.Rejected<T>`, and the bundled gRPC server maps that to gRPC errors rather than partial-success responses. This is coherent.
-
-## Prioritized Recommendations
-
-| Priority | Recommendation | Rationale |
-| --- | --- | --- |
-| P1 | Revisit `Metric.data()` nullability before API stabilization. | Null is inconsistent with the otherwise typed sealed model. |
-| P2 | Add a `TelemetryTap` subscriber example. | `Flow.Publisher` is standard but verbose; users need one complete pattern. |
-| P2 | Reduce classpath-visible internal public classes. | JPMS users are protected, classpath users are not. |
 
 ## Bottom Line
 

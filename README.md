@@ -44,7 +44,7 @@ Compile against the public API and add the built-in transport at runtime:
 
 ## Entry points
 
-Four types cover almost everything: `OtlpGrpcReceiver` (ingest), `OtlpGrpcExporter` (send), `Pipeline` (the transform/route DSL), and the ready-made building blocks `Transforms` and `BatchingProcessor`. The [Public API](docs/public-api.md) guide maps every type to its package.
+Four types cover almost everything: `OtlpGrpcReceiver` (ingest), `OtlpGrpcExporter` (send), `Pipeline` (the transform/route DSL), and the ready-made building blocks `Transforms` and `BatchingProcessor`. The [Public API](docs/public-api.md) guide maps every type to its package; coming from OpenTelemetry Go, start with its [concept map](docs/public-api.md#if-you-know-opentelemetry-go).
 
 ## Hello, telemetry
 

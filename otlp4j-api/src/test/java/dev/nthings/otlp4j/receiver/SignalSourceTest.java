@@ -1,4 +1,4 @@
-package dev.nthings.otlp4j;
+package dev.nthings.otlp4j.receiver;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -7,7 +7,6 @@ import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TraceData;
 import dev.nthings.otlp4j.pipeline.ConsumeResult;
 import dev.nthings.otlp4j.pipeline.TraceConsumer;
-import dev.nthings.otlp4j.receiver.internal.SignalSource;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicInteger;

@@ -128,7 +128,7 @@ class BatchingProcessorTest {
                 Metric.builder().name("e")
                         .data(new Metric.ExponentialHistogram(List.of(), Metric.AggregationTemporality.DELTA)).build(),
                 Metric.builder().name("su").data(new Metric.Summary(List.of())).build(),
-                new Metric("nodata", "", "", null, Attributes.empty())));
+                Metric.builder().name("nodata").build()));
         var r = dropNewestOverflow(
                 BatchingProcessor.forMetrics().downstream(metrics -> new CompletableFuture<>()),
                 Fixtures.metricsData(Fixtures.metric("warmup")),

@@ -14,6 +14,23 @@ Everything lives under the `dev.nthings.otlp4j` root. The types you import most 
 | Transport SPI: `OtlpClient(Provider)`, `OtlpServer(Provider)`, `ClientTransportConfig`, `ServerTransportConfig`, `Tls`, `Compression`, `RetryPolicy` | `dev.nthings.otlp4j.spi` |
 | Domain records: `TraceData`, `MetricsData`, `LogsData`, `ProfilesData`, `Resource`, `Attributes`, `AttributeValue`, `Span`, `Metric`, `LogRecord`, `Exemplar`, … | `dev.nthings.otlp4j.model` |
 
+## If you know OpenTelemetry Go
+
+`otlp4j` sits closer to a small Collector-style gateway than a single SDK exporter, so concepts map across rather than one-to-one:
+
+| OpenTelemetry Go | otlp4j |
+| --- | --- |
+| `otlptracegrpc` / `otlpmetricgrpc` / `otlploggrpc` (one package per signal+transport) | One `OtlpGrpcExporter`; pick a signal facet — `exporter.traces()`, `.metrics()`, `.logs()`, `.profiles()`. |
+| `go.opentelemetry.io/proto/otlp/...` generated protobuf | Proto-free immutable records in `dev.nthings.otlp4j.model` (`TraceData`, `MetricsData`, `LogsData`, `ProfilesData`, …). |
+| Collector `consumer` (`ConsumeTraces(ctx, td) error`) | `TraceConsumer` (a `Consumer<TraceData>`) returning `CompletionStage<ConsumeResult<TraceData>>`. |
+| Collector `component` lifecycle (`Start`/`Shutdown(ctx)`) | `OtlpGrpcReceiver.start()`, `Subscription.shutdown(Duration)`, `Drainable`/`Flushable`. |
+| Collector OTLP receiver | `OtlpGrpcReceiver` plus its per-signal `Source`s. |
+| `exporterhelper` queue + retry + timeout | `BatchingProcessor` (queue), `RetryPolicy` (transport retry), per-request `timeout(...)`. |
+| Functional options (`WithEndpoint`, `WithTimeout`, `WithInsecure`) | Builder methods (`endpoint(...)`, `timeout(...)`); the endpoint scheme decides plaintext vs TLS. |
+| `consumer.Capabilities{MutatesData}` | Not needed — model records are immutable, so fan-out shares them without copying. |
+
+Two deliberate differences: delivery is asynchronous (`CompletionStage<ConsumeResult<T>>`) with no per-call `context.Context`, and only OTLP/gRPC is supported today (no HTTP). See [Consumers and results](#consumers-and-results) for the partial-success/retry mapping.
+
 ## Domain model
 
 Each signal preserves OTLP's resource and instrumentation-scope grouping while providing a flattened accessor:
@@ -25,6 +42,8 @@ Each signal preserves OTLP's resource and instrumentation-scope grouping while p
 | `LogsData` | `ResourceLogs` → `ScopeLogs` → `LogRecord` | `logRecords()` |
 | `ProfilesData` | `ResourceProfiles` → `ScopeProfiles` → `Profile` | `profiles()` |
 
+Each flattened accessor (`spans()`, `metrics()`, `logRecords()`, `profiles()`) walks the resource/scope grouping and allocates a fresh list on every call, so bind it to a local rather than re-calling it in a loop or on a hot path. Connectors avoid this by counting items without flattening.
+
 Records copy incoming lists and are safe to share between fan-out peers. `Attributes` and the sealed `AttributeValue` hierarchy represent OTLP values. Builders are available for `Attributes`, `Span`, `Metric`, and `LogRecord`, plus the metric data points (`NumberPoint`, `HistogramPoint`, `ExponentialHistogramPoint`) and `Exemplar`; `NumberPoint`, `Exemplar`, and `SummaryPoint` also offer `of(...)` factories for the common case. The remaining records use canonical constructors. To avoid hand-nesting the resource/scope wrappers, each signal type has an `of(resource, scope, items)` factory, and `Resource.of(...)` / `InstrumentationScope.of(...)` cover the common cases:
 
 ```java
@@ -33,7 +52,7 @@ var batch = TraceData.of(Resource.of(attributes), InstrumentationScope.of("my.li
 
 `Attributes.toBuilder()` plus `Builder.putAll(...)` make "copy and add a key" a one-liner instead of a manual map walk.
 
-`Metric.Data` covers gauge, sum, histogram, exponential histogram, and summary; it is `null` exactly when the wire metric set no data (`DATA_NOT_SET`), so null-check `Metric.data()` before use. Number, histogram, and exponential-histogram points each carry a `List<Exemplar>` (`filteredAttributes`, `epochNanos`, `value`, `spanId`, `traceId`) mapped in both directions; the list is empty when no exemplars were recorded.
+`Metric.Data` covers gauge, sum, histogram, exponential histogram, summary, and the empty `Metric.NoData` form. `Metric.data()` is never null: a metric whose wire form set no data (`DATA_NOT_SET`) carries `Metric.NoData` (build it with `Metric.noData()` / `Metric.NoData.INSTANCE`, or use `hasData()` / `dataOrThrow()` to skip the empty form). Switch over `data()` to handle every kind exhaustively. Number, histogram, and exponential-histogram points each carry a `List<Exemplar>` (`filteredAttributes`, `epochNanos`, `value`, `spanId`, `traceId`) mapped in both directions; the list is empty when no exemplars were recorded.
 
 The `Metric.gauge/sum/histogram/exponentialHistogram/summary` factories build the sealed `Data` variants, and the point builders keep realistic construction terse and safe:
 
@@ -128,6 +147,15 @@ var receiver = OtlpGrpcReceiver.builder()
 
 Compression is asymmetric: the server transparently decodes gzip request bodies via gRPC's default decoder and exposes no server compression knob (response compression is intentionally not configured).
 
+**Production receiver checklist.** The plaintext `0.0.0.0:4317` default is convenient locally but unsafe to expose. Before running a receiver in production:
+
+- **Bind host** — bind a specific interface (`127.0.0.1` for loopback) unless you mean to listen on every interface.
+- **TLS** — serve TLS with `.tls(Tls.custom(cert, key, trust))`; require client certs (mTLS) on untrusted networks.
+- **Inbound size cap** — set `maxInboundMessageSizeBytes` to bound a single decoded request.
+- **Concurrency cap** — set `maxConcurrentCallsPerConnection` and/or a bounded `serverExecutor` to cap admitted work.
+- **Handshake timeout** — keep `handshakeTimeout` tight to shed stalled TLS handshakes.
+- **Auth** — credentials travel as gRPC metadata/headers; terminate auth in front of, or inside, your consumer. otlp4j does not authenticate requests itself.
+
 ```java
 var receiver = OtlpGrpcReceiver.builder()
         .ephemeralPort()
@@ -164,6 +192,23 @@ var subscription = Pipeline.from(receiver.traces())
             .fanOut(exporter.traces())
             .fanOut(spanCounter)
         .join();
+```
+
+A branch can fan out to several **owned** resources. Register each on the linear stage with `owns(...)` (it is chainable) *before* `branch()`, so the subscription drains them all on shutdown under one shared deadline. Ownership is declared on the stage, not per peer:
+
+```java
+var primary = OtlpGrpcExporter.to("collector-a", 4317);
+var secondary = OtlpGrpcExporter.to("collector-b", 4317);
+
+var subscription = Pipeline.from(receiver.traces())
+        .filter(traces -> !traces.spans().isEmpty())
+        .owns(primary)
+        .owns(secondary)
+        .branch()
+            .fanOut(primary.traces())
+            .fanOut(secondary.traces())
+        .join();
+// subscription.shutdown(timeout) drains primary and secondary within one budget.
 ```
 
 Available built-in transforms are span and log-record filters plus per-signal resource-attribute setters. Implement `Transform<T>` for other synchronous one-to-one rewrites.
@@ -304,7 +349,37 @@ Flow.Publisher<Telemetry> allSignals = receiver.tap().all();
 
 `all()` emits `Telemetry.Traces`, `.Metrics`, `.Logs`, or `.Profiles`. Defaults are a 256-batch buffer per subscription and `DROP_OLDEST`. Options apply when a subscriber attaches. `droppedCount()` aggregates tap drops for the receiver.
 
+A tap stream is a standard `Flow.Publisher`; drive it with any `Flow.Subscriber` that manages its own demand and can cancel:
+
+```java
+receiver.tap().traces().subscribe(new Flow.Subscriber<TraceData>() {
+    private Flow.Subscription subscription;
+
+    @Override public void onSubscribe(Flow.Subscription s) {
+        this.subscription = s;
+        s.request(1);                 // demand-aware: ask for one batch at a time
+    }
+
+    @Override public void onNext(TraceData batch) {
+        System.out.println("tapped spans=" + batch.spans().size());
+        subscription.request(1);      // request the next only after handling this one
+    }
+
+    @Override public void onError(Throwable t) {
+        // stream failed — e.g. the ERROR backpressure strategy overflowed
+    }
+
+    @Override public void onComplete() {
+        // the receiver closed the tap
+    }
+});
+```
+
+Demand is independent of the receive/export acknowledgement path: a slow subscriber only drains its own bounded buffer under `TapOptions`, never back-pressuring the pipeline. Stop early with `subscription.cancel()`. For tests, `dev.nthings.otlp4j.testing.FlowSubscribers` (test scope) provides ready-made recording subscribers.
+
 ## Supply another transport
+
+> For transport/extension authors. Application users can skip this section — the bundled `otlp4j-transport` gRPC provider is discovered automatically, and the `spi` package only matters when you replace the wire transport.
 
 Implement these pairs and register their providers with JPMS, `META-INF/services`, or both:
 

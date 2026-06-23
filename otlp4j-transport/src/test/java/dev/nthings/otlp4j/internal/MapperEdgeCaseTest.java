@@ -78,15 +78,16 @@ class MapperEdgeCaseTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
-    @DisplayName("Metric with no data maps back to null data")
+    @DisplayName("Metric with no data maps back to the empty NoData form")
     @Test
-    void aMetricWithNoDataMapsBackToNull() {
+    void aMetricWithNoDataMapsBackToNoData() {
         var sent = Fixtures.metricsData(Metric.builder().name("placeholder.metric").build());
 
         var roundTripped = MetricsMapper.toDomain(MetricsMapper.toProto(sent)).metrics().getFirst();
 
         assertThat(roundTripped.name()).isEqualTo("placeholder.metric");
-        assertThat(roundTripped.data()).isNull();
+        assertThat(roundTripped.data()).isEqualTo(Metric.NoData.INSTANCE);
+        assertThat(roundTripped.hasData()).isFalse();
     }
 
     @DisplayName("TraceMapper.result reads rejected count and message from partial_success")

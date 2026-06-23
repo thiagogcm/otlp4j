@@ -11,8 +11,6 @@ import dev.nthings.otlp4j.pipeline.MetricConsumer;
 import dev.nthings.otlp4j.pipeline.ProfileConsumer;
 import dev.nthings.otlp4j.pipeline.Source;
 import dev.nthings.otlp4j.pipeline.TraceConsumer;
-import dev.nthings.otlp4j.receiver.internal.ReceiverTap;
-import dev.nthings.otlp4j.receiver.internal.SignalSource;
 import dev.nthings.otlp4j.spi.OtlpServer;
 import dev.nthings.otlp4j.spi.OtlpServerProvider;
 import dev.nthings.otlp4j.spi.ServerTransportConfig;

@@ -1,14 +1,17 @@
 package dev.nthings.otlp4j.model;
 
 import java.util.List;
+import java.util.Objects;
 
 /// A named metric and its time series. Mirrors `opentelemetry.proto.metrics.v1.Metric`.
 ///
-/// The `data` field is a [sealed type][Data] for gauge, sum, histogram, exponential histogram,
-/// and summary payloads. It is **null** exactly when the wire metric set no data (proto
-/// `DATA_NOT_SET`); that empty form is round-tripped faithfully, so consumers MUST null-check
-/// [#data()] before use to avoid a `NullPointerException`.
+/// The `data` field is a non-null [sealed type][Data]; the empty [NoData] variant models the
+/// wire `DATA_NOT_SET` form (round-tripped faithfully), so [#data()] is never null.
 public record Metric(String name, String description, String unit, Data data, Attributes metadata) {
+
+    public Metric {
+        Objects.requireNonNull(data, "data (use Metric.noData() for the empty DATA_NOT_SET form)");
+    }
 
     public static Builder builder() {
         return new Builder();
@@ -16,12 +19,12 @@ public record Metric(String name, String description, String unit, Data data, At
 
     /// Whether this metric carries a data payload. `false` mirrors the wire `DATA_NOT_SET` form.
     public boolean hasData() {
-        return data != null;
+        return !(data instanceof NoData);
     }
 
     /// Returns the data payload, or throws if this metric is the empty `DATA_NOT_SET` form.
     public Data dataOrThrow() {
-        if (data == null) {
+        if (data instanceof NoData) {
             throw new IllegalStateException("metric '" + name + "' has no data (DATA_NOT_SET)");
         }
         return data;
@@ -53,8 +56,14 @@ public record Metric(String name, String description, String unit, Data data, At
         return new Summary(List.of(points));
     }
 
+    /// The empty `DATA_NOT_SET` payload (the shared [NoData] form).
+    public static NoData noData() {
+        return NoData.INSTANCE;
+    }
+
     /// The aggregation kind of a metric and its data points.
-    public sealed interface Data permits Gauge, Sum, Histogram, ExponentialHistogram, Summary {}
+    public sealed interface Data
+            permits Gauge, Sum, Histogram, ExponentialHistogram, Summary, NoData {}
 
     public record Gauge(List<NumberPoint> points) implements Data {
         public Gauge {
@@ -90,6 +99,11 @@ public record Metric(String name, String description, String unit, Data data, At
         }
     }
 
+    /// The empty payload, mirroring the wire `DATA_NOT_SET` form.
+    public record NoData() implements Data {
+        public static final NoData INSTANCE = new NoData();
+    }
+
     /// How a metric aggregator reports values relative to time.
     public enum AggregationTemporality implements ProtoEnum {
         UNSPECIFIED(0),
@@ -117,14 +131,14 @@ public record Metric(String name, String description, String unit, Data data, At
         }
     }
 
-    /// Fluent builder for [Metric]. `name`/`description`/`unit` default to
-    /// empty strings and `metadata` to [Attributes#empty()]; `data` must be set.
+    /// Fluent builder for [Metric]. `name`/`description`/`unit` default to empty strings,
+    /// `metadata` to [Attributes#empty()], and `data` to the empty [NoData] form.
     public static final class Builder {
 
         private String name = "";
         private String description = "";
         private String unit = "";
-        private Data data;
+        private Data data = NoData.INSTANCE;
         private Attributes metadata = Attributes.empty();
 
         private Builder() {}
@@ -145,7 +159,7 @@ public record Metric(String name, String description, String unit, Data data, At
         }
 
         public Builder data(Data data) {
-            this.data = data;
+            this.data = Objects.requireNonNull(data, "data (use Metric.noData() for the empty form)");
             return this;
         }
 
