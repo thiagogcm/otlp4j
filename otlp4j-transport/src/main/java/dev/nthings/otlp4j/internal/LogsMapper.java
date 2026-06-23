@@ -55,7 +55,7 @@ final class LogsMapper {
                 CommonMapper.attributeValue(record.getBody()),
                 CommonMapper.attributes(record.getAttributesList()),
                 record.getDroppedAttributesCount(),
-                record.getFlags() & 0xFFFFFFFFL,
+                Integer.toUnsignedLong(record.getFlags()),
                 CommonMapper.hex(record.getTraceId()),
                 CommonMapper.hex(record.getSpanId()),
                 record.getEventName());
@@ -63,17 +63,9 @@ final class LogsMapper {
 
     /// Interprets an OTLP logs export response as a [ConsumeResult].
     public static ConsumeResult<LogsData> result(ExportLogsServiceResponse response) {
-        if (!response.hasPartialSuccess()) {
-            return ConsumeResult.accepted();
-        }
         var partial = response.getPartialSuccess();
-        if (partial.getRejectedLogRecords() == 0 && partial.getErrorMessage().isEmpty()) {
-            return ConsumeResult.accepted();
-        }
-        if (partial.getRejectedLogRecords() == 0) {
-            return ConsumeResult.rejected(partial.getErrorMessage());
-        }
-        return ConsumeResult.partial(partial.getRejectedLogRecords(), partial.getErrorMessage());
+        return CommonMapper.result(
+                response.hasPartialSuccess(), partial.getRejectedLogRecords(), partial.getErrorMessage());
     }
 
     // --- domain -> proto ---------------------------------------------------------------------

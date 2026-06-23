@@ -29,7 +29,7 @@ public record LogRecord(
     }
 
     /// Normalized severity level, per the OpenTelemetry log data model.
-    public enum Severity {
+    public enum Severity implements ProtoEnum {
         UNSPECIFIED(0),
         TRACE(1),
         TRACE2(2),
@@ -63,6 +63,7 @@ public record LogRecord(
         }
 
         /// The numeric severity as defined by the protocol (0-24).
+        @Override
         public int number() {
             return number;
         }
@@ -72,12 +73,7 @@ public record LogRecord(
 
         /// Resolves a severity from its protocol number, falling back to [#UNSPECIFIED].
         public static Severity fromNumber(int number) {
-            for (var severity : VALUES) {
-                if (severity.number == number) {
-                    return severity;
-                }
-            }
-            return UNSPECIFIED;
+            return ProtoEnum.fromNumber(VALUES, number, UNSPECIFIED);
         }
     }
 

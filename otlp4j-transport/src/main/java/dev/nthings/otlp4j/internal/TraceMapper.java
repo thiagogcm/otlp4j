@@ -66,14 +66,14 @@ final class TraceMapper {
                     link.getTraceState(),
                     CommonMapper.attributes(link.getAttributesList()),
                     link.getDroppedAttributesCount(),
-                    unsignedInt(link.getFlags())));
+                    Integer.toUnsignedLong(link.getFlags())));
         }
         return new Span(
                 CommonMapper.hex(span.getTraceId()),
                 CommonMapper.hex(span.getSpanId()),
                 CommonMapper.hex(span.getParentSpanId()),
                 span.getTraceState(),
-                unsignedInt(span.getFlags()),
+                Integer.toUnsignedLong(span.getFlags()),
                 span.getName(),
                 Span.Kind.fromNumber(span.getKindValue()),
                 span.getStartTimeUnixNano(),
@@ -93,24 +93,11 @@ final class TraceMapper {
                 Span.Status.Code.fromNumber(status.getCodeValue()), status.getMessage());
     }
 
-    private static long unsignedInt(int value) {
-        return value & 0xFFFFFFFFL;
-    }
-
     /// Interprets an OTLP trace export response as a [ConsumeResult].
     public static ConsumeResult<TraceData> result(ExportTraceServiceResponse response) {
-        if (!response.hasPartialSuccess()) {
-            return ConsumeResult.accepted();
-        }
         var partial = response.getPartialSuccess();
-        if (partial.getRejectedSpans() == 0 && partial.getErrorMessage().isEmpty()) {
-            return ConsumeResult.accepted();
-        }
-        if (partial.getRejectedSpans() == 0) {
-            // Server reported an error message without a rejection count — treat as whole-batch reject.
-            return ConsumeResult.rejected(partial.getErrorMessage());
-        }
-        return ConsumeResult.partial(partial.getRejectedSpans(), partial.getErrorMessage());
+        return CommonMapper.result(
+                response.hasPartialSuccess(), partial.getRejectedSpans(), partial.getErrorMessage());
     }
 
     // --- domain -> proto ---------------------------------------------------------------------

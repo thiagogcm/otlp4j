@@ -121,7 +121,7 @@ final class MetricsMapper {
                     point.getStartTimeUnixNano(),
                     point.getTimeUnixNano(),
                     value,
-                    unsignedInt(point.getFlags()),
+                    Integer.toUnsignedLong(point.getFlags()),
                     exemplarsToDomain(point.getExemplarsList())));
         }
         return result;
@@ -140,7 +140,7 @@ final class MetricsMapper {
                     point.getExplicitBoundsList(),
                     point.hasMin() ? OptionalDouble.of(point.getMin()) : OptionalDouble.empty(),
                     point.hasMax() ? OptionalDouble.of(point.getMax()) : OptionalDouble.empty(),
-                    unsignedInt(point.getFlags()),
+                    Integer.toUnsignedLong(point.getFlags()),
                     exemplarsToDomain(point.getExemplarsList())));
         }
         return result;
@@ -163,7 +163,7 @@ final class MetricsMapper {
                     point.hasMin() ? OptionalDouble.of(point.getMin()) : OptionalDouble.empty(),
                     point.hasMax() ? OptionalDouble.of(point.getMax()) : OptionalDouble.empty(),
                     point.getZeroThreshold(),
-                    unsignedInt(point.getFlags()),
+                    Integer.toUnsignedLong(point.getFlags()),
                     exemplarsToDomain(point.getExemplarsList())));
         }
         return result;
@@ -215,28 +215,16 @@ final class MetricsMapper {
                     point.getCount(),
                     point.getSum(),
                     quantiles,
-                    unsignedInt(point.getFlags())));
+                    Integer.toUnsignedLong(point.getFlags())));
         }
         return result;
     }
 
-    private static long unsignedInt(int value) {
-        return value & 0xFFFFFFFFL;
-    }
-
     /// Interprets an OTLP metrics export response as a [ConsumeResult].
     public static ConsumeResult<MetricsData> result(ExportMetricsServiceResponse response) {
-        if (!response.hasPartialSuccess()) {
-            return ConsumeResult.accepted();
-        }
         var partial = response.getPartialSuccess();
-        if (partial.getRejectedDataPoints() == 0 && partial.getErrorMessage().isEmpty()) {
-            return ConsumeResult.accepted();
-        }
-        if (partial.getRejectedDataPoints() == 0) {
-            return ConsumeResult.rejected(partial.getErrorMessage());
-        }
-        return ConsumeResult.partial(partial.getRejectedDataPoints(), partial.getErrorMessage());
+        return CommonMapper.result(
+                response.hasPartialSuccess(), partial.getRejectedDataPoints(), partial.getErrorMessage());
     }
 
     // --- domain -> proto ---------------------------------------------------------------------

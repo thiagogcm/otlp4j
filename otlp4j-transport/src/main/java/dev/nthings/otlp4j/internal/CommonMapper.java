@@ -5,6 +5,7 @@ import dev.nthings.otlp4j.model.AttributeValue;
 import dev.nthings.otlp4j.model.Attributes;
 import dev.nthings.otlp4j.model.InstrumentationScope;
 import dev.nthings.otlp4j.model.Resource;
+import dev.nthings.otlp4j.pipeline.ConsumeResult;
 import io.opentelemetry.proto.common.v1.AnyValue;
 import io.opentelemetry.proto.common.v1.ArrayValue;
 import io.opentelemetry.proto.common.v1.KeyValue;
@@ -31,6 +32,22 @@ final class CommonMapper {
     /// Renders an id (trace id, span id, profile id) as a lowercase-hex string.
     public static String hex(ByteString bytes) {
         return bytes.isEmpty() ? "" : HEX.formatHex(bytes.toByteArray());
+    }
+
+    /// Interprets an OTLP export response's partial-success block as a [ConsumeResult]. Shared by
+    /// all four signal mappers, which differ only in the `rejected_*` accessor they read.
+    ///
+    /// A zero rejected count with a non-empty message is a whole-batch [ConsumeResult.Rejected], not a
+    /// partial success; a positive count is a [ConsumeResult.Partial]; anything else is accepted.
+    public static <T> ConsumeResult<T> result(
+            boolean hasPartialSuccess, long rejectedItems, String errorMessage) {
+        if (!hasPartialSuccess || (rejectedItems == 0 && errorMessage.isEmpty())) {
+            return ConsumeResult.accepted();
+        }
+        if (rejectedItems == 0) {
+            return ConsumeResult.rejected(errorMessage);
+        }
+        return ConsumeResult.partial(rejectedItems, errorMessage);
     }
 
     public static Attributes attributes(List<KeyValue> keyValues) {

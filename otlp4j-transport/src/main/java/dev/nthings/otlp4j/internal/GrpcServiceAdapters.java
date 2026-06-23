@@ -67,6 +67,25 @@ final class GrpcServiceAdapters {
                 new ProfilesServiceAdapter(dispatchers.profiles()));
     }
 
+    /// Decodes `request` and runs the signal's `dispatcher`. A synchronous decode/dispatch failure
+    /// maps to gRPC `INTERNAL`; the asynchronous outcome is handed to [#respond].
+    static <REQ, SIG, RESP> void dispatch(
+            REQ request,
+            StreamObserver<RESP> observer,
+            Function<REQ, SIG> toDomain,
+            Function<SIG, CompletionStage<ConsumeResult<SIG>>> dispatcher,
+            Function<ConsumeResult<SIG>, RESP> asResponse) {
+        CompletionStage<ConsumeResult<SIG>> stage;
+        try {
+            stage = dispatcher.apply(toDomain.apply(request));
+        } catch (RuntimeException e) {
+            observer.onError(
+                    Status.INTERNAL.withDescription(e.getMessage()).withCause(e).asRuntimeException());
+            return;
+        }
+        respond(observer, stage, asResponse);
+    }
+
     /// Asynchronously consumes `request`, mapping the eventual [ConsumeResult] back to the
     /// gRPC response (via `partial`) or to an INTERNAL error.
     static <SIG, RESP> void respond(
@@ -126,14 +145,8 @@ final class TraceServiceAdapter extends TraceServiceGrpc.TraceServiceImplBase {
     public void export(
             ExportTraceServiceRequest request,
             StreamObserver<ExportTraceServiceResponse> observer) {
-        CompletionStage<ConsumeResult<TraceData>> stage;
-        try {
-            stage = dispatcher.apply(TraceMapper.toDomain(request));
-        } catch (RuntimeException e) {
-            observer.onError(Status.INTERNAL.withDescription(e.getMessage()).withCause(e).asRuntimeException());
-            return;
-        }
-        GrpcServiceAdapters.respond(observer, stage, TraceServiceAdapter::asResponse);
+        GrpcServiceAdapters.dispatch(
+                request, observer, TraceMapper::toDomain, dispatcher, TraceServiceAdapter::asResponse);
     }
 
     private static ExportTraceServiceResponse asResponse(ConsumeResult<TraceData> result) {
@@ -162,14 +175,8 @@ final class MetricsServiceAdapter extends MetricsServiceGrpc.MetricsServiceImplB
     public void export(
             ExportMetricsServiceRequest request,
             StreamObserver<ExportMetricsServiceResponse> observer) {
-        CompletionStage<ConsumeResult<MetricsData>> stage;
-        try {
-            stage = dispatcher.apply(MetricsMapper.toDomain(request));
-        } catch (RuntimeException e) {
-            observer.onError(Status.INTERNAL.withDescription(e.getMessage()).withCause(e).asRuntimeException());
-            return;
-        }
-        GrpcServiceAdapters.respond(observer, stage, MetricsServiceAdapter::asResponse);
+        GrpcServiceAdapters.dispatch(
+                request, observer, MetricsMapper::toDomain, dispatcher, MetricsServiceAdapter::asResponse);
     }
 
     private static ExportMetricsServiceResponse asResponse(ConsumeResult<MetricsData> result) {
@@ -198,14 +205,8 @@ final class LogsServiceAdapter extends LogsServiceGrpc.LogsServiceImplBase {
     public void export(
             ExportLogsServiceRequest request,
             StreamObserver<ExportLogsServiceResponse> observer) {
-        CompletionStage<ConsumeResult<LogsData>> stage;
-        try {
-            stage = dispatcher.apply(LogsMapper.toDomain(request));
-        } catch (RuntimeException e) {
-            observer.onError(Status.INTERNAL.withDescription(e.getMessage()).withCause(e).asRuntimeException());
-            return;
-        }
-        GrpcServiceAdapters.respond(observer, stage, LogsServiceAdapter::asResponse);
+        GrpcServiceAdapters.dispatch(
+                request, observer, LogsMapper::toDomain, dispatcher, LogsServiceAdapter::asResponse);
     }
 
     private static ExportLogsServiceResponse asResponse(ConsumeResult<LogsData> result) {
@@ -234,14 +235,8 @@ final class ProfilesServiceAdapter extends ProfilesServiceGrpc.ProfilesServiceIm
     public void export(
             ExportProfilesServiceRequest request,
             StreamObserver<ExportProfilesServiceResponse> observer) {
-        CompletionStage<ConsumeResult<ProfilesData>> stage;
-        try {
-            stage = dispatcher.apply(ProfilesMapper.toDomain(request));
-        } catch (RuntimeException e) {
-            observer.onError(Status.INTERNAL.withDescription(e.getMessage()).withCause(e).asRuntimeException());
-            return;
-        }
-        GrpcServiceAdapters.respond(observer, stage, ProfilesServiceAdapter::asResponse);
+        GrpcServiceAdapters.dispatch(
+                request, observer, ProfilesMapper::toDomain, dispatcher, ProfilesServiceAdapter::asResponse);
     }
 
     private static ExportProfilesServiceResponse asResponse(ConsumeResult<ProfilesData> result) {

@@ -70,17 +70,9 @@ final class ProfilesMapper {
 
     /// Interprets an OTLP profiles export response as a [ConsumeResult].
     public static ConsumeResult<ProfilesData> result(ExportProfilesServiceResponse response) {
-        if (!response.hasPartialSuccess()) {
-            return ConsumeResult.accepted();
-        }
         var partial = response.getPartialSuccess();
-        if (partial.getRejectedProfiles() == 0 && partial.getErrorMessage().isEmpty()) {
-            return ConsumeResult.accepted();
-        }
-        if (partial.getRejectedProfiles() == 0) {
-            return ConsumeResult.rejected(partial.getErrorMessage());
-        }
-        return ConsumeResult.partial(partial.getRejectedProfiles(), partial.getErrorMessage());
+        return CommonMapper.result(
+                response.hasPartialSuccess(), partial.getRejectedProfiles(), partial.getErrorMessage());
     }
 
     // --- domain -> proto ---------------------------------------------------------------------
