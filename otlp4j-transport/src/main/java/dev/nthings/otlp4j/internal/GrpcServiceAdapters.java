@@ -9,19 +9,15 @@ import dev.nthings.otlp4j.spi.OtlpServerProvider;
 import io.grpc.BindableService;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
-import io.opentelemetry.proto.collector.logs.v1.ExportLogsPartialSuccess;
 import io.opentelemetry.proto.collector.logs.v1.ExportLogsServiceRequest;
 import io.opentelemetry.proto.collector.logs.v1.ExportLogsServiceResponse;
 import io.opentelemetry.proto.collector.logs.v1.LogsServiceGrpc;
-import io.opentelemetry.proto.collector.metrics.v1.ExportMetricsPartialSuccess;
 import io.opentelemetry.proto.collector.metrics.v1.ExportMetricsServiceRequest;
 import io.opentelemetry.proto.collector.metrics.v1.ExportMetricsServiceResponse;
 import io.opentelemetry.proto.collector.metrics.v1.MetricsServiceGrpc;
-import io.opentelemetry.proto.collector.profiles.v1development.ExportProfilesPartialSuccess;
 import io.opentelemetry.proto.collector.profiles.v1development.ExportProfilesServiceRequest;
 import io.opentelemetry.proto.collector.profiles.v1development.ExportProfilesServiceResponse;
 import io.opentelemetry.proto.collector.profiles.v1development.ProfilesServiceGrpc;
-import io.opentelemetry.proto.collector.trace.v1.ExportTracePartialSuccess;
 import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceRequest;
 import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceResponse;
 import io.opentelemetry.proto.collector.trace.v1.TraceServiceGrpc;
@@ -124,13 +120,6 @@ final class GrpcServiceAdapters {
             }
         });
     }
-
-    /// Guards each adapter's unreachable [ConsumeResult.Rejected] switch arm: [#respond] intercepts
-    /// rejections before `mapResult` runs, so the arm only keeps the switch exhaustive.
-    static IllegalStateException rejectedNotMapped() {
-        return new IllegalStateException(
-                "ConsumeResult.Rejected is mapped to a gRPC error by respond(), not to a response message");
-    }
 }
 
 final class TraceServiceAdapter extends TraceServiceGrpc.TraceServiceImplBase {
@@ -146,20 +135,7 @@ final class TraceServiceAdapter extends TraceServiceGrpc.TraceServiceImplBase {
             ExportTraceServiceRequest request,
             StreamObserver<ExportTraceServiceResponse> observer) {
         GrpcServiceAdapters.dispatch(
-                request, observer, TraceMapper::toDomain, dispatcher, TraceServiceAdapter::asResponse);
-    }
-
-    private static ExportTraceServiceResponse asResponse(ConsumeResult<TraceData> result) {
-        var resp = ExportTraceServiceResponse.newBuilder();
-        switch (result) {
-            case ConsumeResult.Accepted<TraceData> _ -> { }
-            case ConsumeResult.Partial<TraceData>(var rejected, var message) ->
-                    resp.setPartialSuccess(ExportTracePartialSuccess.newBuilder()
-                            .setRejectedSpans(rejected)
-                            .setErrorMessage(message));
-            case ConsumeResult.Rejected<TraceData> _ -> throw GrpcServiceAdapters.rejectedNotMapped();
-        }
-        return resp.build();
+                request, observer, TraceMapper::toDomain, dispatcher, SignalResponses::traces);
     }
 }
 
@@ -176,20 +152,7 @@ final class MetricsServiceAdapter extends MetricsServiceGrpc.MetricsServiceImplB
             ExportMetricsServiceRequest request,
             StreamObserver<ExportMetricsServiceResponse> observer) {
         GrpcServiceAdapters.dispatch(
-                request, observer, MetricsMapper::toDomain, dispatcher, MetricsServiceAdapter::asResponse);
-    }
-
-    private static ExportMetricsServiceResponse asResponse(ConsumeResult<MetricsData> result) {
-        var resp = ExportMetricsServiceResponse.newBuilder();
-        switch (result) {
-            case ConsumeResult.Accepted<MetricsData> _ -> { }
-            case ConsumeResult.Partial<MetricsData>(var rejected, var message) ->
-                    resp.setPartialSuccess(ExportMetricsPartialSuccess.newBuilder()
-                            .setRejectedDataPoints(rejected)
-                            .setErrorMessage(message));
-            case ConsumeResult.Rejected<MetricsData> _ -> throw GrpcServiceAdapters.rejectedNotMapped();
-        }
-        return resp.build();
+                request, observer, MetricsMapper::toDomain, dispatcher, SignalResponses::metrics);
     }
 }
 
@@ -206,20 +169,7 @@ final class LogsServiceAdapter extends LogsServiceGrpc.LogsServiceImplBase {
             ExportLogsServiceRequest request,
             StreamObserver<ExportLogsServiceResponse> observer) {
         GrpcServiceAdapters.dispatch(
-                request, observer, LogsMapper::toDomain, dispatcher, LogsServiceAdapter::asResponse);
-    }
-
-    private static ExportLogsServiceResponse asResponse(ConsumeResult<LogsData> result) {
-        var resp = ExportLogsServiceResponse.newBuilder();
-        switch (result) {
-            case ConsumeResult.Accepted<LogsData> _ -> { }
-            case ConsumeResult.Partial<LogsData>(var rejected, var message) ->
-                    resp.setPartialSuccess(ExportLogsPartialSuccess.newBuilder()
-                            .setRejectedLogRecords(rejected)
-                            .setErrorMessage(message));
-            case ConsumeResult.Rejected<LogsData> _ -> throw GrpcServiceAdapters.rejectedNotMapped();
-        }
-        return resp.build();
+                request, observer, LogsMapper::toDomain, dispatcher, SignalResponses::logs);
     }
 }
 
@@ -236,19 +186,6 @@ final class ProfilesServiceAdapter extends ProfilesServiceGrpc.ProfilesServiceIm
             ExportProfilesServiceRequest request,
             StreamObserver<ExportProfilesServiceResponse> observer) {
         GrpcServiceAdapters.dispatch(
-                request, observer, ProfilesMapper::toDomain, dispatcher, ProfilesServiceAdapter::asResponse);
-    }
-
-    private static ExportProfilesServiceResponse asResponse(ConsumeResult<ProfilesData> result) {
-        var resp = ExportProfilesServiceResponse.newBuilder();
-        switch (result) {
-            case ConsumeResult.Accepted<ProfilesData> _ -> { }
-            case ConsumeResult.Partial<ProfilesData>(var rejected, var message) ->
-                    resp.setPartialSuccess(ExportProfilesPartialSuccess.newBuilder()
-                            .setRejectedProfiles(rejected)
-                            .setErrorMessage(message));
-            case ConsumeResult.Rejected<ProfilesData> _ -> throw GrpcServiceAdapters.rejectedNotMapped();
-        }
-        return resp.build();
+                request, observer, ProfilesMapper::toDomain, dispatcher, SignalResponses::profiles);
     }
 }

@@ -8,16 +8,24 @@ import dev.nthings.otlp4j.spi.Tls;
 import java.time.Duration;
 import java.util.Map;
 
-/// Exports typed telemetry to an OTLP/gRPC endpoint.
+/// Exports typed telemetry to an OTLP/HTTP endpoint using binary-protobuf request bodies
+/// (`Content-Type: application/x-protobuf`).
 ///
 /// One instance handles all four signals via the per-signal facets ([#traces()], [#metrics()],
 /// [#logs()], [#profiles()]); lifecycle (flush, drain, shutdown) is inherited from
-/// [AbstractOtlpExporter]. This subclass only selects the [Protocol#GRPC] transport and exposes the
-/// gRPC-flavoured builder (defaulting to `localhost:4317`).
-public final class OtlpGrpcExporter extends AbstractOtlpExporter {
+/// [AbstractOtlpExporter]. This subclass selects the [Protocol#HTTP_PROTOBUF] transport and exposes
+/// the HTTP-flavoured builder.
+///
+/// Each signal is POSTed to its standard path under the configured `host:port` —
+/// `/v1/traces`, `/v1/metrics`, `/v1/logs`, and `/v1development/profiles` — with the scheme chosen
+/// by [Tls] (`http` when disabled, otherwise `https`). The default endpoint is `localhost:4318`.
+public final class OtlpHttpExporter extends AbstractOtlpExporter {
 
-    private OtlpGrpcExporter(Builder b) {
-        super(b.config.build(), Protocol.GRPC);
+    /// The conventional OTLP/HTTP port, used as the builder default (gRPC uses 4317).
+    static final int DEFAULT_HTTP_PORT = 4318;
+
+    private OtlpHttpExporter(Builder b) {
+        super(b.config.build(), Protocol.HTTP_PROTOBUF);
     }
 
     public static Builder builder() {
@@ -25,17 +33,20 @@ public final class OtlpGrpcExporter extends AbstractOtlpExporter {
     }
 
     /// Convenience constructor: build, connect, ready-to-use.
-    public static OtlpGrpcExporter to(String host, int port) {
+    public static OtlpHttpExporter to(String host, int port) {
         return builder().endpoint(host, port).build();
     }
 
-    /// Builder for [OtlpGrpcExporter]. Defaults to `localhost:4317` with a 10s deadline.
+    /// Builder for [OtlpHttpExporter]. Defaults to `localhost:4318` with a 10s deadline.
     public static final class Builder {
 
-        private ClientTransportConfig.Builder config = ClientTransportConfig.builder();
+        private ClientTransportConfig.Builder config =
+                ClientTransportConfig.builder().port(DEFAULT_HTTP_PORT);
 
         private Builder() {}
 
+        /// Replaces the whole transport config. The supplied config's port is used verbatim (the
+        /// 4318 HTTP default applies only to the unconfigured builder).
         public Builder transport(ClientTransportConfig config) {
             this.config = config.toBuilder();
             return this;
@@ -43,7 +54,7 @@ public final class OtlpGrpcExporter extends AbstractOtlpExporter {
 
         /// Applies the standard `OTEL_EXPORTER_OTLP_*` variables (see
         /// [ClientTransportConfig.Builder#fromEnvironment()]). Opt-in; call it first so explicit
-        /// setters override the environment.
+        /// setters override the environment. An endpoint URL without a port keeps the 4318 default.
         public Builder fromEnvironment() {
             config.fromEnvironment();
             return this;
@@ -69,26 +80,27 @@ public final class OtlpGrpcExporter extends AbstractOtlpExporter {
             return this;
         }
 
-        /// Selects the client TLS mode (e.g. [Tls#systemTrust()] or [Tls#custom]). Defaults to
-        /// plaintext.
+        /// Selects the client TLS mode (e.g. [Tls#systemTrust()] or [Tls#custom]); also chooses the
+        /// `http` vs `https` scheme. Defaults to plaintext `http`.
         public Builder tls(Tls tls) {
             config.tls(tls);
             return this;
         }
 
-        /// Adds one request metadata header (e.g. `authorization`) sent on every export.
+        /// Adds one HTTP request header (e.g. `authorization`) sent on every export.
         public Builder header(String key, String value) {
             config.header(key, value);
             return this;
         }
 
-        /// Adds all of `headers` as request metadata, on top of any already set.
+        /// Adds all of `headers` as HTTP request headers, on top of any already set.
         public Builder headers(Map<String, String> headers) {
             config.headers(headers);
             return this;
         }
 
-        /// Selects request-body compression (e.g. [Compression#GZIP]). Defaults to none.
+        /// Selects request-body compression (e.g. [Compression#GZIP], sent as
+        /// `Content-Encoding: gzip`). Defaults to none.
         public Builder compression(Compression compression) {
             config.compression(compression);
             return this;
@@ -100,8 +112,8 @@ public final class OtlpGrpcExporter extends AbstractOtlpExporter {
             return this;
         }
 
-        public OtlpGrpcExporter build() {
-            return new OtlpGrpcExporter(this);
+        public OtlpHttpExporter build() {
+            return new OtlpHttpExporter(this);
         }
     }
 }

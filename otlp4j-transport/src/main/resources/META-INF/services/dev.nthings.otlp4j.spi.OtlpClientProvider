@@ -1,1 +1,2 @@
 dev.nthings.otlp4j.internal.GrpcOtlpClientProvider
+dev.nthings.otlp4j.internal.HttpOtlpClientProvider

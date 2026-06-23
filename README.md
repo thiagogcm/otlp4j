@@ -2,7 +2,7 @@
 
 otlp4j is a JPMS-modular Java SDK for receiving, processing, and exporting [OpenTelemetry Protocol (OTLP)](https://opentelemetry.io/docs/specs/otlp/) telemetry. Application code uses immutable Java records and typed asynchronous APIs; generated Protobuf and gRPC types remain inside the transport modules.
 
-The project is currently experimental `0.1.0-SNAPSHOT` and requires JDK 25. Its built-in transport carries OTLP/gRPC for traces, metrics, logs, and experimental profiles, over plaintext or TLS, with authentication headers, gzip compression, and gRPC-native retries.
+The project is currently experimental `0.1.0-SNAPSHOT` and requires JDK 25. Its built-in transports carry OTLP over **gRPC** and **HTTP** (binary protobuf, `application/x-protobuf`) for traces, metrics, logs, and experimental profiles, over plaintext or TLS, with authentication headers, gzip compression, and retries. The HTTP transport uses only the JDK (`java.net.http` client, `jdk.httpserver` server) — no extra dependencies.
 
 > [!WARNING] This project was developed with the assistance of AI agents and has not undergone thorough testing. Please report any issues you encounter.
 
@@ -15,7 +15,7 @@ The project is currently experimental `0.1.0-SNAPSHOT` and requires JDK 25. Its 
 - Trace-to-metric and log-to-metric count connectors
 - Independent `Flow.Publisher` streams for live telemetry observation
 - Opt-in `OTEL_EXPORTER_OTLP_*` exporter configuration via `fromEnvironment()`
-- A transport SPI with a gRPC implementation loaded through `ServiceLoader`
+- A transport SPI with gRPC and HTTP implementations, selected by protocol through `ServiceLoader`
 
 ## Use from Maven
 
@@ -43,7 +43,7 @@ Compile against the public API and add the built-in transport at runtime:
 
 ## Entry points
 
-Four types cover almost everything: `OtlpGrpcReceiver` (ingest), `OtlpGrpcExporter` (send), `Pipeline` (the transform/route DSL), and the ready-made building blocks `Transforms` and `BatchingProcessor`. The [Public API](docs/public-api.md) guide maps every type to its package; coming from OpenTelemetry Go, start with its [concept map](docs/public-api.md#if-you-know-opentelemetry-go).
+Four types cover almost everything: `OtlpGrpcReceiver` (ingest), `OtlpGrpcExporter` (send), `Pipeline` (the transform/route DSL), and the ready-made building blocks `Transforms` and `BatchingProcessor`. For OTLP/HTTP, swap in `OtlpHttpReceiver` and `OtlpHttpExporter` — same builders and pipeline wiring, default port 4318 instead of 4317. The [Public API](docs/public-api.md) guide maps every type to its package; coming from OpenTelemetry Go, start with its [concept map](docs/public-api.md#if-you-know-opentelemetry-go).
 
 ## Hello, telemetry
 
@@ -94,7 +94,7 @@ receiver.shutdown(Duration.ofSeconds(10)).toCompletableFuture().join();
 | `otlp4j-model` | JDK-only OTLP domain records |
 | `otlp4j-api` | Public receivers, pipelines, processors, connectors, exporters, and transport SPI |
 | `otlp4j-proto` | Generated OTLP messages and gRPC services, qualified-exported to the transport |
-| `otlp4j-transport` | Internal gRPC client/server and wire mappers |
+| `otlp4j-transport` | Internal gRPC and HTTP client/server and wire mappers |
 | `otlp4j-samples` | Executable end-to-end example |
 | `otlp4j-testing` | Shared reactor test fixtures |
 | `otlp4j-coverage` | Aggregate JaCoCo report |
@@ -113,6 +113,7 @@ This runs the tests, coverage checks, Protobuf generation, and Javadoc lint. If 
 
 ## Current limits
 
-- The bundled transport applies the full configuration surface — TLS, headers, compression, and retry on the client; TLS, `bindHost`, and the receiver-hardening limits on the server. A non-wildcard `bindHost` (e.g. `127.0.0.1`) now binds that specific interface; a wildcard host binds every interface. Compression is asymmetric: the client requests gzip, and the server transparently decodes it via gRPC's default decoder with no server-side switch.
+- The bundled transports apply the full configuration surface — TLS, headers, compression, and retry on the client; TLS, `bindHost`, and the receiver-hardening limits on the server. A non-wildcard `bindHost` (e.g. `127.0.0.1`) now binds that specific interface; a wildcard host binds every interface. Compression is asymmetric: the client requests gzip, and the server transparently decodes it (gRPC's default decoder, or `Content-Encoding: gzip` over HTTP) with no server-side switch.
+- OTLP/HTTP carries binary protobuf (`application/x-protobuf`) only — no JSON — and POSTs each signal to its standard path (`/v1/traces`, `/v1/metrics`, `/v1/logs`, `/v1development/profiles`). The scheme follows TLS (`http` when disabled, otherwise `https`); endpoint **path prefixes** (e.g. `https://host/otlp` → `/otlp/v1/...`) are not yet applied. `maxConcurrentCallsPerConnection` is a no-op for HTTP; bound concurrency with a server executor instead.
 - Profiles track OpenTelemetry `v1development`. `ProfilesData.Profile` exposes top-level metadata for inspection but forwards losslessly via opaque passthrough: each profile carries its serialized proto bytes and the batch carries the serialized `ProfilesDictionary`, so samples, locations, mappings, string tables, and the original payload re-emit byte-for-byte. Only the resource/scope wrapper is modeled (standard attributes); the profile payload itself is not introspectable.
 - An unattached receiver source acknowledges a batch as accepted. Attach every signal that must be processed.

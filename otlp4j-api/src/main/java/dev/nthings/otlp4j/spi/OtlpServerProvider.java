@@ -12,8 +12,9 @@ import java.util.function.Function;
 ///
 /// Receivers register four per-signal dispatchers; the transport invokes them as decoded
 /// OTLP requests arrive. Each dispatcher returns a [CompletionStage] so the transport can
-/// hold the unary gRPC call open until the pipeline acknowledges (or partial-succeeds).
-public interface OtlpServerProvider {
+/// hold the request open until the pipeline acknowledges (or partial-succeeds). The high-level
+/// receivers select a provider by [#protocol()], so the gRPC and HTTP servers can coexist.
+public interface OtlpServerProvider extends TransportProvider {
 
     /// Creates a server honouring `config` and bound to the four signal dispatchers.
     OtlpServer create(ServerTransportConfig config, Dispatchers dispatchers);

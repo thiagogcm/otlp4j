@@ -162,15 +162,7 @@ final class GrpcOtlpClient implements OtlpClient {
             case Tls.Disabled() -> InsecureChannelCredentials.create();
             case Tls.SystemTrust() -> TlsChannelCredentials.create();
             case Tls.Custom(var certFile, var keyFile, var trustFile) -> {
-                // Cert and key only mean anything together; reject a half-specified pair instead
-                // of silently connecting anonymously.
-                if ((certFile == null) != (keyFile == null)) {
-                    throw new IllegalArgumentException(
-                            "incomplete client mutual-TLS material: a certificate and key must be "
-                                    + "supplied together (got "
-                                    + (certFile != null ? "a certificate without a key" : "a key without a certificate")
-                                    + ")");
-                }
+                Transports.requireCompleteClientMutualTls(certFile, keyFile);
                 try {
                     var b = TlsChannelCredentials.newBuilder();
                     if (certFile != null && keyFile != null) {

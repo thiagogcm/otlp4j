@@ -29,7 +29,7 @@ Everything lives under the `dev.nthings.otlp4j` root. The types you import most 
 | Functional options (`WithEndpoint`, `WithTimeout`, `WithInsecure`) | Builder methods (`endpoint(...)`, `timeout(...)`); the endpoint scheme decides plaintext vs TLS. |
 | `consumer.Capabilities{MutatesData}` | Not needed — model records are immutable, so fan-out shares them without copying. |
 
-Two deliberate differences: delivery is asynchronous (`CompletionStage<ConsumeResult<T>>`) with no per-call `context.Context`, and only OTLP/gRPC is supported today (no HTTP). See [Consumers and results](#consumers-and-results) for the partial-success/retry mapping.
+Two deliberate differences: delivery is asynchronous (`CompletionStage<ConsumeResult<T>>`) with no per-call `context.Context`, and OTLP is carried over gRPC or HTTP with binary protobuf only (no `http/json`). Pick the transport by class — `OtlpGrpcExporter`/`OtlpGrpcReceiver` (port 4317) or `OtlpHttpExporter`/`OtlpHttpReceiver` (port 4318); the builders and pipeline wiring are identical. See [Consumers and results](#consumers-and-results) for the partial-success/retry mapping.
 
 ## Domain model
 
@@ -123,6 +123,8 @@ Use an exception or exceptionally completed stage for a transport-level failure.
 ## Receive
 
 `OtlpGrpcReceiver` defaults to plaintext `0.0.0.0:4317`; call `.tls(Tls.custom(cert, key, …))` on the builder to serve TLS. Port `0` selects an ephemeral port, available through `port()` after `start()`. A wildcard `bindHost` (empty, `0.0.0.0`, or `::`) binds every interface; any other host binds that specific interface, so `127.0.0.1` yields a loopback-only receiver.
+
+`OtlpHttpReceiver` is the OTLP/HTTP counterpart with the same builder, defaulting to `0.0.0.0:4318`. It serves the standard signal paths (`/v1/traces`, `/v1/metrics`, `/v1/logs`, `/v1development/profiles`), inflates gzip request bodies, and — lacking a per-connection concurrency knob — bounds concurrency through `serverExecutor(...)` (a virtual-thread-per-request executor by default).
 
 The receiver builder exposes the receiver-hardening knobs the bundled server applies directly (or set them on a `ServerTransportConfig` and pass it through `transport(...)`), all defaulting to gRPC's own behaviour:
 
@@ -263,11 +265,13 @@ Overflow behavior:
 
 `OtlpGrpcExporter` defaults to plaintext `localhost:4317` with a ten-second deadline per request. It owns one client channel and exposes a consumer facet for each signal. TLS, authentication headers, gzip compression, and retries are available directly on the builder (`tls`, `header`/`headers`, `compression`, `retry`); pass a fully built `ClientTransportConfig` through `transport(...)` only when you want to replace the whole config at once.
 
+`OtlpHttpExporter` is the OTLP/HTTP counterpart with the identical builder, defaulting to `localhost:4318`. It POSTs each signal's binary protobuf to its standard path (`/v1/traces`, `/v1/metrics`, `/v1/logs`, `/v1development/profiles`) as `application/x-protobuf`; the scheme follows `tls` (`http`/`https`), `compression(GZIP)` sets `Content-Encoding: gzip`, and `retry` drives exponential-backoff retries over retryable statuses (408/429/502/503/504). Endpoint path prefixes are not yet applied.
+
 By default the exporter reads no environment — construction is fully explicit and deterministic. Opt in to the standard general OTLP variables with `fromEnvironment()` on the exporter or `ClientTransportConfig` builder. It reads each variable only when present and only on that call; precedence is "call it first, explicit setters afterwards win"; malformed values throw. Only general (non-signal-specific) variables are read today:
 
 | Setting | Builder method | Environment variable | otlp4j default | Notes |
 | --- | --- | --- | --- | --- |
-| Endpoint host/port/scheme | `.endpoint(host, port)` / `.host` / `.port` / `.tls` | `OTEL_EXPORTER_OTLP_ENDPOINT` | `localhost:4317`, plaintext | A URL; `http` is plaintext, `https` selects TLS. gRPC uses the authority as-is — no `/v1/<signal>` path is appended. Port defaults to `4317`. |
+| Endpoint host/port/scheme | `.endpoint(host, port)` / `.host` / `.port` / `.tls` | `OTEL_EXPORTER_OTLP_ENDPOINT` | gRPC `localhost:4317`, HTTP `localhost:4318`, plaintext | A URL; `http` is plaintext, `https` selects TLS. gRPC uses the authority as-is; HTTP appends the standard `/v1/<signal>` paths. A URL without a port keeps the exporter's protocol default (4317 gRPC, 4318 HTTP). |
 | Request timeout | `.timeout(Duration)` | `OTEL_EXPORTER_OTLP_TIMEOUT` | `10s` | Integer milliseconds; must be > 0. |
 | Headers | `.header(k, v)` / `.headers(map)` | `OTEL_EXPORTER_OTLP_HEADERS` | none | `k=v,k2=v2`; values are percent-decoded (`+` stays literal). Merged onto headers already set — env wins per key, unrelated keys are kept. |
 | Compression | `.compression(Compression)` | `OTEL_EXPORTER_OTLP_COMPRESSION` | `NONE` | `gzip` or `none`. |
@@ -275,7 +279,7 @@ By default the exporter reads no environment — construction is fully explicit 
 | Client cert (mTLS) | `.tls(Tls.custom(cert, key, trust))` | `OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE` | none | Requires the client key; ignored on an `http` endpoint. |
 | Client key (mTLS) | `.tls(Tls.custom(cert, key, trust))` | `OTEL_EXPORTER_OTLP_CLIENT_KEY` | none | Requires the client certificate. |
 
-Deliberately not read: `OTEL_EXPORTER_OTLP_PROTOCOL` (this transport is gRPC only) and `OTEL_EXPORTER_OTLP_INSECURE` (the endpoint scheme decides — `http` is plaintext). Signal-specific overrides such as `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` are not read either, because one exporter drives all four signals.
+Deliberately not read: `OTEL_EXPORTER_OTLP_PROTOCOL` (the protocol is chosen by which exporter class you instantiate, `OtlpGrpcExporter` vs `OtlpHttpExporter`, not by env) and `OTEL_EXPORTER_OTLP_INSECURE` (the endpoint scheme decides — `http` is plaintext). Signal-specific overrides such as `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` are not read either, because one exporter drives all four signals. The same `fromEnvironment()` applies to `OtlpHttpExporter`, except a portless endpoint URL keeps the HTTP default port 4318.
 
 ```java
 // Load env, then let an explicit endpoint win over OTEL_EXPORTER_OTLP_ENDPOINT.
@@ -379,14 +383,14 @@ Demand is independent of the receive/export acknowledgement path: a slow subscri
 
 ## Supply another transport
 
-> For transport/extension authors. Application users can skip this section — the bundled `otlp4j-transport` gRPC provider is discovered automatically, and the `spi` package only matters when you replace the wire transport.
+> For transport/extension authors. Application users can skip this section — the bundled `otlp4j-transport` gRPC and HTTP providers are discovered automatically, and the `spi` package only matters when you replace the wire transport.
 
 Implement these pairs and register their providers with JPMS, `META-INF/services`, or both:
 
 - `OtlpServerProvider` and `OtlpServer` for receiving;
 - `OtlpClientProvider` and `OtlpClient` for exporting.
 
-Exactly one provider for each role must be on the module or class path: the helpers fail fast with `IllegalStateException` when none is found and, because provider order is not a configuration mechanism, also when more than one is found. Keep exactly one transport provider on the path. Configuration arrives through `ServerTransportConfig` or `ClientTransportConfig`. The bundled client honours host, port, timeout, TLS, headers, compression, and retry; the server honours its port, `bindHost`, TLS, and the receiver-hardening limits (inbound size cap, per-connection concurrency, handshake timeout, executor).
+Each provider declares the `Protocol` it implements (`GRPC` or `HTTP_PROTOBUF`) via `TransportProvider.protocol()`, and the high-level exporters/receivers select a provider by protocol — so the bundled gRPC and HTTP providers coexist, and a `Protocol.GRPC` request resolves the gRPC provider regardless of load order. Exactly one provider per role *and protocol* must be on the path: the helpers fail fast with `IllegalStateException` when none implements the requested protocol and, because provider order is not a configuration mechanism, also when more than one does. Configuration arrives through `ServerTransportConfig` or `ClientTransportConfig`. The bundled clients honour host, port, timeout, TLS, headers, compression, and retry; the servers honour their port, `bindHost`, TLS, and the receiver-hardening limits (inbound size cap, per-connection concurrency, handshake timeout, executor).
 
 ## Shutdown order
 

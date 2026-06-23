@@ -61,8 +61,12 @@
                                  counted in the aggregate coverage report. -->
                             <excludes>
                                 <exclude>dev/nthings/otlp4j/receiver/Receiver</exclude>
+                                <exclude>dev/nthings/otlp4j/receiver/AbstractOtlpReceiver*</exclude>
                                 <exclude>dev/nthings/otlp4j/receiver/OtlpGrpcReceiver*</exclude>
+                                <exclude>dev/nthings/otlp4j/receiver/OtlpHttpReceiver*</exclude>
+                                <exclude>dev/nthings/otlp4j/exporter/AbstractOtlpExporter*</exclude>
                                 <exclude>dev/nthings/otlp4j/exporter/OtlpGrpcExporter*</exclude>
+                                <exclude>dev/nthings/otlp4j/exporter/OtlpHttpExporter*</exclude>
                                 <exclude>dev/nthings/otlp4j/spi/*</exclude>
                                 <exclude>dev/nthings/otlp4j/api/internal/SpiSupport*</exclude>
                             </excludes>

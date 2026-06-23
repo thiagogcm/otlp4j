@@ -11,7 +11,6 @@ import io.grpc.TlsServerCredentials;
 import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.net.InetSocketAddress;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -48,7 +47,8 @@ final class GrpcOtlpServer implements OtlpServer {
         if (server != null) {
             throw new IllegalStateException("server already started");
         }
-        var builder = NettyServerBuilder.forAddress(bindAddress(), serverCredentials(config.tls()))
+        var builder = NettyServerBuilder.forAddress(
+                        Transports.bindAddress(config.bindHost(), config.port()), serverCredentials(config.tls()))
                 .maxInboundMessageSize(config.maxInboundMessageSizeBytes())
                 .handshakeTimeout(config.handshakeTimeout().toNanos(), TimeUnit.NANOSECONDS);
         if (config.maxConcurrentCallsPerConnection() > 0) {
@@ -60,23 +60,6 @@ final class GrpcOtlpServer implements OtlpServer {
         GrpcServiceAdapters.create(dispatchers).forEach(builder::addService);
         server = builder.build().start();
         log.info("OTLP/gRPC server listening on port {}", server.getPort());
-    }
-
-    /// Resolves the configured bind host to a socket address. A wildcard host binds every
-    /// interface via the any-local-address; any other host binds that specific interface (so e.g.
-    /// `127.0.0.1` yields a loopback-only receiver).
-    private InetSocketAddress bindAddress() {
-        var host = config.bindHost();
-        return isWildcardHost(host)
-                ? new InetSocketAddress(config.port())
-                : new InetSocketAddress(host, config.port());
-    }
-
-    private static boolean isWildcardHost(String host) {
-        return host.isEmpty()
-                || host.equals("0.0.0.0")
-                || host.equals("::")
-                || host.equals("0:0:0:0:0:0:0:0");
     }
 
     @Override

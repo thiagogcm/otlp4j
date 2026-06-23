@@ -80,6 +80,13 @@ public record ClientTransportConfig(
             return this;
         }
 
+        /// The port currently set on this builder. Package-private seam used by [OtlpEnv] so an
+        /// endpoint URL without an explicit port falls back to the protocol's default (4317 for
+        /// gRPC, 4318 for HTTP) rather than a single hardcoded constant.
+        int port() {
+            return port;
+        }
+
         public Builder timeout(Duration timeout) {
             this.timeout = timeout;
             return this;

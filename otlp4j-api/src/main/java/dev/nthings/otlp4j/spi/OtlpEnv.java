@@ -26,8 +26,6 @@ final class OtlpEnv {
     static final String CLIENT_CERTIFICATE = "OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE";
     static final String CLIENT_KEY = "OTEL_EXPORTER_OTLP_CLIENT_KEY";
 
-    private static final int DEFAULT_PORT = 4317;
-
     private OtlpEnv() {}
 
     static void applyTo(ClientTransportConfig.Builder builder, UnaryOperator<String> env) {
@@ -85,8 +83,11 @@ final class OtlpEnv {
         if (host.startsWith("[") && host.endsWith("]")) {
             host = host.substring(1, host.length() - 1);
         }
-        // gRPC uses the endpoint authority as-is; no /v1/<signal> path is appended.
-        builder.host(host).port(uri.getPort() == -1 ? DEFAULT_PORT : uri.getPort());
+        // The endpoint authority is used as-is. When the URL omits a port, keep the builder's
+        // current port so the protocol's default wins (4317 for gRPC, 4318 for HTTP); the gRPC
+        // client ignores any /v1/<signal> path, the HTTP client appends the standard signal paths.
+        var port = uri.getPort() == -1 ? builder.port() : uri.getPort();
+        builder.host(host).port(port);
         // Cert variables apply only when the scheme selects TLS; on http plaintext wins.
         builder.tls(tls ? resolveTls(env) : Tls.disabled());
     }

@@ -5,20 +5,20 @@ import dev.nthings.otlp4j.spi.OtlpClient;
 import dev.nthings.otlp4j.spi.OtlpClientProvider;
 import dev.nthings.otlp4j.spi.Protocol;
 
-/// [OtlpClientProvider] backed by gRPC — the service this module provides for `OtlpGrpcExporter`
+/// [OtlpClientProvider] backed by OTLP/HTTP — the service this module provides for `OtlpHttpExporter`
 /// to discover via `ServiceLoader` (selected by [#protocol()]).
-public final class GrpcOtlpClientProvider implements OtlpClientProvider {
+public final class HttpOtlpClientProvider implements OtlpClientProvider {
 
     /// Public no-arg constructor required by `ServiceLoader`.
-    public GrpcOtlpClientProvider() {}
+    public HttpOtlpClientProvider() {}
 
     @Override
     public Protocol protocol() {
-        return Protocol.GRPC;
+        return Protocol.HTTP_PROTOBUF;
     }
 
     @Override
     public OtlpClient create(ClientTransportConfig config) {
-        return new GrpcOtlpClient(config);
+        return new HttpOtlpClient(config);
     }
 }
