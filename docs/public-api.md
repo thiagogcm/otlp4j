@@ -202,7 +202,7 @@ var subscription = Pipeline.from(receiver.traces())
         .join();
 ```
 
-A branch can fan out to several **owned** resources. Register each on the linear stage with `owns(...)` (it is chainable) *before* `branch()`, so the subscription drains them all on shutdown under one shared deadline. Ownership is declared on the stage, not per peer:
+A branch fanning out to exporter facets auto-owns each exporter — every facet carries its exporter's lifecycle — so the subscription drains them all on shutdown under one shared deadline:
 
 ```java
 var primary = OtlpGrpcExporter.to("collector-a", 4317);
@@ -210,14 +210,14 @@ var secondary = OtlpGrpcExporter.to("collector-b", 4317);
 
 var subscription = Pipeline.from(receiver.traces())
         .filter(traces -> !traces.spans().isEmpty())
-        .owns(primary)
-        .owns(secondary)
         .branch()
             .fanOut(primary.traces())
             .fanOut(secondary.traces())
         .join();
 // subscription.shutdown(timeout) drains primary and secondary within one budget.
 ```
+
+For a resource the pipeline can't reach as a terminal or peer — declare it on the linear stage with `owns(...)` (chainable) *before* `branch()`. Ownership is declared on the stage, not per peer.
 
 Available built-in transforms are span and log-record filters plus per-signal resource-attribute setters. Implement `Transform<T>` for other synchronous one-to-one rewrites.
 
@@ -322,7 +322,7 @@ var exporter = OtlpGrpcExporter.builder()
         .build();
 ```
 
-The exporter itself owns the channel. Its `traces()`, `metrics()`, `logs()`, and `profiles()` facets are method references, so the pipeline cannot auto-discover the exporter behind them. Hand its lifecycle to the subscription with the two-arg terminal `to(exporter.traces(), exporter)` (equivalently, `Stage.owns(exporter)` before the terminal): it implements both `Drainable` and `Flushable`, so the subscription drains it on shutdown and reaches it on `forceFlush`. As a `Drainable` it receives the pipeline's *remaining* shared deadline, and its shutdown is cancellation-aware — a timeout interrupts the transport teardown rather than leaving it blocking past the deadline. `forceFlush` itself is a no-op today (the client holds no buffer) but is reachable once the exporter is owned. Without `owns`, close the exporter yourself.
+The exporter itself owns the channel. Its `traces()`, `metrics()`, `logs()`, and `profiles()` facets carry that lifecycle: each is `Drainable` and `Flushable` and delegates to the exporter, so a pipeline that terminates in (or fans out to) a facet auto-owns the exporter — the subscription drains it on shutdown and reaches it on `forceFlush`, with no separate `Stage.owns(exporter)` or two-arg `to(exporter.traces(), exporter)`. As a `Drainable` it receives the pipeline's *remaining* shared deadline, and its shutdown is cancellation-aware — a timeout interrupts the transport teardown rather than leaving it blocking past the deadline. `forceFlush` itself is a no-op today (the client holds no buffer) but is reachable through the facet. The explicit owner overloads remain for an exporter the pipeline can't otherwise reach, and combine harmlessly with a facet because the drain is idempotent. If you use a facet outside a pipeline (calling `consume` directly), close the exporter yourself.
 
 Implement `Exporter<T>` for a custom typed terminal with flush and shutdown hooks. Implement the lower-level client or server SPI when replacing the wire transport.
 
@@ -404,8 +404,8 @@ Configuration arrives through `ClientConfig` and `ServerConfig`. The bundled cli
 
 Stop ingestion before closing downstream resources:
 
-1. Shut down the pipeline subscription to detach the source and drain every owned resource — directly attached processors plus anything registered with `Stage.owns(...)` (e.g. an exporter), all within a single shared deadline.
-2. Close any resources you did not hand to the subscription: exporter instances not registered via `owns`, and connector downstreams (which the subscription does not auto-discover).
+1. Shut down the pipeline subscription to detach the source and drain every owned resource — directly attached processors, exporters reached through their facets, and anything registered with `Stage.owns(...)`, all within a single shared deadline.
+2. Close any resources you did not hand to the subscription: exporters used outside the pipeline, and connector downstreams (which the subscription does not auto-discover).
 3. Shut down the receiver.
 
 Use `shutdown(Duration)` when completion matters. The convenience `close()` methods drain gracefully with a fixed ten-second default across the receiver, exporter, and subscription; call `Receiver.shutdownNow()` for an immediate stop.
