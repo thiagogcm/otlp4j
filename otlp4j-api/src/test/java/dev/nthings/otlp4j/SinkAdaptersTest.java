@@ -13,6 +13,7 @@ import dev.nthings.otlp4j.model.TraceData;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.io.IOException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.DisplayName;
@@ -58,17 +59,33 @@ class SinkAdaptersTest {
     @DisplayName("accepting lets Errors propagate rather than swallowing them as rejections")
     @Test
     void acceptingLetsErrorsPropagate() {
-        var oom = new StackOverflowError("boom");
+        var overflow = new StackOverflowError("boom");
         Sink<TraceData> sink = Sink.accepting(batch -> {
-            throw oom;
+            throw overflow;
         });
 
         try {
             sink.consume(BATCH);
             org.junit.jupiter.api.Assertions.fail("expected the Error to propagate");
         } catch (StackOverflowError thrown) {
-            assertThat(thrown).isSameAs(oom);
+            assertThat(thrown).isSameAs(overflow);
         }
+    }
+
+    @DisplayName("accepting unwraps CompletionException before building the rejection")
+    @Test
+    void acceptingUnwrapsCompletionException() {
+        var boom = new IllegalStateException("wrapped");
+        Sink<TraceData> sink = Sink.accepting(batch -> {
+            throw new CompletionException(boom);
+        });
+
+        var result = consume(sink, BATCH);
+
+        assertThat(result).isInstanceOfSatisfying(ConsumeResult.Rejected.class, rejected -> {
+            assertThat(rejected.cause()).isSameAs(boom);
+            assertThat(rejected.message()).contains("IllegalStateException").contains("wrapped");
+        });
     }
 
     @DisplayName("accepting restores the interrupt flag when the action throws InterruptedException")
@@ -78,6 +95,26 @@ class SinkAdaptersTest {
         var interrupted = new InterruptedException("stop");
         Sink<TraceData> sink = Sink.accepting(batch -> {
             throw interrupted;
+        });
+
+        try {
+            var result = consume(sink, BATCH);
+
+            assertThat(result).isInstanceOfSatisfying(ConsumeResult.Rejected.class,
+                    rejected -> assertThat(rejected.cause()).isSameAs(interrupted));
+            assertThat(Thread.currentThread().isInterrupted()).isTrue();
+        } finally {
+            Thread.interrupted();
+        }
+    }
+
+    @DisplayName("accepting restores the interrupt flag when CompletionException wraps InterruptedException")
+    @Test
+    void acceptingRestoresInterruptFlagFromWrappedFailure() {
+        Thread.interrupted();
+        var interrupted = new InterruptedException("wrapped stop");
+        Sink<TraceData> sink = Sink.accepting(batch -> {
+            throw new CompletionException(interrupted);
         });
 
         try {
@@ -149,12 +186,64 @@ class SinkAdaptersTest {
                 rejected -> assertThat(rejected.cause()).isSameAs(boom));
     }
 
+    @DisplayName("fromStage lets Errors thrown by the action propagate")
+    @Test
+    void fromStageLetsErrorsPropagate() {
+        var overflow = new StackOverflowError("boom");
+        Sink<TraceData> sink = Sink.fromStage(batch -> {
+            throw overflow;
+        });
+
+        try {
+            sink.consume(BATCH);
+            org.junit.jupiter.api.Assertions.fail("expected the Error to propagate");
+        } catch (StackOverflowError thrown) {
+            assertThat(thrown).isSameAs(overflow);
+        }
+    }
+
+    @DisplayName("fromStage unwraps a synchronously thrown CompletionException")
+    @Test
+    void fromStageUnwrapsSynchronousCompletionException() {
+        var boom = new IllegalStateException("sync wrapped");
+        Sink<TraceData> sink = Sink.fromStage(batch -> {
+            throw new CompletionException(boom);
+        });
+
+        var result = consume(sink, BATCH);
+
+        assertThat(result).isInstanceOfSatisfying(ConsumeResult.Rejected.class, rejected -> {
+            assertThat(rejected.cause()).isSameAs(boom);
+            assertThat(rejected.message()).contains("IllegalStateException").contains("sync wrapped");
+        });
+    }
+
     @DisplayName("fromStage restores the interrupt flag when the action throws InterruptedException")
     @Test
     void fromStageRestoresInterruptFlag() {
         Thread.interrupted();
         var interrupted = new InterruptedException("stop");
         Sink<TraceData> sink = Sink.fromStage(batch -> sneakyThrow(interrupted));
+
+        try {
+            var result = consume(sink, BATCH);
+
+            assertThat(result).isInstanceOfSatisfying(ConsumeResult.Rejected.class,
+                    rejected -> assertThat(rejected.cause()).isSameAs(interrupted));
+            assertThat(Thread.currentThread().isInterrupted()).isTrue();
+        } finally {
+            Thread.interrupted();
+        }
+    }
+
+    @DisplayName("fromStage restores the interrupt flag when CompletionException wraps InterruptedException")
+    @Test
+    void fromStageRestoresInterruptFlagFromWrappedSynchronousFailure() {
+        Thread.interrupted();
+        var interrupted = new InterruptedException("sync wrapped stop");
+        Sink<TraceData> sink = Sink.fromStage(batch -> {
+            throw new CompletionException(interrupted);
+        });
 
         try {
             var result = consume(sink, BATCH);
