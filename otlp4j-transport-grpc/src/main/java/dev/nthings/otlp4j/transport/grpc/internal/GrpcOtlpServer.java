@@ -15,6 +15,7 @@ import java.io.UncheckedIOException;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,6 +33,10 @@ import org.slf4j.LoggerFactory;
 public final class GrpcOtlpServer implements OtlpServer {
 
     private static final Logger log = LoggerFactory.getLogger(GrpcOtlpServer.class);
+
+    /// Runs each blocking termination wait on a virtual thread, not a common-pool worker.
+    private static final Executor SHUTDOWN_EXECUTOR =
+            task -> Thread.ofVirtual().name("otlp-grpc-shutdown").start(task);
 
     private final ServerConfig config;
     private final Dispatchers dispatchers;
@@ -106,7 +111,7 @@ public final class GrpcOtlpServer implements OtlpServer {
                 Thread.currentThread().interrupt();
                 throw new RuntimeException(e);
             }
-        });
+        }, SHUTDOWN_EXECUTOR);
     }
 
     private static ServerCredentials serverCredentials(Tls tls) {
