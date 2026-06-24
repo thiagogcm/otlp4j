@@ -44,8 +44,6 @@ public final class Connectors {
                 policy,
                 "otlp4j.connector.log.record.count",
                 "Items observed by the log record count connector",
-                // Count via the allocation-free helper rather than the flattened accessor, which would
-                // materialize a full copy of every item just to read its size on each consumed batch.
                 LogsData::logRecordCount);
     }
 }

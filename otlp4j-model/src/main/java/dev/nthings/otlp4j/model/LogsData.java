@@ -20,9 +20,8 @@ public record LogsData(List<ResourceLogs> resourceLogs) {
 
     /// All log records across every resource and scope, flattened for convenient consumption.
     ///
-    /// This walks the resource/scope grouping and allocates a fresh list on every call. On a hot
-    /// path prefer [#forEachLogRecord] to visit records without the intermediate list, or
-    /// [#logRecordCount] to size the batch without flattening it.
+    /// Allocates a fresh list on every call; on a hot path prefer [#forEachLogRecord] or
+    /// [#logRecordCount].
     public List<LogRecord> logRecords() {
         return resourceLogs.stream()
                 .flatMap(rl -> rl.scopeLogs().stream())
@@ -30,8 +29,8 @@ public record LogsData(List<ResourceLogs> resourceLogs) {
                 .toList();
     }
 
-    /// Applies `action` to every log record across every resource and scope, in the same order as
-    /// [#logRecords], without allocating the intermediate flattened list.
+    /// Applies `action` to every log record across every resource and scope, in [#logRecords] order
+    /// without allocating the flattened list.
     public void forEachLogRecord(Consumer<? super LogRecord> action) {
         Objects.requireNonNull(action, "action");
         for (var resource : resourceLogs) {
@@ -44,8 +43,7 @@ public record LogsData(List<ResourceLogs> resourceLogs) {
     }
 
     /// The total number of log records across every resource and scope, counted without allocating
-    /// the flattened list that [#logRecords] builds. This is the OTLP item count used for batching
-    /// and partial-success accounting.
+    /// the list [#logRecords] builds.
     public int logRecordCount() {
         var count = 0;
         for (var resource : resourceLogs) {

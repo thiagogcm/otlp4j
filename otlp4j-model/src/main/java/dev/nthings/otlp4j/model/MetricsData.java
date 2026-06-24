@@ -21,9 +21,8 @@ public record MetricsData(List<ResourceMetrics> resourceMetrics) {
 
     /// All metrics across every resource and scope, flattened for convenient consumption.
     ///
-    /// This walks the resource/scope grouping and allocates a fresh list on every call. On a hot
-    /// path prefer [#forEachMetric] to visit metrics without the intermediate list, or
-    /// [#metricCount] to size the batch without flattening it.
+    /// Allocates a fresh list on every call; on a hot path prefer [#forEachMetric] or
+    /// [#metricCount].
     public List<Metric> metrics() {
         return resourceMetrics.stream()
                 .flatMap(rm -> rm.scopeMetrics().stream())
@@ -31,8 +30,8 @@ public record MetricsData(List<ResourceMetrics> resourceMetrics) {
                 .toList();
     }
 
-    /// Applies `action` to every metric across every resource and scope, in the same order as
-    /// [#metrics], without allocating the intermediate flattened list.
+    /// Applies `action` to every metric across every resource and scope, in [#metrics] order without
+    /// allocating the flattened list.
     public void forEachMetric(Consumer<? super Metric> action) {
         Objects.requireNonNull(action, "action");
         for (var resource : resourceMetrics) {
@@ -44,9 +43,9 @@ public record MetricsData(List<ResourceMetrics> resourceMetrics) {
         }
     }
 
-    /// The total number of [Metric] objects across every resource and scope, counted without
-    /// allocating the flattened list that [#metrics] builds. Note this counts metrics, not the
-    /// nested data points OTLP reports for metric partial-success.
+    /// The number of [Metric] objects across every resource and scope, counted without allocating
+    /// the list [#metrics] builds — metrics, not the nested data points OTLP reports for metric
+    /// partial-success.
     public int metricCount() {
         var count = 0;
         for (var resource : resourceMetrics) {
