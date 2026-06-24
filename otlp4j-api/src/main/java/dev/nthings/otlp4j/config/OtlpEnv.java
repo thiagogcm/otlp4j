@@ -93,7 +93,7 @@ final class OtlpEnv {
         // No explicit port → keep the builder's protocol default (4317 gRPC, 4318 HTTP). The path
         // prefix is captured for HTTP; gRPC ignores it.
         var port = uri.getPort() == -1 ? builder.port() : uri.getPort();
-        builder.host(host).port(port).path(uri.getPath());
+        builder.host(host).port(port).path(uri.getRawPath());
         // TLS material applies only under https; http is plaintext.
         builder.tls(tls ? resolveTls(env) : Tls.disabled());
     }
