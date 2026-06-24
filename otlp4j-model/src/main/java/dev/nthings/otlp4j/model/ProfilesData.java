@@ -3,6 +3,7 @@ package dev.nthings.otlp4j.model;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Consumer;
 
 /// A batch of profiling telemetry: the domain equivalent of an OTLP export request.
 ///
@@ -37,11 +38,41 @@ public record ProfilesData(List<ResourceProfiles> resourceProfiles, byte[] dicti
     }
 
     /// All profiles across every resource and scope, flattened for convenient consumption.
+    ///
+    /// This walks the resource/scope grouping and allocates a fresh list on every call. On a hot
+    /// path prefer [#forEachProfile] to visit profiles without the intermediate list, or
+    /// [#profileCount] to size the batch without flattening it.
     public List<Profile> profiles() {
         return resourceProfiles.stream()
                 .flatMap(rp -> rp.scopeProfiles().stream())
                 .flatMap(sp -> sp.profiles().stream())
                 .toList();
+    }
+
+    /// Applies `action` to every profile across every resource and scope, in the same order as
+    /// [#profiles], without allocating the intermediate flattened list.
+    public void forEachProfile(Consumer<? super Profile> action) {
+        Objects.requireNonNull(action, "action");
+        for (var resource : resourceProfiles) {
+            for (var scope : resource.scopeProfiles()) {
+                for (var profile : scope.profiles()) {
+                    action.accept(profile);
+                }
+            }
+        }
+    }
+
+    /// The total number of profiles across every resource and scope, counted without allocating the
+    /// flattened list that [#profiles] builds. This is the OTLP item count used for batching and
+    /// partial-success accounting.
+    public int profileCount() {
+        var count = 0;
+        for (var resource : resourceProfiles) {
+            for (var scope : resource.scopeProfiles()) {
+                count += scope.profiles().size();
+            }
+        }
+        return count;
     }
 
     @Override
