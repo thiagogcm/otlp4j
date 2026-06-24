@@ -71,6 +71,26 @@ class SinkAdaptersTest {
         }
     }
 
+    @DisplayName("accepting restores the interrupt flag when the action throws InterruptedException")
+    @Test
+    void acceptingRestoresInterruptFlag() {
+        Thread.interrupted();
+        var interrupted = new InterruptedException("stop");
+        Sink<TraceData> sink = Sink.accepting(batch -> {
+            throw interrupted;
+        });
+
+        try {
+            var result = consume(sink, BATCH);
+
+            assertThat(result).isInstanceOfSatisfying(ConsumeResult.Rejected.class,
+                    rejected -> assertThat(rejected.cause()).isSameAs(interrupted));
+            assertThat(Thread.currentThread().isInterrupted()).isTrue();
+        } finally {
+            Thread.interrupted();
+        }
+    }
+
     @DisplayName("fromStage accepts when the returned stage completes normally")
     @Test
     void fromStageAcceptsOnNormalCompletion() {
@@ -129,6 +149,24 @@ class SinkAdaptersTest {
                 rejected -> assertThat(rejected.cause()).isSameAs(boom));
     }
 
+    @DisplayName("fromStage restores the interrupt flag when the action throws InterruptedException")
+    @Test
+    void fromStageRestoresInterruptFlag() {
+        Thread.interrupted();
+        var interrupted = new InterruptedException("stop");
+        Sink<TraceData> sink = Sink.fromStage(batch -> sneakyThrow(interrupted));
+
+        try {
+            var result = consume(sink, BATCH);
+
+            assertThat(result).isInstanceOfSatisfying(ConsumeResult.Rejected.class,
+                    rejected -> assertThat(rejected.cause()).isSameAs(interrupted));
+            assertThat(Thread.currentThread().isInterrupted()).isTrue();
+        } finally {
+            Thread.interrupted();
+        }
+    }
+
     @DisplayName("fromStage maps a null returned stage to a rejection")
     @Test
     void fromStageMapsNullStageToRejected() {
@@ -166,5 +204,14 @@ class SinkAdaptersTest {
         CompletionStage<ConsumeResult<TraceData>> stage = sink.consume(BATCH);
 
         assertThat(stage.toCompletableFuture().join()).isInstanceOf(ConsumeResult.Rejected.class);
+    }
+
+    private static <T> T sneakyThrow(Throwable failure) {
+        return SinkAdaptersTest.<RuntimeException, T>sneakyThrow0(failure);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <E extends Throwable, T> T sneakyThrow0(Throwable failure) throws E {
+        throw (E) failure;
     }
 }

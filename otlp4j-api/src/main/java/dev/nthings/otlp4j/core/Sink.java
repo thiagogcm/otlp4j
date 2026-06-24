@@ -29,13 +29,16 @@ public interface Sink<T> {
 
     /// Builds a sink from a synchronous `action`: returning normally accepts the batch, and any
     /// thrown exception becomes a permanent (non-retryable) [ConsumeResult.Rejected] carrying that
-    /// exception as its cause. `Error`s are not caught and propagate to the caller.
+    /// exception as its cause. If the action throws [InterruptedException], the thread interrupt
+    /// flag is restored before returning the rejection. `Error`s are not caught and propagate to the
+    /// caller.
     static <T> Sink<T> accepting(ThrowingConsumer<? super T> action) {
         Objects.requireNonNull(action, "action");
         return batch -> {
             try {
                 action.accept(batch);
             } catch (Exception e) {
+                restoreInterrupt(e);
                 return CompletableFuture.completedFuture(rejected(e));
             }
             return ConsumeResult.acceptedStage();
@@ -45,7 +48,8 @@ public interface Sink<T> {
     /// Builds a sink from an asynchronous `action` that reports only success or failure: normal
     /// completion of the returned stage accepts the batch, while an exceptional completion (or a
     /// synchronous throw, or a `null` stage) becomes a permanent [ConsumeResult.Rejected] carrying
-    /// the failure as its cause.
+    /// the failure as its cause. If a synchronous throw is an [InterruptedException], the thread
+    /// interrupt flag is restored before returning the rejection.
     static <T> Sink<T> fromStage(Function<? super T, ? extends CompletionStage<Void>> action) {
         Objects.requireNonNull(action, "action");
         return batch -> {
@@ -53,11 +57,18 @@ public interface Sink<T> {
             try {
                 stage = Objects.requireNonNull(action.apply(batch), "fromStage action returned a null stage");
             } catch (Exception e) {
+                restoreInterrupt(e);
                 return CompletableFuture.completedFuture(rejected(e));
             }
             return stage.handle((ignored, failure) ->
                     failure == null ? ConsumeResult.<T>accepted() : rejected(unwrap(failure)));
         };
+    }
+
+    private static void restoreInterrupt(Exception failure) {
+        if (failure instanceof InterruptedException) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     /// Maps a (non-null) failure to a permanent rejection whose cause is the original throwable.
