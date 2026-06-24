@@ -14,7 +14,7 @@ The project is currently experimental `0.1.0-SNAPSHOT` and requires JDK 25. Its 
 - Queue-backed batching with bounded buffers and configurable overflow policy
 - Trace-to-metric and log-to-metric count connectors
 - Independent `Flow.Publisher` streams for live telemetry observation
-- Opt-in `OTEL_EXPORTER_OTLP_*` exporter configuration via `fromEnvironment()`
+- Opt-in `OTEL_EXPORTER_OTLP_*` exporter configuration via `fromEnvironment()` (builder or static factory)
 - Separate gRPC and HTTP transport modules, selected by the exporter/receiver class you instantiate, behind a small `OtlpClient`/`OtlpServer` SPI
 
 ## Use from Maven
@@ -115,6 +115,6 @@ This runs the tests, coverage checks, Protobuf generation, and Javadoc lint. If 
 ## Current limits
 
 - The bundled transports apply the full configuration surface — TLS, headers, compression, and retry on the client; TLS, `bindHost`, and the receiver-hardening limits on the server. A non-wildcard `bindHost` (e.g. `127.0.0.1`) now binds that specific interface; a wildcard host binds every interface. Compression is asymmetric: the client requests gzip, and the server transparently decodes it (gRPC's default decoder, or `Content-Encoding: gzip` over HTTP) with no server-side switch.
-- OTLP/HTTP carries binary protobuf (`application/x-protobuf`) only — no JSON — and POSTs each signal to its standard path (`/v1/traces`, `/v1/metrics`, `/v1/logs`, `/v1development/profiles`). The scheme follows TLS (`http` when disabled, otherwise `https`); endpoint **path prefixes** (e.g. `https://host/otlp` → `/otlp/v1/...`) are not yet applied. `maxConcurrentCallsPerConnection` is a no-op for HTTP; bound concurrency with a server executor instead.
+- OTLP/HTTP carries binary protobuf (`application/x-protobuf`) only — no JSON — and POSTs each signal to its standard path (`/v1/traces`, `/v1/metrics`, `/v1/logs`, `/v1development/profiles`). The scheme follows TLS (`http` when disabled, otherwise `https`); an endpoint **path prefix** (e.g. `https://host/otlp` → `/otlp/v1/...`) is applied, from the `OTEL_EXPORTER_OTLP_ENDPOINT` URL or the HTTP exporter's `path(...)`. `maxConcurrentCallsPerConnection` is a no-op for HTTP; bound concurrency with a server executor instead.
 - Profiles track OpenTelemetry `v1development`. `ProfilesData.Profile` exposes top-level metadata for inspection but forwards losslessly via opaque passthrough: each profile carries its serialized proto bytes and the batch carries the serialized `ProfilesDictionary`, so samples, locations, mappings, string tables, and the original payload re-emit byte-for-byte. Only the resource/scope wrapper is modeled (standard attributes); the profile payload itself is not introspectable.
 - An unattached receiver source acknowledges a batch as accepted. Attach every signal that must be processed.

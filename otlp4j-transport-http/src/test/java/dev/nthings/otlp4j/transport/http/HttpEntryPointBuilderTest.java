@@ -53,6 +53,25 @@ class HttpEntryPointBuilderTest {
         }
     }
 
+    @DisplayName("OtlpHttpExporter.fromEnvironment() builds a usable exporter")
+    @Test
+    void exporterFromEnvironmentFactory() {
+        try (var exporter = OtlpHttpExporter.fromEnvironment()) {
+            assertThat(exporter.traces()).isNotNull();
+        }
+    }
+
+    @DisplayName("OtlpHttpExporter.Builder path(...) sets the endpoint path prefix on the config")
+    @Test
+    void exporterBuilderPath() throws Exception {
+        var builder = OtlpHttpExporter.builder().endpoint("h", 4318).path("/otlp");
+
+        var field = OtlpHttpExporter.Builder.class.getDeclaredField("config");
+        field.setAccessible(true);
+        var c = ((ClientConfig.Builder) field.get(builder)).build();
+        assertThat(c.path()).isEqualTo("/otlp");
+    }
+
     @DisplayName("OtlpHttpReceiver builder applies every knob")
     @Test
     void receiverBuilderAppliesEveryKnob() {

@@ -10,10 +10,12 @@ import java.util.function.UnaryOperator;
 /// Configuration for an OTLP exporter transport.
 ///
 /// Defaults via [#builder]: `localhost:4317`, 10s deadline, TLS disabled, no headers,
-/// no compression, no retries.
+/// no compression, no retries, no path prefix. `path` is an OTLP/HTTP endpoint path prefix
+/// (e.g. `/otlp`) prepended to the per-signal paths; gRPC ignores it.
 public record ClientConfig(
         String host,
         int port,
+        String path,
         Duration timeout,
         Tls tls,
         Map<String, String> headers,
@@ -27,12 +29,29 @@ public record ClientConfig(
         Objects.requireNonNull(compression, "compression");
         Objects.requireNonNull(retry, "retry");
         headers = headers == null ? Map.of() : Collections.unmodifiableMap(new LinkedHashMap<>(headers));
+        path = normalizePath(path);
         if (port < 0 || port > 65535) {
             throw new IllegalArgumentException("port out of range: " + port);
         }
         if (timeout.isZero() || timeout.isNegative()) {
             throw new IllegalArgumentException("timeout must be > 0");
         }
+    }
+
+    /// Normalizes a path prefix to `""` or a `/`-led form with no trailing slash; blank and `/`
+    /// collapse to `""`.
+    private static String normalizePath(String path) {
+        if (path == null) {
+            return "";
+        }
+        var p = path.strip();
+        while (p.endsWith("/")) {
+            p = p.substring(0, p.length() - 1);
+        }
+        if (p.isEmpty()) {
+            return "";
+        }
+        return p.startsWith("/") ? p : "/" + p;
     }
 
     public static Builder builder() {
@@ -49,6 +68,7 @@ public record ClientConfig(
         b.headers.putAll(headers);
         b.compression = compression;
         b.retry = retry;
+        b.path = path;
         return b;
     }
 
@@ -61,12 +81,20 @@ public record ClientConfig(
         private final Map<String, String> headers = new LinkedHashMap<>();
         private Compression compression = Compression.NONE;
         private RetryPolicy retry = RetryPolicy.none();
+        private String path = "";
 
         private Builder() {}
 
         public Builder endpoint(String host, int port) {
             this.host = host;
             this.port = port;
+            return this;
+        }
+
+        /// Sets the OTLP/HTTP endpoint path prefix (e.g. `/otlp`); blank or `/` mean none. gRPC
+        /// ignores it.
+        public Builder path(String path) {
+            this.path = path;
             return this;
         }
 
@@ -125,11 +153,10 @@ public record ClientConfig(
             return this;
         }
 
-        /// Applies the standard general `OTEL_EXPORTER_OTLP_*` exporter variables onto this builder
-        /// when present (endpoint URL, timeout, headers, compression, TLS cert paths). Opt-in and
-        /// deterministic — the process environment is read only on this call. Call it first:
-        /// explicit setters invoked afterwards override the environment. Malformed values throw
-        /// [IllegalArgumentException].
+        /// Applies the standard general `OTEL_EXPORTER_OTLP_*` exporter variables present in the
+        /// environment (endpoint URL with any path prefix, timeout, headers, compression, insecure,
+        /// TLS cert paths). Opt-in and deterministic; read only on this call. Call it first so
+        /// explicit setters afterwards win. Malformed values throw [IllegalArgumentException].
         public Builder fromEnvironment() {
             return fromEnvironment(System::getenv);
         }
@@ -141,7 +168,7 @@ public record ClientConfig(
         }
 
         public ClientConfig build() {
-            return new ClientConfig(host, port, timeout, tls, headers, compression, retry);
+            return new ClientConfig(host, port, path, timeout, tls, headers, compression, retry);
         }
     }
 }

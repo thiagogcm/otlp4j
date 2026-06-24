@@ -29,6 +29,12 @@ public final class OtlpGrpcExporter extends AbstractOtlpExporter {
         return builder().endpoint(host, port).build();
     }
 
+    /// Builds from the standard `OTEL_EXPORTER_OTLP_*` variables (see [Builder#fromEnvironment()]).
+    /// Equivalent to `builder().fromEnvironment().build()`.
+    public static OtlpGrpcExporter fromEnvironment() {
+        return builder().fromEnvironment().build();
+    }
+
     /// Builder for [OtlpGrpcExporter]. Defaults to `localhost:4317` with a 10s deadline.
     public static final class Builder {
 
