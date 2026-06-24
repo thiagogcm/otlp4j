@@ -9,13 +9,13 @@ The project is currently experimental `0.1.0-SNAPSHOT` and requires JDK 25. Its 
 ## Capabilities
 
 - Immutable domain models for all four OTLP signals
-- Per-signal receivers, consumers, and exporter facets
+- Per-signal receivers, sinks, and exporter facets
 - Typed pipelines with transforms, filters, observers, and concurrent fan-out
 - Queue-backed batching with bounded buffers and configurable overflow policy
 - Trace-to-metric and log-to-metric count connectors
 - Independent `Flow.Publisher` streams for live telemetry observation
 - Opt-in `OTEL_EXPORTER_OTLP_*` exporter configuration via `fromEnvironment()`
-- A transport SPI with gRPC and HTTP implementations, selected by protocol through `ServiceLoader`
+- Separate gRPC and HTTP transport modules, selected by the exporter/receiver class you instantiate, behind a small `OtlpClient`/`OtlpServer` SPI
 
 ## Use from Maven
 
@@ -25,7 +25,7 @@ The snapshot coordinates are intended for a local reactor build. Install them fi
 ./mvnw -B install
 ```
 
-Compile against the public API and add the built-in transport at runtime:
+Compile against the public API and add the transport you want — `otlp4j-transport-grpc` for OTLP/gRPC, `otlp4j-transport-http` for OTLP/HTTP, or both. Each transport depends on `otlp4j-api`, and your code instantiates its `Otlp{Grpc,Http}Exporter`/`Receiver` directly, so the transport is a compile dependency rather than runtime-only:
 
 ```xml
 <dependency>
@@ -35,9 +35,8 @@ Compile against the public API and add the built-in transport at runtime:
 </dependency>
 <dependency>
   <groupId>dev.nthings.otlp4j</groupId>
-  <artifactId>otlp4j-transport</artifactId>
+  <artifactId>otlp4j-transport-grpc</artifactId>
   <version>0.1.0-SNAPSHOT</version>
-  <scope>runtime</scope>
 </dependency>
 ```
 
@@ -92,9 +91,11 @@ receiver.shutdown(Duration.ofSeconds(10)).toCompletableFuture().join();
 | Module | Role |
 | --- | --- |
 | `otlp4j-model` | JDK-only OTLP domain records |
-| `otlp4j-api` | Public receivers, pipelines, processors, connectors, exporters, and transport SPI |
-| `otlp4j-proto` | Generated OTLP messages and gRPC services, qualified-exported to the transport |
-| `otlp4j-transport` | Internal gRPC and HTTP client/server and wire mappers |
+| `otlp4j-api` | Public core, pipelines, processors, connectors, exporters/receivers, configuration, and transport SPI |
+| `otlp4j-codec` | Internal model⇄proto marshalling shared by the transports |
+| `otlp4j-proto` | Generated OTLP messages and gRPC services, qualified-exported to the codec and transports |
+| `otlp4j-transport-grpc` | OTLP/gRPC exporter and receiver (`OtlpGrpcExporter`/`OtlpGrpcReceiver`), on gRPC + Netty |
+| `otlp4j-transport-http` | OTLP/HTTP exporter and receiver (`OtlpHttpExporter`/`OtlpHttpReceiver`), JDK-only |
 | `otlp4j-samples` | Executable end-to-end example |
 | `otlp4j-testing` | Shared reactor test fixtures |
 | `otlp4j-coverage` | Aggregate JaCoCo report |

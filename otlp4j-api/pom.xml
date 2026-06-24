@@ -14,7 +14,8 @@
     <name>otlp4j-api</name>
     <description>The high-level, user-facing otlp4j API: typed domain model, pipeline, receiver,
         exporter, processors and connectors. JPMS module dev.nthings.otlp4j.api — a pure module
-        with no dependency on the generated proto code; transport is bound at runtime via the SPI.</description>
+        with no dependency on the generated proto code; the concrete OTLP/gRPC and OTLP/HTTP
+        transports live in separate modules built on its SPI.</description>
 
     <!-- The only main dependency is the pure domain model: still no proto/grpc on the compile
          path. The compiler doclint pass and the Javadoc lint are inherited from the parent POM. -->
