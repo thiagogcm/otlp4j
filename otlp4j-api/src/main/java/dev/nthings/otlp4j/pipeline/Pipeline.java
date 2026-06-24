@@ -52,7 +52,7 @@ public final class Pipeline {
 
         /// Registers a lifecycle resource that the subscription drains on shutdown and flushes on
         /// forceFlush if it is [Flushable]. Use this for resources the pipeline can't reach as a
-        /// terminal or fan-out peer — e.g. a count sink's downstream `MetricSink`, or a resource hidden
+        /// terminal or fan-out peer — e.g. the exporter behind a count sink's downstream, or a resource hidden
         /// behind a hand-written lambda sink. Exporter facets such as `exporter.traces()` already
         /// carry their exporter's lifecycle, so they do not need this.
         Stage<T> owns(AutoCloseable resource);

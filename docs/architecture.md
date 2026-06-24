@@ -56,7 +56,7 @@ An unattached source returns `Accepted`. A source has one attachment slot; fan-o
 - `transform` rewrites one batch without changing its signal type.
 - `filter` acknowledges a batch as accepted without forwarding it when the predicate returns false.
 - `peek` invokes a best-effort observer (a plain `java.util.function.Consumer`) and ignores its result. It does not wait for an asynchronous observer or handle its later failure.
-- `owns` registers an `AutoCloseable` (e.g. a count sink's downstream `MetricSink`, or any resource reachable only behind a lambda) for the subscription to drain on shutdown and flush on `forceFlush`.
+- `owns` registers an `AutoCloseable` (e.g. the exporter behind a count sink's downstream, or any resource reachable only behind a lambda) for the subscription to drain on shutdown and flush on `forceFlush`.
 - `branch` builds a concurrent `FanOut`; `join` attaches it.
 - `to` attaches one terminal consumer.
 

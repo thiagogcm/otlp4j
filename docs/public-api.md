@@ -338,7 +338,7 @@ var logCounter = Connectors.logRecordCount(exporter.metrics());
 var strictSpanCounter = Connectors.spanCount(exporter.metrics(), FailurePolicy.FAIL);
 ```
 
-The subscription cannot see through a count sink to its downstream `MetricSink`, so register the downstream explicitly with `Stage.owns(...)` — or, as in the example above, point it at an exporter facet the pipeline already auto-owns (see [Shutdown order](#shutdown-order)).
+The subscription cannot see through a count sink to its downstream `MetricSink`, so register the `AutoCloseable` behind it — typically the exporter — with `Stage.owns(...)`, or, as in the example above, point the count sink at an exporter facet the pipeline already auto-owns (see [Shutdown order](#shutdown-order)).
 
 The built-ins emit `otlp4j.connector.span.count` and `otlp4j.connector.log.record.count`, each as a monotonic delta sum whose window runs from the previous flush (so the series carries a real per-series start time). A configurable `FailurePolicy` decides how a downstream metric failure maps back onto the input result; the no-policy `spanCount`/`logRecordCount` overloads default to `BEST_EFFORT`, and `spanCount(downstream, policy)` / `logRecordCount(downstream, policy)` set it explicitly:
 
@@ -407,7 +407,7 @@ Configuration arrives through `ClientConfig` and `ServerConfig`. The bundled cli
 Stop ingestion before closing downstream resources:
 
 1. Shut down the pipeline subscription to detach the source and drain every owned resource — directly attached processors, exporters reached through their facets, and anything registered with `Stage.owns(...)`, all within a single shared deadline.
-2. Close any resources you did not hand to the subscription: exporters used outside the pipeline, and the `MetricSink` behind a count sink (which the subscription does not auto-discover).
+2. Close any resources you did not hand to the subscription: exporters used outside the pipeline, and the exporter behind a count sink (which the subscription does not auto-discover).
 3. Shut down the receiver.
 
 Use `shutdown(Duration)` when completion matters. The convenience `close()` methods drain gracefully with a fixed ten-second default across the receiver, exporter, and subscription; call `Receiver.shutdownNow()` for an immediate stop.
