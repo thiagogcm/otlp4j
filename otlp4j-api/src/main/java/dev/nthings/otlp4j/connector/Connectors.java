@@ -1,49 +1,46 @@
 package dev.nthings.otlp4j.connector;
 
-import dev.nthings.otlp4j.model.LogsData;
-import dev.nthings.otlp4j.model.MetricsData;
-import dev.nthings.otlp4j.model.TraceData;
+import dev.nthings.otlp4j.core.LogSink;
 import dev.nthings.otlp4j.core.MetricSink;
+import dev.nthings.otlp4j.core.Sink;
+import dev.nthings.otlp4j.core.TraceSink;
+import dev.nthings.otlp4j.model.LogsData;
+import dev.nthings.otlp4j.model.TraceData;
 
-/// Factories for the built-in count [Connector]s.
-///
-/// Each connector takes an optional [FailurePolicy]; the no-policy overloads default to
-/// [FailurePolicy#BEST_EFFORT], where derived telemetry never fails the originating request.
+/// Factories for the built-in count sinks; no-policy overloads default to [FailurePolicy#BEST_EFFORT].
 public final class Connectors {
 
     private Connectors() {}
 
-    /// A trace-to-metrics connector emitting `otlp4j.connector.span.count` into `downstream`,
-    /// best-effort (a downstream metric failure does not fail the input trace batch).
-    public static Connector<TraceData, MetricsData> spanCount(MetricSink downstream) {
+    /// Trace count sink emitting `otlp4j.connector.span.count` into `downstream`, best-effort.
+    public static TraceSink spanCount(MetricSink downstream) {
         return spanCount(downstream, FailurePolicy.BEST_EFFORT);
     }
 
-    /// A trace-to-metrics connector emitting `otlp4j.connector.span.count` into `downstream` under
-    /// the given [FailurePolicy].
-    public static Connector<TraceData, MetricsData> spanCount(MetricSink downstream, FailurePolicy policy) {
-        return new CountConnector<>(
+    /// Trace count sink emitting `otlp4j.connector.span.count` into `downstream` under `policy`.
+    public static TraceSink spanCount(MetricSink downstream, FailurePolicy policy) {
+        Sink<TraceData> counter = new CountConnector<>(
                 downstream,
                 policy,
                 "otlp4j.connector.span.count",
-                "Items observed by the span count connector",
+                "Items observed by the span count sink",
                 TraceData::spanCount);
+        return counter::consume;
     }
 
-    /// A logs-to-metrics connector emitting `otlp4j.connector.log.record.count` into `downstream`,
-    /// best-effort (a downstream metric failure does not fail the input log batch).
-    public static Connector<LogsData, MetricsData> logRecordCount(MetricSink downstream) {
+    /// Log count sink emitting `otlp4j.connector.log.record.count` into `downstream`, best-effort.
+    public static LogSink logRecordCount(MetricSink downstream) {
         return logRecordCount(downstream, FailurePolicy.BEST_EFFORT);
     }
 
-    /// A logs-to-metrics connector emitting `otlp4j.connector.log.record.count` into `downstream`
-    /// under the given [FailurePolicy].
-    public static Connector<LogsData, MetricsData> logRecordCount(MetricSink downstream, FailurePolicy policy) {
-        return new CountConnector<>(
+    /// Log count sink emitting `otlp4j.connector.log.record.count` into `downstream` under `policy`.
+    public static LogSink logRecordCount(MetricSink downstream, FailurePolicy policy) {
+        Sink<LogsData> counter = new CountConnector<>(
                 downstream,
                 policy,
                 "otlp4j.connector.log.record.count",
-                "Items observed by the log record count connector",
+                "Items observed by the log record count sink",
                 LogsData::logRecordCount);
+        return counter::consume;
     }
 }

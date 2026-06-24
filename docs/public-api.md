@@ -15,7 +15,7 @@ Everything lives under the `dev.nthings.otlp4j` root. The types you import most 
 | `Receiver`, `TelemetryTap`, `TapOptions`, `BackpressureStrategy` | `dev.nthings.otlp4j.receiver` |
 | `Exporter` | `dev.nthings.otlp4j.exporter` |
 | `Transforms`, `BatchingProcessor`, `DropPolicy` | `dev.nthings.otlp4j.processor` |
-| `Connector`, `Connectors`, `FailurePolicy` | `dev.nthings.otlp4j.connector` |
+| `Connectors`, `FailurePolicy` | `dev.nthings.otlp4j.connector` |
 | Configuration: `ClientConfig`, `ServerConfig`, `Tls`, `Compression`, `RetryPolicy` | `dev.nthings.otlp4j.config` |
 | Transport SPI: `OtlpClient`, `OtlpServer`, `Dispatchers` | `dev.nthings.otlp4j.spi` |
 | Domain records: `TraceData`, `MetricsData`, `LogsData`, `ProfilesData`, `Resource`, `Attributes`, `AttributeValue`, `Span`, `Metric`, `LogRecord`, `Exemplar`, `ConsumeResult`, … | `dev.nthings.otlp4j.model` |
@@ -230,7 +230,7 @@ The routing concepts, contrasted:
 | Concept | Cardinality | Changes signal? | Owns downstream lifecycle? |
 | --- | --- | --- | --- |
 | `Transform` (via `Transforms`) | 1 → 1 | no | no |
-| `Connector` (via `Connectors`) | 1 → 1 | yes | yes (its downstream consumer) |
+| Count sinks (via `Connectors`) | 1 → 1 | yes | no — register the downstream like any sink |
 | `BatchingProcessor` | N → 1 (buffered) | no | yes (when attached as terminal) |
 | `Pipeline.peek` | observe | no | no |
 | `TelemetryTap` (on the receiver) | observe (demand-aware) | no | n/a |
@@ -328,7 +328,7 @@ Implement `Exporter<T>` for a custom typed terminal with flush and shutdown hook
 
 ## Connect signals
 
-`Connector<I,O>` consumes one signal and emits another to its configured downstream consumer:
+The bundled count sinks consume one signal and emit a derived metric to a configured downstream `MetricSink`. `Connectors.spanCount` returns a `TraceSink`; `Connectors.logRecordCount` returns a `LogSink`. Wire them in like any other sink — as a terminal or a fan-out peer:
 
 ```java
 var spanCounter = Connectors.spanCount(exporter.metrics());
@@ -337,6 +337,8 @@ var logCounter = Connectors.logRecordCount(exporter.metrics());
 // Or fail the input batch when the derived metric is not delivered:
 var strictSpanCounter = Connectors.spanCount(exporter.metrics(), FailurePolicy.FAIL);
 ```
+
+The subscription cannot see through a count sink to its downstream `MetricSink`, so register the downstream explicitly with `Stage.owns(...)` — or, as in the example above, point it at an exporter facet the pipeline already auto-owns (see [Shutdown order](#shutdown-order)).
 
 The built-ins emit `otlp4j.connector.span.count` and `otlp4j.connector.log.record.count`, each as a monotonic delta sum whose window runs from the previous flush (so the series carries a real per-series start time). A configurable `FailurePolicy` decides how a downstream metric failure maps back onto the input result; the no-policy `spanCount`/`logRecordCount` overloads default to `BEST_EFFORT`, and `spanCount(downstream, policy)` / `logRecordCount(downstream, policy)` set it explicitly:
 
@@ -405,7 +407,7 @@ Configuration arrives through `ClientConfig` and `ServerConfig`. The bundled cli
 Stop ingestion before closing downstream resources:
 
 1. Shut down the pipeline subscription to detach the source and drain every owned resource — directly attached processors, exporters reached through their facets, and anything registered with `Stage.owns(...)`, all within a single shared deadline.
-2. Close any resources you did not hand to the subscription: exporters used outside the pipeline, and connector downstreams (which the subscription does not auto-discover).
+2. Close any resources you did not hand to the subscription: exporters used outside the pipeline, and the `MetricSink` behind a count sink (which the subscription does not auto-discover).
 3. Shut down the receiver.
 
 Use `shutdown(Duration)` when completion matters. The convenience `close()` methods drain gracefully with a fixed ten-second default across the receiver, exporter, and subscription; call `Receiver.shutdownNow()` for an immediate stop.

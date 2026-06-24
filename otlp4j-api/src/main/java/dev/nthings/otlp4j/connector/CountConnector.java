@@ -18,19 +18,11 @@ import java.util.function.ToLongFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/// Counts the items in each input batch and emits a monotonic delta-sum metric downstream.
-///
-/// Backs [Connectors#spanCount] and [Connectors#logRecordCount]; the metric name, description, and
-/// per-batch item count are supplied at construction. Each flush carries a per-series delta window
-/// running from the previous flush (the first from construction), so the series has a real per-series
-/// start time. The window stays contiguous and monotonic even under concurrent `consume()` calls and
-/// across a backward wall-clock step: the atomic `getAndAccumulate(now, Math::max)` orders concurrent
-/// flushes and never moves the start backward, and the end is clamped to `max(start, now)` so the
-/// width is never negative. A [FailurePolicy] decides whether a downstream metric failure propagates
-/// onto the input result.
-///
-/// @param <I> the input OTLP signal whose items are counted
-final class CountConnector<I> implements Connector<I, MetricsData> {
+/// Counts each input batch and emits a delta-sum metric downstream, backing [Connectors#spanCount]
+/// and [Connectors#logRecordCount]. The window runs from the previous flush and stays monotonic
+/// under concurrent flushes and a backward clock step (`getAndAccumulate(now, Math::max)`, end
+/// clamped to `max(start, now)`); [FailurePolicy] governs whether a downstream failure fails the input.
+final class CountConnector<I> implements Sink<I> {
 
     private static final InstrumentationScope SCOPE =
             InstrumentationScope.of("otlp4j-count-connector", "0.1.0");
@@ -57,11 +49,6 @@ final class CountConnector<I> implements Connector<I, MetricsData> {
     }
 
     @Override
-    public Sink<? super MetricsData> downstream() {
-        return downstream;
-    }
-
-    @Override
     public CompletionStage<ConsumeResult<I>> consume(I batch) {
         var now = nowEpochNanos();
         var start = previousFlushNanos.getAndAccumulate(now, Math::max);
@@ -69,7 +56,7 @@ final class CountConnector<I> implements Connector<I, MetricsData> {
         return downstream.consume(metric).thenApply(this::applyPolicy);
     }
 
-    /// Builds the single-point DELTA sum for the window `[startEpochNanos, epochNanos)`.
+    /// Single-point DELTA sum over `[startEpochNanos, epochNanos)`.
     private MetricsData deltaSum(long count, long startEpochNanos, long epochNanos) {
         var point = new NumberPoint(
                 Attributes.empty(), startEpochNanos, epochNanos, NumberPoint.longValue(count), 0L, List.of());
@@ -82,9 +69,8 @@ final class CountConnector<I> implements Connector<I, MetricsData> {
         return MetricsData.of(Resource.EMPTY, SCOPE, List.of(metric));
     }
 
-    /// Maps the downstream metric result back onto the input result under the policy. A cross-signal
-    /// `Partial`/`Rejected` is logged either way; under [FailurePolicy#FAIL] it propagates as a
-    /// `Rejected` on the input so the caller learns the derived metric was not delivered.
+    /// Maps the downstream metric result onto the input result; logs failures, and under
+    /// [FailurePolicy#FAIL] propagates them as a `Rejected` on the input.
     private ConsumeResult<I> applyPolicy(ConsumeResult<MetricsData> downstreamResult) {
         switch (downstreamResult) {
             case ConsumeResult.Accepted<MetricsData> _ -> {
@@ -108,7 +94,7 @@ final class CountConnector<I> implements Connector<I, MetricsData> {
         }
     }
 
-    /// Nanosecond wall clock — `System.currentTimeMillis()` only carries millisecond resolution.
+    /// Nanosecond wall clock (`currentTimeMillis` is only millisecond-resolution).
     private static long nowEpochNanos() {
         var now = Instant.now();
         return now.getEpochSecond() * 1_000_000_000L + now.getNano();

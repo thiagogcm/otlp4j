@@ -21,7 +21,7 @@ The `Span`, `Metric`, and `LogRecord` builders in otlp4j are OTLP model-construc
 - Per-signal receivers, sinks, and exporter facets
 - Typed pipelines with transforms, filters, observers, and concurrent fan-out
 - Queue-backed batching with bounded buffers and configurable overflow policy
-- Trace-to-metric and log-to-metric count connectors
+- Trace-to-metric and log-to-metric count sinks
 - Independent `Flow.Publisher` streams for live telemetry observation
 - Opt-in `OTEL_EXPORTER_OTLP_*` exporter configuration via `fromEnvironment()` (builder or static factory)
 - Separate gRPC and HTTP transport modules, selected by the exporter/receiver class you instantiate, behind a small `OtlpClient`/`OtlpServer` SPI
@@ -100,7 +100,7 @@ receiver.shutdown(Duration.ofSeconds(10)).toCompletableFuture().join();
 | Module | Role |
 | --- | --- |
 | `otlp4j-model` | JDK-only OTLP domain records |
-| `otlp4j-api` | Public core, pipelines, processors, connectors, exporters/receivers, configuration, and transport SPI |
+| `otlp4j-api` | Public core, pipelines, processors, count sinks, exporters/receivers, configuration, and transport SPI |
 | `otlp4j-codec` | Internal model⇄proto marshalling shared by the transports |
 | `otlp4j-proto` | Generated OTLP messages and gRPC services, qualified-exported to the codec and transports |
 | `otlp4j-transport-grpc` | OTLP/gRPC exporter and receiver (`OtlpGrpcExporter`/`OtlpGrpcReceiver`), on gRPC + Netty |

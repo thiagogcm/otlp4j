@@ -12,8 +12,7 @@ import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/// Cross-signal rebranding of partial/rejected counts at the connector boundary would
-/// misattribute rejected metric data points as rejected spans/log records.
+/// Cross-signal rebranding: a downstream metric failure must not be relabeled as rejected spans/logs.
 @DisplayName("Connector result rebranding")
 class ConnectorRebrandTest {
 
@@ -61,15 +60,5 @@ class ConnectorRebrandTest {
         var r = connector.consume(Fixtures.logsData(Fixtures.logRecord("hi", LogRecord.Severity.INFO)))
                 .toCompletableFuture().join();
         assertThat(r).isInstanceOf(ConsumeResult.Accepted.class);
-    }
-
-    @DisplayName("Connectors expose downstream for graph introspection")
-    @Test
-    void connectorsExposeDownstreamForGraphIntrospection() {
-        MetricSink downstream = metrics -> ConsumeResult.acceptedStage();
-        var span = Connectors.spanCount(downstream);
-        var log = Connectors.logRecordCount(downstream);
-        assertThat(span.downstream()).isSameAs(downstream);
-        assertThat(log.downstream()).isSameAs(downstream);
     }
 }
