@@ -284,16 +284,22 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, Flushable
     /// Metrics report rejected *data points* (nested in each metric's data kind), so this walks the
     /// [Metric.Data] variants rather than counting [Metric] objects.
     private static long countDataPoints(MetricsData metrics) {
-        var dataPoints = new long[1];
-        metrics.forEachMetric(metric -> dataPoints[0] += switch (metric.data()) {
-            case Metric.NoData _ -> 0L;
-            case Metric.Gauge g -> g.points().size();
-            case Metric.Sum s -> s.points().size();
-            case Metric.Histogram h -> h.points().size();
-            case Metric.ExponentialHistogram e -> e.points().size();
-            case Metric.Summary s -> s.points().size();
-        });
-        return dataPoints[0];
+        var count = 0L;
+        for (var resource : metrics.resourceMetrics()) {
+            for (var scope : resource.scopeMetrics()) {
+                for (var metric : scope.metrics()) {
+                    count += switch (metric.data()) {
+                        case Metric.NoData _ -> 0L;
+                        case Metric.Gauge g -> g.points().size();
+                        case Metric.Sum s -> s.points().size();
+                        case Metric.Histogram h -> h.points().size();
+                        case Metric.ExponentialHistogram e -> e.points().size();
+                        case Metric.Summary s -> s.points().size();
+                    };
+                }
+            }
+        }
+        return count;
     }
 
     private static TraceData mergeTraces(List<TraceData> snapshot) {
