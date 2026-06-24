@@ -23,7 +23,7 @@ public final class Connectors {
                 downstream,
                 policy,
                 "otlp4j.connector.span.count",
-                "Items observed by the span count sink",
+                "Items observed by the span count connector",
                 TraceData::spanCount);
         return counter::consume;
     }
@@ -39,7 +39,7 @@ public final class Connectors {
                 downstream,
                 policy,
                 "otlp4j.connector.log.record.count",
-                "Items observed by the log record count sink",
+                "Items observed by the log record count connector",
                 LogsData::logRecordCount);
         return counter::consume;
     }
