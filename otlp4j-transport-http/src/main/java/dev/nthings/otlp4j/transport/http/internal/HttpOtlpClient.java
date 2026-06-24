@@ -72,7 +72,8 @@ public final class HttpOtlpClient implements OtlpClient {
         this.compress = config.compression() == Compression.GZIP;
 
         var scheme = config.tls() instanceof Tls.Disabled ? "http" : "https";
-        var base = scheme + "://" + authority(config.host(), config.port());
+        // config.path() is a normalized prefix ("" or /-led, no trailing slash).
+        var base = scheme + "://" + authority(config.host(), config.port()) + config.path();
         this.tracesUri = URI.create(base + OtlpHttp.TRACES_PATH);
         this.metricsUri = URI.create(base + OtlpHttp.METRICS_PATH);
         this.logsUri = URI.create(base + OtlpHttp.LOGS_PATH);

@@ -37,6 +37,12 @@ public final class OtlpHttpExporter extends AbstractOtlpExporter {
         return builder().endpoint(host, port).build();
     }
 
+    /// Builds from the standard `OTEL_EXPORTER_OTLP_*` variables (see [Builder#fromEnvironment()]),
+    /// including any endpoint path prefix. Equivalent to `builder().fromEnvironment().build()`.
+    public static OtlpHttpExporter fromEnvironment() {
+        return builder().fromEnvironment().build();
+    }
+
     /// Builder for [OtlpHttpExporter]. Defaults to `localhost:4318` with a 10s deadline.
     public static final class Builder {
 
@@ -62,6 +68,13 @@ public final class OtlpHttpExporter extends AbstractOtlpExporter {
 
         public Builder endpoint(String host, int port) {
             config.endpoint(host, port);
+            return this;
+        }
+
+        /// Sets an endpoint path prefix (e.g. `/otlp`) prepended to the per-signal paths; blank or
+        /// `/` mean none.
+        public Builder path(String path) {
+            config.path(path);
             return this;
         }
 

@@ -115,6 +115,75 @@ class OtlpEnvTest {
         assertThat(cfg.tls()).isEqualTo(Tls.disabled());
     }
 
+    @DisplayName("a CERTIFICATE without any endpoint enables TLS as an independent input")
+    @Test
+    void certificateWithoutEndpointEnablesTrust() {
+        var cfg = fromEnv(Map.of(OtlpEnv.CERTIFICATE, "/ca.pem"));
+
+        assertThat(cfg.host()).isEqualTo("localhost"); // endpoint untouched
+        assertThat(cfg.tls()).isEqualTo(Tls.trust(Path.of("/ca.pem")));
+    }
+
+    @DisplayName("client cert/key without any endpoint builds mutual TLS as an independent input")
+    @Test
+    void clientCertWithoutEndpointEnablesMutualTls() {
+        var cfg = fromEnv(Map.of(
+                OtlpEnv.CLIENT_CERTIFICATE, "/client.pem",
+                OtlpEnv.CLIENT_KEY, "/client.key"));
+
+        assertThat(cfg.tls())
+                .isEqualTo(Tls.custom(Path.of("/client.pem"), Path.of("/client.key"), null));
+    }
+
+    @DisplayName("INSECURE=true forces plaintext, overriding cert material")
+    @Test
+    void insecureForcesPlaintext() {
+        var cfg = fromEnv(Map.of(
+                OtlpEnv.INSECURE, "true",
+                OtlpEnv.CERTIFICATE, "/ca.pem"));
+
+        assertThat(cfg.tls()).isEqualTo(Tls.disabled());
+    }
+
+    @DisplayName("INSECURE is ignored when an endpoint scheme decides (https wins)")
+    @Test
+    void insecureIgnoredWhenEndpointScheme() {
+        var cfg = fromEnv(Map.of(
+                OtlpEnv.ENDPOINT, "https://collector:4317",
+                OtlpEnv.INSECURE, "true"));
+
+        assertThat(cfg.tls()).isEqualTo(Tls.systemTrust());
+    }
+
+    @DisplayName("INSECURE=false with no endpoint or certs leaves the default plaintext")
+    @Test
+    void insecureFalseIsNoOp() {
+        assertThat(fromEnv(Map.of(OtlpEnv.INSECURE, "false")).tls()).isEqualTo(Tls.disabled());
+    }
+
+    @DisplayName("a non-boolean INSECURE value is rejected")
+    @Test
+    void insecureRejectsNonBoolean() {
+        assertThatThrownBy(() -> fromEnv(Map.of(OtlpEnv.INSECURE, "maybe")))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @DisplayName("an https endpoint path prefix is captured and normalized")
+    @Test
+    void endpointPathPrefix() {
+        assertThat(fromEnv(Map.of(OtlpEnv.ENDPOINT, "https://collector:4318/otlp")).path())
+                .isEqualTo("/otlp");
+        // a trailing slash is trimmed
+        assertThat(fromEnv(Map.of(OtlpEnv.ENDPOINT, "https://collector:4318/otlp/")).path())
+                .isEqualTo("/otlp");
+        // a bare root path is no prefix
+        assertThat(fromEnv(Map.of(OtlpEnv.ENDPOINT, "https://collector:4318/")).path())
+                .isEmpty();
+        // no path is no prefix
+        assertThat(fromEnv(Map.of(OtlpEnv.ENDPOINT, "https://collector:4318")).path())
+                .isEmpty();
+    }
+
     @DisplayName("headers parse in order and percent-decode values, leaving '+' literal")
     @Test
     void headers() {

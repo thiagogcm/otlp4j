@@ -14,8 +14,11 @@ import java.util.function.UnaryOperator;
 /// Applies the standard general OTLP exporter environment variables onto a
 /// [ClientConfig.Builder]. Package-private (reached only through
 /// [ClientConfig.Builder#fromEnvironment()]), so it stays out of the exported `spi`
-/// surface. Only general variables are read, only when present, so explicit setters called after
-/// `fromEnvironment()` win; malformed values fail fast.
+/// surface. Only general (non-signal-specific) variables are read, only when present, so explicit
+/// setters called after `fromEnvironment()` win; malformed values fail fast.
+///
+/// TLS follows the endpoint scheme when set; otherwise `OTEL_EXPORTER_OTLP_INSECURE` and the
+/// certificate variables apply as independent inputs. An HTTP path prefix is taken from the URL.
 final class OtlpEnv {
 
     static final String ENDPOINT = "OTEL_EXPORTER_OTLP_ENDPOINT";
@@ -25,13 +28,17 @@ final class OtlpEnv {
     static final String CERTIFICATE = "OTEL_EXPORTER_OTLP_CERTIFICATE";
     static final String CLIENT_CERTIFICATE = "OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE";
     static final String CLIENT_KEY = "OTEL_EXPORTER_OTLP_CLIENT_KEY";
+    static final String INSECURE = "OTEL_EXPORTER_OTLP_INSECURE";
 
     private OtlpEnv() {}
 
     static void applyTo(ClientConfig.Builder builder, UnaryOperator<String> env) {
         var endpoint = value(env, ENDPOINT);
         if (endpoint != null) {
+            // The endpoint scheme decides TLS; INSECURE applies only when no endpoint is set.
             applyEndpoint(builder, endpoint, env);
+        } else {
+            applyTlsWithoutEndpoint(builder, env);
         }
         var timeout = value(env, TIMEOUT);
         if (timeout != null) {
@@ -83,13 +90,38 @@ final class OtlpEnv {
         if (host.startsWith("[") && host.endsWith("]")) {
             host = host.substring(1, host.length() - 1);
         }
-        // The endpoint authority is used as-is. When the URL omits a port, keep the builder's
-        // current port so the protocol's default wins (4317 for gRPC, 4318 for HTTP); the gRPC
-        // client ignores any /v1/<signal> path, the HTTP client appends the standard signal paths.
+        // No explicit port → keep the builder's protocol default (4317 gRPC, 4318 HTTP). The path
+        // prefix is captured for HTTP; gRPC ignores it.
         var port = uri.getPort() == -1 ? builder.port() : uri.getPort();
-        builder.host(host).port(port);
-        // Cert variables apply only when the scheme selects TLS; on http plaintext wins.
+        builder.host(host).port(port).path(uri.getPath());
+        // TLS material applies only under https; http is plaintext.
         builder.tls(tls ? resolveTls(env) : Tls.disabled());
+    }
+
+    /// TLS when no endpoint dictates the scheme: `INSECURE=true` forces plaintext, else the
+    /// certificate variables turn TLS on when present. Otherwise the default is left intact.
+    private static void applyTlsWithoutEndpoint(ClientConfig.Builder builder, UnaryOperator<String> env) {
+        var hasCertVars = value(env, CERTIFICATE) != null
+                || value(env, CLIENT_CERTIFICATE) != null
+                || value(env, CLIENT_KEY) != null;
+        if (insecureRequested(env)) {
+            builder.tls(Tls.disabled());
+        } else if (hasCertVars) {
+            builder.tls(resolveTls(env));
+        }
+    }
+
+    /// Whether `OTEL_EXPORTER_OTLP_INSECURE` is `true`; a malformed value fails fast.
+    private static boolean insecureRequested(UnaryOperator<String> env) {
+        var raw = value(env, INSECURE);
+        if (raw == null) {
+            return false;
+        }
+        return switch (raw.strip().toLowerCase(Locale.ROOT)) {
+            case "true" -> true;
+            case "false" -> false;
+            default -> throw new IllegalArgumentException(INSECURE + " must be 'true' or 'false': " + raw);
+        };
     }
 
     private static Tls resolveTls(UnaryOperator<String> env) {

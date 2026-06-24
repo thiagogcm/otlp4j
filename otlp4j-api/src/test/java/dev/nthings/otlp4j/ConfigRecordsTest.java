@@ -29,6 +29,20 @@ class ConfigRecordsTest {
         assertThat(c.compression()).isEqualTo(Compression.NONE);
         assertThat(c.retry()).isEqualTo(RetryPolicy.none());
         assertThat(c.headers()).isEmpty();
+        assertThat(c.path()).isEmpty();
+    }
+
+    @DisplayName("ClientConfig normalizes the endpoint path prefix")
+    @Test
+    void clientConfigPathNormalization() {
+        assertThat(ClientConfig.builder().path("otlp").build().path()).isEqualTo("/otlp");
+        assertThat(ClientConfig.builder().path("/otlp/").build().path()).isEqualTo("/otlp");
+        assertThat(ClientConfig.builder().path("/").build().path()).isEmpty();
+        assertThat(ClientConfig.builder().path("  ").build().path()).isEmpty();
+        assertThat(ClientConfig.builder().path(null).build().path()).isEmpty();
+        // path survives a toBuilder() round-trip
+        assertThat(ClientConfig.builder().path("/otlp").build().toBuilder().build().path())
+                .isEqualTo("/otlp");
     }
 
     @DisplayName("ClientConfig builder applies fluent overrides")

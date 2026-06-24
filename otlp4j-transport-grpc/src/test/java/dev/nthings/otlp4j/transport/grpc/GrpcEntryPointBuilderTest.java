@@ -53,6 +53,14 @@ class GrpcEntryPointBuilderTest {
         }
     }
 
+    @DisplayName("OtlpGrpcExporter.fromEnvironment() builds a usable exporter")
+    @Test
+    void exporterFromEnvironmentFactory() {
+        try (var exporter = OtlpGrpcExporter.fromEnvironment()) {
+            assertThat(exporter.traces()).isNotNull();
+        }
+    }
+
     @DisplayName("OtlpGrpcReceiver builder applies every knob")
     @Test
     void receiverBuilderAppliesEveryKnob() {
