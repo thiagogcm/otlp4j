@@ -167,6 +167,24 @@ class SinkAdaptersTest {
         }
     }
 
+    @DisplayName("fromStage restores the interrupt flag when the stage fails with InterruptedException")
+    @Test
+    void fromStageRestoresInterruptFlagForStageFailure() {
+        Thread.interrupted();
+        var interrupted = new InterruptedException("async stop");
+        Sink<TraceData> sink = Sink.fromStage(batch -> CompletableFuture.failedFuture(interrupted));
+
+        try {
+            var result = consume(sink, BATCH);
+
+            assertThat(result).isInstanceOfSatisfying(ConsumeResult.Rejected.class,
+                    rejected -> assertThat(rejected.cause()).isSameAs(interrupted));
+            assertThat(Thread.currentThread().isInterrupted()).isTrue();
+        } finally {
+            Thread.interrupted();
+        }
+    }
+
     @DisplayName("fromStage maps a null returned stage to a rejection")
     @Test
     void fromStageMapsNullStageToRejected() {

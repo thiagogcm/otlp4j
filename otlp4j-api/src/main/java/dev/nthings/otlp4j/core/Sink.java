@@ -48,8 +48,8 @@ public interface Sink<T> {
     /// Builds a sink from an asynchronous `action` that reports only success or failure: normal
     /// completion of the returned stage accepts the batch, while an exceptional completion (or a
     /// synchronous throw, or a `null` stage) becomes a permanent [ConsumeResult.Rejected] carrying
-    /// the failure as its cause. If a synchronous throw is an [InterruptedException], the thread
-    /// interrupt flag is restored before returning the rejection.
+    /// the failure as its cause. If the failure is an [InterruptedException], the thread interrupt
+    /// flag is restored before returning the rejection.
     static <T> Sink<T> fromStage(Function<? super T, ? extends CompletionStage<Void>> action) {
         Objects.requireNonNull(action, "action");
         return batch -> {
@@ -60,12 +60,18 @@ public interface Sink<T> {
                 restoreInterrupt(e);
                 return CompletableFuture.completedFuture(rejected(e));
             }
-            return stage.handle((ignored, failure) ->
-                    failure == null ? ConsumeResult.<T>accepted() : rejected(unwrap(failure)));
+            return stage.handle((ignored, failure) -> {
+                if (failure == null) {
+                    return ConsumeResult.<T>accepted();
+                }
+                var cause = unwrap(failure);
+                restoreInterrupt(cause);
+                return rejected(cause);
+            });
         };
     }
 
-    private static void restoreInterrupt(Exception failure) {
+    private static void restoreInterrupt(Throwable failure) {
         if (failure instanceof InterruptedException) {
             Thread.currentThread().interrupt();
         }
