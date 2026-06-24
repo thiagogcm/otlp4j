@@ -1,18 +1,22 @@
 # Public API
 
-Application code normally depends on `otlp4j-api`, which transitively exposes `otlp4j-model`. Add `otlp4j-transport` at runtime to use the bundled OTLP/gRPC provider. Packages in the transport and generated proto modules are implementation details.
+Application code normally depends on `otlp4j-api`, which transitively exposes `otlp4j-model`. Add `otlp4j-transport-grpc` and/or `otlp4j-transport-http` for the bundled OTLP/gRPC and OTLP/HTTP transports. Packages in the generated proto and codec modules are implementation details.
 
 Everything lives under the `dev.nthings.otlp4j` root. The types you import most often:
 
 | Type(s) | Package |
 | --- | --- |
-| `OtlpGrpcReceiver`, `Receiver`, `TelemetryTap` | `dev.nthings.otlp4j.receiver` |
-| `OtlpGrpcExporter`, `Exporter` | `dev.nthings.otlp4j.exporter` |
-| `Pipeline`, `Source`, `Subscription`, `Consumer` (+ `TraceConsumer` … aliases), `Transform`, `FanOut`, `ConsumeResult`, `Telemetry`, `Drainable`, `Flushable` | `dev.nthings.otlp4j.pipeline` |
+| `OtlpGrpcExporter`, `OtlpGrpcReceiver` | `dev.nthings.otlp4j.transport.grpc` |
+| `OtlpHttpExporter`, `OtlpHttpReceiver` | `dev.nthings.otlp4j.transport.http` |
+| `Sink` (+ `TraceSink`, `MetricSink`, `LogSink`, `ProfileSink` aliases), `Source`, `Subscription`, `Telemetry`, `Drainable`, `Flushable` | `dev.nthings.otlp4j.core` |
+| `Pipeline`, `Transform`, `FanOut` | `dev.nthings.otlp4j.pipeline` |
+| `Receiver`, `TelemetryTap`, `TapOptions`, `BackpressureStrategy` | `dev.nthings.otlp4j.receiver` |
+| `Exporter` | `dev.nthings.otlp4j.exporter` |
 | `Transforms`, `BatchingProcessor`, `DropPolicy` | `dev.nthings.otlp4j.processor` |
 | `Connector`, `Connectors`, `FailurePolicy` | `dev.nthings.otlp4j.connector` |
-| Transport SPI: `OtlpClient(Provider)`, `OtlpServer(Provider)`, `ClientTransportConfig`, `ServerTransportConfig`, `Tls`, `Compression`, `RetryPolicy` | `dev.nthings.otlp4j.spi` |
-| Domain records: `TraceData`, `MetricsData`, `LogsData`, `ProfilesData`, `Resource`, `Attributes`, `AttributeValue`, `Span`, `Metric`, `LogRecord`, `Exemplar`, … | `dev.nthings.otlp4j.model` |
+| Configuration: `ClientConfig`, `ServerConfig`, `Tls`, `Compression`, `RetryPolicy` | `dev.nthings.otlp4j.config` |
+| Transport SPI: `OtlpClient`, `OtlpServer`, `Dispatchers` | `dev.nthings.otlp4j.spi` |
+| Domain records: `TraceData`, `MetricsData`, `LogsData`, `ProfilesData`, `Resource`, `Attributes`, `AttributeValue`, `Span`, `Metric`, `LogRecord`, `Exemplar`, `ConsumeResult`, … | `dev.nthings.otlp4j.model` |
 
 ## If you know OpenTelemetry Go
 
@@ -22,14 +26,14 @@ Everything lives under the `dev.nthings.otlp4j` root. The types you import most 
 | --- | --- |
 | `otlptracegrpc` / `otlpmetricgrpc` / `otlploggrpc` (one package per signal+transport) | One `OtlpGrpcExporter`; pick a signal facet — `exporter.traces()`, `.metrics()`, `.logs()`, `.profiles()`. |
 | `go.opentelemetry.io/proto/otlp/...` generated protobuf | Proto-free immutable records in `dev.nthings.otlp4j.model` (`TraceData`, `MetricsData`, `LogsData`, `ProfilesData`, …). |
-| Collector `consumer` (`ConsumeTraces(ctx, td) error`) | `TraceConsumer` (a `Consumer<TraceData>`) returning `CompletionStage<ConsumeResult<TraceData>>`. |
+| Collector `consumer` (`ConsumeTraces(ctx, td) error`) | `TraceSink` (a `Sink<TraceData>`) returning `CompletionStage<ConsumeResult<TraceData>>`. |
 | Collector `component` lifecycle (`Start`/`Shutdown(ctx)`) | `OtlpGrpcReceiver.start()`, `Subscription.shutdown(Duration)`, `Drainable`/`Flushable`. |
 | Collector OTLP receiver | `OtlpGrpcReceiver` plus its per-signal `Source`s. |
 | `exporterhelper` queue + retry + timeout | `BatchingProcessor` (queue), `RetryPolicy` (transport retry), per-request `timeout(...)`. |
 | Functional options (`WithEndpoint`, `WithTimeout`, `WithInsecure`) | Builder methods (`endpoint(...)`, `timeout(...)`); the endpoint scheme decides plaintext vs TLS. |
 | `consumer.Capabilities{MutatesData}` | Not needed — model records are immutable, so fan-out shares them without copying. |
 
-Two deliberate differences: delivery is asynchronous (`CompletionStage<ConsumeResult<T>>`) with no per-call `context.Context`, and OTLP is carried over gRPC or HTTP with binary protobuf only (no `http/json`). Pick the transport by class — `OtlpGrpcExporter`/`OtlpGrpcReceiver` (port 4317) or `OtlpHttpExporter`/`OtlpHttpReceiver` (port 4318); the builders and pipeline wiring are identical. See [Consumers and results](#consumers-and-results) for the partial-success/retry mapping.
+Two deliberate differences: delivery is asynchronous (`CompletionStage<ConsumeResult<T>>`) with no per-call `context.Context`, and OTLP is carried over gRPC or HTTP with binary protobuf only (no `http/json`). Pick the transport by class — `OtlpGrpcExporter`/`OtlpGrpcReceiver` (port 4317) or `OtlpHttpExporter`/`OtlpHttpReceiver` (port 4318); the builders and pipeline wiring are identical. See [Sinks and results](#sinks-and-results) for the partial-success/retry mapping.
 
 ## Domain model
 
@@ -90,18 +94,18 @@ var exemplar = Exemplar.builder()
 
 `ProfilesData` is marked `@Experimental` and forwards profiles losslessly via opaque passthrough. Its top-level `Profile` metadata is best-effort inspection only; each `Profile` also carries `rawProfile` (the serialized proto `Profile`) and the batch carries `dictionary` (the serialized `ProfilesDictionary`), so the payload re-emits byte-for-byte. Both are opaque `byte[]` — treat them as opaque and do not mutate; their accessors return defensive clones.
 
-## Consumers and results
+## Sinks and results
 
-`Consumer<T>` is the asynchronous pipeline contract:
+`Sink<T>` is the asynchronous pipeline contract:
 
 ```java
 CompletionStage<ConsumeResult<T>> consume(T batch);
 ```
 
-Prefer the signal aliases `TraceConsumer`, `MetricConsumer`, `LogConsumer`, and `ProfileConsumer` in declarations and extension APIs.
+Prefer the signal aliases `TraceSink`, `MetricSink`, `LogSink`, and `ProfileSink` in declarations and extension APIs.
 
 ```java
-TraceConsumer report = traces -> {
+TraceSink report = traces -> {
     System.out.println("spans=" + traces.spans().size());
     return ConsumeResult.acceptedStage();
 };
@@ -126,7 +130,7 @@ Use an exception or exceptionally completed stage for a transport-level failure.
 
 `OtlpHttpReceiver` is the OTLP/HTTP counterpart with the same builder, defaulting to `0.0.0.0:4318`. It serves the standard signal paths (`/v1/traces`, `/v1/metrics`, `/v1/logs`, `/v1development/profiles`), inflates gzip request bodies, and — lacking a per-connection concurrency knob — bounds concurrency through `serverExecutor(...)` (a virtual-thread-per-request executor by default).
 
-The receiver builder exposes the receiver-hardening knobs the bundled server applies directly (or set them on a `ServerTransportConfig` and pass it through `transport(...)`), all defaulting to gRPC's own behaviour:
+The receiver builder exposes the receiver-hardening knobs the bundled server applies directly (or set them on a `ServerConfig` and pass it through `transport(...)`), all defaulting to gRPC's own behaviour:
 
 | Builder knob | Default | Effect |
 | --- | --- | --- |
@@ -263,11 +267,11 @@ Overflow behavior:
 
 ## Export
 
-`OtlpGrpcExporter` defaults to plaintext `localhost:4317` with a ten-second deadline per request. It owns one client channel and exposes a consumer facet for each signal. TLS, authentication headers, gzip compression, and retries are available directly on the builder (`tls`, `header`/`headers`, `compression`, `retry`); pass a fully built `ClientTransportConfig` through `transport(...)` only when you want to replace the whole config at once.
+`OtlpGrpcExporter` defaults to plaintext `localhost:4317` with a ten-second deadline per request. It owns one client channel and exposes a sink facet for each signal. TLS, authentication headers, gzip compression, and retries are available directly on the builder (`tls`, `header`/`headers`, `compression`, `retry`); pass a fully built `ClientConfig` through `transport(...)` only when you want to replace the whole config at once.
 
 `OtlpHttpExporter` is the OTLP/HTTP counterpart with the identical builder, defaulting to `localhost:4318`. It POSTs each signal's binary protobuf to its standard path (`/v1/traces`, `/v1/metrics`, `/v1/logs`, `/v1development/profiles`) as `application/x-protobuf`; the scheme follows `tls` (`http`/`https`), `compression(GZIP)` sets `Content-Encoding: gzip`, and `retry` drives exponential-backoff retries over retryable statuses (408/429/502/503/504). Endpoint path prefixes are not yet applied.
 
-By default the exporter reads no environment — construction is fully explicit and deterministic. Opt in to the standard general OTLP variables with `fromEnvironment()` on the exporter or `ClientTransportConfig` builder. It reads each variable only when present and only on that call; precedence is "call it first, explicit setters afterwards win"; malformed values throw. Only general (non-signal-specific) variables are read today:
+By default the exporter reads no environment — construction is fully explicit and deterministic. Opt in to the standard general OTLP variables with `fromEnvironment()` on the exporter or `ClientConfig` builder. It reads each variable only when present and only on that call; precedence is "call it first, explicit setters afterwards win"; malformed values throw. Only general (non-signal-specific) variables are read today:
 
 | Setting | Builder method | Environment variable | otlp4j default | Notes |
 | --- | --- | --- | --- | --- |
@@ -383,14 +387,14 @@ Demand is independent of the receive/export acknowledgement path: a slow subscri
 
 ## Supply another transport
 
-> For transport/extension authors. Application users can skip this section — the bundled `otlp4j-transport` gRPC and HTTP providers are discovered automatically, and the `spi` package only matters when you replace the wire transport.
+> For transport/extension authors. Application users can skip this section — the bundled `otlp4j-transport-grpc` and `otlp4j-transport-http` modules supply the OTLP/gRPC and OTLP/HTTP transports, and the `spi` package only matters when you implement a new wire transport.
 
-Implement these pairs and register their providers with JPMS, `META-INF/services`, or both:
+There is no provider-discovery or `ServiceLoader` indirection: an application selects a transport by instantiating its concrete entry point — `OtlpGrpcExporter`/`OtlpGrpcReceiver` or `OtlpHttpExporter`/`OtlpHttpReceiver`. To add your own, implement the two transport-side contracts in `dev.nthings.otlp4j.spi` and wrap them in an exporter/receiver:
 
-- `OtlpServerProvider` and `OtlpServer` for receiving;
-- `OtlpClientProvider` and `OtlpClient` for exporting.
+- `OtlpClient` (export) exposes `exportTraces`/`exportMetrics`/`exportLogs`/`exportProfiles`, each returning `CompletionStage<ConsumeResult<T>>`; extend `AbstractOtlpExporter` to adapt it into the per-signal `Sink` facets and lifecycle.
+- `OtlpServer` (receive) is constructed with a `ServerConfig` and a `Dispatchers` record — the per-signal functions the server invokes as it decodes requests — and an `AbstractOtlpReceiver` drives it.
 
-Each provider declares the `Protocol` it implements (`GRPC` or `HTTP_PROTOBUF`) via `TransportProvider.protocol()`, and the high-level exporters/receivers select a provider by protocol — so the bundled gRPC and HTTP providers coexist, and a `Protocol.GRPC` request resolves the gRPC provider regardless of load order. Exactly one provider per role *and protocol* must be on the path: the helpers fail fast with `IllegalStateException` when none implements the requested protocol and, because provider order is not a configuration mechanism, also when more than one does. Configuration arrives through `ServerTransportConfig` or `ClientTransportConfig`. The bundled clients honour host, port, timeout, TLS, headers, compression, and retry; the servers honour their port, `bindHost`, TLS, and the receiver-hardening limits (inbound size cap, per-connection concurrency, handshake timeout, executor).
+Configuration arrives through `ClientConfig` and `ServerConfig`. The bundled clients honour host, port, timeout, TLS, headers, compression, and retry; the servers honour their port, `bindHost`, TLS, and the receiver-hardening limits (inbound size cap, per-connection concurrency, handshake timeout, executor).
 
 ## Shutdown order
 

@@ -1,6 +1,6 @@
 # End-to-end sample
 
-`OtlpE2eDemo` verifies the public API and runtime-loaded transport together. The sample module compiles against `otlp4j-api`; `otlp4j-transport` is a runtime dependency, so the code cannot import generated proto or gRPC types.
+`OtlpE2eDemo` exercises the public API and the bundled OTLP/gRPC transport together. The sample compiles against `otlp4j-api` (the pipeline DSL) and `otlp4j-transport-grpc` (the concrete `OtlpGrpcExporter`/`OtlpGrpcReceiver`); it never imports the generated proto or gRPC stub types, which stay encapsulated in `otlp4j-proto`.
 
 ## Scenario
 
@@ -41,4 +41,4 @@ No external collector is required.
 ./mvnw -B -pl otlp4j-samples -am package -Pjlink
 ```
 
-The `native` profile requires a GraalVM JDK. The `jlink` profile creates the pure API/sample runtime image; the automatic-module transport stack remains outside the linked image.
+The `native` profile requires a GraalVM JDK. The `jlink` profile creates the pure API/sample runtime image; the gRPC/Netty stack (automatic modules) remains outside the linked image.

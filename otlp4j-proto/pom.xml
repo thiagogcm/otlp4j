@@ -13,7 +13,7 @@
     <artifactId>otlp4j-proto</artifactId>
     <name>otlp4j-proto</name>
     <description>Generated OpenTelemetry Protocol message and gRPC service code. JPMS module
-        dev.nthings.otlp4j.proto — its packages are exported only to the transport module.</description>
+        dev.nthings.otlp4j.proto — its packages are exported only to the codec and transport modules.</description>
 
     <properties>
         <!-- Generated code: not part of the hand-written API surface, so it is excluded

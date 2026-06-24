@@ -1,6 +1,6 @@
 # Architecture
 
-otlp4j isolates the wire protocol from its public Java API. Applications exchange immutable domain records with signal-specific consumers; only the transport maps those records to generated OTLP messages.
+otlp4j isolates the wire protocol from its public Java API. Applications exchange immutable domain records with signal-specific sinks; only the transport maps those records to generated OTLP messages.
 
 ## Module boundaries
 
@@ -9,16 +9,20 @@ The dependency graph is deliberately one-way:
 ```mermaid
 flowchart LR
     application[Application] --> api[otlp4j-api]
+    application --> grpc[otlp4j-transport-grpc]
+    application --> http[otlp4j-transport-http]
     api --> model[otlp4j-model]
-    application -. runtime provider .-> transport[otlp4j-transport]
-    transport --> api
-    transport --> model
-    transport --> proto[otlp4j-proto]
+    grpc --> api
+    grpc --> codec[otlp4j-codec]
+    http --> api
+    http --> codec
+    codec --> model
+    codec --> proto[otlp4j-proto]
 ```
 
-`otlp4j-api` re-exports the model module but does not read the transport or proto modules. `otlp4j-proto` qualified-exports generated packages only to `otlp4j-transport`, and the transport exports no packages.
+`otlp4j-api` re-exports the model module but does not read the codec, transport, or proto modules. `otlp4j-proto` qualified-exports its generated packages only to `otlp4j-codec` and the two transports, and each transport exports just its public `transport.grpc`/`transport.http` package.
 
-The API discovers `OtlpServerProvider`s and `OtlpClientProvider`s through `ServiceLoader` and selects one by `Protocol` (`GRPC` or `HTTP_PROTOBUF`) rather than by load order — so the gRPC and HTTP providers coexist on the path, and the application picks a transport by instantiating `OtlpGrpcExporter`/`OtlpGrpcReceiver` or `OtlpHttpExporter`/`OtlpHttpReceiver`. The bundled transport registers all four providers via both JPMS `provides` declarations and class-path service files.
+There is no provider-discovery step. An application picks a transport by instantiating the concrete entry point — `OtlpGrpcExporter`/`OtlpGrpcReceiver` (gRPC + Netty) or `OtlpHttpExporter`/`OtlpHttpReceiver` (JDK `java.net.http`/`jdk.httpserver`). Each is built directly on an `OtlpClient`/`OtlpServer` implementation from the `spi` package and shares the `otlp4j-codec` proto↔domain mappers. The two transport modules are independent, so an HTTP-only deployment never pulls in gRPC or Netty, and a gRPC-only one never pulls in the HTTP server.
 
 ## Request path
 
@@ -29,14 +33,14 @@ sequenceDiagram
     participant Sender as OTLP sender
     participant Server as gRPC server
     participant Source as Signal Source
-    participant Consumer as Pipeline / consumer
+    participant Sink as Pipeline / sink
     participant Tap as Telemetry tap
 
     Sender->>Server: Export request
     Server--)Tap: Publish copy of reference
     Server->>Source: Domain batch
-    Source->>Consumer: consume(batch)
-    Consumer-->>Source: CompletionStage<ConsumeResult<T>>
+    Source->>Sink: consume(batch)
+    Sink-->>Source: CompletionStage<ConsumeResult<T>>
     Source-->>Server: Accepted, Partial, or Rejected
     Server-->>Sender: OTLP response
 ```
@@ -66,7 +70,7 @@ Built-in stateless transforms filter spans or log records and add resource attri
 
 `BatchingProcessor<T>` buffers complete domain batches, then merges their top-level resource groups. It flushes when the queue reaches `maxBatchSize`, on the periodic `maxBatchAge` timer, or through `forceFlush`/`shutdown`. Defaults are 512 queued batches per flush, a five-second timer, a queue capacity of 2048, and `DROP_NEWEST` overflow handling.
 
-`Connectors.spanCount` converts a trace batch into the `otlp4j.connector.span.count` metric; `Connectors.logRecordCount` similarly emits `otlp4j.connector.log.record.count`. Connectors consume their input signal and send the derived `MetricsData` to a supplied `MetricConsumer`; they do not forward the original batch. Each flush carries a real per-series delta window — `[previous flush, now)`, monotonic even under concurrent calls or a backward wall-clock step. A `FailurePolicy` (default `BEST_EFFORT`) decides how a downstream metric failure maps back onto the input: `BEST_EFFORT` accepts the input and logs the failure, while `FAIL` propagates a downstream `Partial`/`Rejected` as a `Rejected` on the input result.
+`Connectors.spanCount` converts a trace batch into the `otlp4j.connector.span.count` metric; `Connectors.logRecordCount` similarly emits `otlp4j.connector.log.record.count`. Connectors consume their input signal and send the derived `MetricsData` to a supplied `MetricSink`; they do not forward the original batch. Each flush carries a real per-series delta window — `[previous flush, now)`, monotonic even under concurrent calls or a backward wall-clock step. A `FailurePolicy` (default `BEST_EFFORT`) decides how a downstream metric failure maps back onto the input: `BEST_EFFORT` accepts the input and logs the failure, while `FAIL` propagates a downstream `Partial`/`Rejected` as a `Rejected` on the input result.
 
 ## Receiver tap
 
@@ -76,16 +80,16 @@ The default buffer holds 256 batches and drops the oldest on overflow. Other str
 
 ## Transport implementation
 
-The transport module ships two implementations of the SPI — OTLP/gRPC and OTLP/HTTP — that share the same proto↔domain mappers and the same `ConsumeResult`→response encoding (`SignalResponses`). Both map a whole-batch `Rejected` to a delivery error rather than `rejected_*=0`: no cause is transient/retryable (gRPC `UNAVAILABLE` / HTTP `503`), a cause is permanent (gRPC `INTERNAL` / HTTP `500`).
+The two transport modules — `otlp4j-transport-grpc` and `otlp4j-transport-http` — each implement the `OtlpClient`/`OtlpServer` SPI and share the `otlp4j-codec` proto↔domain mappers and the same `ConsumeResult`→response encoding (`SignalResponses`). Both map a whole-batch `Rejected` to a delivery error rather than `rejected_*=0`: no cause is transient/retryable (gRPC `UNAVAILABLE` / HTTP `503`), a cause is permanent (gRPC `INTERNAL` / HTTP `500`).
 
-**gRPC.** The client uses blocking gRPC stubs on a virtual-thread-per-task executor and applies the configured deadline to each export. The server exposes trace, metric, log, and experimental profile collector services. The client selects channel credentials from `Tls` (plaintext, JVM default trust, or a custom certificate bundle), attaches the configured headers to every call, requests gzip compression when configured, and maps `RetryPolicy` onto gRPC's native retry via the channel's default service config. The server, built on `NettyServerBuilder`, selects its credentials from `Tls` (`Disabled` for plaintext, `Custom` for a server certificate and key; `SystemTrust` is rejected, having no server certificate) and binds the configured `bindHost`: a wildcard host (empty, `0.0.0.0`, or `::`) binds every interface, while any other host binds that specific interface, so `127.0.0.1` yields a loopback-only receiver. It also applies the receiver-hardening limits from `ServerTransportConfig` — a decoded-request size cap, an optional per-connection concurrency cap, a handshake deadline, and an optional bounded executor. Compression is decode-only on the server: gzip request bodies decode via gRPC's default decoder and there is no server compression knob.
+**gRPC.** The client uses blocking gRPC stubs on a virtual-thread-per-task executor and applies the configured deadline to each export. The server exposes trace, metric, log, and experimental profile collector services. The client selects channel credentials from `Tls` (plaintext, JVM default trust, or a custom certificate bundle), attaches the configured headers to every call, requests gzip compression when configured, and maps `RetryPolicy` onto gRPC's native retry via the channel's default service config. The server, built on `NettyServerBuilder`, selects its credentials from `Tls` (`Disabled` for plaintext, `Custom` for a server certificate and key; `SystemTrust` is rejected, having no server certificate) and binds the configured `bindHost`: a wildcard host (empty, `0.0.0.0`, or `::`) binds every interface, while any other host binds that specific interface, so `127.0.0.1` yields a loopback-only receiver. It also applies the receiver-hardening limits from `ServerConfig` — a decoded-request size cap, an optional per-connection concurrency cap, a handshake deadline, and an optional bounded executor. Compression is decode-only on the server: gzip request bodies decode via gRPC's default decoder and there is no server compression knob.
 
 **HTTP.** The client (`java.net.http.HttpClient`) POSTs each signal's serialized `Export*ServiceRequest` to its standard path (`/v1/traces`, `/v1/metrics`, `/v1/logs`, `/v1development/profiles`) as `application/x-protobuf`, on a virtual-thread-per-task executor with the deadline applied per request. The scheme follows `Tls` (`http`/`https`), with a JDK `SSLContext` built from the same PEM material the gRPC transport consumes (`PemSsl`); headers attach to every request, `Compression.GZIP` gzips the body with `Content-Encoding: gzip`, and `RetryPolicy` drives an explicit exponential-backoff retry loop over retryable statuses (408/429/502/503/504) and IO failures. The server (`com.sun.net.httpserver`) registers a handler per signal path, transparently inflates gzip request bodies, enforces the decoded-size cap (→ `413`), and rejects a bad method (`405`) or malformed body (`400`); without a configured executor it runs handlers on a virtual-thread-per-task executor. `Tls.Custom` serves over `HttpsServer`; `Tls.SystemTrust` is rejected as for gRPC. `maxConcurrentCallsPerConnection` has no HTTP equivalent and is not applied.
 
-Alternate providers can vary any of this without changing the application API.
+An alternate transport can vary any of this without changing the application API.
 
 ## Model fidelity
 
-Traces, logs, and the metric aggregations round-trip between domain and proto representations, including metric exemplars: each number, histogram, and exponential-histogram point carries a `List<Exemplar>` mapped in both directions. A `Metric` whose wire `data` was unset round-trips as `null` data, so consumers must null-check `Metric.data()`. Profiles round-trip losslessly through opaque passthrough rather than a fully modeled payload — each `Profile` carries the serialized proto `Profile` bytes and the batch carries the serialized `ProfilesDictionary`, so samples, locations, mappings, string tables, and the original payload re-emit byte-for-byte while only the resource/scope wrapper is modeled. The remaining gap is stable profiles support, because the bundled schema is OpenTelemetry `v1development`.
+Traces, logs, and the metric aggregations round-trip between domain and proto representations, including metric exemplars: each number, histogram, and exponential-histogram point carries a `List<Exemplar>` mapped in both directions. A `Metric` whose wire `data` was unset round-trips as the non-null `Metric.NoData` form rather than `null`, so consumers switch over `Metric.data()` and handle `NoData` instead of null-checking. Profiles round-trip losslessly through opaque passthrough rather than a fully modeled payload — each `Profile` carries the serialized proto `Profile` bytes and the batch carries the serialized `ProfilesDictionary`, so samples, locations, mappings, string tables, and the original payload re-emit byte-for-byte while only the resource/scope wrapper is modeled. The remaining gap is stable profiles support, because the bundled schema is OpenTelemetry `v1development`.
 
 Trace and span IDs are hex strings in the domain model. Encoding malformed hex fails at the transport boundary. Span flags use a Java `long`; OTLP encoding keeps the wire-format unsigned 32-bit value.
