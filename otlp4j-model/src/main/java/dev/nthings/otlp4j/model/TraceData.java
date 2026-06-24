@@ -21,9 +21,7 @@ public record TraceData(List<ResourceSpans> resourceSpans) {
 
     /// All spans across every resource and scope, flattened for convenient consumption.
     ///
-    /// This walks the resource/scope grouping and allocates a fresh list on every call. On a hot
-    /// path prefer [#forEachSpan] to visit spans without the intermediate list, or [#spanCount] to
-    /// size the batch without flattening it.
+    /// Allocates a fresh list on every call; on a hot path prefer [#forEachSpan] or [#spanCount].
     public List<Span> spans() {
         return resourceSpans.stream()
                 .flatMap(rs -> rs.scopeSpans().stream())
@@ -31,8 +29,8 @@ public record TraceData(List<ResourceSpans> resourceSpans) {
                 .toList();
     }
 
-    /// Applies `action` to every span across every resource and scope, in the same order as
-    /// [#spans], without allocating the intermediate flattened list.
+    /// Applies `action` to every span across every resource and scope, in [#spans] order without
+    /// allocating the flattened list.
     public void forEachSpan(Consumer<? super Span> action) {
         Objects.requireNonNull(action, "action");
         for (var resource : resourceSpans) {
@@ -45,8 +43,7 @@ public record TraceData(List<ResourceSpans> resourceSpans) {
     }
 
     /// The total number of spans across every resource and scope, counted without allocating the
-    /// flattened list that [#spans] builds. This is the OTLP item count used for batching and
-    /// partial-success accounting.
+    /// list [#spans] builds.
     public int spanCount() {
         var count = 0;
         for (var resource : resourceSpans) {

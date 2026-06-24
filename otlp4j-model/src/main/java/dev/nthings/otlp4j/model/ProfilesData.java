@@ -39,9 +39,8 @@ public record ProfilesData(List<ResourceProfiles> resourceProfiles, byte[] dicti
 
     /// All profiles across every resource and scope, flattened for convenient consumption.
     ///
-    /// This walks the resource/scope grouping and allocates a fresh list on every call. On a hot
-    /// path prefer [#forEachProfile] to visit profiles without the intermediate list, or
-    /// [#profileCount] to size the batch without flattening it.
+    /// Allocates a fresh list on every call; on a hot path prefer [#forEachProfile] or
+    /// [#profileCount].
     public List<Profile> profiles() {
         return resourceProfiles.stream()
                 .flatMap(rp -> rp.scopeProfiles().stream())
@@ -49,8 +48,8 @@ public record ProfilesData(List<ResourceProfiles> resourceProfiles, byte[] dicti
                 .toList();
     }
 
-    /// Applies `action` to every profile across every resource and scope, in the same order as
-    /// [#profiles], without allocating the intermediate flattened list.
+    /// Applies `action` to every profile across every resource and scope, in [#profiles] order
+    /// without allocating the flattened list.
     public void forEachProfile(Consumer<? super Profile> action) {
         Objects.requireNonNull(action, "action");
         for (var resource : resourceProfiles) {
@@ -63,8 +62,7 @@ public record ProfilesData(List<ResourceProfiles> resourceProfiles, byte[] dicti
     }
 
     /// The total number of profiles across every resource and scope, counted without allocating the
-    /// flattened list that [#profiles] builds. This is the OTLP item count used for batching and
-    /// partial-success accounting.
+    /// list [#profiles] builds.
     public int profileCount() {
         var count = 0;
         for (var resource : resourceProfiles) {
