@@ -1,6 +1,7 @@
 # otlp4j
 
-otlp4j is a JPMS-modular Java library for receiving, processing, and exporting [OpenTelemetry Protocol (OTLP)](https://opentelemetry.io/docs/specs/otlp/) telemetry. It is best used as an OTLP gateway/pipeline inside JVM applications and services, with immutable Java records and typed asynchronous APIs; generated Protobuf and gRPC types remain inside the transport modules.
+otlp4j is a JPMS-modular Java library for receiving, processing, and exporting [OpenTelemetry Protocol (OTLP)](https://opentelemetry.io/docs/specs/otlp/) telemetry.
+It is best used as an OTLP gateway/pipeline inside JVM applications and services, with immutable Java records and typed asynchronous APIs; generated Protobuf and gRPC types remain inside the transport modules.
 
 The project is currently experimental `0.1.0-SNAPSHOT` and requires JDK 25. Its built-in transports carry OTLP over **gRPC** and **HTTP** (binary protobuf, `application/x-protobuf`) for traces, metrics, logs, and experimental profiles, over plaintext or TLS, with authentication headers, gzip compression, and retries. The HTTP transport uses only the JDK (`java.net.http` client, `jdk.httpserver` server) — no extra dependencies.
 
