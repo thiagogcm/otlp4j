@@ -86,7 +86,7 @@ public final class Pipeline {
         Subscription join();
     }
 
-    static final class StageImpl<T> implements Stage<T> {
+    private static final class StageImpl<T> implements Stage<T> {
 
         final Source<T> source;
         final Function<T, T> stageFn;
@@ -169,7 +169,7 @@ public final class Pipeline {
         }
     }
 
-    static final class BranchImpl<T> implements Branch<T> {
+    private static final class BranchImpl<T> implements Branch<T> {
 
         private final StageImpl<T> stage;
         private final List<Sink<T>> peers = new ArrayList<>();
