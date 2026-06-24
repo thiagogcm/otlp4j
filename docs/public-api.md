@@ -42,11 +42,11 @@ Each signal preserves OTLP's resource and instrumentation-scope grouping while p
 | Batch | Grouping | Flattened accessor | `forEach` helper | Count helper |
 | --- | --- | --- | --- | --- |
 | `TraceData` | `ResourceSpans` → `ScopeSpans` → `Span` | `spans()` | `forEachSpan(Consumer)` | `spanCount()` |
-| `MetricsData` | `ResourceMetrics` → `ScopeMetrics` → `Metric` | `metrics()` | `forEachMetric(Consumer)` | `metricCount()` |
+| `MetricsData` | `ResourceMetrics` → `ScopeMetrics` → `Metric` | `metrics()` | `forEachMetric(Consumer)` | — |
 | `LogsData` | `ResourceLogs` → `ScopeLogs` → `LogRecord` | `logRecords()` | `forEachLogRecord(Consumer)` | `logRecordCount()` |
 | `ProfilesData` | `ResourceProfiles` → `ScopeProfiles` → `Profile` | `profiles()` | `forEachProfile(Consumer)` | `profileCount()` |
 
-Each flattened accessor (`spans()`, `metrics()`, `logRecords()`, `profiles()`) walks the resource/scope grouping and allocates a fresh list on every call, so bind it to a local rather than re-calling it in a loop or on a hot path. On hot paths prefer the `forEach…` helper to visit items in the same order without the intermediate list, or the count helper to size a batch without flattening it — these are what batching and the count connectors use. (`metricCount()` counts `Metric` objects; OTLP metric partial-success is reported in nested data points.)
+Each flattened accessor (`spans()`, `metrics()`, `logRecords()`, `profiles()`) walks the resource/scope grouping and allocates a fresh list on every call, so bind it to a local rather than re-calling it in a loop or on a hot path. On hot paths prefer the `forEach…` helper to visit items in the same order without the intermediate list, or the count helper to size a batch without flattening it — these are what batching and the count connectors use. (`MetricsData` has no naive count helper: the OTLP metric item count is nested data points, which the batching processor counts directly via `forEachMetric`.)
 
 Records copy incoming lists and are safe to share between fan-out peers. `Attributes` and the sealed `AttributeValue` hierarchy represent OTLP values. Builders are available for `Attributes`, `Span`, `Metric`, and `LogRecord`, plus the metric data points (`NumberPoint`, `HistogramPoint`, `ExponentialHistogramPoint`) and `Exemplar`; `NumberPoint`, `Exemplar`, and `SummaryPoint` also offer `of(...)` factories for the common case. The remaining records use canonical constructors. To avoid hand-nesting the resource/scope wrappers, each signal type has an `of(resource, scope, items)` factory, and `Resource.of(...)` / `InstrumentationScope.of(...)` cover the common cases:
 

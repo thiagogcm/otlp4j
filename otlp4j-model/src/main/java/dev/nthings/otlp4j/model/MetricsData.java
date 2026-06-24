@@ -21,8 +21,7 @@ public record MetricsData(List<ResourceMetrics> resourceMetrics) {
 
     /// All metrics across every resource and scope, flattened for convenient consumption.
     ///
-    /// Allocates a fresh list on every call; on a hot path prefer [#forEachMetric] or
-    /// [#metricCount].
+    /// Allocates a fresh list on every call; on a hot path prefer [#forEachMetric].
     public List<Metric> metrics() {
         return resourceMetrics.stream()
                 .flatMap(rm -> rm.scopeMetrics().stream())
@@ -41,19 +40,6 @@ public record MetricsData(List<ResourceMetrics> resourceMetrics) {
                 }
             }
         }
-    }
-
-    /// The number of [Metric] objects across every resource and scope, counted without allocating
-    /// the list [#metrics] builds — metrics, not the nested data points OTLP reports for metric
-    /// partial-success.
-    public int metricCount() {
-        var count = 0;
-        for (var resource : resourceMetrics) {
-            for (var scope : resource.scopeMetrics()) {
-                count += scope.metrics().size();
-            }
-        }
-        return count;
     }
 
     /// Metrics from one [Resource], grouped by instrumentation scope.

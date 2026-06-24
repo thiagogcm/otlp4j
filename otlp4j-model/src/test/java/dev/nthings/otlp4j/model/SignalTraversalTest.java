@@ -105,19 +105,10 @@ class SignalTraversalTest {
             assertThat(visited).extracting(Metric::name).containsExactly("a", "b", "c");
         }
 
-        @DisplayName("metricCount equals the flattened metric count")
+        @DisplayName("forEachMetric never invokes the action on an empty batch")
         @Test
-        void metricCountEqualsFlattenedMetricCount() {
-            assertThat(data.metricCount()).isEqualTo(data.metrics().size()).isEqualTo(3);
-        }
-
-        @DisplayName("an empty batch counts zero and never invokes the action")
-        @Test
-        void emptyBatchCountsZeroAndNeverInvokesTheAction() {
-            var empty = new MetricsData(List.of());
-
-            assertThat(empty.metricCount()).isZero();
-            empty.forEachMetric(metric -> {
+        void forEachMetricNeverInvokesTheActionOnAnEmptyBatch() {
+            new MetricsData(List.of()).forEachMetric(metric -> {
                 throw new AssertionError("should not be called");
             });
         }
