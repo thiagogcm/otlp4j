@@ -7,9 +7,9 @@ import java.util.concurrent.CompletionStage;
 /// A handle that owns a wired-up pipeline graph.
 ///
 /// Closing a subscription detaches the consumer from its source and drains any lifecycle resources
-/// the chain owns — both those auto-collected from the terminal (e.g. fan-out peers that implement
-/// `AutoCloseable`) and those registered explicitly via `Stage.owns(...)` for resources hidden
-/// behind method-reference consumers. All resources share a single shutdown deadline.
+/// the chain owns — both those auto-collected from the terminal (e.g. fan-out peers and exporter
+/// facets that implement `AutoCloseable`) and those registered explicitly via `Stage.owns(...)` for
+/// resources hidden behind a bare lambda sink. All resources share a single shutdown deadline.
 ///
 /// As a [Drainable], [#close()] performs a best-effort synchronous drain with a default timeout and
 /// [#shutdown(Duration)] returns a stage that completes when the drain finishes or the timeout

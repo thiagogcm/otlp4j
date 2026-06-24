@@ -50,9 +50,11 @@ public final class Pipeline {
         /// `TelemetryTap`.
         Stage<T> peek(java.util.function.Consumer<? super T> observer);
 
-        /// Registers a lifecycle resource (e.g. an exporter) that the subscription drains on
-        /// shutdown and flushes on forceFlush if it is [Flushable]. Use this to attach resources
-        /// reachable only behind method-reference consumers (e.g. `exporter.traces()`).
+        /// Registers a lifecycle resource that the subscription drains on shutdown and flushes on
+        /// forceFlush if it is [Flushable]. Use this for resources the pipeline can't reach as a
+        /// terminal or fan-out peer — e.g. a connector's downstream consumer, or a resource hidden
+        /// behind a hand-written lambda sink. Exporter facets such as `exporter.traces()` already
+        /// carry their exporter's lifecycle, so they do not need this.
         Stage<T> owns(AutoCloseable resource);
 
         /// Opens a branch — subsequent `.fanOut(...)` calls add peers, `.join()` closes the
@@ -66,8 +68,9 @@ public final class Pipeline {
         /// Terminates the pipeline by delivering to `terminal`, also registering `owner` as a
         /// lifecycle resource so the subscription drains it on shutdown and flushes it on
         /// forceFlush if it is [Flushable]. Shorthand for `owns(owner).to(terminal)`; use it when
-        /// the terminal is a method-reference facet such as `exporter.traces()` whose owner the
-        /// pipeline cannot otherwise infer.
+        /// the terminal is a bare lambda sink whose owning resource the pipeline cannot otherwise
+        /// infer. Exporter facets such as `exporter.traces()` already carry their owner, so the
+        /// one-arg `to(terminal)` suffices for them.
         default Subscription to(Sink<T> terminal, AutoCloseable owner) {
             return owns(owner).to(terminal);
         }
@@ -196,10 +199,11 @@ public final class Pipeline {
         return collected;
     }
 
-    /// Auto-collects lifecycle from the terminal: [FanOut] peers and any node that directly
-    /// implements [AutoCloseable]. It deliberately does NOT see through method-reference consumers
-    /// (`exporter.traces()` is `client::exportTraces`) or connector downstreams — those hide their
-    /// owner behind a lambda, so register them explicitly with [Stage#owns(AutoCloseable)].
+    /// Auto-collects lifecycle from the terminal: [FanOut] peers and any node that implements
+    /// [AutoCloseable] — including the exporter facets, which carry their exporter's lifecycle. It
+    /// deliberately does NOT see through a bare lambda sink (e.g. a hand-written `TraceSink`) or a
+    /// connector's downstream — those hide their owner behind a lambda, so register them explicitly
+    /// with [Stage#owns(AutoCloseable)].
     private static void collectLifecycle(Object node, List<AutoCloseable> out) {
         if (node instanceof FanOut<?> f) {
             for (var peer : f.peers()) {

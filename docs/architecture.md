@@ -56,13 +56,13 @@ An unattached source returns `Accepted`. A source has one attachment slot; fan-o
 - `transform` rewrites one batch without changing its signal type.
 - `filter` acknowledges a batch as accepted without forwarding it when the predicate returns false.
 - `peek` invokes a best-effort observer (a plain `java.util.function.Consumer`) and ignores its result. It does not wait for an asynchronous observer or handle its later failure.
-- `owns` registers an `AutoCloseable` (e.g. an exporter reachable only behind a method-reference facet) for the subscription to drain on shutdown and flush on `forceFlush`.
+- `owns` registers an `AutoCloseable` (e.g. a connector's downstream consumer, or any resource reachable only behind a lambda) for the subscription to drain on shutdown and flush on `forceFlush`.
 - `branch` builds a concurrent `FanOut`; `join` attaches it.
 - `to` attaches one terminal consumer.
 
 Fan-out sends the same immutable batch reference to every peer. If any peer rejects the batch, the merged result is rejected. Otherwise, partial rejection uses the largest rejected-item count rather than a sum because all peers saw the same input.
 
-The returned `Subscription` owns the source attachment. It also closes terminal objects that directly implement `AutoCloseable`, including a directly attached `BatchingProcessor`. Method-reference facets such as `exporter.traces()` and downstream resources hidden inside connectors are not auto-discovered, because a lambda hides its owner. Register them explicitly with `Stage.owns(resource)`: the subscription then drains each owned resource on shutdown and, if it is `Flushable`, flushes it on `forceFlush`. All resources — auto-collected and owned alike — share a single shutdown deadline derived from the timeout, so total shutdown is bounded by that timeout, not N × timeout. A `Drainable` resource (such as `OtlpGrpcExporter` or `BatchingProcessor`) receives the *remaining* shared budget through `shutdown(Duration)` instead of its own fixed-timeout `close()`.
+The returned `Subscription` owns the source attachment. It also closes terminal and fan-out-peer objects that implement `AutoCloseable`, including a directly attached `BatchingProcessor` and the exporter facets (`exporter.traces()` etc.), which carry their exporter's lifecycle and delegate drain/flush to it. Downstream resources hidden inside connectors are still not auto-discovered, because a lambda hides its owner; register those explicitly with `Stage.owns(resource)`. The subscription drains each owned resource on shutdown and, if it is `Flushable`, flushes it on `forceFlush`. All resources — auto-collected and owned alike — share a single shutdown deadline derived from the timeout, so total shutdown is bounded by that timeout, not N × timeout. A `Drainable` resource (such as `OtlpGrpcExporter` or `BatchingProcessor`) receives the *remaining* shared budget through `shutdown(Duration)` instead of its own fixed-timeout `close()`.
 
 ## Processing and routing
 

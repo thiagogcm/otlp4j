@@ -83,12 +83,12 @@ var subscription = Pipeline.from(receiver.traces())
         .transform(Transforms.withTracesResourceAttribute(
                 "deployment.environment", AttributeValue.of("production")))
         .filter(traces -> !traces.spans().isEmpty())
-        .to(exporter.traces(), exporter);
+        .to(exporter.traces());
 ```
 
 The receiver accepts one consumer per signal source. Use `branch().fanOut(...).join()` when several consumers need the same batch.
 
-> [!IMPORTANT] An exporter facet such as `exporter.traces()` is a consumer view and does **not** transfer ownership of the exporter to the pipeline — so the plain `.to(exporter.traces())` terminal leaks the exporter's lifecycle. Hand ownership to the subscription with the two-arg `.to(exporter.traces(), exporter)` overload above (equivalently, `.owns(exporter)` before the terminal); the subscription then drains it on shutdown within the shared deadline and flushes it on `forceFlush`. With ownership transferred you shut down just two lifecycles, in order — subscription, then receiver. If you keep the one-arg terminal, you must close the exporter yourself between the two.
+> [!IMPORTANT] An exporter facet such as `exporter.traces()` carries the exporter's lifecycle: terminating the pipeline in it (or fanning out to it) hands the exporter's ownership to the subscription, which drains it on shutdown within the shared deadline and flushes it on `forceFlush`. You then shut down just two lifecycles, in order — subscription, then receiver. The explicit `.to(exporter.traces(), exporter)` overload (equivalently, `.owns(exporter)` before the terminal) remains for an exporter the pipeline can't otherwise reach; combining it with a facet is harmless because the drain is idempotent.
 
 ```java
 subscription.shutdown(Duration.ofSeconds(10)).toCompletableFuture().join();
