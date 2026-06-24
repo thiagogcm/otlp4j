@@ -77,17 +77,11 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, Flushable
         this.itemCounter = b.itemCounter;
         this.ownsScheduler = b.scheduler == null;
         this.scheduler = b.scheduler == null
-                ? Executors.newSingleThreadScheduledExecutor(r -> {
-                    var t = new Thread(r, "otlp4j-batcher");
-                    t.setDaemon(true);
-                    return t;
-                })
+                ? Executors.newSingleThreadScheduledExecutor(
+                        Thread.ofPlatform().daemon().name("otlp4j-batcher").factory())
                 : b.scheduler;
-        this.drainExecutor = Executors.newSingleThreadExecutor(r -> {
-            var t = new Thread(r, "otlp4j-batcher-drain");
-            t.setDaemon(true);
-            return t;
-        });
+        this.drainExecutor = Executors.newSingleThreadExecutor(
+                Thread.ofPlatform().daemon().name("otlp4j-batcher-drain").factory());
         var ageNanos = b.maxBatchAge.toNanos();
         this.timer = scheduler.scheduleAtFixedRate(this::flushIfDue, ageNanos, ageNanos, TimeUnit.NANOSECONDS);
     }

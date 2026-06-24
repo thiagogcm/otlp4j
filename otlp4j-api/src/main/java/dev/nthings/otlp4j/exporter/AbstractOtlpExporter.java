@@ -31,13 +31,10 @@ public abstract class AbstractOtlpExporter implements Drainable, Flushable {
 
     private final OtlpClient client;
 
-    /// A single-thread executor this exporter owns, so a shutdown timeout can `shutdownNow()` it to
-    /// interrupt the blocking transport close (whose channel/executor awaits are interrupt-aware).
-    private final ExecutorService shutdownExecutor = Executors.newSingleThreadExecutor(r -> {
-        var t = new Thread(r, "otlp-exporter-shutdown");
-        t.setDaemon(true);
-        return t;
-    });
+    /// A single-thread platform executor this exporter owns, so a shutdown timeout can `shutdownNow()`
+    /// it to interrupt the blocking transport close (whose channel/executor awaits are interrupt-aware).
+    private final ExecutorService shutdownExecutor = Executors.newSingleThreadExecutor(
+            Thread.ofPlatform().daemon().name("otlp-exporter-shutdown").factory());
 
     /// Wraps the transport `client` a concrete exporter has built for its protocol.
     protected AbstractOtlpExporter(OtlpClient client) {

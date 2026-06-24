@@ -34,6 +34,10 @@ public final class HttpOtlpServer implements OtlpServer {
 
     private static final Logger log = LoggerFactory.getLogger(HttpOtlpServer.class);
 
+    /// Runs each blocking stop/drain on a virtual thread, not a common-pool worker.
+    private static final Executor SHUTDOWN_EXECUTOR =
+            task -> Thread.ofVirtual().name("otlp-http-shutdown").start(task);
+
     private final ServerConfig config;
     private final Dispatchers dispatchers;
 
@@ -108,7 +112,7 @@ public final class HttpOtlpServer implements OtlpServer {
             if (ownsExecutor && executor instanceof ExecutorService es) {
                 es.shutdown();
             }
-        });
+        }, SHUTDOWN_EXECUTOR);
     }
 
     /// Clamps a drain timeout to the non-negative `int` seconds [HttpServer#stop(int)] expects,
