@@ -25,7 +25,7 @@ The snapshot coordinates are intended for a local reactor build. Install them fi
 ./mvnw -B install
 ```
 
-Compile against the public API and add the transport you want — `otlp4j-transport-grpc` for OTLP/gRPC, `otlp4j-transport-http` for OTLP/HTTP, or both. Each transport depends on `otlp4j-api`, and your code instantiates its `Otlp{Grpc,Http}Exporter`/`Receiver` directly, so the transport is a compile dependency rather than runtime-only:
+Compile against the public API and add the transport you want — `otlp4j-transport-grpc` for OTLP/gRPC, `otlp4j-transport-http` for OTLP/HTTP, or both. Each transport depends on `otlp4j-api`, and your code instantiates its `Otlp{Grpc,Http}Exporter`/`Otlp{Grpc,Http}Receiver` directly, so the transport is a compile dependency rather than runtime-only:
 
 ```xml
 <dependency>
