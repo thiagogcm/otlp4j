@@ -52,7 +52,7 @@ public final class Pipeline {
 
         /// Registers a lifecycle resource that the subscription drains on shutdown and flushes on
         /// forceFlush if it is [Flushable]. Use this for resources the pipeline can't reach as a
-        /// terminal or fan-out peer — e.g. a connector's downstream consumer, or a resource hidden
+        /// terminal or fan-out peer — e.g. a count sink's downstream `MetricSink`, or a resource hidden
         /// behind a hand-written lambda sink. Exporter facets such as `exporter.traces()` already
         /// carry their exporter's lifecycle, so they do not need this.
         Stage<T> owns(AutoCloseable resource);
@@ -202,7 +202,7 @@ public final class Pipeline {
     /// Auto-collects lifecycle from the terminal: [FanOut] peers and any node that implements
     /// [AutoCloseable] — including the exporter facets, which carry their exporter's lifecycle. It
     /// deliberately does NOT see through a bare lambda sink (e.g. a hand-written `TraceSink`) or a
-    /// connector's downstream — those hide their owner behind a lambda, so register them explicitly
+    /// count sink's downstream — those hide their owner behind a lambda, so register them explicitly
     /// with [Stage#owns(AutoCloseable)].
     private static void collectLifecycle(Object node, List<AutoCloseable> out) {
         if (node instanceof FanOut<?> f) {

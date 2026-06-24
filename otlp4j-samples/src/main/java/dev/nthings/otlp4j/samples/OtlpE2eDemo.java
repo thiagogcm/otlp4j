@@ -23,13 +23,9 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/// End-to-end demo using the pipeline DSL and the OTLP/gRPC entry points.
-///
-/// Five spans flow through a gateway
-/// (`Pipeline.from(receiver.traces()) ... .branch().fanOut(exporter.traces()).fanOut(counter).join()`)
-/// to a backend that records the surviving spans and the derived count metric. The
-/// `exporter.traces()` fan-out peer carries the exporter's lifecycle, so the subscription auto-owns
-/// the exporter and drains it on shutdown — no `owns(...)` needed.
+/// End-to-end demo: five spans flow through a gateway pipeline (enrich, filter, fan out to the
+/// exporter and a span-count sink) to a backend. The `exporter.traces()` peer carries the
+/// exporter's lifecycle, so the subscription auto-owns it — no `owns(...)` needed.
 public final class OtlpE2eDemo {
 
     private static final Logger log = LoggerFactory.getLogger(OtlpE2eDemo.class);
@@ -44,7 +40,7 @@ public final class OtlpE2eDemo {
         log.info("=== otlp4j end-to-end demo ===");
         log.info("Client sent 5 spans (3 SERVER, 2 INTERNAL) to the gateway.");
         log.info("Gateway pipeline: enrich resource attribute -> filter SERVER spans -> "
-                + "fan out to exporter + span count connector.");
+                + "fan out to exporter + span count sink.");
         log.info("Backend received:");
         log.info("  filtered spans          : {} (expected 3)", result.spansAtBackend());
         log.info("  derived span-count metric: {} (expected 3)", result.derivedSpanCount());
@@ -73,7 +69,7 @@ public final class OtlpE2eDemo {
             log.info("Backend receiver started on port {}.", backend.port());
             backendExporter = OtlpGrpcExporter.to("localhost", backend.port());
 
-            // --- Gateway: receive -> enrich -> filter -> fan out to exporter + count connector.
+            // --- Gateway: receive -> enrich -> filter -> fan out to exporter + count sink.
             gateway = OtlpGrpcReceiver.builder().ephemeralPort().build().start();
             log.info("Gateway receiver started on port {}.", gateway.port());
 
@@ -84,23 +80,21 @@ public final class OtlpE2eDemo {
                             "deployment.environment", AttributeValue.of("demo")))
                     .transform(Transforms.keepSpansWhere(span -> span.kind() == Span.Kind.SERVER))
                     .filter(traces -> traces.spanCount() != 0)
-                    // The backendExporter.traces() peer carries the exporter's lifecycle, so the
-                    // subscription auto-owns backendExporter — no owns() needed. (The spanCount
-                    // connector's metrics facet targets the same exporter, so its transport is covered.)
+                    // backendExporter.traces() is auto-owned (carries the exporter lifecycle); the
+                    // spanCount sink targets the same exporter, so its transport is covered too.
                     .branch()
                         .fanOut(backendExporter.traces())
                         .fanOut(spanCounter)
                     .join();
 
-            // --- Client: export a mixed batch of spans to the gateway. -----------------------
+            // --- Client: export a mixed batch of spans to the gateway.
             try (var client = OtlpGrpcExporter.to("localhost", gateway.port())) {
                 client.traces().consume(sampleTraces()).toCompletableFuture().join();
                 log.info("Client exported sample trace batch to the gateway.");
             }
             subscription.shutdown(Duration.ofSeconds(5)).toCompletableFuture().join();
         } finally {
-            // The subscription already drained the exporter via its auto-owned facet; close() is
-            // idempotent, so this is only a backstop for a failure before the subscription was built.
+            // Idempotent backstop: the subscription already drained the exporter via its facet.
             if (backendExporter != null) {
                 backendExporter.close();
             }
