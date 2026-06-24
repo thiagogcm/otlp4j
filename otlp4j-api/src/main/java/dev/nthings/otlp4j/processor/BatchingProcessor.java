@@ -258,7 +258,7 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, Flushable
 
     /// Opens a builder for a [BatchingProcessor] over [TraceData].
     public static Builder<TraceData> forTraces() {
-        return new Builder<>(BatchingProcessor::mergeTraces, traces -> traces.spans().size());
+        return new Builder<>(BatchingProcessor::mergeTraces, TraceData::spanCount);
     }
 
     /// Opens a builder for a [BatchingProcessor] over [MetricsData].
@@ -268,12 +268,12 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, Flushable
 
     /// Opens a builder for a [BatchingProcessor] over [LogsData].
     public static Builder<LogsData> forLogs() {
-        return new Builder<>(BatchingProcessor::mergeLogs, logs -> logs.logRecords().size());
+        return new Builder<>(BatchingProcessor::mergeLogs, LogsData::logRecordCount);
     }
 
     /// Opens a builder for a [BatchingProcessor] over [ProfilesData].
     public static Builder<ProfilesData> forProfiles() {
-        return new Builder<>(BatchingProcessor::mergeProfiles, profiles -> profiles.profiles().size());
+        return new Builder<>(BatchingProcessor::mergeProfiles, ProfilesData::profileCount);
     }
 
     @FunctionalInterface

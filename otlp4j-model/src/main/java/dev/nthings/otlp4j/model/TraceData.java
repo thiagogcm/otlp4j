@@ -1,6 +1,8 @@
 package dev.nthings.otlp4j.model;
 
 import java.util.List;
+import java.util.Objects;
+import java.util.function.Consumer;
 
 /// A batch of trace telemetry: the domain equivalent of an OTLP `ExportTraceServiceRequest`.
 ///
@@ -18,11 +20,41 @@ public record TraceData(List<ResourceSpans> resourceSpans) {
     }
 
     /// All spans across every resource and scope, flattened for convenient consumption.
+    ///
+    /// This walks the resource/scope grouping and allocates a fresh list on every call. On a hot
+    /// path prefer [#forEachSpan] to visit spans without the intermediate list, or [#spanCount] to
+    /// size the batch without flattening it.
     public List<Span> spans() {
         return resourceSpans.stream()
                 .flatMap(rs -> rs.scopeSpans().stream())
                 .flatMap(ss -> ss.spans().stream())
                 .toList();
+    }
+
+    /// Applies `action` to every span across every resource and scope, in the same order as
+    /// [#spans], without allocating the intermediate flattened list.
+    public void forEachSpan(Consumer<? super Span> action) {
+        Objects.requireNonNull(action, "action");
+        for (var resource : resourceSpans) {
+            for (var scope : resource.scopeSpans()) {
+                for (var span : scope.spans()) {
+                    action.accept(span);
+                }
+            }
+        }
+    }
+
+    /// The total number of spans across every resource and scope, counted without allocating the
+    /// flattened list that [#spans] builds. This is the OTLP item count used for batching and
+    /// partial-success accounting.
+    public int spanCount() {
+        var count = 0;
+        for (var resource : resourceSpans) {
+            for (var scope : resource.scopeSpans()) {
+                count += scope.spans().size();
+            }
+        }
+        return count;
     }
 
     /// Spans from one [Resource], grouped by instrumentation scope.

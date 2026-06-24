@@ -27,7 +27,7 @@ public final class Connectors {
                 policy,
                 "otlp4j.connector.span.count",
                 "Items observed by the span count connector",
-                Connectors::countSpans);
+                TraceData::spanCount);
     }
 
     /// A logs-to-metrics connector emitting `otlp4j.connector.log.record.count` into `downstream`,
@@ -44,23 +44,8 @@ public final class Connectors {
                 policy,
                 "otlp4j.connector.log.record.count",
                 "Items observed by the log record count connector",
-                Connectors::countLogRecords);
-    }
-
-    // Sum the per-scope counts instead of `spans()` / `logRecords()`, whose flattened accessors
-    // would materialize a full copy of every item just to read its size on each consumed batch.
-
-    private static long countSpans(TraceData traces) {
-        return traces.resourceSpans().stream()
-                .flatMap(rs -> rs.scopeSpans().stream())
-                .mapToInt(ss -> ss.spans().size())
-                .sum();
-    }
-
-    private static long countLogRecords(LogsData logs) {
-        return logs.resourceLogs().stream()
-                .flatMap(rl -> rl.scopeLogs().stream())
-                .mapToInt(sl -> sl.logRecords().size())
-                .sum();
+                // Count via the allocation-free helper rather than the flattened accessor, which would
+                // materialize a full copy of every item just to read its size on each consumed batch.
+                LogsData::logRecordCount);
     }
 }

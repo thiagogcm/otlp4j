@@ -87,7 +87,7 @@ public final class OtlpE2eDemo {
                     .transform(Transforms.withTracesResourceAttribute(
                             "deployment.environment", AttributeValue.of("demo")))
                     .transform(Transforms.keepSpansWhere(span -> span.kind() == Span.Kind.SERVER))
-                    .filter(traces -> !traces.spans().isEmpty())
+                    .filter(traces -> traces.spanCount() != 0)
                     // Hand the backend exporter to the pipeline: subscription.shutdown() drains it
                     // within the shared deadline (method-ref facets can't be auto-discovered).
                     .owns(backendExporter)
@@ -117,7 +117,7 @@ public final class OtlpE2eDemo {
         }
 
         var atBackend = backendTraces.get();
-        var spans = atBackend == null ? 0 : atBackend.spans().size();
+        var spans = atBackend == null ? 0 : atBackend.spanCount();
         var environment = atBackend == null
                 ? "<none>"
                 : extractEnvironment(atBackend);
