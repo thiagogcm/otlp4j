@@ -2,6 +2,8 @@
 
 Application code normally depends on `otlp4j-api`, which transitively exposes `otlp4j-model`. Add `otlp4j-transport-grpc` and/or `otlp4j-transport-http` for the bundled OTLP/gRPC and OTLP/HTTP transports. Packages in the generated proto and codec modules are implementation details.
 
+otlp4j is an OTLP gateway/pipeline library: receive, process, observe, route, and forward OTLP batches. It is not the OpenTelemetry Java instrumentation SDK. For tracer/meter/logger APIs, span lifecycle and `SpanContext`, context propagation, resource detectors, and metric instruments, use the official OpenTelemetry Java API/SDK. otlp4j complements that SDK when emitted telemetry should flow through an embedded JVM gateway.
+
 Everything lives under the `dev.nthings.otlp4j` root. The types you import most often:
 
 | Type(s) | Package |
@@ -48,7 +50,7 @@ Each signal preserves OTLP's resource and instrumentation-scope grouping while p
 
 Each flattened accessor (`spans()`, `metrics()`, `logRecords()`, `profiles()`) walks the resource/scope grouping and allocates a fresh list on every call, so bind it to a local rather than re-calling it in a loop or on a hot path. On hot paths prefer the `forEach…` helper to visit items in the same order without the intermediate list, or the count helper to size a batch without flattening it — these are what batching and the count connectors use. (`MetricsData` has no naive count helper: the OTLP metric item count is nested data points, which the batching processor counts directly via `forEachMetric`.)
 
-Records copy incoming lists and are safe to share between fan-out peers. `Attributes` and the sealed `AttributeValue` hierarchy represent OTLP values. Builders are available for `Attributes`, `Span`, `Metric`, and `LogRecord`, plus the metric data points (`NumberPoint`, `HistogramPoint`, `ExponentialHistogramPoint`) and `Exemplar`; `NumberPoint`, `Exemplar`, and `SummaryPoint` also offer `of(...)` factories for the common case. The remaining records use canonical constructors. To avoid hand-nesting the resource/scope wrappers, each signal type has an `of(resource, scope, items)` factory, and `Resource.of(...)` / `InstrumentationScope.of(...)` cover the common cases:
+Records copy incoming lists and are safe to share between fan-out peers. `Attributes` and the sealed `AttributeValue` hierarchy represent OTLP values. Builders are available for `Attributes`, `Span`, `Metric`, and `LogRecord`, plus the metric data points (`NumberPoint`, `HistogramPoint`, `ExponentialHistogramPoint`) and `Exemplar`; `NumberPoint`, `Exemplar`, and `SummaryPoint` also offer `of(...)` factories for the common case. These builders are batch/model-construction helpers for OTLP payloads in the pipeline, not application instrumentation APIs. The remaining records use canonical constructors. To avoid hand-nesting the resource/scope wrappers, each signal type has an `of(resource, scope, items)` factory, and `Resource.of(...)` / `InstrumentationScope.of(...)` cover the common cases:
 
 ```java
 var batch = TraceData.of(Resource.of(attributes), InstrumentationScope.of("my.lib", "1.0"), spans);
