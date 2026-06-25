@@ -9,6 +9,7 @@ import dev.nthings.otlp4j.pipeline.FanOut;
 import dev.nthings.otlp4j.core.TraceSink;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -57,6 +58,27 @@ class FanOutTest {
         var fan = FanOut.<TraceData>of(broken, healthy);
         var result = fan.consume(new TraceData(List.of())).toCompletableFuture().join();
         assertThat(result).isInstanceOf(ConsumeResult.Rejected.class);
+    }
+
+    @DisplayName("Rejection message includes exception class when message is null")
+    @Test
+    void rejectionMessageIncludesExceptionClass() {
+        TraceSink broken = traces -> { throw new IllegalStateException(); };
+        var fan = FanOut.<TraceData>of(broken);
+        var result = fan.consume(new TraceData(List.of())).toCompletableFuture().join();
+        assertThat(result).isInstanceOfSatisfying(ConsumeResult.Rejected.class,
+                r -> assertThat(r.message()).contains("java.lang.IllegalStateException"));
+    }
+
+    @DisplayName("Rejection message unwraps CompletionException to show the cause")
+    @Test
+    void rejectionMessageUnwrapsCompletionException() {
+        TraceSink broken = traces -> CompletableFuture.failedFuture(
+                new CompletionException(new IllegalArgumentException("cause")));
+        var fan = FanOut.<TraceData>of(broken);
+        var result = fan.consume(new TraceData(List.of())).toCompletableFuture().join();
+        assertThat(result).isInstanceOfSatisfying(ConsumeResult.Rejected.class,
+                r -> assertThat(r.message()).contains("cause"));
     }
 
     @DisplayName("consume() merges peer Partial counts using the max")

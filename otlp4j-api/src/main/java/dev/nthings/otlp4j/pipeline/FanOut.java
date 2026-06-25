@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 
 /// A [Sink] that delivers the same batch to several peers concurrently.
@@ -57,11 +58,11 @@ public final class FanOut<T> implements Sink<T> {
                 peerStage = peers.get(i).consume(batch);
             } catch (Throwable t) {
                 peerStage = CompletableFuture.completedFuture(ConsumeResult.rejected(
-                        "peer[" + idx + "] threw: " + t.getMessage(), t));
+                        "peer[" + idx + "] threw: " + describe(t), t));
             }
             futures[i] = peerStage
                     .exceptionally(t -> ConsumeResult.<T>rejected(
-                            "peer[" + idx + "] failed: " + t.getMessage(), t))
+                            "peer[" + idx + "] failed: " + describe(t), t))
                     .toCompletableFuture();
         }
         return CompletableFuture.allOf(futures).thenApply(v -> {
@@ -71,5 +72,12 @@ public final class FanOut<T> implements Sink<T> {
             }
             return ConsumeResult.fanOutMerge(results);
         });
+    }
+
+    /// Describes a throwable for diagnostics, including its class and unwrapping the common
+    /// CompletionException wrapper so the underlying cause is visible.
+    private static String describe(Throwable t) {
+        var cause = t instanceof CompletionException ? t.getCause() : t;
+        return (cause != null ? cause : t).toString();
     }
 }
