@@ -159,10 +159,8 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, Flushable
             return CompletableFuture.completedFuture(null);
         }
         timer.cancel(false);
-        // Drain after any in-flight timer/forced drain. Read drainTail under
-        // drainMutex so scheduleDrain()/enqueueDrain() cannot race with this
-        // capture: either the new drain is ordered before us (and included in
-        // drainTail) or it observes closed and does not start.
+        // Capture drainTail under the same lock scheduleDrain uses, so any
+        // drain ordered before shutdown is included and no new one can start.
         final CompletableFuture<Void> drain;
         synchronized (drainMutex) {
             drain = drainTail.thenComposeAsync(ignored -> drainOnce(), drainExecutor);
@@ -198,9 +196,7 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, Flushable
 
     /// Fire-and-forget drain (size/timer); logs failures since nobody awaits it.
     private void scheduleDrain() {
-        // Closed is set by shutdown(); once true, no new drains may start.
-        // Double-check outside and inside the lock to keep the common path cheap
-        // and the race with shutdown atomic.
+        // Once shutdown starts, no new drains may be scheduled.
         if (closed.get()) {
             return;
         }
