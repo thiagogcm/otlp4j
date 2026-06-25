@@ -2,7 +2,7 @@
 /// `jdk.httpserver`. No gRPC or Netty dependency.
 module dev.nthings.otlp4j.transport.http {
     requires dev.nthings.otlp4j.model;
-    requires dev.nthings.otlp4j.api;
+    requires transitive dev.nthings.otlp4j.api;
     requires dev.nthings.otlp4j.codec;
     requires dev.nthings.otlp4j.proto;
     requires com.google.protobuf;

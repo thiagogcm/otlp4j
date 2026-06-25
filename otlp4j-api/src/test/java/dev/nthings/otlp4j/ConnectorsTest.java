@@ -13,7 +13,6 @@ import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.core.MetricSink;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

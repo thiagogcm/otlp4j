@@ -4,7 +4,6 @@ import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.core.Sink;
 import dev.nthings.otlp4j.core.Source;
 import dev.nthings.otlp4j.core.Subscription;
-import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicReference;

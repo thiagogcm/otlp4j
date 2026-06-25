@@ -10,7 +10,6 @@ import io.opentelemetry.proto.profiles.v1development.Profile;
 import io.opentelemetry.proto.profiles.v1development.ResourceProfiles;
 import io.opentelemetry.proto.profiles.v1development.ScopeProfiles;
 import java.util.ArrayList;
-import java.util.List;
 
 /// Maps profiles between generated proto types and [ProfilesData].
 ///

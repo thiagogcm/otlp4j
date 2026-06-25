@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
@@ -14,7 +14,7 @@
     <name>otlp4j-transport-grpc</name>
     <description>The OTLP/gRPC transport: the concrete OtlpGrpcExporter and OtlpGrpcReceiver built on
         gRPC + Netty. JPMS module dev.nthings.otlp4j.transport.grpc — the only module that pulls in
-        grpc-netty-shaded, so HTTP-only deployments never carry Netty. Proto mapping is shared with
+        grpc-netty, so HTTP-only deployments never carry Netty. Proto mapping is shared with
         the HTTP transport via otlp4j-codec.</description>
 
     <dependencies>
@@ -34,7 +34,7 @@
              specific interface and set the hardening limits the generic builder can't. -->
         <dependency>
             <groupId>io.grpc</groupId>
-            <artifactId>grpc-netty-shaded</artifactId>
+            <artifactId>grpc-netty</artifactId>
         </dependency>
         <!-- Logging facade only; no backend bound here. -->
         <dependency>

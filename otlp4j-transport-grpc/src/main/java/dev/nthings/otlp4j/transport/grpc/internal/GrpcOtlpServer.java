@@ -9,7 +9,7 @@ import io.grpc.InsecureServerCredentials;
 import io.grpc.Server;
 import io.grpc.ServerCredentials;
 import io.grpc.TlsServerCredentials;
-import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder;
+import io.grpc.netty.NettyServerBuilder;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.Duration;
@@ -22,21 +22,22 @@ import org.slf4j.LoggerFactory;
 
 /// OTLP/gRPC implementation of the [OtlpServer] SPI.
 ///
-/// Serves the four OTLP collector services and routes decoded requests to the per-signal
-/// [Dispatchers] the receiver supplies. [Tls] selects the server credentials:
-/// [Tls.Disabled] is plaintext and [Tls.Custom] supplies the server certificate and key.
+/// Serves the four OTLP collector services and routes decoded requests to the
+/// per-signal [Dispatchers] the receiver supplies. [Tls] selects the server
+/// credentials: [Tls.Disabled] is plaintext and [Tls.Custom] supplies the server
+/// certificate and key.
 ///
-/// Built on Netty's [NettyServerBuilder] so it can bind a specific interface (e.g. loopback-only)
-/// and apply the production-hardening limits from [ServerConfig]: a decoded-request cap,
-/// an optional per-connection concurrency cap, a handshake deadline, and an optional bounded
-/// executor.
+/// Built on Netty's [NettyServerBuilder] so it can bind a specific interface
+/// (e.g. loopback-only) and apply the production-hardening limits from
+/// [ServerConfig]: a decoded-request cap, an optional per-connection concurrency
+/// cap, a handshake deadline, and an optional bounded executor.
 public final class GrpcOtlpServer implements OtlpServer {
 
     private static final Logger log = LoggerFactory.getLogger(GrpcOtlpServer.class);
 
-    /// Runs each blocking termination wait on a virtual thread, not a common-pool worker.
-    private static final Executor SHUTDOWN_EXECUTOR =
-            task -> Thread.ofVirtual().name("otlp-grpc-shutdown").start(task);
+    /// Runs each blocking termination wait on a virtual thread, not a
+    /// common-pool worker.
+    private static final Executor SHUTDOWN_EXECUTOR = task -> Thread.ofVirtual().name("otlp-grpc-shutdown").start(task);
 
     private final ServerConfig config;
     private final Dispatchers dispatchers;
@@ -54,7 +55,7 @@ public final class GrpcOtlpServer implements OtlpServer {
             throw new IllegalStateException("server already started");
         }
         var builder = NettyServerBuilder.forAddress(
-                        Transports.bindAddress(config.bindHost(), config.port()), serverCredentials(config.tls()))
+                Transports.bindAddress(config.bindHost(), config.port()), serverCredentials(config.tls()))
                 .maxInboundMessageSize(config.maxInboundMessageSizeBytes())
                 .handshakeTimeout(config.handshakeTimeout().toNanos(), TimeUnit.NANOSECONDS);
         if (config.maxConcurrentCallsPerConnection() > 0) {

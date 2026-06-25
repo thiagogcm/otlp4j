@@ -14,7 +14,6 @@ import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 /// Maps OTLP common/resource types between the generated proto layer and the pure domain model,
 /// in both directions.
