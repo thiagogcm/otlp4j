@@ -10,7 +10,7 @@
     <packaging>pom</packaging>
 
     <name>otlp4j (parent)</name>
-    <description>OTLP4J: A modular OpenTelemetry Protocol SDK</description>
+    <description>OTLP4J: An OTLP gateway/pipeline library for Java</description>
 
     <modules>
         <module>otlp4j-model</module>
@@ -260,13 +260,13 @@
                     <groupId>org.jacoco</groupId>
                     <artifactId>jacoco-maven-plugin</artifactId>
                     <version>${jacoco-maven-plugin.version}</version>
-                    <!-- Shared coverage floor for the `check` goal: a one-directional ratchet.
-                         Only read by modules that opt in with a `check-coverage` execution
-                         (otlp4j-model/api/transport) — see docs/TEST_STRATEGY.md. The report and
-                         prepare-agent goals ignore these rules. The branch floor was
-                         temporarily relaxed from 0.85 to 0.80 during the streaming refactor
-                         (sdk-refactoring.md) to keep CI green while async/branch-heavy code
-                         paths land; ratchet it back to 0.85 once steady-state coverage stabilises. -->
+<!-- Shared coverage floor for the `check` goal: a one-directional ratchet.
+     Only read by modules that opt in with a `check-coverage` execution
+     (otlp4j-model/api/transport). The report and prepare-agent goals ignore
+     these rules. The branch floor was temporarily relaxed from 0.85 to 0.80
+     during the streaming refactor (sdk-refactoring.md) to keep CI green while
+     async/branch-heavy code paths land; ratchet it back to 0.85 once
+     steady-state coverage stabilises. -->
                     <configuration>
                         <rules>
                             <rule>

@@ -14,6 +14,7 @@ public record SummaryPoint(
         long flags) {
 
     public SummaryPoint {
+        flags = Ids.flags(flags);
         quantileValues = List.copyOf(quantileValues);
     }
 

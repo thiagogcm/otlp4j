@@ -18,6 +18,7 @@ public record NumberPoint(
         List<Exemplar> exemplars) {
 
     public NumberPoint {
+        flags = Ids.flags(flags);
         exemplars = List.copyOf(exemplars);
     }
 
