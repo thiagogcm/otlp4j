@@ -160,7 +160,12 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, Flushable
         }
         timer.cancel(false);
         // Drain after any in-flight timer drain, not through the shared chain.
-        var drain = drainTail.thenComposeAsync(ignored -> drainOnce(), drainExecutor);
+        // Read drainTail under the same lock used by enqueueDrain() so we cannot
+        // miss a drain that is being enqueued by the timer at this moment.
+        final CompletableFuture<Void> drain;
+        synchronized (drainMutex) {
+            drain = drainTail.thenComposeAsync(ignored -> drainOnce(), drainExecutor);
+        }
         return drain
                 .orTimeout(timeout.toNanos(), TimeUnit.NANOSECONDS)
                 .whenComplete((ignored, t) -> {
