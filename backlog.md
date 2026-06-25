@@ -1,201 +1,396 @@
-# API Hardening Backlog
+# Backlog
 
-Scope: pre-1.0 public API hardening — boundary, ergonomics, correctness, type hygiene, docs.
+## Metadata
 
-This backlog captures the pre-1.0 public-API hardening work for `otlp4j`. Each item is discrete and actionable, names the concrete files it touches, and lists its dependencies. The goal is to tighten the public boundary and stabilize ergonomics **before wider use**, without changing the high-level shape of the API (immutable records, signal-specific sinks, explicit transports, small pipeline DSL).
+Export shape: each epic and issue has a stable identifier, title, labels, acceptance criteria, and implementation context. Epic dependencies are declared in the epic and dependency matrix sections. Epic identifiers are semantic uppercase slugs. Issue identifiers append a two digit local sequence to the epic identifier.
 
-## Legend
+Evidence cites stable code symbols or tests rather than line numbers.
 
-- **Priority** — `P0` (before any release), `P1` (before wider use), `P2` (nice-to-have / before 1.0), `1.0` (decide before 1.0), `defer` (only when a real user need appears).
-- **Effort** — `S` (≤½ day), `M` (~1–2 days), `L` (≥3 days or design-heavy).
-- **Kind** — `decision` (produce a short written ADR-style note), `code`, `docs`, `policy`.
-- **Status** — `todo` for all items at creation.
+## Contract Ownership
 
-## Item Catalog
-
-### Decisions / spikes (gate downstream work)
-
-These produce a short written decision. They block documentation and policy items that must describe a final answer, so they are sequenced first even though several can be decided in parallel.
-
-#### DEC-1 — Decide secure-vs-plaintext and retry defaults · `P1` · `S` · decision
-
-Decide whether `otlp4j` keeps local-friendly defaults (plaintext `localhost:4317/4318`, receiver `0.0.0.0`, `RetryPolicy.none()`) or moves toward Go's secure-by-default plus default retry. Record the rationale either way. This is a policy call, not necessarily a code change.
-
-- **Output:** a decision note in `docs/` (or an ADR) stating the chosen defaults and why.
-- **Acceptance:** decision written; follow-up code/doc items (DOC-5, optionally COR-2 framing) reference it.
-
-#### DEC-2 — Decide final ID / flag / timestamp typing · `1.0` · `M` · decision
-
-Decide whether trace/span IDs stay lowercase-hex `String`, flags stay `long`, and timestamps stay `long` epoch-nanos, or move to `TraceId`/`SpanId`/`TraceFlags`/`Timestamp` value types. These types permeate the model, so the directional call should be made **before** investing in new builder surface (MOD-1). If "keep strings/longs," document that as final and keep validation strict.
-
-- **Acceptance:** decision written; MOD-1 builders adopt the chosen ID/flag types.
-
-### Boundary & stability
-
-#### BND-1 — Resolve the codec public/internal contradiction · `P0` · `M` · code + docs
-
-`otlp4j-codec/src/main/java/module-info.java` exports `dev.nthings.otlp4j.codec` **unqualified**, while `README.md`, `docs/public-api.md`, and `otlp4j-codec/pom.xml` call it internal. Pick one:
-
-- **(a) Keep internal:** restore a qualified `exports … to` the transports (resolve the reactor build-order problem the current comment cites — e.g. module ordering or a non-published module), so it is no longer visible on the module path.
-- **(b) Make supported:** add a deliberate codec facade, drop the "internal" language everywhere.
-- **Files:** `otlp4j-codec/src/main/java/module-info.java`, `otlp4j-codec/pom.xml`, `docs/public-api.md`, `README.md`.
-- **Acceptance:** export behavior and all prose agree; no module describes codec as internal while exporting it unqualified.
-
-### Documentation accuracy & UX
-
-#### DOC-3 — "Start Here" quickstart in `docs/public-api.md` · `P1` · `S` · docs
-
-Add a compact, task-oriented index with three code paths: receive-and-print, receive-transform-export, and construct-and-export a batch. Keep the existing reference content.
-
-- **Soft depends on:** MOD-1 (so copy-modify can appear in the transform example).
-
-#### DOC-4 — Lifecycle cheat sheet + ownership examples · `P2` · `M` · docs
-
-Add a one-page lifecycle cheat sheet plus runnable examples for count sinks (showing why `owns(...)` is needed), batcher auto-ownership, fan-out, and exporter-facet ownership.
-
-- **Soft depends on:** MOD-4 (transform examples).
-
-#### DOC-5 — Document deliberate default & env-var differences vs Go · `P1` · `S` · docs
-
-Surface, near every `fromEnvironment()` example, that `otlp4j` (a) defaults to plaintext plus no retry, (b) reads only general `OTEL_EXPORTER_OTLP_*` (no signal-specific overrides), and (c) the HTTP retry timeout behavior chosen in COR-2. Frame each as deliberate.
-
-- **Depends on:** DEC-1, COR-2.
-
-#### DOC-6 — Thread-safety & nullness summary for lifecycle classes · `P2` · `S` · docs
-
-Summarize concurrency/thread-safety for receivers, exporters, batchers, and subscriptions, and the nullness contract, in public docs.
-
-- **Soft depends on:** TYP-1.
-
-### Model ergonomics
-
-#### MOD-1 — Add `toBuilder()` to builder-backed model records · `P1` · `M` · code
-
-Add `toBuilder()` to `Span`, `Metric`, `LogRecord`, `NumberPoint`, `HistogramPoint`, `ExponentialHistogramPoint`, and `Exemplar` (all already have `builder()` but no copy path). This is the single highest-value change for custom transforms.
-
-- **Files:** the listed records under `otlp4j-model/src/main/java/dev/nthings/otlp4j/model/`.
-- **Soft depends on:** DEC-2 (final ID/flag types), TYP-1 (new code born `@NullMarked`).
-- **Acceptance:** each record round-trips `x.toBuilder().build().equals(x)`; flags re-validated.
-
-#### MOD-2 — Builder / copy helper for `SummaryPoint` · `P1` · `S` · code
-
-`SummaryPoint` has only an `of(...)` factory. Add a builder (and `toBuilder()`) consistent with the other points so it is copy-modifiable.
-
-#### MOD-3 — `withAttribute(...)` convenience on `Resource`, `InstrumentationScope`, `Attributes` · `P2` · `S` · code
-
-Resource/scope enrichment is common; `Attributes.toBuilder().put(...).build()` works but is verbose. Add a shorter path.
-
-- **Soft depends on:** MOD-1, TYP-1.
-
-#### MOD-4 — Transform helper layer (map spans / log records / resources) · `P1`–`P2` · `L` · code
-
-Custom transforms must reconstruct `ResourceSpans`/`ScopeSpans`/`ResourceMetrics`/… by hand. Add a narrow helper family — e.g. `Transforms.mapSpans(...)`, `Transforms.mapLogRecords(...)`, `Transforms.mapResources(...)` (and/or `TraceData.mapSpans(...)`) — that hides nested wrapper reconstruction. Keep it narrow: no query language.
-
-- **Files:** `otlp4j-api/.../processor/Transforms.java`, traversal helpers on `TraceData`/`MetricsData`/`LogsData`.
-- **Depends on:** MOD-1 (hard — map closures rebuild records via `toBuilder()`); soft on MOD-3.
-- **Acceptance:** a span/log/resource rewrite transform can be written without naming any `Resource*`/`Scope*` wrapper type; covered by an example (feeds DOC-3/DOC-4).
-
-### Correctness & validation
-
-#### COR-2 — HTTP retry timeout: shared deadline or documented per-attempt · `P1` · `M` · code/docs
-
-`HttpOtlpClient` applies `config.timeout()` per `HttpRequest` and sleeps between retries, so total export wall-clock can exceed the configured timeout. Either adopt one shared deadline across the retry loop (Go-like) or document the per-attempt semantics explicitly.
-
-- **Files:** `otlp4j-transport-http/.../HttpOtlpClient` (and config docs).
-- **Acceptance:** behavior matches the documented contract; if shared-deadline, a test asserts total time ≤ timeout (+ slack). Feeds DOC-5.
-
-### Type-system hygiene
-
-#### TYP-1 — Systematic nullness (`@NullMarked` + targeted `@Nullable`) · `P1` · `M` · code
-
-Only a few files are `@NullMarked` (`Metric`, `LogRecord`, `Exemplar`, `ThrowingConsumer`, `Transform`) while `org.jspecify` is exposed transitively. Apply package-level `@NullMarked` across public model/api packages and annotate intentional nullables (e.g. `ServerConfig.serverExecutor`, null-defaulting builder fields). Do this **before** adding new public API so new surface is born annotated.
-
-- **Acceptance:** every exported package is `@NullMarked`; intentional nullables carry `@Nullable`.
-
-#### TYP-2 — Use `Sink<? super T>` consistently · `P2` · `S` · code
-
-`Pipeline.Stage.to(Sink<T>)`, `Pipeline.Branch.fanOut(Sink<T>)`, and `FanOut.of(...)` are invariant in `T`, while `Source.subscribe` and `BatchingProcessor.Builder.downstream` use `? super T`. Make the contravariant bound consistent so generic sinks compose.
-
-- **Acceptance:** the three sites accept `Sink<? super T>`; existing call sites still compile.
-
-#### TYP-3 — Steer users toward `retryableRejected` / `permanentRejected` · `P2` · `S` · docs/code
-
-The generic `ConsumeResult.rejected(String)` is implicitly retryable and easy to pick by accident. Promote `retryableRejected(...)` / `permanentRejected(...)` in examples and the method-list Javadoc, and make retry semantics prominent. (Optionally `@Deprecated`-soft or rename in docs only.)
-
-- **Acceptance:** examples and Javadoc lead with the intent-revealing factories.
+- `docs/public-api.md` owns the public API contract, lifecycle contract, type-system contract, and usage examples.
+- `README.md` owns top-level project positioning and first-contact examples.
+- `docs/architecture.md` owns implementation architecture and lifecycle rationale.
+- This backlog owns sequencing and verification only.
 
 ## Dependency Matrix
 
-Hard = must land first. Soft = recommended-before (avoids rework) but not blocking.
+| Epic               | Depends on       | Related                                         | Blocks                               |
+| ------------------ | ---------------- | ----------------------------------------------- | ------------------------------------ |
+| BOUNDARY           | none             | PUBLIC-API-HYGIENE                              | DOCS                                 |
+| TYPE-SYSTEM        | none             | PUBLIC-API-HYGIENE                              | DELIVERY-SEMANTICS, MODEL-ERGONOMICS |
+| DELIVERY-SEMANTICS | TYPE-SYSTEM      | PUBLIC-API-HYGIENE                              | DOCS                                 |
+| MODEL-ERGONOMICS   | none             | TYPE-SYSTEM                                     | TRANSFORM-HELPERS                    |
+| TRANSFORM-HELPERS  | MODEL-ERGONOMICS | TYPE-SYSTEM, EXAMPLE-COVERAGE                   | DOCS                                 |
+| DOCS               | none             | BOUNDARY, DELIVERY-SEMANTICS, TRANSFORM-HELPERS | none                                 |
 
-| ID    | Title                             | Pri   | Eff | Hard deps    | Soft deps           | Wave |
-| ----- | --------------------------------- | ----- | --- | ------------ | ------------------- | ---- |
-| DEC-1 | Secure/retry defaults decision    | P1    | S   | —            | —                   | 0    |
-| DEC-2 | ID/flag/timestamp typing decision | 1.0   | M   | —            | —                   | 0    |
-| BND-1 | Codec boundary                    | P0    | M   | —            | —                   | 0    |
-| COR-2 | HTTP retry deadline               | P1    | M   | —            | DEC-1               | 1    |
-| TYP-1 | Systematic nullness               | P1    | M   | —            | —                   | 1    |
-| TYP-2 | `? super T` variance              | P2    | S   | —            | —                   | 1    |
-| MOD-1 | `toBuilder()` on records          | P1    | M   | —            | DEC-2, TYP-1        | 2    |
-| MOD-2 | `SummaryPoint` builder            | P1    | S   | —            | —                   | 2    |
-| MOD-3 | `withAttribute(...)` helpers      | P2    | S   | —            | MOD-1, TYP-1        | 2    |
-| MOD-4 | Transform map helpers             | P1–P2 | L   | MOD-1        | MOD-3               | 3    |
-| TYP-3 | `ConsumeResult` steering          | P2    | S   | —            | —                   | 3    |
-| DOC-3 | "Start Here" quickstart           | P1    | S   | —            | MOD-1               | 4    |
-| DOC-4 | Lifecycle cheat sheet             | P2    | M   | —            | MOD-4               | 4    |
-| DOC-5 | Go default/env-var diffs          | P1    | S   | DEC-1, COR-2 | —                   | 4    |
-| DOC-6 | Thread-safety/nullness docs       | P2    | S   | —            | TYP-1               | 4    |
+## Epic: BOUNDARY
 
-### Dependency graph
+Title: Public boundary and module stability
 
-Solid arrows are hard dependencies (prerequisite → dependent); dashed arrows are soft (recommended-before).
+Depends on: none
 
-```mermaid
-flowchart LR
-  DEC1[DEC-1 defaults]
-  DEC2[DEC-2 typing]
-  COR2[COR-2 HTTP retry]
-  TYP1[TYP-1 nullness]
-  BND1[BND-1 codec]
-  MOD1[MOD-1 toBuilder]
-  MOD2[MOD-2 SummaryPoint]
-  MOD3[MOD-3 withAttribute]
-  MOD4[MOD-4 transform helpers]
-  DOC3[DOC-3 quickstart]
-  DOC4[DOC-4 lifecycle docs]
-  DOC5[DOC-5 Go diffs]
+Related: PUBLIC-API-HYGIENE
 
-  MOD1 --> MOD4
-  DEC1 --> DOC5
-  COR2 --> DOC5
+Labels: code, docs
 
-  DEC2 -.-> MOD1
-  TYP1 -.-> MOD1
-  MOD1 -.-> MOD3
-  TYP1 -.-> MOD3
-  MOD3 -.-> MOD4
-  MOD1 -.-> DOC3
-  MOD4 -.-> DOC4
-  DEC1 -.-> COR2
-```
+Intent: Remove contradictions between the JPMS export surface and the documented public API. Users should be able to tell which packages are supported without reading implementation comments.
 
-`MOD-1` is the central unblock: it gates the transform-helper layer (MOD-4) and the copy-modify examples in the docs. Every other hard chain is shallow (depth ≤ 2); `DEC-1 → COR-2 → DOC-5` is the only other multi-step path.
+### Issue: BOUNDARY-01
 
-## Suggested Execution Order
+Title: Resolve codec public/internal contradiction
 
-Waves group items that can proceed in parallel; later waves consume earlier outputs. Within a wave, order is flexible.
+Labels: code, docs
 
-```mermaid
-flowchart LR
-  W0["Wave 0<br/>Decisions + P0 codec/doc fixes"] --> W1["Wave 1<br/>Correctness + nullness baseline"] --> W2["Wave 2<br/>Model ergonomics"] --> W3["Wave 3<br/>Composability helpers"] --> W4["Wave 4<br/>Docs UX"]
-```
+Acceptance criteria:
 
-**Wave 0 — Decisions & cheap factual fixes (unblocks everything; mostly `S`).** Land DEC-1, DEC-2 (write the decisions), BND-1 (P0 codec boundary). These are low-risk and remove the documentation/boundary contradictions that most damage perceived stability.
+- `dev.nthings.otlp4j.codec` is either hidden behind qualified exports or documented as supported public API.
+- `README.md`, `docs/public-api.md`, and `otlp4j-codec/pom.xml` use the same ownership language as `otlp4j-codec/src/main/java/module-info.java`.
+- If codec remains internal, public signatures in the codec package are not advertised as stable and do not leak into the application API guide.
+- If codec becomes supported, public facades avoid exposing generated proto details unless that exposure is deliberate and documented.
+- The reactor build still succeeds after the export decision.
 
-**Wave 1 — Low-risk correctness & type hygiene (independent; do `TYP-1` before any new API).** COR-2, TYP-1, TYP-2. Establishing the `@NullMarked` baseline (TYP-1) here means the Wave-2 builder surface is born correct.
+Context:
 
-**Wave 2 — Model ergonomics.** MOD-1 (the keystone), MOD-2, MOD-3. Built on TYP-1.
+- Keeping codec internal means restoring qualified exports to the transport modules or introducing another non-public module boundary that works with the build.
+- Making codec supported means adding a deliberate facade and removing internal-only language from docs and metadata.
 
-**Wave 3 — Composability helpers.** MOD-4 (needs MOD-1) and TYP-3. This is where reusable redaction/enrichment transforms become easy.
+Evidence / gap:
 
-**Wave 4 — Docs UX & policy.** DOC-5 (needs DEC-1 plus COR-2), DOC-3, DOC-4, DOC-6. Documentation now describes final defaults, the new copy/transform ergonomics.
+- `module dev.nthings.otlp4j.codec` exports `dev.nthings.otlp4j.codec` unqualified.
+- `docs/public-api.md`, `README.md`, and `otlp4j-codec/pom.xml` describe generated proto and codec packages as implementation details.
+- `TraceMapper`, `MetricsMapper`, `LogsMapper`, `ProfilesMapper`, and `SignalResponses` are public codec types and expose generated proto types in signatures.
+
+## Epic: TYPE-SYSTEM
+
+Title: Type-system hygiene and result semantics
+
+Depends on: none
+
+Related: PUBLIC-API-HYGIENE
+
+Labels: code, docs
+
+Intent: Make the public API easier to compose and harder to misuse by tightening nullness, variance, and rejection semantics before adding more surface area.
+
+### Issue: TYPE-SYSTEM-01
+
+Title: Apply systematic nullness annotations
+
+Labels: code
+
+Acceptance criteria:
+
+- Every exported package is covered by `@NullMarked` at package scope or an equivalent package-level declaration.
+- Intentional nullable fields, parameters, and builder defaults carry targeted `@Nullable` annotations.
+- New public API added by later epics is born under the same nullness contract.
+
+Context:
+
+- Apply this before new builder and transform APIs so follow-on work does not need annotation cleanup.
+- Prefer package-level declarations over file-by-file annotations where possible.
+
+Evidence / gap:
+
+- Current public code contains individual `@NullMarked` usage on symbols such as `Metric`, `LogRecord`, `Exemplar`, `ThrowingConsumer`, and `Transform`.
+- Exported package declarations such as `dev.nthings.otlp4j.model`, `dev.nthings.otlp4j.core`, `dev.nthings.otlp4j.pipeline`, and `dev.nthings.otlp4j.config` are not consistently declared null-marked.
+- Nullable-returning or nullable-accepting public API points such as `Attributes.get`, `Attributes.getString`, `ServerConfig.serverExecutor`, and `Tls.Custom` are not consistently annotated.
+- JSpecify is part of the exposed API surface through `requires static transitive org.jspecify`.
+
+### Issue: TYPE-SYSTEM-02
+
+Title: Make sink composition contravariant
+
+Labels: code
+
+Acceptance criteria:
+
+- `Pipeline.Stage.to`, `Pipeline.Branch.fanOut`, and `FanOut.of` accept `Sink<? super T>` where composition allows it.
+- Existing call sites compile without casts or source changes.
+- Tests or compile coverage demonstrate a sink of a supertype can receive a subtype signal.
+
+Context:
+
+- `Source.subscribe` and `BatchingProcessor.Builder.downstream` already accept `Sink<? super T>`.
+- Aligning the rest of the pipeline API avoids surprising generic invariance at branch and terminal boundaries.
+
+Evidence / gap:
+
+- `Pipeline.Stage.to(Sink<T>)`, `Pipeline.Branch.fanOut(Sink<T>)`, and `FanOut.of(...)` are invariant.
+- `Source.subscribe(Sink<? super T>)` and `BatchingProcessor.Builder.downstream(Sink<? super T>)` already use contravariance.
+
+### Issue: TYPE-SYSTEM-03
+
+Title: Steer users toward explicit rejection factories
+
+Labels: docs, code
+
+Acceptance criteria:
+
+- Public examples prefer `ConsumeResult.retryableRejected(...)` and `ConsumeResult.permanentRejected(...)` over generic `ConsumeResult.rejected(...)` when retry intent matters.
+- Javadocs and docs make retry semantics prominent before listing lower-level factories.
+- Internal call sites prefer explicit factories when retry intent is known; generic `ConsumeResult.rejected(...)` remains only where deliberately retained as a low-level alias.
+- Any decision to deprecate, hide, or retain `ConsumeResult.rejected(...)` is reflected consistently in code and docs.
+
+Context:
+
+- `ConsumeResult.rejected(String)` is retryable by convention because it has no cause.
+- Intent-revealing factories reduce accidental retry behavior in custom sinks.
+
+Evidence / gap:
+
+- `ConsumeResult.rejected`, `ConsumeResult.retryableRejected`, and `ConsumeResult.permanentRejected` all exist on the public result type.
+- `ConsumeResult.Rejected` Javadoc and `docs/public-api.md` now describe retryable and permanent factories as the intent-revealing path.
+- Internal call sites in `Pipeline.StageImpl`, `FanOut`, `BatchingProcessor`, `CountConnector`, codec response mapping, and tests still use the generic rejected factory in several paths.
+
+## Epic: DELIVERY-SEMANTICS
+
+Title: Delivery failure normalization
+
+Depends on: TYPE-SYSTEM
+
+Related: PUBLIC-API-HYGIENE
+
+Labels: code, docs
+
+Intent: Make sink failure handling predictable at every delivery boundary so users can reason about whether exceptions become structured `ConsumeResult` values or transport-level failures.
+
+### Issue: DELIVERY-SEMANTICS-01
+
+Title: Normalize synchronous sink exceptions at composition boundaries
+
+Labels: code, docs
+
+Acceptance criteria:
+
+- `Pipeline.Stage.to(...)` converts synchronous exceptions thrown by a terminal sink into an explicit permanent rejection instead of letting them escape the source dispatch path.
+- `CountConnector` applies `FailurePolicy` consistently when its downstream metric sink throws synchronously or returns a failed stage.
+- `SignalSource.dispatch(...)` and transport receiver behavior explicitly document whether direct subscriber exceptions are transported as failures or normalized into `ConsumeResult.Rejected`.
+- Tests cover synchronous terminal throws, asynchronous terminal failures, synchronous count-connector downstream throws, and the documented receiver dispatch behavior.
+
+Context:
+
+- `Sink.accepting(...)`, `Sink.fromStage(...)`, and `FanOut.consume(...)` already normalize ordinary `Exception` failures into rejected results.
+- Composition boundaries should not depend on whether user code used an adapter factory or implemented `Sink.consume(...)` by hand.
+- Receiver dispatch may intentionally preserve thrown exceptions as transport-level failures, but that behavior should be explicit and covered.
+
+Evidence / gap:
+
+- `Pipeline.StageImpl.to(...)` catches stage-function `RuntimeException`s but calls `terminal.consume(after)` without guarding synchronous terminal failures.
+- `CountConnector.consume(...)` calls `downstream.consume(metric).thenApply(this::applyPolicy)` without guarding synchronous throws or failed stages from the downstream metric sink.
+- `SignalSource.dispatch(...)` currently forwards `typed.consume(batch)` directly while its comment says synchronous and asynchronous failures propagate so the transport returns an internal error.
+
+## Epic: MODEL-ERGONOMICS
+
+Title: Copy-modifiable model records
+
+Depends on: none
+
+Related: TYPE-SYSTEM
+
+Labels: code
+
+Intent: Make immutable OTLP model records practical for custom construction and transformation without forcing users to manually reconstruct every field.
+
+### Issue: MODEL-ERGONOMICS-01
+
+Title: Add `toBuilder()` to builder-backed model records
+
+Labels: code
+
+Acceptance criteria:
+
+- `Span`, `Metric`, `LogRecord`, `NumberPoint`, `HistogramPoint`, `ExponentialHistogramPoint`, and `Exemplar` each expose `toBuilder()`.
+- For each listed record, `value.toBuilder().build().equals(value)` holds in tests.
+- Builder-backed ID, flag, and timestamp fields preserve the current public representation unless separate value-object APIs are deliberately introduced and documented first.
+- Existing validation remains enforced through builders and canonical constructors.
+
+Context:
+
+- This is the central unblocker for ergonomic redaction, enrichment, and copy-modify transforms.
+- Sequence this after nullness work when possible so new builder methods inherit the package contract.
+
+Evidence / gap:
+
+- `Span.builder`, `Metric.builder`, `LogRecord.builder`, `NumberPoint.builder`, `HistogramPoint.builder`, `ExponentialHistogramPoint.builder`, and `Exemplar.builder` exist.
+- `Attributes.toBuilder()` exists as the copy-modify precedent, but the listed builder-backed records do not expose the same path.
+- No current public `TraceId`, `SpanId`, `TraceFlags`, or `Timestamp` value-object types exist, so copy helpers should not introduce those representations incidentally.
+
+### Issue: MODEL-ERGONOMICS-02
+
+Title: Add builder and copy helper for `SummaryPoint`
+
+Labels: code
+
+Acceptance criteria:
+
+- `SummaryPoint.builder()` exists and follows the style of other metric point builders.
+- `SummaryPoint.toBuilder()` round-trips through `build()` without changing equality.
+- Existing `SummaryPoint.of(...)` construction remains available for terse common-case creation.
+
+Context:
+
+- Summary points are the only metric point shape without a builder-backed copy path.
+- Aligning point construction keeps metric transforms consistent across data kinds.
+
+Evidence / gap:
+
+- `SummaryPoint.of(...)` exists.
+- `NumberPoint`, `HistogramPoint`, and `ExponentialHistogramPoint` already have builder APIs.
+
+### Issue: MODEL-ERGONOMICS-03
+
+Title: Add attribute enrichment conveniences
+
+Labels: code
+
+Acceptance criteria:
+
+- `Resource`, `InstrumentationScope`, and `Attributes` expose a concise way to add or replace one attribute.
+- The convenience preserves immutability and existing validation behavior.
+- Existing `Attributes.toBuilder().put(...).build()` call sites continue to compile.
+- Resource-attribute transform helpers are updated to use the convenience once available.
+
+Context:
+
+- Resource and scope enrichment is common in gateway pipelines.
+- A small convenience method reduces noise in examples and transform implementations.
+
+Evidence / gap:
+
+- `Attributes.toBuilder()` supports copy-modify, but enrichment currently requires a builder round trip.
+- `Resource` and `InstrumentationScope` expose factory-style construction but no direct `withAttribute(...)` convenience.
+- `Transforms.withTracesResourceAttribute`, `withMetricsResourceAttribute`, `withLogsResourceAttribute`, and `withProfilesResourceAttribute` currently perform the builder round trip internally.
+
+## Epic: TRANSFORM-HELPERS
+
+Title: Narrow transform helper layer
+
+Depends on: MODEL-ERGONOMICS
+
+Related: TYPE-SYSTEM, EXAMPLE-COVERAGE
+
+Labels: code
+
+Intent: Let users write common redaction and enrichment transforms without manually naming OTLP resource and scope wrapper records.
+
+### Issue: TRANSFORM-HELPERS-01
+
+Title: Add map helpers for spans, log records, and resources
+
+Labels: code
+
+Acceptance criteria:
+
+- A span rewrite transform can be written without naming `TraceData.ResourceSpans` or `TraceData.ScopeSpans`.
+- A log record rewrite transform can be written without naming `LogsData.ResourceLogs` or `LogsData.ScopeLogs`.
+- A resource rewrite transform can be written for traces, metrics, logs, and profiles without manually reconstructing wrapper records.
+- Map helpers preserve empty-resource and empty-scope behavior deliberately, with pruning behavior documented for helpers that can drop records.
+- At least one example covers redaction or enrichment through the helper layer.
+
+Context:
+
+- Keep this layer narrow: map records and resources, but do not introduce a query language or generalized traversal framework.
+- This depends on copy-modifiable model records so mapper callbacks can rebuild individual records ergonomically.
+
+Evidence / gap:
+
+- `Transforms.keepSpansWhere`, `Transforms.keepLogRecordsWhere`, and per-signal resource-attribute helpers already reconstruct wrapper records internally.
+- User-defined transforms still need to reconstruct `TraceData.ResourceSpans`, `TraceData.ScopeSpans`, `MetricsData.ResourceMetrics`, `MetricsData.ScopeMetrics`, `LogsData.ResourceLogs`, and `LogsData.ScopeLogs` by hand for general mapping.
+- Existing samples demonstrate resource enrichment and filtering, but not general redaction or record mapping through a helper layer.
+
+## Epic: DOCS
+
+Title: Documentation accuracy and first-run UX
+
+Depends on: none
+
+Related: BOUNDARY, TYPE-SYSTEM, DELIVERY-SEMANTICS, MODEL-ERGONOMICS, TRANSFORM-HELPERS, EXAMPLE-COVERAGE
+
+Labels: docs
+
+Intent: Make the public guide task-oriented and keep it synchronized with the hardened API surface so users can start, transform, export, and shut down pipelines correctly.
+
+### Issue: DOCS-01
+
+Title: Add a task-oriented Start Here guide
+
+Labels: docs
+
+Acceptance criteria:
+
+- `docs/public-api.md` starts with a compact task index or Start Here section.
+- The guide includes receive-and-print, receive-transform-export, and construct-and-export paths.
+- Transform examples use copy-modify APIs when those APIs are available.
+
+Context:
+
+- Keep the existing reference content, but add an entry point for users who need a first working path.
+- Sequence transform examples after model copy helpers to avoid teaching verbose reconstruction.
+
+Evidence / gap:
+
+- `docs/public-api.md` currently begins with package and concept reference material.
+- `README.md` has a compact first-contact example, but the public API guide does not have a dedicated Start Here section.
+- `docs/public-api.md` contains receive, transform, export, and model snippets, but they are not grouped as first-run task paths.
+
+### Issue: DOCS-02
+
+Title: Expand lifecycle cheat sheet and ownership examples
+
+Labels: docs
+
+Acceptance criteria:
+
+- Public docs include a lifecycle cheat sheet for receivers, subscriptions, processors, exporter facets, and explicit owners.
+- Examples show why `Stage.owns(...)` is needed for count sinks or other hidden downstream resources.
+- Examples cover batcher auto-ownership, fan-out, and exporter-facet ownership.
+- Cheat-sheet guidance explains which resources are auto-collected as `AutoCloseable` terminals or fan-out peers and which resources remain hidden behind lambdas/connectors.
+
+Context:
+
+- Lifecycle ownership is a frequent source of subtle leaks or double-shutdown confusion.
+- Keep examples runnable or directly adaptable to sample code.
+
+Evidence / gap:
+
+- `Pipeline.Stage.owns`, `Pipeline.Stage.to`, exporter facets, `BatchingProcessor`, and `Connectors` encode distinct ownership behavior.
+- `docs/public-api.md` documents shutdown order, exporter facets, fan-out ownership, batchers, and count-sink hidden ownership, but examples should be grouped into a concise cheat sheet.
+- `README.md` now includes exporter-facet lifecycle guidance, but the public API guide remains the contract owner for the complete lifecycle reference.
+
+### Issue: DOCS-03
+
+Title: Document thread-safety and nullness summaries
+
+Labels: docs
+
+Acceptance criteria:
+
+- Public docs summarize thread-safety for receivers, exporters, batchers, subscriptions, and taps.
+- Public docs summarize the nullness contract after systematic `@NullMarked` coverage lands.
+- The summary names any intentionally nullable builder or configuration fields.
+
+Context:
+
+- This should follow nullness cleanup so docs describe the implemented contract.
+- The summary should be concise and linked from lifecycle or public API reference sections.
+
+Evidence / gap:
+
+- `OtlpGrpcReceiver`, `OtlpHttpReceiver`, `OtlpGrpcExporter`, `OtlpHttpExporter`, `BatchingProcessor`, `Pipeline.PipelineSubscription`, and `TelemetryTap` define the concurrency-sensitive surface.
+- Public docs include lifecycle guidance but do not provide a single thread-safety and nullness summary.
+- Nullness summary remains blocked by TYPE-SYSTEM-01 because package-level nullness and targeted `@Nullable` annotations are incomplete.
+
+## Cross-Cutting Pillars
+
+### Pillar: PUBLIC-API-HYGIENE
+
+Blocks: BOUNDARY, TYPE-SYSTEM, DELIVERY-SEMANTICS, MODEL-ERGONOMICS, TRANSFORM-HELPERS, DOCS
+
+Summary: Public API additions should be deliberate, consistently documented, nullness-annotated, and compatible with the module boundary. This pillar keeps pre-1.0 hardening focused on stable ergonomics rather than expanding surface area opportunistically.
+
+### Pillar: EXAMPLE-COVERAGE
+
+Blocks: TRANSFORM-HELPERS, DOCS
+
+Summary: New ergonomics should be represented by examples that exercise realistic receive, transform, export, and shutdown flows. Examples are the verification bridge between API shape and user comprehension.
