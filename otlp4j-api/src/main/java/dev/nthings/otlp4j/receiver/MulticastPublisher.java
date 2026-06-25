@@ -8,16 +8,12 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.LongAdder;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /// Internal multicast [Flow.Publisher].
 ///
 /// Each subscription owns a bounded queue and a virtual-thread dispatcher; a slow subscriber
 /// drains its own queue under [TapOptions] without back-pressuring the producer.
 final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoCloseable {
-
-    private static final Logger log = LoggerFactory.getLogger(MulticastPublisher.class);
 
     private static final Flow.Subscription NO_OP_SUBSCRIPTION = new Flow.Subscription() {
         @Override public void request(long n) {}

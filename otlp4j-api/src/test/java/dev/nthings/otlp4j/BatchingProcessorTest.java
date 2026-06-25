@@ -43,7 +43,6 @@ class BatchingProcessorTest {
                 .downstream(downstream)
                 .maxBatchSize(3)
                 .queueCapacity(16)
-                .maxBatchAge(Duration.ofSeconds(30))
                 .build()) {
             for (var i = 0; i < 3; i++) {
                 batcher.consume(Fixtures.traceData(Fixtures.span("s" + i, Span.Kind.SERVER)))
@@ -67,7 +66,6 @@ class BatchingProcessorTest {
                 .downstream(downstream)
                 .maxBatchSize(100)
                 .queueCapacity(100)
-                .maxBatchAge(Duration.ofMillis(100))
                 .build()) {
             batcher.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
                     .toCompletableFuture().join();
@@ -88,7 +86,6 @@ class BatchingProcessorTest {
                 .downstream(downstream)
                 .maxBatchSize(100)
                 .queueCapacity(2)
-                .maxBatchAge(Duration.ofSeconds(30))
                 .dropPolicy(DropPolicy.DROP_NEWEST)
                 .build()) {
             batcher.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER))).toCompletableFuture().join();
@@ -179,7 +176,6 @@ class BatchingProcessorTest {
         try (var batcher = builder
                 .maxBatchSize(100)
                 .queueCapacity(1)
-                .maxBatchAge(Duration.ofSeconds(30))
                 .dropPolicy(DropPolicy.DROP_NEWEST)
                 .build()) {
             batcher.consume(warmup).toCompletableFuture().join();
@@ -199,7 +195,6 @@ class BatchingProcessorTest {
                 .downstream(downstream)
                 .maxBatchSize(100)
                 .queueCapacity(100)
-                .maxBatchAge(Duration.ofSeconds(30))
                 .build();
         batcher.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER))).toCompletableFuture().join();
         batcher.shutdown(Duration.ofSeconds(2)).toCompletableFuture().join();
@@ -223,7 +218,6 @@ class BatchingProcessorTest {
                 .downstream(stalling)
                 .maxBatchSize(1) // flush immediately on the first consume
                 .queueCapacity(16)
-                .maxBatchAge(Duration.ofSeconds(30))
                 .build();
         batcher.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
                 .toCompletableFuture().join();
@@ -246,7 +240,6 @@ class BatchingProcessorTest {
                 .downstream(rejecting)
                 .maxBatchSize(100) // no size-trigger; the queued batch drains on shutdown
                 .queueCapacity(100)
-                .maxBatchAge(Duration.ofSeconds(30))
                 .build();
         batcher.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
                 .toCompletableFuture().join();
@@ -269,7 +262,6 @@ class BatchingProcessorTest {
                 .downstream(failing)
                 .maxBatchSize(100)
                 .queueCapacity(100)
-                .maxBatchAge(Duration.ofSeconds(30))
                 .build();
         batcher.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
                 .toCompletableFuture().join();

@@ -41,7 +41,6 @@ class BatchingEdgesTest {
                 .downstream(downstream)
                 .maxBatchSize(2)
                 .queueCapacity(2)
-                .maxBatchAge(Duration.ofSeconds(30))
                 .dropPolicy(DropPolicy.BLOCK)
                 .build()) {
             for (var i = 0; i < 6; i++) {
@@ -63,7 +62,6 @@ class BatchingEdgesTest {
                 .downstream(downstream)
                 .maxBatchSize(10)
                 .queueCapacity(10)
-                .maxBatchAge(Duration.ofSeconds(30))
                 .build();
         batcher.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
         batcher.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
@@ -77,7 +75,6 @@ class BatchingEdgesTest {
                 .downstream(slow)
                 .maxBatchSize(100)
                 .queueCapacity(10)
-                .maxBatchAge(Duration.ofSeconds(30))
                 .build()) {
             batcher.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER))).toCompletableFuture().join();
             batcher.consume(Fixtures.traceData(Fixtures.span("b", Span.Kind.SERVER))).toCompletableFuture().join();
@@ -94,7 +91,7 @@ class BatchingEdgesTest {
             return ConsumeResult.acceptedStage();
         };
         try (var b = BatchingProcessor.forTraces().downstream(traceDownstream).maxBatchSize(1)
-                .queueCapacity(2).maxBatchAge(Duration.ofMinutes(1)).build()) {
+                .queueCapacity(2).build()) {
             b.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER))).toCompletableFuture().join();
             await().atMost(Duration.ofSeconds(2)).until(() -> traceCaptured.get() != null);
         }
@@ -104,7 +101,7 @@ class BatchingEdgesTest {
             return ConsumeResult.acceptedStage();
         };
         try (var b = BatchingProcessor.forMetrics().downstream(metricsDownstream).maxBatchSize(1)
-                .queueCapacity(2).maxBatchAge(Duration.ofMinutes(1)).build()) {
+                .queueCapacity(2).build()) {
             b.consume(Fixtures.metricsData(Fixtures.metric("m"))).toCompletableFuture().join();
             await().atMost(Duration.ofSeconds(2)).until(() -> metricsCaptured.get() != null);
         }
@@ -114,7 +111,7 @@ class BatchingEdgesTest {
             return ConsumeResult.acceptedStage();
         };
         try (var b = BatchingProcessor.forLogs().downstream(logsDownstream).maxBatchSize(1)
-                .queueCapacity(2).maxBatchAge(Duration.ofMinutes(1)).build()) {
+                .queueCapacity(2).build()) {
             b.consume(Fixtures.logsData(Fixtures.logRecord("hi", LogRecord.Severity.INFO))).toCompletableFuture().join();
             await().atMost(Duration.ofSeconds(2)).until(() -> logsCaptured.get() != null);
         }
@@ -124,7 +121,7 @@ class BatchingEdgesTest {
             return ConsumeResult.acceptedStage();
         };
         try (var b = BatchingProcessor.forProfiles().downstream(profilesDownstream).maxBatchSize(1)
-                .queueCapacity(2).maxBatchAge(Duration.ofMinutes(1)).build()) {
+                .queueCapacity(2).build()) {
             b.consume(Fixtures.profilesData(Fixtures.profile("p"))).toCompletableFuture().join();
             await().atMost(Duration.ofSeconds(2)).until(() -> profilesCaptured.get() != null);
         }
@@ -144,7 +141,6 @@ class BatchingEdgesTest {
                     .downstream(downstream)
                     .maxBatchSize(1000)
                     .queueCapacity(1000)
-                    .maxBatchAge(Duration.ofMillis(50))
                     .scheduler(scheduler)
                     .build()) {
                 batcher.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))

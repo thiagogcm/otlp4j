@@ -44,7 +44,6 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, Flushable
 
     private final Sink<? super T> downstream;
     private final int maxBatchSize;
-    private final Duration maxBatchAge;
     private final ArrayBlockingQueue<T> queue;
     private final DropPolicy dropPolicy;
     private final LongAdder drops;
@@ -69,7 +68,6 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, Flushable
     private BatchingProcessor(Builder<T> b) {
         this.downstream = Objects.requireNonNull(b.downstream, "downstream");
         this.maxBatchSize = b.maxBatchSize;
-        this.maxBatchAge = b.maxBatchAge;
         this.queue = new ArrayBlockingQueue<>(b.queueCapacity);
         this.dropPolicy = b.dropPolicy;
         this.drops = b.drops == null ? new LongAdder() : b.drops;
@@ -82,8 +80,7 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, Flushable
                 : b.scheduler;
         this.drainExecutor = Executors.newSingleThreadExecutor(
                 Thread.ofPlatform().daemon().name("otlp4j-batcher-drain").factory());
-        var ageNanos = b.maxBatchAge.toNanos();
-        this.timer = scheduler.scheduleAtFixedRate(this::flushIfDue, ageNanos, ageNanos, TimeUnit.NANOSECONDS);
+        this.timer = scheduler.scheduleAtFixedRate(this::flushIfDue, 0, 1, TimeUnit.SECONDS);
     }
 
     @Override
@@ -347,7 +344,6 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, Flushable
         private final ToLongFunction<T> itemCounter;
         private Sink<? super T> downstream;
         private int maxBatchSize = 512;
-        private Duration maxBatchAge = Duration.ofSeconds(5);
         private int queueCapacity = 2048;
         private DropPolicy dropPolicy = DropPolicy.DROP_NEWEST;
         private LongAdder drops;
@@ -368,13 +364,6 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, Flushable
         public Builder<T> maxBatchSize(int items) {
             if (items < 1) throw new IllegalArgumentException("maxBatchSize must be >= 1");
             this.maxBatchSize = items;
-            return this;
-        }
-
-        /// The age threshold at which a partially filled queue is flushed by the timer.
-        public Builder<T> maxBatchAge(Duration age) {
-            if (age.isZero() || age.isNegative()) throw new IllegalArgumentException("maxBatchAge must be > 0");
-            this.maxBatchAge = age;
             return this;
         }
 

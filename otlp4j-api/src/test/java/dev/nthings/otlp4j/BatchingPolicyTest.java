@@ -28,7 +28,6 @@ class BatchingPolicyTest {
                 .downstream(stuck)
                 .maxBatchSize(100)
                 .queueCapacity(2)
-                .maxBatchAge(Duration.ofSeconds(30))
                 .dropPolicy(DropPolicy.DROP_OLDEST)
                 .build()) {
             for (var i = 0; i < 5; i++) {
@@ -47,7 +46,6 @@ class BatchingPolicyTest {
                 .downstream(stuck)
                 .maxBatchSize(100)
                 .queueCapacity(2)
-                .maxBatchAge(Duration.ofSeconds(30))
                 .dropPolicy(DropPolicy.ERROR)
                 .build()) {
             batcher.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER))).toCompletableFuture().join();
@@ -66,7 +64,6 @@ class BatchingPolicyTest {
                 .downstream(stuck)
                 .maxBatchSize(100)
                 .queueCapacity(1)
-                .maxBatchAge(Duration.ofSeconds(30))
                 .dropPolicy(DropPolicy.DROP_NEWEST)
                 .dropCounter(counter)
                 .build()) {
@@ -89,7 +86,6 @@ class BatchingPolicyTest {
                 .downstream(downstream)
                 .maxBatchSize(100)
                 .queueCapacity(100)
-                .maxBatchAge(Duration.ofSeconds(30))
                 .build()) {
             batcher.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
                     .toCompletableFuture().join();
@@ -113,13 +109,6 @@ class BatchingPolicyTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
-    @DisplayName("maxBatchAge of zero throws IllegalArgumentException")
-    @Test
-    void rejectsZeroMaxBatchAge() {
-        assertThatThrownBy(() -> BatchingProcessor.forTraces().maxBatchAge(Duration.ZERO))
-                .isInstanceOf(IllegalArgumentException.class);
-    }
-
     @DisplayName("consume after shutdown returns Rejected")
     @Test
     void consumeAfterCloseReturnsRejected() {
@@ -128,7 +117,6 @@ class BatchingPolicyTest {
                 .downstream(downstream)
                 .maxBatchSize(10)
                 .queueCapacity(10)
-                .maxBatchAge(Duration.ofSeconds(30))
                 .build();
         batcher.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
         var r = batcher.consume(Fixtures.traceData(Fixtures.span("late", Span.Kind.SERVER)))
