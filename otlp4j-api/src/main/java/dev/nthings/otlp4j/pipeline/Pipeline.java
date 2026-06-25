@@ -244,10 +244,7 @@ public final class Pipeline {
             var deadlineNanos = deadlineNanos(timeout);
             var future = sourceSubscription.shutdown(timeout).toCompletableFuture();
             for (var resource : resources) {
-                future = future.thenCompose(v -> {
-                    var remaining = Duration.ofNanos(Math.max(0L, deadlineNanos - System.nanoTime()));
-                    return closeResource(resource, remaining);
-                });
+                future = future.thenCompose(v -> closeResource(resource, remaining(deadlineNanos)));
             }
             return future;
         }
@@ -258,10 +255,7 @@ public final class Pipeline {
             var chained = CompletableFuture.<Void>completedFuture(null);
             for (var resource : resources) {
                 if (resource instanceof Flushable f) {
-                    chained = chained.thenCompose(v -> {
-                        var remaining = Duration.ofNanos(Math.max(0L, deadlineNanos - System.nanoTime()));
-                        return f.forceFlush(remaining).toCompletableFuture();
-                    });
+                    chained = chained.thenCompose(v -> f.forceFlush(remaining(deadlineNanos)).toCompletableFuture());
                 }
             }
             return chained;
@@ -274,6 +268,16 @@ public final class Pipeline {
                 return Math.addExact(System.nanoTime(), timeout.toNanos());
             } catch (ArithmeticException e) {
                 return Long.MAX_VALUE;
+            }
+        }
+
+        /// Saturating subtraction of `System.nanoTime()` from `deadlineNanos`. Returns a non-negative
+        /// duration, or the largest possible duration if the subtraction would overflow.
+        private static Duration remaining(long deadlineNanos) {
+            try {
+                return Duration.ofNanos(Math.max(0L, Math.subtractExact(deadlineNanos, System.nanoTime())));
+            } catch (ArithmeticException e) {
+                return Duration.ofNanos(Long.MAX_VALUE);
             }
         }
 
