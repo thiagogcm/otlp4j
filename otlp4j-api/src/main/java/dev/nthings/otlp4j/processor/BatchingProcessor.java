@@ -80,7 +80,7 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, Flushable
                 : b.scheduler;
         this.drainExecutor = Executors.newSingleThreadExecutor(
                 Thread.ofPlatform().daemon().name("otlp4j-batcher-drain").factory());
-        this.timer = scheduler.scheduleAtFixedRate(this::flushIfDue, 0, 1, TimeUnit.SECONDS);
+        this.timer = scheduler.scheduleAtFixedRate(this::flushIfDue, 1, 1, TimeUnit.SECONDS);
     }
 
     @Override
@@ -159,8 +159,9 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, Flushable
             return CompletableFuture.completedFuture(null);
         }
         timer.cancel(false);
-        // Chain after any in-flight drain so shutdown can't report success mid-export.
-        return enqueueDrain()
+        // Drain after any in-flight timer drain, not through the shared chain.
+        var drain = drainTail.thenComposeAsync(ignored -> drainOnce(), drainExecutor);
+        return drain
                 .orTimeout(timeout.toNanos(), TimeUnit.NANOSECONDS)
                 .whenComplete((ignored, t) -> {
                     drainExecutor.shutdown();
@@ -182,6 +183,7 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, Flushable
     }
 
     private void flushIfDue() {
+        if (closed.get()) { return; }
         try {
             scheduleDrain();
         } catch (RejectedExecutionException rex) {
