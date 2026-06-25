@@ -200,7 +200,7 @@ class PipelineLifecycleTest {
         // not the full timeout handed to each).
         assertThat(first.closedWith.get()).isNotNull();
         assertThat(second.closedWith.get()).isNotNull();
-        assertThat(second.closedWith.get()).isLessThanOrEqualTo(first.closedWith.get());
+        assertThat(second.closedWith.get()).isLessThan(first.closedWith.get());
         // Sanity: neither received more than the original budget.
         assertThat(first.closedWith.get()).isLessThanOrEqualTo(Duration.ofSeconds(1));
     }
@@ -261,7 +261,7 @@ class PipelineLifecycleTest {
 
         assertThat(first.flushedWith.get()).isNotNull();
         assertThat(second.flushedWith.get()).isNotNull();
-        assertThat(second.flushedWith.get()).isLessThanOrEqualTo(first.flushedWith.get());
+        assertThat(second.flushedWith.get()).isLessThan(first.flushedWith.get());
         assertThat(first.flushedWith.get()).isLessThanOrEqualTo(Duration.ofSeconds(1));
     }
 

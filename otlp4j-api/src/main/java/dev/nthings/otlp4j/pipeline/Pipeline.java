@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import org.slf4j.Logger;
@@ -48,7 +49,7 @@ public final class Pipeline {
         /// Anything `observer` throws (exceptions and `Error`s alike) is caught and logged so it
         /// never affects the main path; for a demand-aware live stream use the receiver's
         /// `TelemetryTap`.
-        Stage<T> peek(java.util.function.Consumer<? super T> observer);
+        Stage<T> peek(Consumer<? super T> observer);
 
         /// Registers a lifecycle resource that the subscription drains on shutdown and flushes on
         /// forceFlush if it is [Flushable]. Use this for resources the pipeline can't reach as a
@@ -115,7 +116,7 @@ public final class Pipeline {
         }
 
         @Override
-        public Stage<T> peek(java.util.function.Consumer<? super T> observer) {
+        public Stage<T> peek(Consumer<? super T> observer) {
             Objects.requireNonNull(observer, "observer");
             Function<T, T> peek = batch -> {
                 if (batch != null) {
@@ -257,8 +258,10 @@ public final class Pipeline {
             var chained = CompletableFuture.<Void>completedFuture(null);
             for (var resource : resources) {
                 if (resource instanceof Flushable f) {
-                    var remaining = Duration.ofNanos(Math.max(0L, deadlineNanos - System.nanoTime()));
-                    chained = chained.thenCompose(v -> f.forceFlush(remaining).toCompletableFuture());
+                    chained = chained.thenCompose(v -> {
+                        var remaining = Duration.ofNanos(Math.max(0L, deadlineNanos - System.nanoTime()));
+                        return f.forceFlush(remaining).toCompletableFuture();
+                    });
                 }
             }
             return chained;
