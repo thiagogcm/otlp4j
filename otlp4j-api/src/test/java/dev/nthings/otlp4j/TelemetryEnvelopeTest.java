@@ -39,17 +39,17 @@ class TelemetryEnvelopeTest {
     @DisplayName("Sealed Telemetry switches exhaustively over all variants")
     @Test
     void sealedExhaustiveSwitch() {
-        var items = List.of(
+        List<Telemetry> items = List.of(
                 new Telemetry.Traces(new TraceData(List.of())),
                 new Telemetry.Metrics(new MetricsData(List.of())),
                 new Telemetry.Logs(new LogsData(List.of())),
                 new Telemetry.Profiles(new ProfilesData(List.of(), new byte[0])));
         for (var item : items) {
             var label = switch (item) {
-                case Telemetry.Traces t -> "T";
-                case Telemetry.Metrics m -> "M";
-                case Telemetry.Logs l -> "L";
-                case Telemetry.Profiles p -> "P";
+                case Telemetry.Traces _ -> "T";
+                case Telemetry.Metrics _ -> "M";
+                case Telemetry.Logs _ -> "L";
+                case Telemetry.Profiles _ -> "P";
             };
             assertThat(label).isIn("T", "M", "L", "P");
         }
