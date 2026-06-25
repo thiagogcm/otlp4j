@@ -159,9 +159,10 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, Flushable
             return CompletableFuture.completedFuture(null);
         }
         timer.cancel(false);
-        // Drain after any in-flight timer drain, not through the shared chain.
-        // Read drainTail under the same lock used by enqueueDrain() so we cannot
-        // miss a drain that is being enqueued by the timer at this moment.
+        // Drain after any in-flight timer/forced drain. Read drainTail under
+        // drainMutex so scheduleDrain()/enqueueDrain() cannot race with this
+        // capture: either the new drain is ordered before us (and included in
+        // drainTail) or it observes closed and does not start.
         final CompletableFuture<Void> drain;
         synchronized (drainMutex) {
             drain = drainTail.thenComposeAsync(ignored -> drainOnce(), drainExecutor);
@@ -188,7 +189,6 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, Flushable
     }
 
     private void flushIfDue() {
-        if (closed.get()) { return; }
         try {
             scheduleDrain();
         } catch (RejectedExecutionException rex) {
@@ -198,7 +198,22 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, Flushable
 
     /// Fire-and-forget drain (size/timer); logs failures since nobody awaits it.
     private void scheduleDrain() {
-        enqueueDrain().whenComplete((ignored, t) -> {
+        // Closed is set by shutdown(); once true, no new drains may start.
+        // Double-check outside and inside the lock to keep the common path cheap
+        // and the race with shutdown atomic.
+        if (closed.get()) {
+            return;
+        }
+        CompletableFuture<Void> drain;
+        synchronized (drainMutex) {
+            if (closed.get()) {
+                return;
+            }
+            drain = drainTail.thenComposeAsync(ignored -> drainOnce(), drainExecutor);
+            // Error-isolated so a failed drain doesn't block the next.
+            drainTail = drain.exceptionally(t -> null);
+        }
+        drain.whenComplete((ignored, t) -> {
             if (t != null) {
                 log.warn("flush failed", t);
             }
@@ -208,8 +223,7 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, Flushable
     /// Enqueues a serialized drain; the returned future completes when this drain's delivery does.
     private CompletableFuture<Void> enqueueDrain() {
         synchronized (drainMutex) {
-            var drain =
-                    drainTail.thenComposeAsync(ignored -> drainOnce(), drainExecutor);
+            var drain = drainTail.thenComposeAsync(ignored -> drainOnce(), drainExecutor);
             // Error-isolated so a failed drain doesn't block the next.
             drainTail = drain.exceptionally(t -> null);
             return drain;
