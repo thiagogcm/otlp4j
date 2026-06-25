@@ -253,10 +253,12 @@ public final class Pipeline {
 
         @Override
         public CompletionStage<Void> forceFlush(Duration timeout) {
+            var deadlineNanos = System.nanoTime() + timeout.toNanos();
             var chained = CompletableFuture.<Void>completedFuture(null);
             for (var resource : resources) {
                 if (resource instanceof Flushable f) {
-                    chained = chained.thenCompose(v -> f.forceFlush(timeout).toCompletableFuture());
+                    var remaining = Duration.ofNanos(Math.max(0L, deadlineNanos - System.nanoTime()));
+                    chained = chained.thenCompose(v -> f.forceFlush(remaining).toCompletableFuture());
                 }
             }
             return chained;

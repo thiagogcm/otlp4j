@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.OptionalDouble;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -82,6 +83,27 @@ class ConstructionValidationTest {
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("flags");
         // The maximum unsigned 32-bit value is accepted.
         assertThat(Span.builder().flags(0xFFFFFFFFL).build().flags()).isEqualTo(0xFFFFFFFFL);
+    }
+
+    @DisplayName("Metric point records reject flags outside the unsigned 32-bit range at construction")
+    @Test
+    void metricPointFlagsRejectedOutsideUnsignedIntRange() {
+        assertThatThrownBy(() -> new NumberPoint(Attributes.empty(), 0L, 0L, null, 0x1_0000_0001L, List.of()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("flags");
+        assertThatThrownBy(() -> new HistogramPoint(
+                Attributes.empty(), 0L, 0L, 0L, OptionalDouble.empty(), List.of(), List.of(),
+                OptionalDouble.empty(), OptionalDouble.empty(), -1L, List.of()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("flags");
+        assertThatThrownBy(() -> new ExponentialHistogramPoint(
+                Attributes.empty(), 0L, 0L, 0L, OptionalDouble.empty(), 0, 0L,
+                ExponentialHistogramPoint.Buckets.EMPTY, ExponentialHistogramPoint.Buckets.EMPTY,
+                OptionalDouble.empty(), OptionalDouble.empty(), 0.0, 0x1_0000_0001L, List.of()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("flags");
+        assertThatThrownBy(() -> new SummaryPoint(Attributes.empty(), 0L, 0L, 0L, 0.0, List.of(), -1L))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("flags");
+        // Maximum unsigned 32-bit value is accepted.
+        assertThat(new NumberPoint(Attributes.empty(), 0L, 0L, null, 0xFFFFFFFFL, List.of()).flags())
+                .isEqualTo(0xFFFFFFFFL);
     }
 
     @DisplayName("Span.Link and LogRecord validate their identifiers at construction")

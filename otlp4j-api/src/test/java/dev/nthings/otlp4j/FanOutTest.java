@@ -49,6 +49,16 @@ class FanOutTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    @DisplayName("Error-throwing peer is caught and does not block others")
+    @Test
+    void captureErrorThrowingPeer() {
+        TraceSink healthy = traces -> ConsumeResult.acceptedStage();
+        TraceSink broken = traces -> { throw new AssertionError("boom"); };
+        var fan = FanOut.<TraceData>of(broken, healthy);
+        var result = fan.consume(new TraceData(List.of())).toCompletableFuture().join();
+        assertThat(result).isInstanceOf(ConsumeResult.Rejected.class);
+    }
+
     @DisplayName("consume() merges peer Partial counts using the max")
     @Test
     void mergesRejectionCountsWithMax() {

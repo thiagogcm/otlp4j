@@ -234,6 +234,37 @@ class PipelineLifecycleTest {
                 .isLessThanOrEqualTo(Duration.ofSeconds(5));
     }
 
+    @DisplayName("forceFlush() shares one deadline across owned resources (shrinking remaining)")
+    @Test
+    void forceFlushSharesOneDeadlineAcrossResources() throws Exception {
+        var source = new ManualSource<TraceData>();
+
+        class RecordingFlushable implements Flushable, AutoCloseable {
+            final AtomicReference<Duration> flushedWith = new AtomicReference<>();
+            @Override public CompletionStage<Void> forceFlush(Duration timeout) {
+                flushedWith.set(timeout);
+                try {
+                    Thread.sleep(30);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                return CompletableFuture.completedFuture(null);
+            }
+            @Override public void close() {}
+        }
+        var first = new RecordingFlushable();
+        var second = new RecordingFlushable();
+        TraceSink terminal = traces -> ConsumeResult.acceptedStage();
+        var sub = Pipeline.from(source).owns(first).owns(second).to(terminal);
+
+        sub.forceFlush(Duration.ofSeconds(1)).toCompletableFuture().join();
+
+        assertThat(first.flushedWith.get()).isNotNull();
+        assertThat(second.flushedWith.get()).isNotNull();
+        assertThat(second.flushedWith.get()).isLessThanOrEqualTo(first.flushedWith.get());
+        assertThat(first.flushedWith.get()).isLessThanOrEqualTo(Duration.ofSeconds(1));
+    }
+
     @DisplayName("forceFlush() reaches a Flushable registered via owns()")
     @Test
     void forceFlushReachesOwnedFlushable() {

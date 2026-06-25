@@ -7,8 +7,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 /// End-to-end sample canary: runs the demo and asserts what reached the backend.
-///
-/// This also proves runtime transport discovery through the service-provider interface.
 @Timeout(30)
 @DisplayName("OTLP end-to-end demo")
 class OtlpE2eDemoTest {

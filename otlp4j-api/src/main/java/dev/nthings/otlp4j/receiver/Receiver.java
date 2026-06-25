@@ -13,7 +13,7 @@ import java.util.concurrent.CompletionStage;
 ///
 /// A receiver exposes one [Source] per signal — these are the typed attachment points the
 /// pipeline DSL consumes — plus a [TelemetryTap] for side-channel live streaming. Concrete
-/// receivers (`OtlpGrpcReceiver`, future `OtlpHttpReceiver`, etc.) implement this interface.
+/// receivers (`OtlpGrpcReceiver`, `OtlpHttpReceiver`, etc.) implement this interface.
 public interface Receiver extends Drainable {
 
     /// The trace ingest source.

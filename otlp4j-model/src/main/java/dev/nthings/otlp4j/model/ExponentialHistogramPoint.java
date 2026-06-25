@@ -26,6 +26,7 @@ public record ExponentialHistogramPoint(
         List<Exemplar> exemplars) {
 
     public ExponentialHistogramPoint {
+        flags = Ids.flags(flags);
         exemplars = List.copyOf(exemplars);
     }
 

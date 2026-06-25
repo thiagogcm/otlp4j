@@ -55,9 +55,9 @@ public final class FanOut<T> implements Sink<T> {
             CompletionStage<ConsumeResult<T>> peerStage;
             try {
                 peerStage = peers.get(i).consume(batch);
-            } catch (RuntimeException e) {
+            } catch (Throwable t) {
                 peerStage = CompletableFuture.completedFuture(ConsumeResult.rejected(
-                        "peer[" + idx + "] threw: " + e.getMessage(), e));
+                        "peer[" + idx + "] threw: " + t.getMessage(), t));
             }
             futures[i] = peerStage
                     .exceptionally(t -> ConsumeResult.<T>rejected(

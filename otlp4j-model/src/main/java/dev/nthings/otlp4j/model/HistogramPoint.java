@@ -25,6 +25,7 @@ public record HistogramPoint(
         List<Exemplar> exemplars) {
 
     public HistogramPoint {
+        flags = Ids.flags(flags);
         bucketCounts = List.copyOf(bucketCounts);
         explicitBounds = List.copyOf(explicitBounds);
         exemplars = List.copyOf(exemplars);
