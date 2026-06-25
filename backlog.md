@@ -1,6 +1,5 @@
 # API Hardening Backlog
 
-Date: 2026-06-24
 Scope: pre-1.0 public API hardening — boundary, ergonomics, correctness, type hygiene, docs.
 
 This backlog captures the pre-1.0 public-API hardening work for `otlp4j`. Each item is discrete and actionable, names the concrete files it touches, and lists its dependencies. The goal is to tighten the public boundary and stabilize ergonomics **before wider use**, without changing the high-level shape of the API (immutable records, signal-specific sinks, explicit transports, small pipeline DSL).
@@ -23,7 +22,7 @@ These produce a short written decision. They block documentation and policy item
 Decide whether `otlp4j` keeps local-friendly defaults (plaintext `localhost:4317/4318`, receiver `0.0.0.0`, `RetryPolicy.none()`) or moves toward Go's secure-by-default plus default retry. Record the rationale either way. This is a policy call, not necessarily a code change.
 
 - **Output:** a decision note in `docs/` (or an ADR) stating the chosen defaults and why.
-- **Acceptance:** decision written; follow-up code/doc items (DOC-5, BND-2, optionally COR-2 framing) reference it.
+- **Acceptance:** decision written; follow-up code/doc items (DOC-5, optionally COR-2 framing) reference it.
 
 #### DEC-2 — Decide final ID / flag / timestamp typing · `1.0` · `M` · decision
 
@@ -38,20 +37,9 @@ Decide whether trace/span IDs stay lowercase-hex `String`, flags stay `long`, an
 `otlp4j-codec/src/main/java/module-info.java` exports `dev.nthings.otlp4j.codec` **unqualified**, while `README.md`, `docs/public-api.md`, and `otlp4j-codec/pom.xml` call it internal. Pick one:
 
 - **(a) Keep internal:** restore a qualified `exports … to` the transports (resolve the reactor build-order problem the current comment cites — e.g. module ordering or a non-published module), so it is no longer visible on the module path.
-- **(b) Make supported:** add a deliberate codec facade, drop the "internal" language everywhere, and add it to the stability policy (BND-2).
+- **(b) Make supported:** add a deliberate codec facade, drop the "internal" language everywhere.
 - **Files:** `otlp4j-codec/src/main/java/module-info.java`, `otlp4j-codec/pom.xml`, `docs/public-api.md`, `README.md`.
 - **Acceptance:** export behavior and all prose agree; no module describes codec as internal while exporting it unqualified.
-
-#### BND-2 — Publish an API stability policy per module/package · `1.0` · `S` · policy
-
-There is no stability statement beyond `0.1.0-SNAPSHOT` and scattered `@Experimental` notes. Add a short policy naming which modules/packages are supported, which are experimental (profiles, `spi`), and what may change pre-1.0.
-
-- **Depends on:** BND-1 (codec classification), DEC-1, DEC-2.
-- **Acceptance:** a stability section exists in `docs/` and is linked from `README.md`.
-
-#### BND-3 — BOM / starter artifact · `defer` · `M` · code
-
-Once publishing starts, a Maven BOM would ease aligning `otlp4j-api` plus a transport. Defer until publishing is real.
 
 ### Documentation accuracy & UX
 
@@ -172,46 +160,32 @@ The generic `ConsumeResult.rejected(String)` is implicitly retryable and easy to
 
 - **Acceptance:** examples and Javadoc lead with the intent-revealing factories.
 
-### Deferred / explicitly out of scope (do not build now)
-
-| ID | Item | Why deferred |
-| --- | --- | --- |
-| DEF-1 | Advanced transport escape hatches (`WithGRPCConn`/`WithHTTPClient`/proxy/`maxRequestSize`) | Add only under real extension pressure; small surface is an advantage. |
-| DEF-2 | OTLP/JSON codec + public codec/request facade | Only if test-fixture / Collector-interop demand appears. Tied to BND-1(b). |
-| DEF-3 | Signal-specific env-var overrides (`OTEL_EXPORTER_OTLP_TRACES_*`) | Intentionally out of scope; one exporter drives all signals. Document, don't build. |
-| DEF-4 | Metric temporality / aggregation selectors | Only if `otlp4j` becomes an instrumentation-SDK exporter. |
-| DEF-5 | Service-loader transport discovery | Only with a real plugin/distribution use case. |
-| DEF-6 | Mutable, collector-`pdata`-style model | Never; solve mutation needs with `toBuilder()` plus map helpers. |
-
 ## Dependency Matrix
 
 Hard = must land first. Soft = recommended-before (avoids rework) but not blocking.
 
-| ID | Title | Pri | Eff | Hard deps | Soft deps | Wave |
-| --- | --- | --- | --- | --- | --- | --- |
-| DEC-1 | Secure/retry defaults decision | P1 | S | — | — | 0 |
-| DEC-2 | ID/flag/timestamp typing decision | 1.0 | M | — | — | 0 |
-| BND-1 | Codec boundary | P0 | M | — | — | 0 |
-| DOC-1 | Stale/contradictory comments | P0 | S | — | — | 0 |
-| DOC-2 | "SDK" wording + dead ref | P1 | S | — | — | 0 |
-| COR-1 | Metric-point flags validation | P1 | S | — | — | 1 |
-| COR-2 | HTTP retry deadline | P1 | M | — | DEC-1 | 1 |
-| COR-3 | FanOut catch `Throwable` | P1 | S | — | — | 1 |
-| COR-4 | Shared flush deadline | P1 | S | — | — | 1 |
-| TYP-1 | Systematic nullness | P1 | M | — | — | 1 |
-| TYP-2 | `? super T` variance | P2 | S | — | — | 1 |
-| MOD-1 | `toBuilder()` on records | P1 | M | — | COR-1, DEC-2, TYP-1 | 2 |
-| MOD-2 | `SummaryPoint` builder | P1 | S | — | COR-1 | 2 |
-| MOD-3 | `withAttribute(...)` helpers | P2 | S | — | MOD-1, TYP-1 | 2 |
-| MOD-4 | Transform map helpers | P1–P2 | L | MOD-1 | MOD-3 | 3 |
-| TYP-3 | `ConsumeResult` steering | P2 | S | — | — | 3 |
-| DOC-3 | "Start Here" quickstart | P1 | S | — | MOD-1 | 4 |
-| DOC-4 | Lifecycle cheat sheet | P2 | M | — | COR-4, MOD-4 | 4 |
-| DOC-5 | Go default/env-var diffs | P1 | S | DEC-1, COR-2 | — | 4 |
-| DOC-6 | Thread-safety/nullness docs | P2 | S | — | TYP-1 | 4 |
-| BND-2 | API stability policy | 1.0 | S | BND-1, DEC-1, DEC-2 | — | 4 |
-| BND-3 | BOM / starter | defer | M | (publishing) | — | — |
-| DEF-1..6 | Deferred items | defer | — | (real demand) | — | — |
+| ID    | Title                             | Pri   | Eff | Hard deps    | Soft deps           | Wave |
+| ----- | --------------------------------- | ----- | --- | ------------ | ------------------- | ---- |
+| DEC-1 | Secure/retry defaults decision    | P1    | S   | —            | —                   | 0    |
+| DEC-2 | ID/flag/timestamp typing decision | 1.0   | M   | —            | —                   | 0    |
+| BND-1 | Codec boundary                    | P0    | M   | —            | —                   | 0    |
+| DOC-1 | Stale/contradictory comments      | P0    | S   | —            | —                   | 0    |
+| DOC-2 | "SDK" wording + dead ref          | P1    | S   | —            | —                   | 0    |
+| COR-1 | Metric-point flags validation     | P1    | S   | —            | —                   | 1    |
+| COR-2 | HTTP retry deadline               | P1    | M   | —            | DEC-1               | 1    |
+| COR-3 | FanOut catch `Throwable`          | P1    | S   | —            | —                   | 1    |
+| COR-4 | Shared flush deadline             | P1    | S   | —            | —                   | 1    |
+| TYP-1 | Systematic nullness               | P1    | M   | —            | —                   | 1    |
+| TYP-2 | `? super T` variance              | P2    | S   | —            | —                   | 1    |
+| MOD-1 | `toBuilder()` on records          | P1    | M   | —            | COR-1, DEC-2, TYP-1 | 2    |
+| MOD-2 | `SummaryPoint` builder            | P1    | S   | —            | COR-1               | 2    |
+| MOD-3 | `withAttribute(...)` helpers      | P2    | S   | —            | MOD-1, TYP-1        | 2    |
+| MOD-4 | Transform map helpers             | P1–P2 | L   | MOD-1        | MOD-3               | 3    |
+| TYP-3 | `ConsumeResult` steering          | P2    | S   | —            | —                   | 3    |
+| DOC-3 | "Start Here" quickstart           | P1    | S   | —            | MOD-1               | 4    |
+| DOC-4 | Lifecycle cheat sheet             | P2    | M   | —            | COR-4, MOD-4        | 4    |
+| DOC-5 | Go default/env-var diffs          | P1    | S   | DEC-1, COR-2 | —                   | 4    |
+| DOC-6 | Thread-safety/nullness docs       | P2    | S   | —            | TYP-1               | 4    |
 
 ### Dependency graph
 
@@ -233,14 +207,10 @@ flowchart LR
   DOC3[DOC-3 quickstart]
   DOC4[DOC-4 lifecycle docs]
   DOC5[DOC-5 Go diffs]
-  BND2[BND-2 stability policy]
 
   MOD1 --> MOD4
   DEC1 --> DOC5
   COR2 --> DOC5
-  BND1 --> BND2
-  DEC1 --> BND2
-  DEC2 --> BND2
 
   COR1 -.-> MOD1
   DEC2 -.-> MOD1
@@ -263,7 +233,7 @@ Waves group items that can proceed in parallel; later waves consume earlier outp
 
 ```mermaid
 flowchart LR
-  W0["Wave 0<br/>Decisions + P0 codec/doc fixes"] --> W1["Wave 1<br/>Correctness + nullness baseline"] --> W2["Wave 2<br/>Model ergonomics"] --> W3["Wave 3<br/>Composability helpers"] --> W4["Wave 4<br/>Docs UX + stability policy"] --> WD["Deferred<br/>BND-3, DEF-1..6"]
+  W0["Wave 0<br/>Decisions + P0 codec/doc fixes"] --> W1["Wave 1<br/>Correctness + nullness baseline"] --> W2["Wave 2<br/>Model ergonomics"] --> W3["Wave 3<br/>Composability helpers"] --> W4["Wave 4<br/>Docs UX"]
 ```
 
 **Wave 0 — Decisions & cheap factual fixes (unblocks everything; mostly `S`).** Land DEC-1, DEC-2 (write the decisions), BND-1 (P0 codec boundary), DOC-1 (P0 stale comments), DOC-2 ("SDK" wording). These are low-risk and remove the documentation/boundary contradictions that most damage perceived stability.
@@ -274,6 +244,4 @@ flowchart LR
 
 **Wave 3 — Composability helpers.** MOD-4 (needs MOD-1) and TYP-3. This is where reusable redaction/enrichment transforms become easy.
 
-**Wave 4 — Docs UX & policy.** DOC-5 (needs DEC-1 plus COR-2), DOC-3, DOC-4, DOC-6, BND-2. Documentation now describes final defaults, the new copy/transform ergonomics, and a stability policy.
-
-**Deferred.** BND-3 and DEF-1..6 — only when publishing or a concrete user need lands.
+**Wave 4 — Docs UX & policy.** DOC-5 (needs DEC-1 plus COR-2), DOC-3, DOC-4, DOC-6. Documentation now describes final defaults, the new copy/transform ergonomics.
