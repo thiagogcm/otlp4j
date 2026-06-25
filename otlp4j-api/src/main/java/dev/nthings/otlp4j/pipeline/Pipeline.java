@@ -241,7 +241,7 @@ public final class Pipeline {
         /// auto-collected terminals.
         @Override
         public CompletionStage<Void> shutdown(Duration timeout) {
-            var deadlineNanos = System.nanoTime() + timeout.toNanos();
+            var deadlineNanos = deadlineNanos(timeout);
             var future = sourceSubscription.shutdown(timeout).toCompletableFuture();
             for (var resource : resources) {
                 future = future.thenCompose(v -> {
@@ -254,7 +254,7 @@ public final class Pipeline {
 
         @Override
         public CompletionStage<Void> forceFlush(Duration timeout) {
-            var deadlineNanos = System.nanoTime() + timeout.toNanos();
+            var deadlineNanos = deadlineNanos(timeout);
             var chained = CompletableFuture.<Void>completedFuture(null);
             for (var resource : resources) {
                 if (resource instanceof Flushable f) {
@@ -265,6 +265,16 @@ public final class Pipeline {
                 }
             }
             return chained;
+        }
+
+        /// Saturating addition of `timeout` to `System.nanoTime()` so a very large duration cannot
+        /// overflow and wrap negative.
+        private static long deadlineNanos(Duration timeout) {
+            try {
+                return Math.addExact(System.nanoTime(), timeout.toNanos());
+            } catch (ArithmeticException e) {
+                return Long.MAX_VALUE;
+            }
         }
 
         private static CompletionStage<Void> closeResource(AutoCloseable resource, Duration timeout) {
