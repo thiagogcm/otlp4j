@@ -142,7 +142,7 @@ public sealed interface ConsumeResult<T> permits ConsumeResult.Accepted, Consume
         return new Partial<>(maxRejected, messages == null ? "" : messages.toString());
     }
 
-    private static StringBuilder appendMessage(StringBuilder buf, String msg) {
+    private static StringBuilder appendMessage(@Nullable StringBuilder buf, String msg) {
         if (msg == null || msg.isEmpty()) {
             return buf;
         }
