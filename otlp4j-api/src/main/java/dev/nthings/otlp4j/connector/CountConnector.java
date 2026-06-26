@@ -58,7 +58,7 @@ final class CountConnector<I> implements Sink<I> {
         // Normalize a throw or failed stage so applyPolicy governs the input.
         CompletionStage<ConsumeResult<MetricsData>> downstreamStage;
         try {
-            downstreamStage = downstream.consume(metric);
+            downstreamStage = Objects.requireNonNull(downstream.consume(metric), "downstream returned a null stage");
         } catch (Exception e) {
             downstreamStage = CompletableFuture.completedFuture(rejectedDownstream("threw", e));
         }
