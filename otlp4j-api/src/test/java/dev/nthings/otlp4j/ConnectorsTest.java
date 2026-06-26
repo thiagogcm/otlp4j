@@ -1,6 +1,7 @@
 package dev.nthings.otlp4j;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.nthings.otlp4j.connector.Connectors;
 import dev.nthings.otlp4j.connector.FailurePolicy;
@@ -15,6 +16,7 @@ import dev.nthings.otlp4j.core.MetricSink;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.util.ArrayList;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -143,6 +145,19 @@ class ConnectorsTest {
         var result = connector.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
                 .toCompletableFuture().join();
         assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+    }
+
+    @DisplayName("An Error from the downstream stage propagates and is not swallowed by BEST_EFFORT")
+    @Test
+    void downstreamStageErrorPropagatesEvenUnderBestEffort() {
+        var overflow = new StackOverflowError("downstream error");
+        MetricSink downstream = metrics -> CompletableFuture.failedStage(overflow);
+        // BEST_EFFORT would normally turn a downstream rejection into Accepted; an Error must escape it.
+        var connector = Connectors.spanCount(downstream);
+        assertThatThrownBy(() -> connector.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
+                .toCompletableFuture().join())
+                .isInstanceOf(CompletionException.class)
+                .hasCauseReference(overflow);
     }
 
     @DisplayName("Delta window starts at a real time and the next window is contiguous")
