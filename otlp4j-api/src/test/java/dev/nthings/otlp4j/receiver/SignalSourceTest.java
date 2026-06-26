@@ -9,6 +9,8 @@ import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.core.TraceSink;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.time.Duration;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -57,7 +59,7 @@ class SignalSourceTest {
         }
     }
 
-    @DisplayName("dispatch propagates exceptions thrown by the consumer")
+    @DisplayName("dispatch propagates a synchronous subscriber throw verbatim (transport-level failure)")
     @Test
     void dispatchPropagatesSinkException() {
         var source = new SignalSource<>(TraceData.class);
@@ -68,6 +70,23 @@ class SignalSourceTest {
                     source.dispatch(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER))))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessageContaining("boom");
+        } finally {
+            sub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
+        }
+    }
+
+    @DisplayName("dispatch propagates an asynchronous subscriber failure verbatim (transport-level failure)")
+    @Test
+    void dispatchPropagatesAsyncSinkFailure() {
+        var source = new SignalSource<>(TraceData.class);
+        TraceSink c = traces -> CompletableFuture.failedFuture(new IllegalStateException("async boom"));
+        var sub = source.subscribe(c);
+        try {
+            var stage = source.dispatch(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)));
+            assertThatThrownBy(() -> stage.toCompletableFuture().join())
+                .isInstanceOf(CompletionException.class)
+                .hasRootCauseInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("async boom");
         } finally {
             sub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
         }
