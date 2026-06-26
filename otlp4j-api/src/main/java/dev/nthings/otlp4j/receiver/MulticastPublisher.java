@@ -8,6 +8,7 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.LongAdder;
+import org.jspecify.annotations.Nullable;
 
 /// Internal multicast [Flow.Publisher].
 ///
@@ -87,7 +88,7 @@ final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoCloseable {
         private final Semaphore demand = new Semaphore(0);
         private final AtomicBoolean cancelled = new AtomicBoolean();
         private final AtomicBoolean dispatcherRunning = new AtomicBoolean();
-        private volatile Thread dispatcher;
+        private volatile @Nullable Thread dispatcher;
 
         SubscriptionImpl(
                 Flow.Subscriber<? super T> subscriber,

@@ -1,13 +1,11 @@
 package dev.nthings.otlp4j.model;
 
 import java.util.Objects;
-import org.jspecify.annotations.NullMarked;
 
 /// A single log record. Mirrors `opentelemetry.proto.logs.v1.LogRecord`.
 ///
 /// `body` is an arbitrary [AttributeValue]. Trace and span identifiers are lowercase-hex strings
 /// when present. Prefer [#builder()] over the positional constructor.
-@NullMarked
 public record LogRecord(
         long epochNanos,
         long observedEpochNanos,

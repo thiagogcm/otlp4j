@@ -2,13 +2,11 @@ package dev.nthings.otlp4j.model;
 
 import java.util.List;
 import java.util.Objects;
-import org.jspecify.annotations.NullMarked;
 
 /// A named metric and its time series. Mirrors `opentelemetry.proto.metrics.v1.Metric`.
 ///
 /// The `data` field is a non-null [sealed type][Data]; the empty [NoData] variant models the
 /// wire `DATA_NOT_SET` form (round-tripped faithfully), so [#data()] is never null.
-@NullMarked
 public record Metric(String name, String description, String unit, Data data, Attributes metadata) {
 
     public Metric {

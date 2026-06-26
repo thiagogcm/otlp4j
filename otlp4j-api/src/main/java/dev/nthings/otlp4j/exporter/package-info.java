@@ -4,4 +4,7 @@
 /// (`traces()`, `metrics()`, `logs()`, `profiles()`) that delegate lifecycle (`shutdown`,
 /// `forceFlush`, `close`) to the owning exporter. Implement `Exporter` for a custom single-signal
 /// terminal with flush and shutdown hooks.
+@NullMarked
 package dev.nthings.otlp4j.exporter;
+
+import org.jspecify.annotations.NullMarked;

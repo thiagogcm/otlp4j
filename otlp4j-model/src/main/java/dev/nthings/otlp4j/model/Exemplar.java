@@ -1,7 +1,6 @@
 package dev.nthings.otlp4j.model;
 
 import java.util.Objects;
-import org.jspecify.annotations.NullMarked;
 import org.jspecify.annotations.Nullable;
 
 /// An exemplar attached to a metric data point. Mirrors
@@ -15,7 +14,6 @@ import org.jspecify.annotations.Nullable;
 /// trace, and rejected at construction time if not valid hex. `value` reuses
 /// [NumberPoint.Value]; it may be null for an invalid exemplar whose wire `value` oneof
 /// recognized neither an integer nor a double.
-@NullMarked
 public record Exemplar(
         Attributes filteredAttributes,
         long epochNanos,

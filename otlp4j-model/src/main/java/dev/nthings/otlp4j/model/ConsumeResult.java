@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import org.jspecify.annotations.Nullable;
 
 /// The outcome of feeding one batch of signal `T` to a sink.
 ///
@@ -47,7 +48,7 @@ public sealed interface ConsumeResult<T> permits ConsumeResult.Accepted, Consume
     /// `UNAVAILABLE`), while a non-null `cause` means the rejection is **permanent** and must not
     /// be retried (mapped to gRPC `INTERNAL`). Prefer the [#retryableRejected(String)] and
     /// [#permanentRejected(String, Throwable)] factories to make that intent explicit.
-    record Rejected<T>(String message, Throwable cause) implements ConsumeResult<T> {
+    record Rejected<T>(String message, @Nullable Throwable cause) implements ConsumeResult<T> {
 
         public Rejected {
             message = message == null ? "" : message;
@@ -70,7 +71,7 @@ public sealed interface ConsumeResult<T> permits ConsumeResult.Accepted, Consume
     }
 
     /// Returns a [Rejected] result wrapping the given throwable.
-    static <T> ConsumeResult<T> rejected(String message, Throwable cause) {
+    static <T> ConsumeResult<T> rejected(String message, @Nullable Throwable cause) {
         return new Rejected<>(message, cause);
     }
 

@@ -3,6 +3,7 @@ package dev.nthings.otlp4j.model;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import org.jspecify.annotations.Nullable;
 
 /// A scalar data point for a [Metric.Gauge] or [Metric.Sum]. Mirrors
 /// `opentelemetry.proto.metrics.v1.NumberDataPoint`.
@@ -13,7 +14,7 @@ public record NumberPoint(
         Attributes attributes,
         long startEpochNanos,
         long epochNanos,
-        Value value,
+        @Nullable Value value,
         long flags,
         List<Exemplar> exemplars) {
 
@@ -58,7 +59,7 @@ public record NumberPoint(
         private Attributes attributes = Attributes.empty();
         private long startEpochNanos;
         private long epochNanos;
-        private Value value;
+        private @Nullable Value value;
         private long flags;
         private final List<Exemplar> exemplars = new ArrayList<>();
 

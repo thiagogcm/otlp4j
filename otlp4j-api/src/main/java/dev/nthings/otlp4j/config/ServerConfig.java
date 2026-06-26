@@ -3,6 +3,7 @@ package dev.nthings.otlp4j.config;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.concurrent.Executor;
+import org.jspecify.annotations.Nullable;
 
 /// Configuration for an OTLP receiver transport.
 ///
@@ -25,7 +26,7 @@ public record ServerConfig(
         int maxInboundMessageSizeBytes,
         int maxConcurrentCallsPerConnection,
         Duration handshakeTimeout,
-        Executor serverExecutor) {
+        @Nullable Executor serverExecutor) {
 
     /// gRPC's own default decoded-message cap (4 MiB); used when the builder is left untouched.
     public static final int DEFAULT_MAX_INBOUND_MESSAGE_SIZE_BYTES = 4 * 1024 * 1024;
@@ -75,7 +76,7 @@ public record ServerConfig(
         private int maxInboundMessageSizeBytes = DEFAULT_MAX_INBOUND_MESSAGE_SIZE_BYTES;
         private int maxConcurrentCallsPerConnection = 0;
         private Duration handshakeTimeout = Duration.ofSeconds(20);
-        private Executor serverExecutor = null;
+        private @Nullable Executor serverExecutor = null;
 
         private Builder() {}
 
@@ -117,7 +118,7 @@ public record ServerConfig(
 
         /// Supplies the executor that runs the service handlers. `null` (the default) uses gRPC's
         /// own executor; pass a BOUNDED pool to cap the work the receiver will admit concurrently.
-        public Builder serverExecutor(Executor serverExecutor) {
+        public Builder serverExecutor(@Nullable Executor serverExecutor) {
             this.serverExecutor = serverExecutor;
             return this;
         }

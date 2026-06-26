@@ -1,7 +1,5 @@
 package dev.nthings.otlp4j.core;
 
-import org.jspecify.annotations.NullMarked;
-
 /// A side-effecting consumer of one signal batch that is allowed to throw.
 ///
 /// This is the lambda shape passed to [Sink#accepting(ThrowingConsumer)] and the per-signal
@@ -10,7 +8,6 @@ import org.jspecify.annotations.NullMarked;
 /// be written without manually returning `ConsumeResult.acceptedStage()`.
 ///
 /// @param <T> the OTLP signal carried by this consumer
-@NullMarked
 @FunctionalInterface
 public interface ThrowingConsumer<T> {
 

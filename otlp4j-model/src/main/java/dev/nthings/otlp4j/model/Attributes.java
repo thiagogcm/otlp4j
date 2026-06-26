@@ -5,6 +5,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import org.jspecify.annotations.Nullable;
 
 /// An immutable, insertion-ordered collection of OpenTelemetry attributes (string keys to
 /// [AttributeValue]s), decoupled from the wire `repeated KeyValue` representation.
@@ -41,12 +42,12 @@ public final class Attributes {
     }
 
     /// Returns the value for `key`, or `null` if absent.
-    public AttributeValue get(String key) {
+    public @Nullable AttributeValue get(String key) {
         return values.get(key);
     }
 
     /// Returns the string value of `key`, or `null` if absent or not a string.
-    public String getString(String key) {
+    public @Nullable String getString(String key) {
         return values.get(key) instanceof AttributeValue.StringValue s ? s.value() : null;
     }
 
