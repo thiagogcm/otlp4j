@@ -65,7 +65,7 @@ public final class Pipeline {
 
         /// Terminates the pipeline by delivering to `terminal`. Returns the subscription that
         /// owns the wiring.
-        Subscription to(Sink<T> terminal);
+        Subscription to(Sink<? super T> terminal);
 
         /// Terminates the pipeline by delivering to `terminal`, also registering `owner` as a
         /// lifecycle resource so the subscription drains it on shutdown and flushes it on
@@ -73,7 +73,7 @@ public final class Pipeline {
         /// the terminal is a bare lambda sink whose owning resource the pipeline cannot otherwise
         /// infer. Exporter facets such as `exporter.traces()` already carry their owner, so the
         /// one-arg `to(terminal)` suffices for them.
-        default Subscription to(Sink<T> terminal, AutoCloseable owner) {
+        default Subscription to(Sink<? super T> terminal, AutoCloseable owner) {
             return owns(owner).to(terminal);
         }
     }
@@ -82,7 +82,7 @@ public final class Pipeline {
     public sealed interface Branch<T> permits BranchImpl {
 
         /// Adds a peer consumer to the fan-out.
-        Branch<T> fanOut(Sink<T> peer);
+        Branch<T> fanOut(Sink<? super T> peer);
 
         /// Closes the branch, attaches the fan-out to the source, and returns the subscription.
         Subscription join();
@@ -152,7 +152,7 @@ public final class Pipeline {
         }
 
         @Override
-        public Subscription to(Sink<T> terminal) {
+        public Subscription to(Sink<? super T> terminal) {
             Objects.requireNonNull(terminal, "terminal");
             Sink<T> chain = batch -> {
                 @Nullable T after;
@@ -165,7 +165,7 @@ public final class Pipeline {
                 if (after == null) {
                     return ConsumeResult.acceptedStage();
                 }
-                return terminal.consume(after);
+                return retag(terminal.consume(after));
             };
             var leafResources = leafResources(terminal);
             return new PipelineSubscription(source.subscribe(chain), combine(resources, leafResources));
@@ -175,14 +175,14 @@ public final class Pipeline {
     private static final class BranchImpl<T> implements Branch<T> {
 
         private final StageImpl<T> stage;
-        private final List<Sink<T>> peers = new ArrayList<>();
+        private final List<Sink<? super T>> peers = new ArrayList<>();
 
         BranchImpl(StageImpl<T> stage) {
             this.stage = stage;
         }
 
         @Override
-        public Branch<T> fanOut(Sink<T> peer) {
+        public Branch<T> fanOut(Sink<? super T> peer) {
             peers.add(Objects.requireNonNull(peer, "peer"));
             return this;
         }
@@ -194,6 +194,13 @@ public final class Pipeline {
             }
             return stage.to(FanOut.of(peers));
         }
+    }
+
+    /// Retags the terminal's supertype-tagged result as `ConsumeResult<T>`; sound because
+    /// [ConsumeResult] holds no `T`-typed data, so its type parameter is a phantom tag.
+    @SuppressWarnings("unchecked")
+    private static <T> CompletionStage<ConsumeResult<T>> retag(CompletionStage<?> stage) {
+        return (CompletionStage<ConsumeResult<T>>) stage;
     }
 
     private static List<AutoCloseable> leafResources(Sink<?> terminal) {
