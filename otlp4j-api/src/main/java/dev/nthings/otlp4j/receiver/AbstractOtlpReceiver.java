@@ -17,6 +17,7 @@ import java.io.UncheckedIOException;
 import java.time.Duration;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Function;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -42,10 +43,10 @@ public abstract class AbstractOtlpReceiver implements Receiver {
     protected AbstractOtlpReceiver(
             String transportName,
             Function<Dispatchers, OtlpServer> serverFactory,
-            TraceSink onTraces,
-            MetricSink onMetrics,
-            LogSink onLogs,
-            ProfileSink onProfiles) {
+            @Nullable TraceSink onTraces,
+            @Nullable MetricSink onMetrics,
+            @Nullable LogSink onLogs,
+            @Nullable ProfileSink onProfiles) {
         this.transportName = transportName;
         var dispatchers = new Dispatchers(
                 this::dispatchTraces,

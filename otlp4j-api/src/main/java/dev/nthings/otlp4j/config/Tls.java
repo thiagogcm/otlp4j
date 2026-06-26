@@ -29,7 +29,7 @@ public sealed interface Tls permits Tls.Disabled, Tls.SystemTrust, Tls.Custom {
     /// TLS with a caller-supplied certificate, key, and (optional) trust material. On a server the
     /// certificate and key are required; on a client they enable mutual TLS and `trustFile`, when
     /// non-null, overrides the default trust store.
-    static Tls custom(Path certFile, Path keyFile, Path trustFile) {
+    static Tls custom(Path certFile, Path keyFile, @Nullable Path trustFile) {
         return new Custom(certFile, keyFile, trustFile);
     }
 

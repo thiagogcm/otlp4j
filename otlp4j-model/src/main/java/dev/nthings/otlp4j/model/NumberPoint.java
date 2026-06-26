@@ -8,8 +8,9 @@ import org.jspecify.annotations.Nullable;
 /// A scalar data point for a [Metric.Gauge] or [Metric.Sum]. Mirrors
 /// `opentelemetry.proto.metrics.v1.NumberDataPoint`.
 ///
-/// The point's value is a [sealed type][Value] — either an integer or a double. `exemplars`
-/// carry the trace/span links sampled for this point (empty when none were recorded).
+/// The point's value is a [sealed type][Value] — either an integer or a double — or `null` when
+/// the wire `value` oneof was unset. `exemplars` carry the trace/span links sampled for this point
+/// (empty when none were recorded).
 public record NumberPoint(
         Attributes attributes,
         long startEpochNanos,
