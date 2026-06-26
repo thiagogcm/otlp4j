@@ -242,6 +242,28 @@ class PipelineTest {
         }
     }
 
+    @DisplayName("A terminal that sneaky-throws a checked exception is normalized and restores the interrupt flag")
+    @Test
+    void synchronousTerminalCheckedThrowIsNormalizedAndRestoresInterrupt() {
+        Thread.interrupted();
+        var source = new ManualSource<TraceData>();
+        var interrupted = new InterruptedException("terminal interrupted");
+        // consume() declares no checked exceptions, so sneaky-throw one past the compiler the way a
+        // hand-written sink calling blocking code might; the boundary must still normalize it.
+        TraceSink terminal = traces -> sneakyThrow(interrupted);
+        var sub = Pipeline.from(source).to(terminal);
+        try {
+            var result = source.dispatch(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
+                    .toCompletableFuture().join();
+            assertThat(result).isInstanceOfSatisfying(ConsumeResult.Rejected.class,
+                    rejected -> assertThat(rejected.cause()).isSameAs(interrupted));
+            assertThat(Thread.currentThread().isInterrupted()).isTrue();
+        } finally {
+            Thread.interrupted();
+            sub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
+        }
+    }
+
     @DisplayName("Shutting down the Subscription detaches the consumer")
     @Test
     void closingSubscriptionDetachesSink() {
@@ -257,5 +279,14 @@ class PipelineTest {
                 .toCompletableFuture().join();
         assertThat(captured).isEmpty();
         assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+    }
+
+    private static <T> T sneakyThrow(Throwable failure) {
+        return PipelineTest.<RuntimeException, T>sneakyThrow0(failure);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <E extends Throwable, T> T sneakyThrow0(Throwable failure) throws E {
+        throw (E) failure;
     }
 }

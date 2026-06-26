@@ -59,7 +59,7 @@ final class CountConnector<I> implements Sink<I> {
         CompletionStage<ConsumeResult<MetricsData>> downstreamStage;
         try {
             downstreamStage = downstream.consume(metric);
-        } catch (RuntimeException e) {
+        } catch (Exception e) {
             downstreamStage = CompletableFuture.completedFuture(rejectedDownstream("threw", e));
         }
         return downstreamStage
@@ -68,13 +68,18 @@ final class CountConnector<I> implements Sink<I> {
     }
 
     /// Permanent rejection for the derived metric, unwrapping [CompletionException] to the real cause.
-    /// An [Error] is never swallowed into a rejection (and so past `applyPolicy`) — it is rethrown.
+    /// Mirrors the [dev.nthings.otlp4j.core.Sink] adapters: an [Error] is rethrown rather than
+    /// swallowed (and so past `applyPolicy`), and an [InterruptedException] restores the thread
+    /// interrupt flag before the rejection is returned.
     private ConsumeResult<MetricsData> rejectedDownstream(String verb, Throwable failure) {
         var cause = failure instanceof CompletionException && failure.getCause() != null
                 ? failure.getCause()
                 : failure;
         if (cause instanceof Error error) {
             throw error;
+        }
+        if (cause instanceof InterruptedException) {
+            Thread.currentThread().interrupt();
         }
         return ConsumeResult.permanentRejected(metricName + " downstream " + verb + ": " + cause, cause);
     }
