@@ -9,6 +9,7 @@ import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicReference;
+import org.jspecify.annotations.Nullable;
 
 /// [Source] backed by a single-consumer slot.
 ///
@@ -17,7 +18,7 @@ import java.util.concurrent.atomic.AtomicReference;
 final class SignalSource<T> implements Source<T> {
 
     private final Class<T> signalType;
-    private final AtomicReference<Sink<? super T>> attached = new AtomicReference<>();
+    private final AtomicReference<@Nullable Sink<? super T>> attached = new AtomicReference<>();
 
     public SignalSource(Class<T> signalType) {
         this.signalType = Objects.requireNonNull(signalType, "signalType");
@@ -42,12 +43,12 @@ final class SignalSource<T> implements Source<T> {
     /// Sync and async failures propagate so the transport returns gRPC INTERNAL — throwing is
     /// the documented way to surface a transport-level failure.
     public CompletionStage<ConsumeResult<T>> dispatch(T batch) {
-        var c = attached.get();
-        if (c == null) {
+        @Nullable Sink<? super T> sink = attached.get();
+        if (sink == null) {
             return ConsumeResult.acceptedStage();
         }
         @SuppressWarnings("unchecked")
-        var typed = (Sink<T>) c;
+        var typed = (Sink<T>) sink;
         return typed.consume(batch);
     }
 }

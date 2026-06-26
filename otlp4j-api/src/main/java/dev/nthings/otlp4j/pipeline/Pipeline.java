@@ -16,6 +16,7 @@ import java.util.concurrent.CompletionStage;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -33,7 +34,7 @@ public final class Pipeline {
 
     /// Opens a builder attached to `source`.
     public static <T> Stage<T> from(Source<T> source) {
-        return new StageImpl<>(Objects.requireNonNull(source, "source"), Function.identity(), new ArrayList<>());
+        return new StageImpl<>(Objects.requireNonNull(source, "source"), batch -> batch, new ArrayList<>());
     }
 
     /// A pipeline stage parameterised by the signal currently flowing through it.
@@ -90,10 +91,10 @@ public final class Pipeline {
     private static final class StageImpl<T> implements Stage<T> {
 
         final Source<T> source;
-        final Function<T, T> stageFn;
+        final Function<T, @Nullable T> stageFn;
         final List<AutoCloseable> resources;
 
-        StageImpl(Source<T> source, Function<T, T> stageFn, List<AutoCloseable> resources) {
+        StageImpl(Source<T> source, Function<T, @Nullable T> stageFn, List<AutoCloseable> resources) {
             this.source = source;
             this.stageFn = stageFn;
             this.resources = resources;
@@ -103,7 +104,7 @@ public final class Pipeline {
         public Stage<T> transform(Transform<T> fn) {
             Objects.requireNonNull(fn, "fn");
             // A prior filter may have dropped the batch to null; don't hand null to a user Transform.
-            Function<T, T> step = batch -> batch == null
+            Function<@Nullable T, @Nullable T> step = batch -> batch == null
                     ? null
                     : Objects.requireNonNull(fn.apply(batch), "pipeline transform returned null");
             return new StageImpl<>(source, stageFn.andThen(step), resources);
@@ -111,14 +112,15 @@ public final class Pipeline {
 
         @Override
         public Stage<T> filter(Predicate<? super T> keep) {
-            Function<T, T> filtered = batch -> batch != null && keep.test(batch) ? batch : null;
+            Function<@Nullable T, @Nullable T> filtered =
+                    batch -> batch != null && keep.test(batch) ? batch : null;
             return new StageImpl<>(source, stageFn.andThen(filtered), resources);
         }
 
         @Override
         public Stage<T> peek(Consumer<? super T> observer) {
             Objects.requireNonNull(observer, "observer");
-            Function<T, T> peek = batch -> {
+            Function<@Nullable T, @Nullable T> peek = batch -> {
                 if (batch != null) {
                     try {
                         observer.accept(batch);
@@ -153,7 +155,7 @@ public final class Pipeline {
         public Subscription to(Sink<T> terminal) {
             Objects.requireNonNull(terminal, "terminal");
             Sink<T> chain = batch -> {
-                T after;
+                @Nullable T after;
                 try {
                     after = stageFn.apply(batch);
                 } catch (RuntimeException e) {
