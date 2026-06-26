@@ -160,6 +160,26 @@ class ConnectorsTest {
                 .hasCauseReference(overflow);
     }
 
+    @DisplayName("FAIL normalizes a downstream sneaky-thrown checked exception and restores the interrupt flag")
+    @Test
+    void failNormalizesDownstreamCheckedThrowAndRestoresInterrupt() {
+        Thread.interrupted();
+        var interrupted = new InterruptedException("downstream interrupted");
+        // consume() declares no checked exceptions; a blocking metric sink can still sneaky-throw one,
+        // and it must reach applyPolicy rather than escape.
+        MetricSink downstream = metrics -> sneakyThrow(interrupted);
+        var connector = Connectors.spanCount(downstream, FailurePolicy.FAIL);
+        try {
+            var result = connector.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
+                    .toCompletableFuture().join();
+            assertThat(result).isInstanceOfSatisfying(ConsumeResult.Rejected.class,
+                    rejected -> assertThat(rejected.cause()).isSameAs(interrupted));
+            assertThat(Thread.currentThread().isInterrupted()).isTrue();
+        } finally {
+            Thread.interrupted();
+        }
+    }
+
     @DisplayName("Delta window starts at a real time and the next window is contiguous")
     @Test
     void deltaWindowIsContiguousAcrossFlushes() {
@@ -193,5 +213,14 @@ class ConnectorsTest {
             return v.value();
         }
         return -1L;
+    }
+
+    private static <T> T sneakyThrow(Throwable failure) {
+        return ConnectorsTest.<RuntimeException, T>sneakyThrow0(failure);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <E extends Throwable, T> T sneakyThrow0(Throwable failure) throws E {
+        throw (E) failure;
     }
 }

@@ -204,20 +204,24 @@ public final class Pipeline {
         CompletionStage<? extends ConsumeResult<?>> stage;
         try {
             stage = terminal.consume(batch);
-        } catch (RuntimeException e) {
+        } catch (Exception e) {
             return CompletableFuture.completedFuture(rejectedTerminal("pipeline terminal threw", e));
         }
         return Pipeline.<T>retag(stage).exceptionally(t -> rejectedTerminal("pipeline terminal failed", t));
     }
 
     /// Permanent rejection from a terminal failure, unwrapping [CompletionException] to the real cause.
-    /// An [Error] is never swallowed into a rejection — it is rethrown so it propagates.
+    /// Mirrors the [Sink] adapters: an [Error] is rethrown rather than swallowed, and an
+    /// [InterruptedException] restores the thread interrupt flag before the rejection is returned.
     private static <T> ConsumeResult<T> rejectedTerminal(String prefix, Throwable failure) {
         var cause = failure instanceof CompletionException && failure.getCause() != null
                 ? failure.getCause()
                 : failure;
         if (cause instanceof Error error) {
             throw error;
+        }
+        if (cause instanceof InterruptedException) {
+            Thread.currentThread().interrupt();
         }
         return ConsumeResult.permanentRejected(prefix + ": " + cause, cause);
     }
