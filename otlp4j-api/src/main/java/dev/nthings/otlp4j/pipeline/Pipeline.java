@@ -202,7 +202,7 @@ public final class Pipeline {
     private static <T> CompletionStage<ConsumeResult<T>> deliver(Sink<? super T> terminal, T batch) {
         CompletionStage<? extends ConsumeResult<?>> stage;
         try {
-            stage = terminal.consume(batch);
+            stage = Objects.requireNonNull(terminal.consume(batch), "terminal returned a null stage");
         } catch (Exception e) {
             return CompletableFuture.completedFuture(rejectedTerminal("pipeline terminal threw", e));
         }

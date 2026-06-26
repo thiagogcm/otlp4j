@@ -179,6 +179,17 @@ class ConnectorsTest {
         }
     }
 
+    @DisplayName("FAIL normalizes a downstream sink that returns a null stage")
+    @Test
+    void failNormalizesNullDownstreamStage() {
+        MetricSink downstream = metrics -> null;
+        var connector = Connectors.spanCount(downstream, FailurePolicy.FAIL);
+        var result = connector.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
+                .toCompletableFuture().join();
+        assertThat(result).isInstanceOfSatisfying(ConsumeResult.Rejected.class,
+                rejected -> assertThat(rejected.cause()).isInstanceOf(NullPointerException.class));
+    }
+
     @DisplayName("Delta window starts at a real time and the next window is contiguous")
     @Test
     void deltaWindowIsContiguousAcrossFlushes() {

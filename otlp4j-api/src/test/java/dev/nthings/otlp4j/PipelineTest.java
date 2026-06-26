@@ -263,6 +263,22 @@ class PipelineTest {
         }
     }
 
+    @DisplayName("A terminal that returns a null stage is normalized, not escaped as an NPE")
+    @Test
+    void terminalReturningNullStageIsNormalized() {
+        var source = new ManualSource<TraceData>();
+        TraceSink terminal = traces -> null;
+        var sub = Pipeline.from(source).to(terminal);
+        try {
+            var result = source.dispatch(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
+                    .toCompletableFuture().join();
+            assertThat(result).isInstanceOfSatisfying(ConsumeResult.Rejected.class,
+                    rejected -> assertThat(rejected.cause()).isInstanceOf(NullPointerException.class));
+        } finally {
+            sub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
+        }
+    }
+
     @DisplayName("Shutting down the Subscription detaches the consumer")
     @Test
     void closingSubscriptionDetachesSink() {
