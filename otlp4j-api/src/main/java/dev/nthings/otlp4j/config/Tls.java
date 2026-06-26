@@ -1,6 +1,7 @@
 package dev.nthings.otlp4j.config;
 
 import java.nio.file.Path;
+import org.jspecify.annotations.Nullable;
 
 /// TLS configuration for an OTLP transport.
 ///
@@ -43,5 +44,5 @@ public sealed interface Tls permits Tls.Disabled, Tls.SystemTrust, Tls.Custom {
     }
 
     /// Prefer the [Tls#custom(Path, Path, Path)] and [Tls#trust(Path)] factories.
-    record Custom(Path certFile, Path keyFile, Path trustFile) implements Tls {}
+    record Custom(@Nullable Path certFile, @Nullable Path keyFile, @Nullable Path trustFile) implements Tls {}
 }

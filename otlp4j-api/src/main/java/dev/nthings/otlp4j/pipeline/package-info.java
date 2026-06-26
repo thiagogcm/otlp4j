@@ -5,4 +5,7 @@
 /// returns a `ConsumeResult` (`Accepted`/`Partial`/`Rejected`). The returned `Subscription` owns
 /// the wiring — closing it detaches the source and drains attached lifecycle resources. Prefer the
 /// per-signal consumer aliases `TraceSink`, `MetricSink`, `LogSink`, `ProfileSink`.
+@NullMarked
 package dev.nthings.otlp4j.pipeline;
+
+import org.jspecify.annotations.NullMarked;

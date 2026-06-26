@@ -73,30 +73,6 @@ Labels: code, docs
 
 Intent: Make the public API easier to compose and harder to misuse by tightening nullness, variance, and rejection semantics before adding more surface area.
 
-### Issue: TYPE-SYSTEM-01
-
-Title: Apply systematic nullness annotations
-
-Labels: code
-
-Acceptance criteria:
-
-- Every exported package is covered by `@NullMarked` at package scope or an equivalent package-level declaration.
-- Intentional nullable fields, parameters, and builder defaults carry targeted `@Nullable` annotations.
-- New public API added by later epics is born under the same nullness contract.
-
-Context:
-
-- Apply this before new builder and transform APIs so follow-on work does not need annotation cleanup.
-- Prefer package-level declarations over file-by-file annotations where possible.
-
-Evidence / gap:
-
-- Current public code contains individual `@NullMarked` usage on symbols such as `Metric`, `LogRecord`, `Exemplar`, `ThrowingConsumer`, and `Transform`.
-- Exported package declarations such as `dev.nthings.otlp4j.model`, `dev.nthings.otlp4j.core`, `dev.nthings.otlp4j.pipeline`, and `dev.nthings.otlp4j.config` are not consistently declared null-marked.
-- Nullable-returning or nullable-accepting public API points such as `Attributes.get`, `Attributes.getString`, `ServerConfig.serverExecutor`, and `Tls.Custom` are not consistently annotated.
-- JSpecify is part of the exposed API surface through `requires static transitive org.jspecify`.
-
 ### Issue: TYPE-SYSTEM-02
 
 Title: Make sink composition contravariant

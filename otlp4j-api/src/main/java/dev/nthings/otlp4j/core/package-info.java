@@ -4,4 +4,7 @@
 /// [MetricSink], [LogSink], [ProfileSink] are what user code plugs lambdas into. A [Source] is where
 /// a sink attaches, and the resulting wiring is owned by a [Subscription]. [Drainable] and
 /// [Flushable] are the shared lifecycle hooks, and [Telemetry] is the sealed four-signal envelope.
+@NullMarked
 package dev.nthings.otlp4j.core;
+
+import org.jspecify.annotations.NullMarked;

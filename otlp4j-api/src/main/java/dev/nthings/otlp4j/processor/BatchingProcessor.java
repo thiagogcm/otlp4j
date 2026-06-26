@@ -30,6 +30,7 @@ import java.util.concurrent.atomic.LongAdder;
 import java.util.function.ToLongFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.jspecify.annotations.Nullable;
 
 /// An asynchronous, queue-backed, timer-triggered batching processor.
 ///
@@ -359,12 +360,12 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, Flushable
 
         private final Merger<T> merger;
         private final ToLongFunction<T> itemCounter;
-        private Sink<? super T> downstream;
+        private @Nullable Sink<? super T> downstream;
         private int maxBatchSize = 512;
         private int queueCapacity = 2048;
         private DropPolicy dropPolicy = DropPolicy.DROP_NEWEST;
-        private LongAdder drops;
-        private ScheduledExecutorService scheduler;
+        private @Nullable LongAdder drops;
+        private @Nullable ScheduledExecutorService scheduler;
 
         private Builder(Merger<T> merger, ToLongFunction<T> itemCounter) {
             this.merger = merger;
