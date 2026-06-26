@@ -73,28 +73,6 @@ Labels: code, docs
 
 Intent: Make the public API easier to compose and harder to misuse by tightening nullness, variance, and rejection semantics before adding more surface area.
 
-### Issue: TYPE-SYSTEM-02
-
-Title: Make sink composition contravariant
-
-Labels: code
-
-Acceptance criteria:
-
-- `Pipeline.Stage.to`, `Pipeline.Branch.fanOut`, and `FanOut.of` accept `Sink<? super T>` where composition allows it.
-- Existing call sites compile without casts or source changes.
-- Tests or compile coverage demonstrate a sink of a supertype can receive a subtype signal.
-
-Context:
-
-- `Source.subscribe` and `BatchingProcessor.Builder.downstream` already accept `Sink<? super T>`.
-- Aligning the rest of the pipeline API avoids surprising generic invariance at branch and terminal boundaries.
-
-Evidence / gap:
-
-- `Pipeline.Stage.to(Sink<T>)`, `Pipeline.Branch.fanOut(Sink<T>)`, and `FanOut.of(...)` are invariant.
-- `Source.subscribe(Sink<? super T>)` and `BatchingProcessor.Builder.downstream(Sink<? super T>)` already use contravariance.
-
 ### Issue: TYPE-SYSTEM-03
 
 Title: Steer users toward explicit rejection factories

@@ -6,12 +6,15 @@ import dev.nthings.otlp4j.model.AttributeValue;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TraceData;
 import dev.nthings.otlp4j.model.ConsumeResult;
+import dev.nthings.otlp4j.pipeline.FanOut;
 import dev.nthings.otlp4j.pipeline.Pipeline;
+import dev.nthings.otlp4j.core.Sink;
 import dev.nthings.otlp4j.core.TraceSink;
 import dev.nthings.otlp4j.processor.Transforms;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -125,6 +128,44 @@ class PipelineTest {
         } finally {
             sub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
         }
+    }
+
+    @DisplayName("A supertype sink can terminate and fan out a subtype pipeline (contravariance)")
+    @Test
+    void contravariantSinkComposition() {
+        var seenByTerminal = new AtomicInteger();
+        var seenByPeer = new AtomicInteger();
+        // Sink<Object> is a supertype sink; it compiles into to/fanOut/FanOut.of only because they
+        // accept Sink<? super TraceData>. No casts.
+        Sink<Object> universalTerminal = batch -> {
+            seenByTerminal.incrementAndGet();
+            return ConsumeResult.acceptedStage();
+        };
+        Sink<Object> universalPeer = batch -> {
+            seenByPeer.incrementAndGet();
+            return ConsumeResult.acceptedStage();
+        };
+
+        FanOut<TraceData> fanOut = FanOut.of(List.of(universalPeer));
+        assertThat(fanOut.peers()).hasSize(1);
+
+        var batch = Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER));
+        // One consumer slot per ManualSource, so drive each path on its own source.
+        var terminalSource = new ManualSource<TraceData>();
+        var peerSource = new ManualSource<TraceData>();
+        var terminalSub = Pipeline.from(terminalSource).to(universalTerminal);
+        var branchSub = Pipeline.from(peerSource).branch().fanOut(universalPeer).join();
+        try {
+            assertThat(terminalSource.dispatch(batch).toCompletableFuture().join())
+                    .isInstanceOf(ConsumeResult.Accepted.class);
+            assertThat(peerSource.dispatch(batch).toCompletableFuture().join())
+                    .isInstanceOf(ConsumeResult.Accepted.class);
+        } finally {
+            terminalSub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
+            branchSub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
+        }
+        assertThat(seenByTerminal).hasValue(1);
+        assertThat(seenByPeer).hasValue(1);
     }
 
     @DisplayName("Shutting down the Subscription detaches the consumer")

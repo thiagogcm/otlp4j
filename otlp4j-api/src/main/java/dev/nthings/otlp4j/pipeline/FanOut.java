@@ -21,9 +21,9 @@ import java.util.concurrent.CompletionStage;
 /// @param <T> the OTLP signal carried by this fan-out
 public final class FanOut<T> implements Sink<T> {
 
-    private final List<Sink<T>> peers;
+    private final List<Sink<? super T>> peers;
 
-    private FanOut(List<Sink<T>> peers) {
+    private FanOut(List<? extends Sink<? super T>> peers) {
         if (peers.isEmpty()) {
             throw new IllegalArgumentException("FanOut requires at least one peer");
         }
@@ -32,18 +32,18 @@ public final class FanOut<T> implements Sink<T> {
 
     /// Returns a [FanOut] over the given peers. Peers run concurrently; at least one is required.
     @SafeVarargs
-    public static <T> FanOut<T> of(Sink<T>... peers) {
-        return new FanOut<>(List.of(peers));
+    public static <T> FanOut<T> of(Sink<? super T>... peers) {
+        return new FanOut<T>(List.of(peers));
     }
 
     /// Returns a [FanOut] over the given peers. Peers run concurrently; at least one is required.
-    public static <T> FanOut<T> of(List<? extends Sink<T>> peers) {
+    public static <T> FanOut<T> of(List<? extends Sink<? super T>> peers) {
         Objects.requireNonNull(peers, "peers");
-        return new FanOut<>(new ArrayList<>(peers));
+        return new FanOut<T>(new ArrayList<>(peers));
     }
 
     /// The peers this fan-out delivers each batch to.
-    public List<Sink<T>> peers() {
+    public List<Sink<? super T>> peers() {
         return peers;
     }
 
@@ -55,7 +55,7 @@ public final class FanOut<T> implements Sink<T> {
             final var idx = i;
             CompletionStage<ConsumeResult<T>> peerStage;
             try {
-                peerStage = peers.get(i).consume(batch);
+                peerStage = retag(peers.get(i).consume(batch));
             } catch (Throwable t) {
                 peerStage = CompletableFuture.completedFuture(ConsumeResult.rejected(
                         "peer[" + idx + "] threw: " + describe(t), t));
@@ -72,6 +72,13 @@ public final class FanOut<T> implements Sink<T> {
             }
             return ConsumeResult.fanOutMerge(results);
         });
+    }
+
+    /// Retags a peer's supertype-tagged result as `ConsumeResult<T>`; sound because [ConsumeResult]
+    /// holds no `T`-typed data, so its type parameter is a phantom tag.
+    @SuppressWarnings("unchecked")
+    private static <T> CompletionStage<ConsumeResult<T>> retag(CompletionStage<?> stage) {
+        return (CompletionStage<ConsumeResult<T>>) stage;
     }
 
     /// Describes a throwable for diagnostics, including its class and unwrapping the common
