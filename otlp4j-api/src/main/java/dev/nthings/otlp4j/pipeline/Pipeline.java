@@ -12,6 +12,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -165,7 +166,7 @@ public final class Pipeline {
                 if (after == null) {
                     return ConsumeResult.acceptedStage();
                 }
-                return retag(terminal.consume(after));
+                return deliver(terminal, after);
             };
             var leafResources = leafResources(terminal);
             return new PipelineSubscription(source.subscribe(chain), combine(resources, leafResources));
@@ -194,6 +195,27 @@ public final class Pipeline {
             }
             return stage.to(FanOut.of(peers));
         }
+    }
+
+    /// Delivers `batch` to `terminal`, normalizing a synchronous throw or a failed stage into a
+    /// permanent rejection so a hand-written terminal behaves like the [Sink] adapters. `Error`s
+    /// propagate, matching those adapters.
+    private static <T> CompletionStage<ConsumeResult<T>> deliver(Sink<? super T> terminal, T batch) {
+        CompletionStage<? extends ConsumeResult<?>> stage;
+        try {
+            stage = terminal.consume(batch);
+        } catch (RuntimeException e) {
+            return CompletableFuture.completedFuture(rejectedTerminal("pipeline terminal threw", e));
+        }
+        return Pipeline.<T>retag(stage).exceptionally(t -> rejectedTerminal("pipeline terminal failed", t));
+    }
+
+    /// Permanent rejection from a terminal failure, unwrapping [CompletionException] to the real cause.
+    private static <T> ConsumeResult<T> rejectedTerminal(String prefix, Throwable failure) {
+        var cause = failure instanceof CompletionException && failure.getCause() != null
+                ? failure.getCause()
+                : failure;
+        return ConsumeResult.permanentRejected(prefix + ": " + cause, cause);
     }
 
     /// Retags the terminal's supertype-tagged result as `ConsumeResult<T>`; sound because

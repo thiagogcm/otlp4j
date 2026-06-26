@@ -61,43 +61,6 @@ Evidence / gap:
 - `docs/public-api.md`, `README.md`, and `otlp4j-codec/pom.xml` describe generated proto and codec packages as implementation details.
 - `TraceMapper`, `MetricsMapper`, `LogsMapper`, `ProfilesMapper`, and `SignalResponses` are public codec types and expose generated proto types in signatures.
 
-## Epic: DELIVERY-SEMANTICS
-
-Title: Delivery failure normalization
-
-Depends on: TYPE-SYSTEM
-
-Related: PUBLIC-API-HYGIENE
-
-Labels: code, docs
-
-Intent: Make sink failure handling predictable at every delivery boundary so users can reason about whether exceptions become structured `ConsumeResult` values or transport-level failures.
-
-### Issue: DELIVERY-SEMANTICS-01
-
-Title: Normalize synchronous sink exceptions at composition boundaries
-
-Labels: code, docs
-
-Acceptance criteria:
-
-- `Pipeline.Stage.to(...)` converts synchronous exceptions thrown by a terminal sink into an explicit permanent rejection instead of letting them escape the source dispatch path.
-- `CountConnector` applies `FailurePolicy` consistently when its downstream metric sink throws synchronously or returns a failed stage.
-- `SignalSource.dispatch(...)` and transport receiver behavior explicitly document whether direct subscriber exceptions are transported as failures or normalized into `ConsumeResult.Rejected`.
-- Tests cover synchronous terminal throws, asynchronous terminal failures, synchronous count-connector downstream throws, and the documented receiver dispatch behavior.
-
-Context:
-
-- `Sink.accepting(...)`, `Sink.fromStage(...)`, and `FanOut.consume(...)` already normalize ordinary `Exception` failures into rejected results.
-- Composition boundaries should not depend on whether user code used an adapter factory or implemented `Sink.consume(...)` by hand.
-- Receiver dispatch may intentionally preserve thrown exceptions as transport-level failures, but that behavior should be explicit and covered.
-
-Evidence / gap:
-
-- `Pipeline.StageImpl.to(...)` catches stage-function `RuntimeException`s but calls `terminal.consume(after)` without guarding synchronous terminal failures.
-- `CountConnector.consume(...)` calls `downstream.consume(metric).thenApply(this::applyPolicy)` without guarding synchronous throws or failed stages from the downstream metric sink.
-- `SignalSource.dispatch(...)` currently forwards `typed.consume(batch)` directly while its comment says synchronous and asynchronous failures propagate so the transport returns an internal error.
-
 ## Epic: MODEL-ERGONOMICS
 
 Title: Copy-modifiable model records

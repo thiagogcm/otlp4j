@@ -9,6 +9,7 @@ import dev.nthings.otlp4j.model.Metric;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.NumberPoint;
 import dev.nthings.otlp4j.model.Span;
+import dev.nthings.otlp4j.model.TraceData;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.core.MetricSink;
 import dev.nthings.otlp4j.testing.Fixtures;
@@ -91,6 +92,57 @@ class ConnectorsTest {
         var result = connector.consume(Fixtures.logsData(Fixtures.logRecord("hi", LogRecord.Severity.INFO)))
                 .toCompletableFuture().join();
         assertThat(result).isInstanceOf(ConsumeResult.Rejected.class);
+    }
+
+    @DisplayName("FAIL propagates a synchronous downstream throw as a permanent Rejected")
+    @Test
+    void failPropagatesSynchronousDownstreamThrow() {
+        MetricSink downstream = metrics -> {
+            throw new RuntimeException("sink blew up");
+        };
+        var connector = Connectors.spanCount(downstream, FailurePolicy.FAIL);
+        var result = connector.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
+                .toCompletableFuture().join();
+        assertThat(result).isInstanceOf(ConsumeResult.Rejected.class);
+        var rejected = (ConsumeResult.Rejected<TraceData>) result;
+        // Non-null cause => permanent, not retryable.
+        assertThat(rejected.cause()).isInstanceOf(RuntimeException.class).hasMessage("sink blew up");
+    }
+
+    @DisplayName("BEST_EFFORT (default) accepts input despite a synchronous downstream throw")
+    @Test
+    void bestEffortAcceptsInputDespiteSynchronousDownstreamThrow() {
+        MetricSink downstream = metrics -> {
+            throw new RuntimeException("sink blew up");
+        };
+        var connector = Connectors.spanCount(downstream);
+        var result = connector.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
+                .toCompletableFuture().join();
+        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+    }
+
+    @DisplayName("FAIL propagates a failed downstream stage as a permanent Rejected")
+    @Test
+    void failPropagatesFailedDownstreamStage() {
+        MetricSink downstream = metrics ->
+                CompletableFuture.failedStage(new IllegalStateException("backend exploded"));
+        var connector = Connectors.spanCount(downstream, FailurePolicy.FAIL);
+        var result = connector.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
+                .toCompletableFuture().join();
+        assertThat(result).isInstanceOf(ConsumeResult.Rejected.class);
+        var rejected = (ConsumeResult.Rejected<TraceData>) result;
+        assertThat(rejected.cause()).isInstanceOf(IllegalStateException.class).hasMessage("backend exploded");
+    }
+
+    @DisplayName("BEST_EFFORT (default) accepts input despite a failed downstream stage")
+    @Test
+    void bestEffortAcceptsInputDespiteFailedDownstreamStage() {
+        MetricSink downstream = metrics ->
+                CompletableFuture.failedStage(new IllegalStateException("backend exploded"));
+        var connector = Connectors.spanCount(downstream);
+        var result = connector.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
+                .toCompletableFuture().join();
+        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
     }
 
     @DisplayName("Delta window starts at a real time and the next window is contiguous")

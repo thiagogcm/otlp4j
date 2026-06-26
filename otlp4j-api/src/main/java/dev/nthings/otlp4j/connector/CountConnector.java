@@ -12,6 +12,8 @@ import dev.nthings.otlp4j.core.MetricSink;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.ToLongFunction;
@@ -53,7 +55,24 @@ final class CountConnector<I> implements Sink<I> {
         var now = nowEpochNanos();
         var start = previousFlushNanos.getAndAccumulate(now, Math::max);
         var metric = deltaSum(counter.applyAsLong(batch), start, Math.max(start, now));
-        return downstream.consume(metric).thenApply(this::applyPolicy);
+        // Normalize a synchronous throw or failed stage to a Rejected so applyPolicy governs the input.
+        CompletionStage<ConsumeResult<MetricsData>> downstreamStage;
+        try {
+            downstreamStage = downstream.consume(metric);
+        } catch (RuntimeException e) {
+            downstreamStage = CompletableFuture.completedFuture(rejectedDownstream("threw", e));
+        }
+        return downstreamStage
+                .exceptionally(t -> rejectedDownstream("failed", t))
+                .thenApply(this::applyPolicy);
+    }
+
+    /// Permanent rejection for the derived metric, unwrapping [CompletionException] to the real cause.
+    private ConsumeResult<MetricsData> rejectedDownstream(String verb, Throwable failure) {
+        var cause = failure instanceof CompletionException && failure.getCause() != null
+                ? failure.getCause()
+                : failure;
+        return ConsumeResult.permanentRejected(metricName + " downstream " + verb + ": " + cause, cause);
     }
 
     /// Single-point DELTA sum over `[startEpochNanos, epochNanos)`.

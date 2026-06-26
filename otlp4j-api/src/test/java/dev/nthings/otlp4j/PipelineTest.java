@@ -15,6 +15,7 @@ import dev.nthings.otlp4j.testing.Fixtures;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.DisplayName;
@@ -180,6 +181,46 @@ class PipelineTest {
         assertThat(seenByTerminal).hasValue(2);
         assertThat(seenByPeer).hasValue(3);
         assertThat(ownerClosed).isTrue();
+    }
+
+    @DisplayName("A synchronous terminal throw becomes a permanent rejection, not an escaped exception")
+    @Test
+    void synchronousTerminalThrowBecomesPermanentRejection() {
+        var source = new ManualSource<TraceData>();
+        TraceSink terminal = traces -> {
+            throw new RuntimeException("terminal exploded");
+        };
+        var sub = Pipeline.from(source).to(terminal);
+        try {
+            var result = source.dispatch(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
+                    .toCompletableFuture().join();
+            assertThat(result).isInstanceOf(ConsumeResult.Rejected.class);
+            var rejected = (ConsumeResult.Rejected<TraceData>) result;
+            // Non-null cause => permanent, not retryable.
+            assertThat(rejected.cause()).isInstanceOf(RuntimeException.class).hasMessage("terminal exploded");
+            assertThat(rejected.message()).contains("pipeline terminal threw");
+        } finally {
+            sub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
+        }
+    }
+
+    @DisplayName("An asynchronous terminal failure becomes a permanent rejection")
+    @Test
+    void asynchronousTerminalFailureBecomesPermanentRejection() {
+        var source = new ManualSource<TraceData>();
+        TraceSink terminal = traces ->
+                CompletableFuture.failedFuture(new IllegalStateException("async boom"));
+        var sub = Pipeline.from(source).to(terminal);
+        try {
+            var result = source.dispatch(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
+                    .toCompletableFuture().join();
+            assertThat(result).isInstanceOf(ConsumeResult.Rejected.class);
+            var rejected = (ConsumeResult.Rejected<TraceData>) result;
+            assertThat(rejected.cause()).isInstanceOf(IllegalStateException.class).hasMessage("async boom");
+            assertThat(rejected.message()).contains("pipeline terminal failed");
+        } finally {
+            sub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
+        }
     }
 
     @DisplayName("Shutting down the Subscription detaches the consumer")
