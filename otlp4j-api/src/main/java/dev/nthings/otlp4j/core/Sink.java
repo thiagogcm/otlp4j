@@ -50,7 +50,8 @@ public interface Sink<T> {
     /// synchronous throw, or a `null` stage) becomes a permanent [ConsumeResult.Rejected] carrying
     /// the failure (or its [CompletionException] cause) as its cause. If that cause is an
     /// [InterruptedException], the thread interrupt flag is restored before returning the rejection.
-    /// `Error`s thrown directly by the action are not caught and propagate to the caller.
+    /// An `Error` is never swallowed into a rejection — whether thrown directly by the action or
+    /// completing the returned stage, it propagates.
     static <T> Sink<T> fromStage(Function<? super T, ? extends CompletionStage<Void>> action) {
         Objects.requireNonNull(action, "action");
         return batch -> {
@@ -76,8 +77,12 @@ public interface Sink<T> {
     }
 
     /// Maps a (non-null) failure to a permanent rejection whose cause is the unwrapped throwable.
+    /// An [Error] is never swallowed into a rejection — it is rethrown so it propagates.
     private static <T> ConsumeResult<T> rejected(Throwable failure) {
         var cause = unwrap(failure);
+        if (cause instanceof Error error) {
+            throw error;
+        }
         restoreInterrupt(cause);
         @Nullable String message = cause.getMessage();
         return ConsumeResult.permanentRejected(

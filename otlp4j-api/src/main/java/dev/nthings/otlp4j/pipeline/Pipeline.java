@@ -211,10 +211,14 @@ public final class Pipeline {
     }
 
     /// Permanent rejection from a terminal failure, unwrapping [CompletionException] to the real cause.
+    /// An [Error] is never swallowed into a rejection — it is rethrown so it propagates.
     private static <T> ConsumeResult<T> rejectedTerminal(String prefix, Throwable failure) {
         var cause = failure instanceof CompletionException && failure.getCause() != null
                 ? failure.getCause()
                 : failure;
+        if (cause instanceof Error error) {
+            throw error;
+        }
         return ConsumeResult.permanentRejected(prefix + ": " + cause, cause);
     }
 

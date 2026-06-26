@@ -1,6 +1,7 @@
 package dev.nthings.otlp4j;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.nthings.otlp4j.core.LogSink;
 import dev.nthings.otlp4j.core.MetricSink;
@@ -200,6 +201,17 @@ class SinkAdaptersTest {
         } catch (StackOverflowError thrown) {
             assertThat(thrown).isSameAs(overflow);
         }
+    }
+
+    @DisplayName("fromStage lets an Error completing the stage propagate rather than swallowing it")
+    @Test
+    void fromStageLetsStageErrorsPropagate() {
+        var overflow = new StackOverflowError("async boom");
+        Sink<TraceData> sink = Sink.fromStage(batch -> CompletableFuture.failedFuture(overflow));
+
+        assertThatThrownBy(() -> sink.consume(BATCH).toCompletableFuture().join())
+                .isInstanceOf(CompletionException.class)
+                .hasCauseReference(overflow);
     }
 
     @DisplayName("fromStage unwraps a synchronously thrown CompletionException")

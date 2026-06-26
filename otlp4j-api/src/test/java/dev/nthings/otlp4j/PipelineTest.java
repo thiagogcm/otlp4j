@@ -1,6 +1,7 @@
 package dev.nthings.otlp4j;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.nthings.otlp4j.model.AttributeValue;
 import dev.nthings.otlp4j.model.Span;
@@ -16,6 +17,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.DisplayName;
@@ -218,6 +220,23 @@ class PipelineTest {
             var rejected = (ConsumeResult.Rejected<TraceData>) result;
             assertThat(rejected.cause()).isInstanceOf(IllegalStateException.class).hasMessage("async boom");
             assertThat(rejected.message()).contains("pipeline terminal failed");
+        } finally {
+            sub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
+        }
+    }
+
+    @DisplayName("An Error completing the terminal stage propagates instead of becoming a rejection")
+    @Test
+    void asynchronousTerminalErrorPropagates() {
+        var source = new ManualSource<TraceData>();
+        var overflow = new StackOverflowError("terminal error");
+        TraceSink terminal = traces -> CompletableFuture.failedFuture(overflow);
+        var sub = Pipeline.from(source).to(terminal);
+        try {
+            assertThatThrownBy(() -> source.dispatch(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
+                    .toCompletableFuture().join())
+                    .isInstanceOf(CompletionException.class)
+                    .hasCauseReference(overflow);
         } finally {
             sub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
         }

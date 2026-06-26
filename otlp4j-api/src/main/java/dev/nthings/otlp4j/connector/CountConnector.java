@@ -68,10 +68,14 @@ final class CountConnector<I> implements Sink<I> {
     }
 
     /// Permanent rejection for the derived metric, unwrapping [CompletionException] to the real cause.
+    /// An [Error] is never swallowed into a rejection (and so past `applyPolicy`) — it is rethrown.
     private ConsumeResult<MetricsData> rejectedDownstream(String verb, Throwable failure) {
         var cause = failure instanceof CompletionException && failure.getCause() != null
                 ? failure.getCause()
                 : failure;
+        if (cause instanceof Error error) {
+            throw error;
+        }
         return ConsumeResult.permanentRejected(metricName + " downstream " + verb + ": " + cause, cause);
     }
 
