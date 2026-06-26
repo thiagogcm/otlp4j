@@ -203,6 +203,20 @@ class SinkAdaptersTest {
         }
     }
 
+    @DisplayName("accepting normalizes a bare Throwable sneaky-thrown by the action")
+    @Test
+    void acceptingNormalizesBareThrowable() {
+        var raw = new Throwable("bare");
+        Sink<TraceData> sink = Sink.accepting(batch -> {
+            sneakyThrow(raw);
+        });
+
+        var result = consume(sink, BATCH);
+
+        assertThat(result).isInstanceOfSatisfying(ConsumeResult.Rejected.class,
+                rejected -> assertThat(rejected.cause()).isSameAs(raw));
+    }
+
     @DisplayName("fromStage lets an Error completing the stage propagate rather than swallowing it")
     @Test
     void fromStageLetsStageErrorsPropagate() {

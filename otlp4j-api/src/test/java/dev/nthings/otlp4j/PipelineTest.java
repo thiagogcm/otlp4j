@@ -263,6 +263,23 @@ class PipelineTest {
         }
     }
 
+    @DisplayName("A terminal that sneaky-throws a bare Throwable is normalized, not escaped")
+    @Test
+    void synchronousTerminalBareThrowableIsNormalized() {
+        var source = new ManualSource<TraceData>();
+        var raw = new Throwable("bare throwable");
+        TraceSink terminal = traces -> sneakyThrow(raw);
+        var sub = Pipeline.from(source).to(terminal);
+        try {
+            var result = source.dispatch(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
+                    .toCompletableFuture().join();
+            assertThat(result).isInstanceOfSatisfying(ConsumeResult.Rejected.class,
+                    rejected -> assertThat(rejected.cause()).isSameAs(raw));
+        } finally {
+            sub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
+        }
+    }
+
     @DisplayName("A terminal that returns a null stage is normalized, not escaped as an NPE")
     @Test
     void terminalReturningNullStageIsNormalized() {

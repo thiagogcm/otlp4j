@@ -32,13 +32,13 @@ public interface Sink<T> {
     /// thrown exception becomes a permanent (non-retryable) [ConsumeResult.Rejected] carrying that
     /// exception (or its [CompletionException] cause) as its cause. If that cause is an
     /// [InterruptedException], the thread interrupt flag is restored before returning the rejection.
-    /// `Error`s thrown directly by the action are not caught and propagate to the caller.
+    /// An `Error` propagates rather than being swallowed into a rejection.
     static <T> Sink<T> accepting(ThrowingConsumer<? super T> action) {
         Objects.requireNonNull(action, "action");
         return batch -> {
             try {
                 action.accept(batch);
-            } catch (Exception e) {
+            } catch (Throwable e) {
                 return CompletableFuture.completedFuture(rejected(e));
             }
             return ConsumeResult.acceptedStage();
@@ -57,7 +57,7 @@ public interface Sink<T> {
             CompletionStage<Void> stage;
             try {
                 stage = Objects.requireNonNull(action.apply(batch), "fromStage action returned a null stage");
-            } catch (Exception e) {
+            } catch (Throwable e) {
                 return CompletableFuture.completedFuture(rejected(e));
             }
             return stage.handle((@Nullable Void ignored, @Nullable Throwable failure) -> {

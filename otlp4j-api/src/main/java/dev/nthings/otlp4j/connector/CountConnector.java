@@ -59,7 +59,7 @@ final class CountConnector<I> implements Sink<I> {
         CompletionStage<ConsumeResult<MetricsData>> downstreamStage;
         try {
             downstreamStage = Objects.requireNonNull(downstream.consume(metric), "downstream returned a null stage");
-        } catch (Exception e) {
+        } catch (Throwable e) {
             downstreamStage = CompletableFuture.completedFuture(rejectedDownstream("threw", e));
         }
         return downstreamStage
