@@ -74,12 +74,12 @@ public sealed interface ConsumeResult<T> permits ConsumeResult.Accepted, Consume
     /// A whole-batch rejection the sender MUST NOT retry (permanent, e.g. a policy or validation
     /// fault). The required non-null `cause` maps it to gRPC `INTERNAL` rather than `UNAVAILABLE`.
     static <T> ConsumeResult<T> permanentRejected(String message, Throwable cause) {
-        return new Rejected<>(message, Objects.requireNonNull(cause, "cause"));
+        return rejected(message, Objects.requireNonNull(cause, "cause"));
     }
 
     /// Low-level alias for [#retryableRejected(String)].
     static <T> ConsumeResult<T> rejected(String message) {
-        return new Rejected<>(message, null);
+        return retryableRejected(message);
     }
 
     /// Low-level [Rejected] factory forwarding `cause` verbatim (null retries, non-null does not).
