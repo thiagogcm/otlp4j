@@ -109,6 +109,7 @@ public sealed interface ConsumeResult<T> permits ConsumeResult.Accepted, Consume
             return accepted();
         }
         Rejected<T> firstRejected = null;
+        @Nullable Throwable permanentCause = null;
         var maxRejected = 0L;
         StringBuilder messages = null;
         for (var peer : peers) {
@@ -116,6 +117,9 @@ public sealed interface ConsumeResult<T> permits ConsumeResult.Accepted, Consume
                 case Rejected<T> r -> {
                     if (firstRejected == null) {
                         firstRejected = r;
+                    }
+                    if (r.cause() != null) {
+                        permanentCause = r.cause();
                     }
                     messages = appendMessage(messages, r.message());
                 }
@@ -129,7 +133,8 @@ public sealed interface ConsumeResult<T> permits ConsumeResult.Accepted, Consume
             }
         }
         if (firstRejected != null) {
-            return new Rejected<>(messages == null ? firstRejected.message() : messages.toString(), firstRejected.cause());
+            var cause = permanentCause != null ? permanentCause : firstRejected.cause();
+            return new Rejected<>(messages == null ? firstRejected.message() : messages.toString(), cause);
         }
         if (maxRejected == 0) {
             return accepted();
