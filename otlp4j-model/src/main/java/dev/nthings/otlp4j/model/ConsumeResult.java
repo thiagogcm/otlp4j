@@ -70,7 +70,10 @@ public sealed interface ConsumeResult<T> permits ConsumeResult.Accepted, Consume
         return new Rejected<>(message, null);
     }
 
-    /// Returns a [Rejected] result wrapping the given throwable.
+    /// Returns a [Rejected] result with the given cause. A `null` cause marks the rejection as
+    /// transient (the sender should retry); a non-null cause marks it as permanent (the sender
+    /// must not retry). Prefer [#retryableRejected(String)] and [#permanentRejected(String,
+    /// Throwable)] to make that intent explicit.
     static <T> ConsumeResult<T> rejected(String message, @Nullable Throwable cause) {
         return new Rejected<>(message, cause);
     }

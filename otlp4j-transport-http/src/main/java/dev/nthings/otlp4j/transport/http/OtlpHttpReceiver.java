@@ -10,6 +10,7 @@ import dev.nthings.otlp4j.receiver.AbstractOtlpReceiver;
 import dev.nthings.otlp4j.transport.http.internal.HttpOtlpServer;
 import java.time.Duration;
 import java.util.concurrent.Executor;
+import org.jspecify.annotations.Nullable;
 
 /// Receives OTLP/HTTP requests (binary-protobuf bodies), dispatches them to per-signal sinks,
 /// and exposes a telemetry tap for live observation.
@@ -55,10 +56,10 @@ public final class OtlpHttpReceiver extends AbstractOtlpReceiver {
 
         private ServerConfig.Builder config =
                 ServerConfig.builder().port(DEFAULT_HTTP_PORT);
-        private TraceSink    traces;
-        private MetricSink   metrics;
-        private LogSink      logs;
-        private ProfileSink  profiles;
+        private @Nullable TraceSink    traces;
+        private @Nullable MetricSink   metrics;
+        private @Nullable LogSink      logs;
+        private @Nullable ProfileSink  profiles;
 
         private Builder() {}
 
