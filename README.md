@@ -1,5 +1,7 @@
 # otlp4j
 
+![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/thiagogcm/otlp4j?utm_source=oss&utm_medium=github&utm_campaign=thiagogcm%2Fotlp4j&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)
+
 otlp4j is a JPMS-modular Java library for receiving, processing, and exporting [OpenTelemetry Protocol (OTLP)](https://opentelemetry.io/docs/specs/otlp/) telemetry.
 It is best used as an OTLP gateway/pipeline inside JVM applications and services, with immutable Java records and typed asynchronous APIs; generated Protobuf and gRPC types remain inside the transport modules.
 
