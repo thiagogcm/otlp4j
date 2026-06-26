@@ -36,6 +36,16 @@ public record Exemplar(
         return new Builder();
     }
 
+    /// Returns a [Builder] pre-populated with this exemplar's fields, for copy-modify transforms.
+    public Builder toBuilder() {
+        return new Builder()
+                .filteredAttributes(filteredAttributes)
+                .epochNanos(epochNanos)
+                .value(value)
+                .spanId(spanId)
+                .traceId(traceId);
+    }
+
     /// Fluent builder for [Exemplar]. Fields default to empty/zero; `value` defaults to `null`,
     /// preserving the round-trip of an exemplar whose wire value oneof was unset.
     public static final class Builder {

@@ -21,6 +21,16 @@ public record Metric(String name, String description, String unit, Data data, At
         return new Builder();
     }
 
+    /// Returns a [Builder] pre-populated with this metric's fields, for copy-modify transforms.
+    public Builder toBuilder() {
+        return new Builder()
+                .name(name)
+                .description(description)
+                .unit(unit)
+                .data(data)
+                .metadata(metadata);
+    }
+
     /// Whether this metric carries a data payload. `false` mirrors the wire `DATA_NOT_SET` form.
     public boolean hasData() {
         return !(data instanceof NoData);

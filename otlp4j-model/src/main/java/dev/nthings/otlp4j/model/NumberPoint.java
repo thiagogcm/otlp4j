@@ -53,6 +53,22 @@ public record NumberPoint(
         return new Builder();
     }
 
+    /// Returns a [Builder] pre-populated with this point's fields, for copy-modify transforms.
+    public Builder toBuilder() {
+        Builder builder = new Builder()
+                .attributes(attributes)
+                .startEpochNanos(startEpochNanos)
+                .epochNanos(epochNanos)
+                .flags(flags)
+                .exemplars(exemplars);
+        // value is null for a wire point whose value oneof was unset; the builder already defaults
+        // to null, and its value(...) setter does not accept null.
+        if (value != null) {
+            builder.value(value);
+        }
+        return builder;
+    }
+
     /// Fluent builder for [NumberPoint]. Fields default to empty/zero; `value` defaults to
     /// `null`, mirroring a wire point whose value oneof was never set.
     public static final class Builder {

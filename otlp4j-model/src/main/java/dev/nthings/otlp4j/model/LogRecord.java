@@ -35,6 +35,22 @@ public record LogRecord(
         return new Builder();
     }
 
+    /// Returns a [Builder] pre-populated with this record's fields, for copy-modify transforms.
+    public Builder toBuilder() {
+        return new Builder()
+                .epochNanos(epochNanos)
+                .observedEpochNanos(observedEpochNanos)
+                .severity(severity)
+                .severityText(severityText)
+                .body(body)
+                .attributes(attributes)
+                .droppedAttributesCount(droppedAttributesCount)
+                .flags(flags)
+                .traceId(traceId)
+                .spanId(spanId)
+                .eventName(eventName);
+    }
+
     /// Normalized severity level, per the OpenTelemetry log data model.
     public enum Severity implements ProtoEnum {
         UNSPECIFIED(0),
