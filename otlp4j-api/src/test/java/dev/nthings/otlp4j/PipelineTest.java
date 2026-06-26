@@ -15,6 +15,7 @@ import dev.nthings.otlp4j.testing.Fixtures;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -146,26 +147,39 @@ class PipelineTest {
             return ConsumeResult.acceptedStage();
         };
 
-        FanOut<TraceData> fanOut = FanOut.of(List.of(universalPeer));
-        assertThat(fanOut.peers()).hasSize(1);
-
         var batch = Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER));
+
+        // Both FanOut.of overloads accept Sink<? super TraceData>; consume drives the supertype peer.
+        assertThat(FanOut.of(List.of(universalPeer)).consume(batch).toCompletableFuture().join())
+                .isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(FanOut.<TraceData>of(universalPeer).consume(batch).toCompletableFuture().join())
+                .isInstanceOf(ConsumeResult.Accepted.class);
+
+        // Stage.to, Stage.to(terminal, owner), and Branch.fanOut all accept the supertype sink.
         // One consumer slot per ManualSource, so drive each path on its own source.
         var terminalSource = new ManualSource<TraceData>();
+        var ownedSource = new ManualSource<TraceData>();
         var peerSource = new ManualSource<TraceData>();
+        var ownerClosed = new AtomicBoolean();
         var terminalSub = Pipeline.from(terminalSource).to(universalTerminal);
+        var ownedSub = Pipeline.from(ownedSource).to(universalTerminal, () -> ownerClosed.set(true));
         var branchSub = Pipeline.from(peerSource).branch().fanOut(universalPeer).join();
         try {
             assertThat(terminalSource.dispatch(batch).toCompletableFuture().join())
+                    .isInstanceOf(ConsumeResult.Accepted.class);
+            assertThat(ownedSource.dispatch(batch).toCompletableFuture().join())
                     .isInstanceOf(ConsumeResult.Accepted.class);
             assertThat(peerSource.dispatch(batch).toCompletableFuture().join())
                     .isInstanceOf(ConsumeResult.Accepted.class);
         } finally {
             terminalSub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
+            ownedSub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
             branchSub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
         }
-        assertThat(seenByTerminal).hasValue(1);
-        assertThat(seenByPeer).hasValue(1);
+        // 2 FanOut peers + 1 branch peer; 2 terminals (plain + owned). Owner closed on shutdown.
+        assertThat(seenByTerminal).hasValue(2);
+        assertThat(seenByPeer).hasValue(3);
+        assertThat(ownerClosed).isTrue();
     }
 
     @DisplayName("Shutting down the Subscription detaches the consumer")

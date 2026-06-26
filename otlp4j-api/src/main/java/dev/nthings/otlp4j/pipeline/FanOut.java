@@ -77,7 +77,7 @@ public final class FanOut<T> implements Sink<T> {
     /// Retags a peer's supertype-tagged result as `ConsumeResult<T>`; sound because [ConsumeResult]
     /// holds no `T`-typed data, so its type parameter is a phantom tag.
     @SuppressWarnings("unchecked")
-    private static <T> CompletionStage<ConsumeResult<T>> retag(CompletionStage<?> stage) {
+    private static <T> CompletionStage<ConsumeResult<T>> retag(CompletionStage<? extends ConsumeResult<?>> stage) {
         return (CompletionStage<ConsumeResult<T>>) stage;
     }
 
