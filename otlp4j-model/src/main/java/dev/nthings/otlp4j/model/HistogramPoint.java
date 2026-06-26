@@ -42,6 +42,24 @@ public record HistogramPoint(
         return new Builder();
     }
 
+    /// Returns a [Builder] pre-populated with this point's fields, for copy-modify transforms.
+    public Builder toBuilder() {
+        Builder builder = new Builder()
+                .attributes(attributes)
+                .startEpochNanos(startEpochNanos)
+                .epochNanos(epochNanos)
+                .count(count)
+                .bucketCounts(bucketCounts)
+                .explicitBounds(explicitBounds)
+                .flags(flags)
+                .exemplars(exemplars);
+        // Empty OptionalDoubles map to "unset"; the builder defaults to empty for each.
+        sum.ifPresent(builder::sum);
+        min.ifPresent(builder::min);
+        max.ifPresent(builder::max);
+        return builder;
+    }
+
     /// Fluent builder for [HistogramPoint]. Optional fields default to empty/zero; [#build()]
     /// enforces the bucket invariant at construction.
     public static final class Builder {

@@ -34,6 +34,27 @@ public record ExponentialHistogramPoint(
         return new Builder();
     }
 
+    /// Returns a [Builder] pre-populated with this point's fields, for copy-modify transforms.
+    public Builder toBuilder() {
+        Builder builder = new Builder()
+                .attributes(attributes)
+                .startEpochNanos(startEpochNanos)
+                .epochNanos(epochNanos)
+                .count(count)
+                .scale(scale)
+                .zeroCount(zeroCount)
+                .positive(positive)
+                .negative(negative)
+                .zeroThreshold(zeroThreshold)
+                .flags(flags)
+                .exemplars(exemplars);
+        // Empty OptionalDoubles map to "unset"; the builder defaults to empty for each.
+        sum.ifPresent(builder::sum);
+        min.ifPresent(builder::min);
+        max.ifPresent(builder::max);
+        return builder;
+    }
+
     /// A contiguous run of exponential bucket counts starting at `offset`.
     public record Buckets(int offset, List<Long> bucketCounts) {
 

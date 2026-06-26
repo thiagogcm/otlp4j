@@ -15,14 +15,12 @@ Evidence cites stable code symbols or tests rather than line numbers.
 
 ## Dependency Matrix
 
-| Epic               | Depends on       | Related                                         | Blocks                               |
-| ------------------ | ---------------- | ----------------------------------------------- | ------------------------------------ |
-| BOUNDARY           | none             | PUBLIC-API-HYGIENE                              | DOCS                                 |
-| TYPE-SYSTEM        | none             | PUBLIC-API-HYGIENE                              | DELIVERY-SEMANTICS, MODEL-ERGONOMICS |
-| DELIVERY-SEMANTICS | TYPE-SYSTEM      | PUBLIC-API-HYGIENE                              | DOCS                                 |
-| MODEL-ERGONOMICS   | none             | TYPE-SYSTEM                                     | TRANSFORM-HELPERS                    |
-| TRANSFORM-HELPERS  | MODEL-ERGONOMICS | TYPE-SYSTEM, EXAMPLE-COVERAGE                   | DOCS                                 |
-| DOCS               | none             | BOUNDARY, DELIVERY-SEMANTICS, TRANSFORM-HELPERS | none                                 |
+| Epic              | Depends on       | Related                  | Blocks            |
+| ----------------- | ---------------- | ------------------------ | ----------------- |
+| BOUNDARY          | none             | PUBLIC-API-HYGIENE       | DOCS              |
+| MODEL-ERGONOMICS  | none             | none                     | TRANSFORM-HELPERS |
+| TRANSFORM-HELPERS | MODEL-ERGONOMICS | EXAMPLE-COVERAGE         | DOCS              |
+| DOCS              | none             | BOUNDARY, TRANSFORM-HELPERS | none           |
 
 ## Epic: BOUNDARY
 
@@ -67,35 +65,11 @@ Title: Copy-modifiable model records
 
 Depends on: none
 
-Related: TYPE-SYSTEM
+Related: none
 
 Labels: code
 
 Intent: Make immutable OTLP model records practical for custom construction and transformation without forcing users to manually reconstruct every field.
-
-### Issue: MODEL-ERGONOMICS-01
-
-Title: Add `toBuilder()` to builder-backed model records
-
-Labels: code
-
-Acceptance criteria:
-
-- `Span`, `Metric`, `LogRecord`, `NumberPoint`, `HistogramPoint`, `ExponentialHistogramPoint`, and `Exemplar` each expose `toBuilder()`.
-- For each listed record, `value.toBuilder().build().equals(value)` holds in tests.
-- Builder-backed ID, flag, and timestamp fields preserve the current public representation unless separate value-object APIs are deliberately introduced and documented first.
-- Existing validation remains enforced through builders and canonical constructors.
-
-Context:
-
-- This is the central unblocker for ergonomic redaction, enrichment, and copy-modify transforms.
-- Sequence this after nullness work when possible so new builder methods inherit the package contract.
-
-Evidence / gap:
-
-- `Span.builder`, `Metric.builder`, `LogRecord.builder`, `NumberPoint.builder`, `HistogramPoint.builder`, `ExponentialHistogramPoint.builder`, and `Exemplar.builder` exist.
-- `Attributes.toBuilder()` exists as the copy-modify precedent, but the listed builder-backed records do not expose the same path.
-- No current public `TraceId`, `SpanId`, `TraceFlags`, or `Timestamp` value-object types exist, so copy helpers should not introduce those representations incidentally.
 
 ### Issue: MODEL-ERGONOMICS-02
 
@@ -149,7 +123,7 @@ Title: Narrow transform helper layer
 
 Depends on: MODEL-ERGONOMICS
 
-Related: TYPE-SYSTEM, EXAMPLE-COVERAGE
+Related: EXAMPLE-COVERAGE
 
 Labels: code
 
@@ -186,7 +160,7 @@ Title: Documentation accuracy and first-run UX
 
 Depends on: none
 
-Related: BOUNDARY, TYPE-SYSTEM, DELIVERY-SEMANTICS, MODEL-ERGONOMICS, TRANSFORM-HELPERS, EXAMPLE-COVERAGE
+Related: BOUNDARY, MODEL-ERGONOMICS, TRANSFORM-HELPERS, EXAMPLE-COVERAGE
 
 Labels: docs
 
@@ -260,13 +234,13 @@ Evidence / gap:
 
 - `OtlpGrpcReceiver`, `OtlpHttpReceiver`, `OtlpGrpcExporter`, `OtlpHttpExporter`, `BatchingProcessor`, `Pipeline.PipelineSubscription`, and `TelemetryTap` define the concurrency-sensitive surface.
 - Public docs include lifecycle guidance but do not provide a single thread-safety and nullness summary.
-- Nullness summary remains blocked by TYPE-SYSTEM-01 because package-level nullness and targeted `@Nullable` annotations are incomplete.
+- Systematic `@NullMarked` coverage and targeted `@Nullable` annotations are now in place, so the nullness summary can be authored against the implemented contract.
 
 ## Cross-Cutting Pillars
 
 ### Pillar: PUBLIC-API-HYGIENE
 
-Blocks: BOUNDARY, TYPE-SYSTEM, DELIVERY-SEMANTICS, MODEL-ERGONOMICS, TRANSFORM-HELPERS, DOCS
+Blocks: BOUNDARY, MODEL-ERGONOMICS, TRANSFORM-HELPERS, DOCS
 
 Summary: Public API additions should be deliberate, consistently documented, nullness-annotated, and compatible with the module boundary. This pillar keeps pre-1.0 hardening focused on stable ergonomics rather than expanding surface area opportunistically.
 

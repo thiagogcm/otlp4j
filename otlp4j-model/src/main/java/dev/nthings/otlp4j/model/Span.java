@@ -45,6 +45,27 @@ public record Span(
         return new Builder();
     }
 
+    /// Returns a [Builder] pre-populated with this span's fields, for copy-modify transforms.
+    public Builder toBuilder() {
+        return new Builder()
+                .traceId(traceId)
+                .spanId(spanId)
+                .parentSpanId(parentSpanId)
+                .traceState(traceState)
+                .flags(flags)
+                .name(name)
+                .kind(kind)
+                .startEpochNanos(startEpochNanos)
+                .endEpochNanos(endEpochNanos)
+                .attributes(attributes)
+                .droppedAttributesCount(droppedAttributesCount)
+                .events(events)
+                .droppedEventsCount(droppedEventsCount)
+                .links(links)
+                .droppedLinksCount(droppedLinksCount)
+                .status(status);
+    }
+
     /// Explicit OTLP wire numbers decouple the encoding from declaration order.
     public enum Kind implements ProtoEnum {
         UNSPECIFIED(0),
