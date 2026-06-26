@@ -10,6 +10,7 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.function.UnaryOperator;
+import org.jspecify.annotations.Nullable;
 
 /// Applies the standard general OTLP exporter environment variables onto a
 /// [ClientConfig.Builder]. Package-private (reached only through
@@ -57,7 +58,7 @@ final class OtlpEnv {
 
     /// The variable's value, or null when unset. Per the OTEL spec an empty value is treated as
     /// unset; a non-empty value is returned verbatim (individual parsers strip and validate it).
-    private static String value(UnaryOperator<String> env, String key) {
+    private static @Nullable String value(UnaryOperator<String> env, String key) {
         var raw = env.apply(key);
         return (raw == null || raw.isEmpty()) ? null : raw;
     }

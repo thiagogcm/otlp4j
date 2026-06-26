@@ -6,6 +6,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Function;
+import org.jspecify.annotations.Nullable;
 
 /// A typed, asynchronous sink for one OTLP signal.
 ///
@@ -59,7 +60,7 @@ public interface Sink<T> {
             } catch (Exception e) {
                 return CompletableFuture.completedFuture(rejected(e));
             }
-            return stage.handle((ignored, failure) -> {
+            return stage.handle((@Nullable Void ignored, @Nullable Throwable failure) -> {
                 if (failure == null) {
                     return ConsumeResult.<T>accepted();
                 }
@@ -78,7 +79,7 @@ public interface Sink<T> {
     private static <T> ConsumeResult<T> rejected(Throwable failure) {
         var cause = unwrap(failure);
         restoreInterrupt(cause);
-        var message = cause.getMessage();
+        @Nullable String message = cause.getMessage();
         return ConsumeResult.permanentRejected(
                 "sink action threw " + cause.getClass().getSimpleName()
                         + (message == null ? "" : ": " + message),
