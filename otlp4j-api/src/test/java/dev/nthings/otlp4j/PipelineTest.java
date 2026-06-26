@@ -248,8 +248,7 @@ class PipelineTest {
         Thread.interrupted();
         var source = new ManualSource<TraceData>();
         var interrupted = new InterruptedException("terminal interrupted");
-        // consume() declares no checked exceptions, so sneaky-throw one past the compiler the way a
-        // hand-written sink calling blocking code might; the boundary must still normalize it.
+        // consume() declares no checked exceptions; sneaky-throw one as a blocking sink might.
         TraceSink terminal = traces -> sneakyThrow(interrupted);
         var sub = Pipeline.from(source).to(terminal);
         try {

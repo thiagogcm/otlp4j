@@ -197,9 +197,8 @@ public final class Pipeline {
         }
     }
 
-    /// Delivers `batch` to `terminal`, normalizing a synchronous throw or a failed stage into a
-    /// permanent rejection so a hand-written terminal behaves like the [Sink] adapters. `Error`s
-    /// propagate, matching those adapters.
+    /// Delivers `batch`, normalizing a throw or failed stage to a rejection so a hand-written terminal
+    /// behaves like the [Sink] adapters.
     private static <T> CompletionStage<ConsumeResult<T>> deliver(Sink<? super T> terminal, T batch) {
         CompletionStage<? extends ConsumeResult<?>> stage;
         try {
@@ -210,9 +209,8 @@ public final class Pipeline {
         return Pipeline.<T>retag(stage).exceptionally(t -> rejectedTerminal("pipeline terminal failed", t));
     }
 
-    /// Permanent rejection from a terminal failure, unwrapping [CompletionException] to the real cause.
-    /// Mirrors the [Sink] adapters: an [Error] is rethrown rather than swallowed, and an
-    /// [InterruptedException] restores the thread interrupt flag before the rejection is returned.
+    /// Permanent rejection from a terminal failure, unwrapping [CompletionException] to the cause.
+    /// An [Error] is rethrown (not swallowed); an [InterruptedException] restores the interrupt flag.
     private static <T> ConsumeResult<T> rejectedTerminal(String prefix, Throwable failure) {
         var cause = failure instanceof CompletionException && failure.getCause() != null
                 ? failure.getCause()

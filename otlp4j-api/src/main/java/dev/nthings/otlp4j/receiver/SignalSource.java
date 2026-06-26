@@ -40,9 +40,9 @@ final class SignalSource<T> implements Source<T> {
         };
     }
 
-    /// Forwards the batch verbatim: a direct subscriber's synchronous throw or failed stage is NOT
-    /// normalized into a [ConsumeResult.Rejected] here — it propagates so the transport renders it as
-    /// gRPC `INTERNAL` / HTTP `500`. Pipeline/`FanOut`/[Sink] adapters normalize before this slot.
+    /// Forwards the batch verbatim: a direct subscriber's throw or failed stage is NOT normalized into
+    /// a [ConsumeResult.Rejected] — it propagates so the transport renders it as gRPC `INTERNAL` / HTTP
+    /// `500`. Pipeline/`FanOut`/[Sink] adapters normalize before this slot.
     public CompletionStage<ConsumeResult<T>> dispatch(T batch) {
         @Nullable Sink<? super T> sink = attached.get();
         if (sink == null) {
