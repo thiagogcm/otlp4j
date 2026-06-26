@@ -179,6 +179,18 @@ class ConnectorsTest {
         }
     }
 
+    @DisplayName("FAIL normalizes a downstream that sneaky-throws a bare Throwable")
+    @Test
+    void failNormalizesDownstreamBareThrowable() {
+        var raw = new Throwable("bare throwable");
+        MetricSink downstream = metrics -> sneakyThrow(raw);
+        var connector = Connectors.spanCount(downstream, FailurePolicy.FAIL);
+        var result = connector.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
+                .toCompletableFuture().join();
+        assertThat(result).isInstanceOfSatisfying(ConsumeResult.Rejected.class,
+                rejected -> assertThat(rejected.cause()).isSameAs(raw));
+    }
+
     @DisplayName("FAIL normalizes a downstream sink that returns a null stage")
     @Test
     void failNormalizesNullDownstreamStage() {
