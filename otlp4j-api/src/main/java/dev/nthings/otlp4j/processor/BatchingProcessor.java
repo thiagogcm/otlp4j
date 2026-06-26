@@ -87,7 +87,7 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, Flushable
     @Override
     public CompletionStage<ConsumeResult<T>> consume(T batch) {
         if (closed.get()) {
-            return CompletableFuture.completedFuture(ConsumeResult.rejected("batcher closed"));
+            return CompletableFuture.completedFuture(ConsumeResult.retryableRejected("batcher closed"));
         }
         var offered = queue.offer(batch);
         if (!offered) {
@@ -113,13 +113,13 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, Flushable
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                         return CompletableFuture.completedFuture(
-                                ConsumeResult.rejected("interrupted waiting for batcher capacity", e));
+                                ConsumeResult.permanentRejected("interrupted waiting for batcher capacity", e));
                     }
                 }
                 case ERROR -> {
                     drops.increment();
                     return CompletableFuture.completedFuture(
-                            ConsumeResult.rejected("batcher queue full"));
+                            ConsumeResult.retryableRejected("batcher queue full"));
                 }
             }
         }
@@ -130,7 +130,7 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, Flushable
             } catch (RejectedExecutionException rex) {
                 // Executor shut down after the closed-check; the batch is enqueued but unreachable.
                 return CompletableFuture.completedFuture(
-                        ConsumeResult.rejected("batcher shutting down"));
+                        ConsumeResult.retryableRejected("batcher shutting down"));
             }
         }
         return ConsumeResult.acceptedStage();

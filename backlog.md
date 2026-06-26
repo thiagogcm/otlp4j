@@ -61,42 +61,6 @@ Evidence / gap:
 - `docs/public-api.md`, `README.md`, and `otlp4j-codec/pom.xml` describe generated proto and codec packages as implementation details.
 - `TraceMapper`, `MetricsMapper`, `LogsMapper`, `ProfilesMapper`, and `SignalResponses` are public codec types and expose generated proto types in signatures.
 
-## Epic: TYPE-SYSTEM
-
-Title: Type-system hygiene and result semantics
-
-Depends on: none
-
-Related: PUBLIC-API-HYGIENE
-
-Labels: code, docs
-
-Intent: Make the public API easier to compose and harder to misuse by tightening nullness, variance, and rejection semantics before adding more surface area.
-
-### Issue: TYPE-SYSTEM-03
-
-Title: Steer users toward explicit rejection factories
-
-Labels: docs, code
-
-Acceptance criteria:
-
-- Public examples prefer `ConsumeResult.retryableRejected(...)` and `ConsumeResult.permanentRejected(...)` over generic `ConsumeResult.rejected(...)` when retry intent matters.
-- Javadocs and docs make retry semantics prominent before listing lower-level factories.
-- Internal call sites prefer explicit factories when retry intent is known; generic `ConsumeResult.rejected(...)` remains only where deliberately retained as a low-level alias.
-- Any decision to deprecate, hide, or retain `ConsumeResult.rejected(...)` is reflected consistently in code and docs.
-
-Context:
-
-- `ConsumeResult.rejected(String)` is retryable by convention because it has no cause.
-- Intent-revealing factories reduce accidental retry behavior in custom sinks.
-
-Evidence / gap:
-
-- `ConsumeResult.rejected`, `ConsumeResult.retryableRejected`, and `ConsumeResult.permanentRejected` all exist on the public result type.
-- `ConsumeResult.Rejected` Javadoc and `docs/public-api.md` now describe retryable and permanent factories as the intent-revealing path.
-- Internal call sites in `Pipeline.StageImpl`, `FanOut`, `BatchingProcessor`, `CountConnector`, codec response mapping, and tests still use the generic rejected factory in several paths.
-
 ## Epic: DELIVERY-SEMANTICS
 
 Title: Delivery failure normalization
