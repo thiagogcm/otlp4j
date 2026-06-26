@@ -116,8 +116,9 @@ public record ServerConfig(
             return this;
         }
 
-        /// Supplies the executor that runs the service handlers. `null` (the default) uses gRPC's
-        /// own executor; pass a BOUNDED pool to cap the work the receiver will admit concurrently.
+        /// Supplies the executor that runs the service handlers. `null` (the default) selects the
+        /// transport's default; pass a BOUNDED pool to cap the work the receiver will admit
+        /// concurrently.
         public Builder serverExecutor(@Nullable Executor serverExecutor) {
             this.serverExecutor = serverExecutor;
             return this;
