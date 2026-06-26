@@ -108,10 +108,10 @@ public sealed interface ConsumeResult<T> permits ConsumeResult.Accepted, Consume
         if (peers.isEmpty()) {
             return accepted();
         }
-        Rejected<T> firstRejected = null;
+        @Nullable Rejected<T> firstRejected = null;
         @Nullable Throwable permanentCause = null;
         var maxRejected = 0L;
-        StringBuilder messages = null;
+        @Nullable StringBuilder messages = null;
         for (var peer : peers) {
             switch (peer) {
                 case Rejected<T> r -> {
