@@ -165,8 +165,7 @@ class ConnectorsTest {
     void failNormalizesDownstreamCheckedThrowAndRestoresInterrupt() {
         Thread.interrupted();
         var interrupted = new InterruptedException("downstream interrupted");
-        // consume() declares no checked exceptions; a blocking metric sink can still sneaky-throw one,
-        // and it must reach applyPolicy rather than escape.
+        // consume() declares no checked exceptions; a blocking metric sink can still sneaky-throw one.
         MetricSink downstream = metrics -> sneakyThrow(interrupted);
         var connector = Connectors.spanCount(downstream, FailurePolicy.FAIL);
         try {

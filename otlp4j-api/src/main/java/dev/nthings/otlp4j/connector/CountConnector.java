@@ -55,7 +55,7 @@ final class CountConnector<I> implements Sink<I> {
         var now = nowEpochNanos();
         var start = previousFlushNanos.getAndAccumulate(now, Math::max);
         var metric = deltaSum(counter.applyAsLong(batch), start, Math.max(start, now));
-        // Normalize a synchronous throw or failed stage to a Rejected so applyPolicy governs the input.
+        // Normalize a throw or failed stage so applyPolicy governs the input.
         CompletionStage<ConsumeResult<MetricsData>> downstreamStage;
         try {
             downstreamStage = downstream.consume(metric);
@@ -67,10 +67,9 @@ final class CountConnector<I> implements Sink<I> {
                 .thenApply(this::applyPolicy);
     }
 
-    /// Permanent rejection for the derived metric, unwrapping [CompletionException] to the real cause.
-    /// Mirrors the [dev.nthings.otlp4j.core.Sink] adapters: an [Error] is rethrown rather than
-    /// swallowed (and so past `applyPolicy`), and an [InterruptedException] restores the thread
-    /// interrupt flag before the rejection is returned.
+    /// Permanent rejection from a downstream failure, unwrapping [CompletionException] to the cause.
+    /// An [Error] is rethrown (not swallowed past `applyPolicy`); an [InterruptedException] restores
+    /// the interrupt flag.
     private ConsumeResult<MetricsData> rejectedDownstream(String verb, Throwable failure) {
         var cause = failure instanceof CompletionException && failure.getCause() != null
                 ? failure.getCause()
