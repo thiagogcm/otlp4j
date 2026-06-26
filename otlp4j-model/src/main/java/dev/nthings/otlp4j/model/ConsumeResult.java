@@ -65,30 +65,28 @@ public sealed interface ConsumeResult<T> permits ConsumeResult.Accepted, Consume
         return new Partial<>(rejected, message);
     }
 
-    /// Returns a [Rejected] result with no associated exception.
+    /// A whole-batch rejection the sender SHOULD retry (transient, e.g. a full queue). Maps to gRPC
+    /// `UNAVAILABLE`. Prefer this over the [#rejected(String)] alias when retry intent is known.
+    static <T> ConsumeResult<T> retryableRejected(String message) {
+        return new Rejected<>(message, null);
+    }
+
+    /// A whole-batch rejection the sender MUST NOT retry (permanent, e.g. a policy or validation
+    /// fault). The required non-null `cause` maps it to gRPC `INTERNAL` rather than `UNAVAILABLE`.
+    static <T> ConsumeResult<T> permanentRejected(String message, Throwable cause) {
+        return new Rejected<>(message, Objects.requireNonNull(cause, "cause"));
+    }
+
+    /// Low-level alias for [#retryableRejected(String)].
     static <T> ConsumeResult<T> rejected(String message) {
         return new Rejected<>(message, null);
     }
 
-    /// Returns a [Rejected] result with the given cause. A `null` cause marks the rejection as
-    /// transient (the sender should retry); a non-null cause marks it as permanent (the sender
-    /// must not retry). Prefer [#retryableRejected(String)] and [#permanentRejected(String,
-    /// Throwable)] to make that intent explicit.
+    /// Low-level [Rejected] factory forwarding `cause` verbatim (null retries, non-null does not).
+    /// Prefer [#retryableRejected(String)] / [#permanentRejected(String, Throwable)] when intent is
+    /// known; use this only to forward a cause decided elsewhere.
     static <T> ConsumeResult<T> rejected(String message, @Nullable Throwable cause) {
         return new Rejected<>(message, cause);
-    }
-
-    /// A whole-batch rejection the sender SHOULD retry (transient, e.g. a full queue). Maps to gRPC
-    /// `UNAVAILABLE` in the bundled transport. Equivalent to [#rejected(String)].
-    static <T> ConsumeResult<T> retryableRejected(String message) {
-        return rejected(message);
-    }
-
-    /// A whole-batch rejection the sender MUST NOT retry (permanent, e.g. a policy or validation
-    /// fault). The non-null `cause` is what maps it to gRPC `INTERNAL` rather than the retryable
-    /// `UNAVAILABLE`, so it is required.
-    static <T> ConsumeResult<T> permanentRejected(String message, Throwable cause) {
-        return rejected(message, Objects.requireNonNull(cause, "cause"));
     }
 
     /// Completed stage shorthand for [#accepted()].

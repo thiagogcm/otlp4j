@@ -160,7 +160,7 @@ public final class Pipeline {
                     after = stageFn.apply(batch);
                 } catch (RuntimeException e) {
                     return CompletableFuture.completedFuture(
-                            ConsumeResult.rejected("pipeline stage threw: " + e.getMessage(), e));
+                            ConsumeResult.permanentRejected("pipeline stage threw: " + e.getMessage(), e));
                 }
                 if (after == null) {
                     return ConsumeResult.acceptedStage();

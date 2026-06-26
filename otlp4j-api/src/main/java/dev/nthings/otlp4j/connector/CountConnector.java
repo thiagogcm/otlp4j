@@ -79,7 +79,7 @@ final class CountConnector<I> implements Sink<I> {
             case ConsumeResult.Partial<MetricsData>(var rejected, var message) -> {
                 log.warn("{} downstream partial_success: {} rejected items, msg={}", metricName, rejected, message);
                 if (policy == FailurePolicy.FAIL) {
-                    return ConsumeResult.rejected(
+                    return ConsumeResult.retryableRejected(
                             metricName + " derived metric partially rejected: " + rejected + " points: " + message);
                 }
                 return ConsumeResult.accepted();
@@ -87,6 +87,7 @@ final class CountConnector<I> implements Sink<I> {
             case ConsumeResult.Rejected<MetricsData>(var message, var cause) -> {
                 log.warn("{} downstream rejected derived metric: {}", metricName, message, cause);
                 if (policy == FailurePolicy.FAIL) {
+                    // Forward the downstream cause verbatim; it decides retry intent.
                     return ConsumeResult.rejected(metricName + " derived metric rejected: " + message, cause);
                 }
                 return ConsumeResult.accepted();
