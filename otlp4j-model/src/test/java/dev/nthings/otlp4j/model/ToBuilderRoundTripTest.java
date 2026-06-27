@@ -151,6 +151,25 @@ class ToBuilderRoundTripTest {
         assertThat(bare.toBuilder().build()).isEqualTo(bare);
     }
 
+    @DisplayName("SummaryPoint.toBuilder() round-trips with quantiles and bare")
+    @Test
+    void summaryPointRoundTrips() {
+        var full = SummaryPoint.builder()
+                .attributes(ATTRS)
+                .startEpochNanos(1L)
+                .epochNanos(2L)
+                .count(10L)
+                .sum(123.4)
+                .addQuantileValue(new SummaryPoint.Quantile(0.5, 5.0))
+                .addQuantileValue(new SummaryPoint.Quantile(0.99, 9.9))
+                .flags(1L)
+                .build();
+        assertThat(full.toBuilder().build()).isEqualTo(full);
+
+        var bare = SummaryPoint.builder().count(4L).build();
+        assertThat(bare.toBuilder().build()).isEqualTo(bare);
+    }
+
     @DisplayName("Exemplar.toBuilder() round-trips with a value and with a null value")
     @Test
     void exemplarRoundTrips() {
