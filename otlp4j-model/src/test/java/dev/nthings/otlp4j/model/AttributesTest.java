@@ -50,6 +50,29 @@ class AttributesTest {
                 .isEqualTo("old");
     }
 
+    @DisplayName("with adds or replaces one attribute across every overload, leaving the source intact")
+    @Test
+    void withAddsOrReplacesOneAttribute() {
+        var base = Attributes.builder().put("keep", "v").put("override", "old").build();
+
+        var derived = base.with("override", "new")
+                .with("explicit", AttributeValue.of("e"))
+                .with("long", 10L)
+                .with("double", 2.5)
+                .with("bool", true);
+
+        assertThat(derived.getString("keep")).isEqualTo("v");
+        assertThat(derived.getString("override")).isEqualTo("new");
+        assertThat(derived.get("explicit")).isEqualTo(AttributeValue.of("e"));
+        assertThat(derived.get("long")).isEqualTo(AttributeValue.of(10L));
+        assertThat(derived.get("double")).isEqualTo(AttributeValue.of(2.5));
+        assertThat(derived.get("bool")).isEqualTo(AttributeValue.of(true));
+        assertThat(base.getString("override"))
+                .as("with must not mutate the source attributes")
+                .isEqualTo("old");
+        assertThat(base.contains("explicit")).isFalse();
+    }
+
     @DisplayName("putAll copies from Attributes and from a Map, overwriting keys")
     @Test
     void putAllCopiesFromAttributesAndFromAMapOverwritingKeys() {

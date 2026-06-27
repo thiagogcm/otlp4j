@@ -41,6 +41,28 @@ public final class Attributes {
         return new Builder().putAll(this);
     }
 
+    /// Returns a copy of these attributes with `key` added or replaced, without a manual
+    /// [#toBuilder()] round trip.
+    public Attributes with(String key, AttributeValue value) {
+        return toBuilder().put(key, value).build();
+    }
+
+    public Attributes with(String key, String value) {
+        return with(key, AttributeValue.of(value));
+    }
+
+    public Attributes with(String key, long value) {
+        return with(key, AttributeValue.of(value));
+    }
+
+    public Attributes with(String key, double value) {
+        return with(key, AttributeValue.of(value));
+    }
+
+    public Attributes with(String key, boolean value) {
+        return with(key, AttributeValue.of(value));
+    }
+
     /// Returns the value for `key`, or `null` if absent.
     public @Nullable AttributeValue get(String key) {
         return values.get(key);

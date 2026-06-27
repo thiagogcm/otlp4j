@@ -16,4 +16,9 @@ public record Resource(Attributes attributes, int droppedAttributesCount) {
     public static Resource of(Attributes attributes) {
         return new Resource(attributes, 0);
     }
+
+    /// Returns a copy of this resource with `key` added to (or replacing it in) its attributes.
+    public Resource withAttribute(String key, AttributeValue value) {
+        return new Resource(attributes.with(key, value), droppedAttributesCount);
+    }
 }

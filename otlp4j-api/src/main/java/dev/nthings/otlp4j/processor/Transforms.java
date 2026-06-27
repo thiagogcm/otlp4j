@@ -63,34 +63,34 @@ public final class Transforms {
     /// Adds (or overwrites) a resource attribute on every [Resource] in a trace batch.
     public static Transform<TraceData> withTracesResourceAttribute(String key, AttributeValue value) {
         return traces -> new TraceData(traces.resourceSpans().stream()
-                .map(rs -> new TraceData.ResourceSpans(enrich(rs.resource(), key, value), rs.schemaUrl(), rs.scopeSpans()))
+                .map(rs -> new TraceData.ResourceSpans(
+                        rs.resource().withAttribute(key, value), rs.schemaUrl(), rs.scopeSpans()))
                 .toList());
     }
 
     /// Adds (or overwrites) a resource attribute on every [Resource] in a metrics batch.
     public static Transform<MetricsData> withMetricsResourceAttribute(String key, AttributeValue value) {
         return metrics -> new MetricsData(metrics.resourceMetrics().stream()
-                .map(rm -> new MetricsData.ResourceMetrics(enrich(rm.resource(), key, value), rm.schemaUrl(), rm.scopeMetrics()))
+                .map(rm -> new MetricsData.ResourceMetrics(
+                        rm.resource().withAttribute(key, value), rm.schemaUrl(), rm.scopeMetrics()))
                 .toList());
     }
 
     /// Adds (or overwrites) a resource attribute on every [Resource] in a logs batch.
     public static Transform<LogsData> withLogsResourceAttribute(String key, AttributeValue value) {
         return logs -> new LogsData(logs.resourceLogs().stream()
-                .map(rl -> new LogsData.ResourceLogs(enrich(rl.resource(), key, value), rl.schemaUrl(), rl.scopeLogs()))
+                .map(rl -> new LogsData.ResourceLogs(
+                        rl.resource().withAttribute(key, value), rl.schemaUrl(), rl.scopeLogs()))
                 .toList());
     }
 
     /// Adds (or overwrites) a resource attribute on every [Resource] in a profiles batch.
     public static Transform<ProfilesData> withProfilesResourceAttribute(String key, AttributeValue value) {
-        return profiles -> new ProfilesData(profiles.resourceProfiles().stream()
-                .map(rp -> new ProfilesData.ResourceProfiles(enrich(rp.resource(), key, value), rp.schemaUrl(), rp.scopeProfiles()))
-                .toList(), profiles.dictionary());
-    }
-
-    private static Resource enrich(Resource resource, String key, AttributeValue value) {
-        return new Resource(
-                resource.attributes().toBuilder().put(key, value).build(),
-                resource.droppedAttributesCount());
+        return profiles -> new ProfilesData(
+                profiles.resourceProfiles().stream()
+                        .map(rp -> new ProfilesData.ResourceProfiles(
+                                rp.resource().withAttribute(key, value), rp.schemaUrl(), rp.scopeProfiles()))
+                        .toList(),
+                profiles.dictionary());
     }
 }
