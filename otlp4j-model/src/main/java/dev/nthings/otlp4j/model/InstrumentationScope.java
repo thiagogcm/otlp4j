@@ -25,4 +25,9 @@ public record InstrumentationScope(
     public static InstrumentationScope of(String name, String version) {
         return new InstrumentationScope(name, version, Attributes.empty(), 0);
     }
+
+    /// Returns a copy of this scope with `key` added to (or replacing it in) its attributes.
+    public InstrumentationScope withAttribute(String key, AttributeValue value) {
+        return new InstrumentationScope(name, version, attributes.with(key, value), droppedAttributesCount);
+    }
 }

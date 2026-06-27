@@ -15,12 +15,11 @@ Evidence cites stable code symbols or tests rather than line numbers.
 
 ## Dependency Matrix
 
-| Epic              | Depends on       | Related                  | Blocks            |
-| ----------------- | ---------------- | ------------------------ | ----------------- |
-| BOUNDARY          | none             | PUBLIC-API-HYGIENE       | DOCS              |
-| MODEL-ERGONOMICS  | none             | none                     | TRANSFORM-HELPERS |
-| TRANSFORM-HELPERS | MODEL-ERGONOMICS | EXAMPLE-COVERAGE         | DOCS              |
-| DOCS              | none             | BOUNDARY, TRANSFORM-HELPERS | none           |
+| Epic              | Depends on | Related                     | Blocks |
+| ----------------- | ---------- | --------------------------- | ------ |
+| BOUNDARY          | none       | PUBLIC-API-HYGIENE          | DOCS   |
+| TRANSFORM-HELPERS | none       | EXAMPLE-COVERAGE            | DOCS   |
+| DOCS              | none       | BOUNDARY, TRANSFORM-HELPERS | none   |
 
 ## Epic: BOUNDARY
 
@@ -59,69 +58,11 @@ Evidence / gap:
 - `docs/public-api.md`, `README.md`, and `otlp4j-codec/pom.xml` describe generated proto and codec packages as implementation details.
 - `TraceMapper`, `MetricsMapper`, `LogsMapper`, `ProfilesMapper`, and `SignalResponses` are public codec types and expose generated proto types in signatures.
 
-## Epic: MODEL-ERGONOMICS
-
-Title: Copy-modifiable model records
-
-Depends on: none
-
-Related: none
-
-Labels: code
-
-Intent: Make immutable OTLP model records practical for custom construction and transformation without forcing users to manually reconstruct every field.
-
-### Issue: MODEL-ERGONOMICS-02
-
-Title: Add builder and copy helper for `SummaryPoint`
-
-Labels: code
-
-Acceptance criteria:
-
-- `SummaryPoint.builder()` exists and follows the style of other metric point builders.
-- `SummaryPoint.toBuilder()` round-trips through `build()` without changing equality.
-- Existing `SummaryPoint.of(...)` construction remains available for terse common-case creation.
-
-Context:
-
-- Summary points are the only metric point shape without a builder-backed copy path.
-- Aligning point construction keeps metric transforms consistent across data kinds.
-
-Evidence / gap:
-
-- `SummaryPoint.of(...)` exists.
-- `NumberPoint`, `HistogramPoint`, and `ExponentialHistogramPoint` already have builder APIs.
-
-### Issue: MODEL-ERGONOMICS-03
-
-Title: Add attribute enrichment conveniences
-
-Labels: code
-
-Acceptance criteria:
-
-- `Resource`, `InstrumentationScope`, and `Attributes` expose a concise way to add or replace one attribute.
-- The convenience preserves immutability and existing validation behavior.
-- Existing `Attributes.toBuilder().put(...).build()` call sites continue to compile.
-- Resource-attribute transform helpers are updated to use the convenience once available.
-
-Context:
-
-- Resource and scope enrichment is common in gateway pipelines.
-- A small convenience method reduces noise in examples and transform implementations.
-
-Evidence / gap:
-
-- `Attributes.toBuilder()` supports copy-modify, but enrichment currently requires a builder round trip.
-- `Resource` and `InstrumentationScope` expose factory-style construction but no direct `withAttribute(...)` convenience.
-- `Transforms.withTracesResourceAttribute`, `withMetricsResourceAttribute`, `withLogsResourceAttribute`, and `withProfilesResourceAttribute` currently perform the builder round trip internally.
-
 ## Epic: TRANSFORM-HELPERS
 
 Title: Narrow transform helper layer
 
-Depends on: MODEL-ERGONOMICS
+Depends on: none
 
 Related: EXAMPLE-COVERAGE
 
@@ -146,7 +87,7 @@ Acceptance criteria:
 Context:
 
 - Keep this layer narrow: map records and resources, but do not introduce a query language or generalized traversal framework.
-- This depends on copy-modifiable model records so mapper callbacks can rebuild individual records ergonomically.
+- Mapper callbacks rebuild individual records through the model copy helpers (`toBuilder()`, `withAttribute(...)`).
 
 Evidence / gap:
 
@@ -160,7 +101,7 @@ Title: Documentation accuracy and first-run UX
 
 Depends on: none
 
-Related: BOUNDARY, MODEL-ERGONOMICS, TRANSFORM-HELPERS, EXAMPLE-COVERAGE
+Related: BOUNDARY, TRANSFORM-HELPERS, EXAMPLE-COVERAGE
 
 Labels: docs
 
@@ -240,7 +181,7 @@ Evidence / gap:
 
 ### Pillar: PUBLIC-API-HYGIENE
 
-Blocks: BOUNDARY, MODEL-ERGONOMICS, TRANSFORM-HELPERS, DOCS
+Blocks: BOUNDARY, TRANSFORM-HELPERS, DOCS
 
 Summary: Public API additions should be deliberate, consistently documented, nullness-annotated, and compatible with the module boundary. This pillar keeps pre-1.0 hardening focused on stable ergonomics rather than expanding surface area opportunistically.
 
