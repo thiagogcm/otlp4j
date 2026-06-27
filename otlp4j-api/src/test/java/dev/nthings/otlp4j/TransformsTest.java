@@ -80,4 +80,83 @@ class TransformsTest {
         var attr = enriched.resourceProfiles().getFirst().resource().attributes().get("env");
         assertThat(((AttributeValue.StringValue) attr).value()).isEqualTo("perf");
     }
+
+    @DisplayName("mapSpans rewrites every span without naming wrapper records")
+    @Test
+    void mapSpansRewritesSpans() {
+        var traces = Fixtures.traceData(
+                Fixtures.span("a", Span.Kind.SERVER), Fixtures.span("b", Span.Kind.INTERNAL));
+        var mapped = Transforms.mapSpans(
+                        span -> span.toBuilder().name("redacted").build())
+                .apply(traces);
+        assertThat(mapped.spans()).extracting(Span::name).containsExactly("redacted", "redacted");
+    }
+
+    @DisplayName("mapSpans preserves empty scopes and resources instead of pruning")
+    @Test
+    void mapSpansPreservesEmptyStructure() {
+        var traces = Fixtures.traceData();
+        var mapped = Transforms.mapSpans(span -> span).apply(traces);
+        assertThat(mapped.resourceSpans()).hasSize(1);
+        assertThat(mapped.resourceSpans().getFirst().scopeSpans()).hasSize(1);
+        assertThat(mapped.spans()).isEmpty();
+    }
+
+    @DisplayName("mapLogRecords rewrites every record without naming wrapper records")
+    @Test
+    void mapLogRecordsRewritesRecords() {
+        var logs = Fixtures.logsData(
+                Fixtures.logRecord("secret", LogRecord.Severity.INFO),
+                Fixtures.logRecord("other", LogRecord.Severity.WARN));
+        var mapped = Transforms.mapLogRecords(
+                        record -> record.toBuilder().body(AttributeValue.of("[redacted]")).build())
+                .apply(logs);
+        assertThat(mapped.logRecords())
+                .extracting(LogRecord::body)
+                .containsOnly(AttributeValue.of("[redacted]"));
+    }
+
+    @DisplayName("mapTracesResource rewrites every resource")
+    @Test
+    void mapTracesResourceRewritesResource() {
+        var traces = Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER));
+        var mapped = Transforms.mapTracesResource(resource -> resource.withAttribute("env", AttributeValue.of("prod")))
+                .apply(traces);
+        var attr = mapped.resourceSpans().getFirst().resource().attributes().get("env");
+        assertThat(((AttributeValue.StringValue) attr).value()).isEqualTo("prod");
+        assertThat(mapped.spans()).hasSize(1);
+    }
+
+    @DisplayName("mapMetricsResource rewrites every resource")
+    @Test
+    void mapMetricsResourceRewritesResource() {
+        var metrics = Fixtures.metricsData(Fixtures.metric("m1"));
+        var mapped = Transforms.mapMetricsResource(resource -> resource.withAttribute("env", AttributeValue.of("dev")))
+                .apply(metrics);
+        var attr = mapped.resourceMetrics().getFirst().resource().attributes().get("env");
+        assertThat(((AttributeValue.StringValue) attr).value()).isEqualTo("dev");
+        assertThat(mapped.metrics()).hasSize(1);
+    }
+
+    @DisplayName("mapLogsResource rewrites every resource")
+    @Test
+    void mapLogsResourceRewritesResource() {
+        var logs = Fixtures.logsData(Fixtures.logRecord("hi", LogRecord.Severity.INFO));
+        var mapped = Transforms.mapLogsResource(resource -> resource.withAttribute("env", AttributeValue.of("staging")))
+                .apply(logs);
+        var attr = mapped.resourceLogs().getFirst().resource().attributes().get("env");
+        assertThat(((AttributeValue.StringValue) attr).value()).isEqualTo("staging");
+        assertThat(mapped.logRecords()).hasSize(1);
+    }
+
+    @DisplayName("mapProfilesResource rewrites every resource and preserves the dictionary")
+    @Test
+    void mapProfilesResourceRewritesResource() {
+        var profiles = Fixtures.profilesData(Fixtures.profile("p1"));
+        var mapped = Transforms.mapProfilesResource(resource -> resource.withAttribute("env", AttributeValue.of("perf")))
+                .apply(profiles);
+        var attr = mapped.resourceProfiles().getFirst().resource().attributes().get("env");
+        assertThat(((AttributeValue.StringValue) attr).value()).isEqualTo("perf");
+        assertThat(mapped.dictionary()).isEqualTo(profiles.dictionary());
+    }
 }
