@@ -42,9 +42,11 @@ public final class Attributes {
     }
 
     /// Returns a copy of these attributes with `key` added or replaced, without a manual
-    /// [#toBuilder()] round trip.
+    /// [#toBuilder()] round trip. Insertion order is preserved; an existing key keeps its position.
     public Attributes with(String key, AttributeValue value) {
-        return toBuilder().put(key, value).build();
+        var copy = new LinkedHashMap<>(values);
+        copy.put(key, value);
+        return new Attributes(Collections.unmodifiableMap(copy));
     }
 
     public Attributes with(String key, String value) {
