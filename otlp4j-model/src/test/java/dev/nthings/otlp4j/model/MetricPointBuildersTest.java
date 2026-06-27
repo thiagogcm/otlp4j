@@ -150,6 +150,46 @@ class MetricPointBuildersTest {
         assertThat(point.negative()).isEqualTo(ExponentialHistogramPoint.Buckets.EMPTY);
     }
 
+    @DisplayName("SummaryPoint.builder() applies empty/zero defaults")
+    @Test
+    void summaryPointDefaults() {
+        var point = SummaryPoint.builder().build();
+
+        assertThat(point.attributes()).isEqualTo(Attributes.empty());
+        assertThat(point.startEpochNanos()).isZero();
+        assertThat(point.epochNanos()).isZero();
+        assertThat(point.count()).isZero();
+        assertThat(point.sum()).isZero();
+        assertThat(point.quantileValues()).isEmpty();
+        assertThat(point.flags()).isZero();
+    }
+
+    @DisplayName("SummaryPoint quantile setters and of() factory")
+    @Test
+    void summaryPointSetters() {
+        var quantile = new SummaryPoint.Quantile(0.99, 12.3);
+        var built = SummaryPoint.builder()
+                .attributes(Attributes.builder().put("k", "v").build())
+                .startEpochNanos(1L)
+                .epochNanos(2L)
+                .count(10L)
+                .sum(123.4)
+                .addQuantileValue(quantile)
+                .flags(3L)
+                .build();
+
+        assertThat(built.count()).isEqualTo(10L);
+        assertThat(built.sum()).isEqualTo(123.4);
+        assertThat(built.quantileValues()).containsExactly(quantile);
+        assertThat(built.flags()).isEqualTo(3L);
+
+        var factory = SummaryPoint.of(Attributes.empty(), 0L, 9L, 2L, 3.0, List.of(quantile));
+        assertThat(factory.epochNanos()).isEqualTo(9L);
+        assertThat(factory.startEpochNanos()).isZero();
+        assertThat(factory.flags()).isZero();
+        assertThat(factory.quantileValues()).containsExactly(quantile);
+    }
+
     @DisplayName("Exemplar.builder() defaults ids to empty and value to null")
     @Test
     void exemplarDefaults() {
