@@ -32,7 +32,7 @@ var receiver = OtlpGrpcReceiver.builder()
 
 ### Receive, transform, export
 
-Transforms are copy-modify: built-ins like `Transforms.withTracesResourceAttribute` return a new batch (records are immutable), so chain them and let the exporter facet's lifecycle ride along.
+Transforms are copy-modify: built-ins like `Transforms.withTracesResourceAttribute` return a new batch (records are immutable), so chain them and let the exporter facet's lifecycle ride along. (`receiver` is the one from [Receive and print](#receive-and-print) above.)
 
 ```java
 var exporter = OtlpGrpcExporter.to("collector.example.com", 4317);
@@ -52,7 +52,7 @@ Build a batch with the `of(...)` factories and copy-modify helpers, then hand it
 ```java
 var attrs = Attributes.builder().put("service.name", "checkout").build();
 var batch = TraceData.of(
-        Resource.of(attrs.toBuilder().putAll(extra).build()),   // copy-and-add
+        Resource.of(attrs.with("deployment.environment", "prod")),   // copy-and-add one key
         InstrumentationScope.of("my.lib", "1.0"),
         spans);
 
