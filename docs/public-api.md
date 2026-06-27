@@ -4,6 +4,63 @@ Application code normally depends on `otlp4j-api`, which transitively exposes `o
 
 otlp4j is an OTLP gateway/pipeline library: receive, process, observe, route, and forward OTLP batches. It is not the OpenTelemetry Java instrumentation SDK. For tracer/meter/logger APIs, span lifecycle and `SpanContext`, context propagation, resource detectors, and metric instruments, use the official OpenTelemetry Java API/SDK. otlp4j complements that SDK when emitted telemetry should flow through an embedded JVM gateway.
 
+## Start Here
+
+Pick the path that matches your first task, then read the reference sections it links:
+
+| Task | Path |
+| --- | --- |
+| **Receive and print** — stand up a receiver and observe incoming batches | [§ Receive and print](#receive-and-print) → [Receive](#receive) |
+| **Receive, transform, export** — filter/enrich a stream and forward it | [§ Receive, transform, export](#receive-transform-export) → [Transform and route](#transform-and-route), [Export](#export) |
+| **Construct and export** — build batches in code and send them | [§ Construct and export](#construct-and-export) → [Domain model](#domain-model), [Export](#export) |
+
+When you wire several stages together, read [Shutdown order](#shutdown-order) and the [Lifecycle cheat sheet](#lifecycle-cheat-sheet) so every resource is closed exactly once, and [Thread-safety and nullness](#thread-safety-and-nullness) for the concurrency and `null` contracts.
+
+### Receive and print
+
+```java
+var receiver = OtlpGrpcReceiver.builder()
+        .endpoint("127.0.0.1", 4317)
+        .onTraces(traces -> {
+            System.out.println("spans=" + traces.spanCount());
+            return ConsumeResult.acceptedStage();
+        })
+        .build()
+        .start();
+// ... later: receiver.close();
+```
+
+### Receive, transform, export
+
+Transforms are copy-modify: built-ins like `Transforms.withTracesResourceAttribute` return a new batch (records are immutable), so chain them and let the exporter facet's lifecycle ride along.
+
+```java
+var exporter = OtlpGrpcExporter.to("collector.example.com", 4317);
+
+var subscription = Pipeline.from(receiver.traces())
+        .transform(Transforms.keepSpansWhere(span -> span.kind() == Span.Kind.SERVER))
+        .transform(Transforms.withTracesResourceAttribute(
+                "service.namespace", AttributeValue.of("store")))
+        .filter(traces -> !traces.spans().isEmpty())
+        .to(exporter.traces());        // auto-owns the exporter; one shutdown drains it
+```
+
+### Construct and export
+
+Build a batch with the `of(...)` factories and copy-modify helpers, then hand it to an exporter facet:
+
+```java
+var attrs = Attributes.builder().put("service.name", "checkout").build();
+var batch = TraceData.of(
+        Resource.of(attrs.toBuilder().putAll(extra).build()),   // copy-and-add
+        InstrumentationScope.of("my.lib", "1.0"),
+        spans);
+
+try (var exporter = OtlpGrpcExporter.to("collector.example.com", 4317)) {
+    exporter.traces().consume(batch).toCompletableFuture().join();
+}
+```
+
 Everything lives under the `dev.nthings.otlp4j` root. The types you import most often:
 
 | Type(s) | Package |
@@ -411,3 +468,61 @@ Stop ingestion before closing downstream resources:
 3. Shut down the receiver.
 
 Use `shutdown(Duration)` when completion matters. The convenience `close()` methods drain gracefully with a fixed ten-second default across the receiver, exporter, and subscription; call `Receiver.shutdownNow()` for an immediate stop.
+
+### Lifecycle cheat sheet
+
+The subscription drains every resource it can *see* under one shared deadline. The rule of thumb: a resource is auto-collected when the pipeline references it directly as a terminal or fan-out peer; it is hidden — and needs `Stage.owns(...)` — when it sits behind a lambda or a connector the pipeline can only see as a plain `Sink`.
+
+| Resource | Owned by the subscription? | How |
+| --- | --- | --- |
+| Exporter facet (`exporter.traces()`, …) as terminal or fan-out peer | **Auto** | The facet is `Drainable`/`Flushable` and carries its exporter's lifecycle, so `to(exporter.traces())` and `fanOut(exporter.traces())` drain the exporter — no `owns(...)` needed. |
+| `BatchingProcessor` attached directly as terminal | **Auto** | A directly-attached batcher is an `AutoCloseable` terminal; the subscription stops its timer and drains it once. |
+| Fan-out peers that are `AutoCloseable` | **Auto** | Each `AutoCloseable`/`Drainable` peer in a `branch()`/`FanOut` is collected and drained within the shared budget. |
+| Count sink's downstream (`Connectors.spanCount(exporter.metrics())`) | **Hidden** | The connector is just a `Sink`; the subscription cannot see the exporter behind it. Point the sink at a facet the pipeline *already* auto-owns, or register the owner with `Stage.owns(exporter)`. |
+| A bare lambda sink that holds a resource | **Hidden** | The pipeline sees only a `Sink`. Declare the resource with `Stage.owns(resource)` (or the `to(terminal, owner)` shorthand). |
+| Exporter used outside any pipeline (direct `consume`) | **No** | Close it yourself (`try`-with-resources or `exporter.close()`). |
+| Receiver | **No** | Always shut down last, after the subscription detaches the source. |
+
+```java
+// Auto-owned: the exporter rides along on its facet; count sink's exporter is the SAME one, so still auto-owned.
+var subscription = Pipeline.from(receiver.traces())
+        .branch()
+            .fanOut(exporter.traces())                          // auto-owns exporter
+            .fanOut(Connectors.spanCount(exporter.metrics()))   // same exporter, already owned
+        .join();
+
+// Hidden: the count sink points at a SEPARATE metrics exporter the pipeline can't see — declare it.
+var metricsExporter = OtlpGrpcExporter.to("metrics-collector", 4317);
+var subscription2 = Pipeline.from(receiver.traces())
+        .owns(metricsExporter)                                  // before branch(); on the stage, not per peer
+        .branch()
+            .fanOut(exporter.traces())
+            .fanOut(Connectors.spanCount(metricsExporter.metrics()))
+        .join();
+```
+
+`Stage.owns(...)` is chainable and must be declared on the linear stage *before* `branch()`. Shutdown drains owned resources alongside the auto-collected terminals under the one deadline; see [Shutdown order](#shutdown-order).
+
+## Thread-safety and nullness
+
+**Thread-safety.** The runtime types are safe to share across threads; the *builders* are not.
+
+| Type | Contract |
+| --- | --- |
+| `OtlpGrpcReceiver` / `OtlpHttpReceiver` | Thread-safe after `start()`; dispatch incoming requests to sinks concurrently. The `…Receiver.Builder` is single-threaded — configure on one thread, then `build()`. |
+| `OtlpGrpcExporter` / `OtlpHttpExporter` and their facets | Thread-safe: a single exporter owns one client/channel and may be called from many threads; each facet's `consume` is concurrency-safe. The builder is single-threaded. |
+| `BatchingProcessor` | Thread-safe: `consume`, `forceFlush`, and `shutdown` may be called concurrently (queue + counters are concurrent). `shutdown` is idempotent and then rejects new batches. |
+| `Pipeline.PipelineSubscription` | `shutdown`/`forceFlush` are safe to call concurrently and idempotently. Build the pipeline on one thread. |
+| `TelemetryTap` | Thread-safe but not transactional: `setOptions` affects subscribers that attach afterward. Each `Flow.Subscriber` manages its own demand. |
+| Model records (`TraceData`, `Attributes`, …) | Immutable and freely shareable; fan-out peers share them without copying. Their builders are single-threaded. |
+
+**Nullness.** Every public package is `@NullMarked`: parameters, return types, and fields are non-null unless explicitly annotated `@Nullable`. The intentionally nullable spots in the public surface are:
+
+- **Receiver builder signal callbacks** — `onTraces`/`onMetrics`/`onLogs`/`onProfiles` are optional; an unset signal slot is acknowledged as accepted (attach through a `Source` instead).
+- **`serverExecutor`** (receiver builder / `ServerConfig`) — `null` keeps gRPC's own executor.
+- **`Tls.custom(cert, key, trustFile)`** — a `null` `trustFile` falls back to system trust.
+- **`ConsumeResult.Rejected.cause`** — `null` selects retryable (`UNAVAILABLE`) semantics; a present cause selects permanent (`INTERNAL`). See [Sinks and results](#sinks-and-results).
+- **Point values** — `NumberPoint`/`Exemplar` value may be `null` for a value-unset point.
+- **`Attributes.get(key)`** (and typed `getString`, …) — returns `null` on a lookup miss.
+
+`BatchingProcessor.Builder.downstream` must be set before `build()`; building without it throws rather than accepting `null`.
