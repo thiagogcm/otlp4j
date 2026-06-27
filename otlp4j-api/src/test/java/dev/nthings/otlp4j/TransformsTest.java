@@ -116,6 +116,16 @@ class TransformsTest {
                 .containsOnly(AttributeValue.of("[redacted]"));
     }
 
+    @DisplayName("mapLogRecords preserves empty scopes and resources instead of pruning")
+    @Test
+    void mapLogRecordsPreservesEmptyStructure() {
+        var logs = Fixtures.logsData();
+        var mapped = Transforms.mapLogRecords(record -> record).apply(logs);
+        assertThat(mapped.resourceLogs()).hasSize(1);
+        assertThat(mapped.resourceLogs().getFirst().scopeLogs()).hasSize(1);
+        assertThat(mapped.logRecords()).isEmpty();
+    }
+
     @DisplayName("mapTracesResource rewrites every resource")
     @Test
     void mapTracesResourceRewritesResource() {
