@@ -6,6 +6,7 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 import dev.nthings.otlp4j.model.ConsumeResult;
+import dev.nthings.otlp4j.codec.DeliveryResults;
 import dev.nthings.otlp4j.codec.LogsMapper;
 import dev.nthings.otlp4j.codec.MetricsMapper;
 import dev.nthings.otlp4j.codec.ProfilesMapper;
@@ -28,21 +29,25 @@ import java.util.zip.GZIPInputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/// Registers the four OTLP/HTTP collector endpoints on a [HttpServer], decoding binary-protobuf
-/// export requests, dispatching to the per-signal handlers, and encoding the [ConsumeResult] back.
+/// Registers the four OTLP/HTTP collector endpoints on a [HttpServer], decoding
+/// binary-protobuf export requests, dispatching to the per-signal handlers, and
+/// encoding the [ConsumeResult] back.
 ///
 /// The response contract mirrors the gRPC adapters (see [GrpcServiceAdapters]):
-///   - [ConsumeResult.Accepted] / [ConsumeResult.Partial] -> `200` with the protobuf
-///     `Export*ServiceResponse` (partial success carries the rejected count and message).
-///   - A whole-batch [ConsumeResult.Rejected] is a delivery failure, never `rejected_*=0`: no cause
-///     -> `503` (transient, retryable by a well-behaved client), with cause -> `500` (permanent).
-///   - A malformed body -> `400`; an oversized body -> `413`; a non-POST -> `405`; a dispatcher
-///     failure -> `500`.
+/// - [ConsumeResult.Accepted] / [ConsumeResult.Partial] -> `200` with the
+///   protobuf `Export*ServiceResponse` (partial success carries the rejected
+///   count and message).
+/// - A whole-batch [ConsumeResult.Rejected] is a delivery failure, never
+///   `rejected_*=0`: no cause -> `503` (transient, retryable by a well-behaved
+///   client), with cause -> `500` (permanent).
+/// - A malformed body -> `400`; an oversized body -> `413`; a non-POST -> `405`;
+///   a dispatcher failure -> `500`.
 final class HttpExchangeHandlers {
 
     private static final Logger log = LoggerFactory.getLogger(HttpExchangeHandlers.class);
 
-    private HttpExchangeHandlers() {}
+    private HttpExchangeHandlers() {
+    }
 
     static void register(HttpServer server, Dispatchers dispatchers, int maxBytes) {
         server.createContext(OtlpHttp.TRACES_PATH, handler(
@@ -115,9 +120,7 @@ final class HttpExchangeHandlers {
             }
 
             if (result instanceof ConsumeResult.Rejected<SIG>(var message, var cause)) {
-                // Whole-batch rejection is a delivery failure, not rejected_*=0: 503 (retryable) when
-                // there is no cause, 500 (permanent) when a cause marks it as a hard fault.
-                var status = cause == null ? 503 : 500;
+                var status = DeliveryResults.httpStatus((ConsumeResult.Rejected<?>) result);
                 log.warn("OTLP/HTTP dispatcher rejected the whole batch; responding {}: {}", status, message);
                 respondText(exchange, status, message);
                 return;
@@ -128,8 +131,9 @@ final class HttpExchangeHandlers {
         }
     }
 
-    /// Reads the request body, transparently inflating a `Content-Encoding: gzip` stream, and caps it
-    /// at `maxBytes` decoded to guard against memory-exhausting oversized requests.
+    /// Reads the request body, transparently inflating a `Content-Encoding: gzip`
+    /// stream, and caps it at `maxBytes` decoded to guard against memory-exhausting
+    /// oversized requests.
     private static byte[] readBody(HttpExchange exchange, int maxBytes) throws IOException {
         var encoding = exchange.getRequestHeaders().getFirst("Content-Encoding");
         InputStream in = exchange.getRequestBody();
@@ -168,7 +172,8 @@ final class HttpExchangeHandlers {
         }
     }
 
-    /// Signals that a request body exceeded the configured decoded-size cap, mapped to a `413`.
+    /// Signals that a request body exceeded the configured decoded-size cap, mapped
+    /// to a `413`.
     private static final class PayloadTooLargeException extends IOException {
         PayloadTooLargeException(String message) {
             super(message);

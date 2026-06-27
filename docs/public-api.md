@@ -8,11 +8,11 @@ otlp4j is an OTLP gateway/pipeline library: receive, process, observe, route, an
 
 Pick the path that matches your first task, then read the reference sections it links:
 
-| Task | Path |
-| --- | --- |
-| **Receive and print** — stand up a receiver and observe incoming batches | [§ Receive and print](#receive-and-print) → [Receive](#receive) |
-| **Receive, transform, export** — filter/enrich a stream and forward it | [§ Receive, transform, export](#receive-transform-export) → [Transform and route](#transform-and-route), [Export](#export) |
-| **Construct and export** — build batches in code and send them | [§ Construct and export](#construct-and-export) → [Domain model](#domain-model), [Export](#export) |
+| Task                                                                     | Path                                                                                                                       |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| **Receive and print** — stand up a receiver and observe incoming batches | [§ Receive and print](#receive-and-print) → [Receive](#receive)                                                            |
+| **Receive, transform, export** — filter/enrich a stream and forward it   | [§ Receive, transform, export](#receive-transform-export) → [Transform and route](#transform-and-route), [Export](#export) |
+| **Construct and export** — build batches in code and send them           | [§ Construct and export](#construct-and-export) → [Domain model](#domain-model), [Export](#export)                         |
 
 When you wire several stages together, read [Shutdown order](#shutdown-order) and the [Lifecycle cheat sheet](#lifecycle-cheat-sheet) so every resource is closed exactly once, and [Thread-safety and nullness](#thread-safety-and-nullness) for the concurrency and `null` contracts.
 
@@ -32,7 +32,7 @@ var receiver = OtlpGrpcReceiver.builder()
 
 ### Receive, transform, export
 
-Transforms are copy-modify: built-ins like `Transforms.withTracesResourceAttribute` return a new batch (records are immutable), so chain them and let the exporter facet's lifecycle ride along. (`receiver` is the one from [Receive and print](#receive-and-print) above.)
+Transforms are copy-modify: built-ins like `Transforms.withTracesResourceAttribute` return a new batch (records are immutable), so chain them and register the exporter with `to(exporter.traces(), exporter)` or `owns(exporter)`.
 
 ```java
 var exporter = OtlpGrpcExporter.to("collector.example.com", 4317);
@@ -42,7 +42,7 @@ var subscription = Pipeline.from(receiver.traces())
         .transform(Transforms.withTracesResourceAttribute(
                 "service.namespace", AttributeValue.of("store")))
         .filter(traces -> !traces.spans().isEmpty())
-        .to(exporter.traces());        // auto-owns the exporter; one shutdown drains it
+        .to(exporter.traces(), exporter);   // register exporter lifecycle explicitly
 ```
 
 ### Construct and export
@@ -63,34 +63,34 @@ try (var exporter = OtlpGrpcExporter.to("collector.example.com", 4317)) {
 
 Everything lives under the `dev.nthings.otlp4j` root. The types you import most often:
 
-| Type(s) | Package |
-| --- | --- |
-| `OtlpGrpcExporter`, `OtlpGrpcReceiver` | `dev.nthings.otlp4j.transport.grpc` |
-| `OtlpHttpExporter`, `OtlpHttpReceiver` | `dev.nthings.otlp4j.transport.http` |
-| `Sink` (+ `TraceSink`, `MetricSink`, `LogSink`, `ProfileSink` aliases), `Source`, `Subscription`, `Telemetry`, `Drainable`, `Flushable` | `dev.nthings.otlp4j.core` |
-| `Pipeline`, `Transform`, `FanOut` | `dev.nthings.otlp4j.pipeline` |
-| `Receiver`, `TelemetryTap`, `TapOptions`, `BackpressureStrategy` | `dev.nthings.otlp4j.receiver` |
-| `Exporter` | `dev.nthings.otlp4j.exporter` |
-| `Transforms`, `BatchingProcessor`, `DropPolicy` | `dev.nthings.otlp4j.processor` |
-| `Connectors`, `FailurePolicy` | `dev.nthings.otlp4j.connector` |
-| Configuration: `ClientConfig`, `ServerConfig`, `Tls`, `Compression`, `RetryPolicy` | `dev.nthings.otlp4j.config` |
-| Transport SPI: `OtlpClient`, `OtlpServer`, `Dispatchers` | `dev.nthings.otlp4j.spi` |
-| Domain records: `TraceData`, `MetricsData`, `LogsData`, `ProfilesData`, `Resource`, `Attributes`, `AttributeValue`, `Span`, `Metric`, `LogRecord`, `Exemplar`, `ConsumeResult`, … | `dev.nthings.otlp4j.model` |
+| Type(s)                                                                                                                                                                           | Package                             |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| `OtlpGrpcExporter`, `OtlpGrpcReceiver`                                                                                                                                            | `dev.nthings.otlp4j.transport.grpc` |
+| `OtlpHttpExporter`, `OtlpHttpReceiver`                                                                                                                                            | `dev.nthings.otlp4j.transport.http` |
+| `Sink` (+ `TraceSink`, `MetricSink`, `LogSink`, `ProfileSink` aliases), `Source`, `Subscription`, `Telemetry`, `Signal`, `Drainable`, `Flushable`                                 | `dev.nthings.otlp4j.core`           |
+| `Pipeline`, `Transform`, `FanOut`                                                                                                                                                 | `dev.nthings.otlp4j.pipeline`       |
+| `Receiver`, `TelemetryTap`, `TapOptions`, `BackpressureStrategy`                                                                                                                  | `dev.nthings.otlp4j.receiver`       |
+| `Exporter`                                                                                                                                                                        | `dev.nthings.otlp4j.exporter`       |
+| `Transforms`, `BatchingProcessor`, `DropPolicy`                                                                                                                                   | `dev.nthings.otlp4j.processor`      |
+| `Connectors`, `FailurePolicy`                                                                                                                                                     | `dev.nthings.otlp4j.connector`      |
+| Configuration: `ClientConfig`, `ServerConfig`, `Tls`, `Compression`, `RetryPolicy`                                                                                                | `dev.nthings.otlp4j.config`         |
+| Transport SPI: `OtlpClient`, `OtlpServer`, `Dispatchers`                                                                                                                          | `dev.nthings.otlp4j.spi`            |
+| Domain records: `TraceData`, `MetricsData`, `LogsData`, `ProfilesData`, `Resource`, `Attributes`, `AttributeValue`, `Span`, `Metric`, `LogRecord`, `Exemplar`, `ConsumeResult`, … | `dev.nthings.otlp4j.model`          |
 
 ## If you know OpenTelemetry Go
 
 `otlp4j` sits closer to a small Collector-style gateway than a single SDK exporter, so concepts map across rather than one-to-one:
 
-| OpenTelemetry Go | otlp4j |
-| --- | --- |
-| `otlptracegrpc` / `otlpmetricgrpc` / `otlploggrpc` (one package per signal+transport) | One `OtlpGrpcExporter`; pick a signal facet — `exporter.traces()`, `.metrics()`, `.logs()`, `.profiles()`. |
-| `go.opentelemetry.io/proto/otlp/...` generated protobuf | Proto-free immutable records in `dev.nthings.otlp4j.model` (`TraceData`, `MetricsData`, `LogsData`, `ProfilesData`, …). |
-| Collector `consumer` (`ConsumeTraces(ctx, td) error`) | `TraceSink` (a `Sink<TraceData>`) returning `CompletionStage<ConsumeResult<TraceData>>`. |
-| Collector `component` lifecycle (`Start`/`Shutdown(ctx)`) | `OtlpGrpcReceiver.start()`, `Subscription.shutdown(Duration)`, `Drainable`/`Flushable`. |
-| Collector OTLP receiver | `OtlpGrpcReceiver` plus its per-signal `Source`s. |
-| `exporterhelper` queue + retry + timeout | `BatchingProcessor` (queue), `RetryPolicy` (transport retry), per-request `timeout(...)`. |
-| Functional options (`WithEndpoint`, `WithTimeout`, `WithInsecure`) | Builder methods (`endpoint(...)`, `timeout(...)`); the endpoint scheme decides plaintext vs TLS. |
-| `consumer.Capabilities{MutatesData}` | Not needed — model records are immutable, so fan-out shares them without copying. |
+| OpenTelemetry Go                                                                      | otlp4j                                                                                                                  |
+| ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `otlptracegrpc` / `otlpmetricgrpc` / `otlploggrpc` (one package per signal+transport) | One `OtlpGrpcExporter`; pick a signal facet — `exporter.traces()`, `.metrics()`, `.logs()`, `.profiles()`.              |
+| `go.opentelemetry.io/proto/otlp/...` generated protobuf                               | Proto-free immutable records in `dev.nthings.otlp4j.model` (`TraceData`, `MetricsData`, `LogsData`, `ProfilesData`, …). |
+| Collector `consumer` (`ConsumeTraces(ctx, td) error`)                                 | `TraceSink` (a `Sink<TraceData>`) returning `CompletionStage<ConsumeResult<TraceData>>`.                                |
+| Collector `component` lifecycle (`Start`/`Shutdown(ctx)`)                             | `OtlpGrpcReceiver.start()`, `Subscription.shutdown(Duration)`, `Drainable`/`Flushable`.                                 |
+| Collector OTLP receiver                                                               | `OtlpGrpcReceiver` plus its per-signal `Source`s.                                                                       |
+| `exporterhelper` queue + retry + timeout                                              | `BatchingProcessor` (queue), `RetryPolicy` (transport retry), per-request `timeout(...)`.                               |
+| Functional options (`WithEndpoint`, `WithTimeout`, `WithInsecure`)                    | Builder methods (`endpoint(...)`, `timeout(...)`); the endpoint scheme decides plaintext vs TLS.                        |
+| `consumer.Capabilities{MutatesData}`                                                  | Not needed — model records are immutable, so fan-out shares them without copying.                                       |
 
 Two deliberate differences: delivery is asynchronous (`CompletionStage<ConsumeResult<T>>`) with no per-call `context.Context`, and OTLP is carried over gRPC or HTTP with binary protobuf only (no `http/json`). Pick the transport by class — `OtlpGrpcExporter`/`OtlpGrpcReceiver` (port 4317) or `OtlpHttpExporter`/`OtlpHttpReceiver` (port 4318); the builders and pipeline wiring are identical. See [Sinks and results](#sinks-and-results) for the partial-success/retry mapping.
 
@@ -98,12 +98,12 @@ Two deliberate differences: delivery is asynchronous (`CompletionStage<ConsumeRe
 
 Each signal preserves OTLP's resource and instrumentation-scope grouping while providing a flattened accessor plus allocation-free traversal and count helpers:
 
-| Batch | Grouping | Flattened accessor | `forEach` helper | Count helper |
-| --- | --- | --- | --- | --- |
-| `TraceData` | `ResourceSpans` → `ScopeSpans` → `Span` | `spans()` | `forEachSpan(Consumer)` | `spanCount()` |
-| `MetricsData` | `ResourceMetrics` → `ScopeMetrics` → `Metric` | `metrics()` | `forEachMetric(Consumer)` | — |
-| `LogsData` | `ResourceLogs` → `ScopeLogs` → `LogRecord` | `logRecords()` | `forEachLogRecord(Consumer)` | `logRecordCount()` |
-| `ProfilesData` | `ResourceProfiles` → `ScopeProfiles` → `Profile` | `profiles()` | `forEachProfile(Consumer)` | `profileCount()` |
+| Batch          | Grouping                                         | Flattened accessor | `forEach` helper             | Count helper       |
+| -------------- | ------------------------------------------------ | ------------------ | ---------------------------- | ------------------ |
+| `TraceData`    | `ResourceSpans` → `ScopeSpans` → `Span`          | `spans()`          | `forEachSpan(Consumer)`      | `spanCount()`      |
+| `MetricsData`  | `ResourceMetrics` → `ScopeMetrics` → `Metric`    | `metrics()`        | `forEachMetric(Consumer)`    | —                  |
+| `LogsData`     | `ResourceLogs` → `ScopeLogs` → `LogRecord`       | `logRecords()`     | `forEachLogRecord(Consumer)` | `logRecordCount()` |
+| `ProfilesData` | `ResourceProfiles` → `ScopeProfiles` → `Profile` | `profiles()`       | `forEachProfile(Consumer)`   | `profileCount()`   |
 
 Each flattened accessor (`spans()`, `metrics()`, `logRecords()`, `profiles()`) walks the resource/scope grouping and allocates a fresh list on every call, so bind it to a local rather than re-calling it in a loop or on a hot path. On hot paths prefer the `forEach…` helper to visit items in the same order without the intermediate list, or the count helper to size a batch without flattening it — these are what batching and the count connectors use. (`MetricsData` has no naive count helper: the OTLP metric item count is nested data points, which the batching processor counts directly via `forEachMetric`.)
 
@@ -191,12 +191,12 @@ Use an exception or exceptionally completed stage for a transport-level failure.
 
 The receiver builder exposes the receiver-hardening knobs the bundled server applies directly (or set them on a `ServerConfig` and pass it through `transport(...)`), all defaulting to gRPC's own behaviour:
 
-| Builder knob | Default | Effect |
-| --- | --- | --- |
-| `maxInboundMessageSizeBytes` | 4 MiB | Caps a single decoded export request; guards against memory-exhausting oversized requests. |
-| `maxConcurrentCallsPerConnection` | `0` (gRPC default, unlimited) | A positive value caps in-flight calls per connection. |
-| `handshakeTimeout` | 20s | Bounds the transport/TLS handshake only — not a slow request body or an idle connection. |
-| `serverExecutor` | `null` (gRPC's own executor) | Supply a bounded pool to cap admitted concurrent work. |
+| Builder knob                      | Default                       | Effect                                                                                     |
+| --------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------ |
+| `maxInboundMessageSizeBytes`      | 4 MiB                         | Caps a single decoded export request; guards against memory-exhausting oversized requests. |
+| `maxConcurrentCallsPerConnection` | `0` (gRPC default, unlimited) | A positive value caps in-flight calls per connection.                                      |
+| `handshakeTimeout`                | 20s                           | Bounds the transport/TLS handshake only — not a slow request body or an idle connection.   |
+| `serverExecutor`                  | `null` (gRPC's own executor)  | Supply a bounded pool to cap admitted concurrent work.                                     |
 
 ```java
 var receiver = OtlpGrpcReceiver.builder()
@@ -259,7 +259,7 @@ var subscription = Pipeline.from(receiver.traces())
         .join();
 ```
 
-A branch fanning out to exporter facets auto-owns each exporter — every facet carries its exporter's lifecycle — so the subscription drains them all on shutdown under one shared deadline:
+A branch fanning out to exporter facets must register each exporter explicitly — signal facets are plain sinks without lifecycle:
 
 ```java
 var primary = OtlpGrpcExporter.to("collector-a", 4317);
@@ -267,6 +267,8 @@ var secondary = OtlpGrpcExporter.to("collector-b", 4317);
 
 var subscription = Pipeline.from(receiver.traces())
         .filter(traces -> !traces.spans().isEmpty())
+        .owns(primary)
+        .owns(secondary)
         .branch()
             .fanOut(primary.traces())
             .fanOut(secondary.traces())
@@ -284,13 +286,13 @@ Available built-in transforms are span and log-record filters plus per-signal re
 
 The routing concepts, contrasted:
 
-| Concept | Cardinality | Changes signal? | Owns downstream lifecycle? |
-| --- | --- | --- | --- |
-| `Transform` (via `Transforms`) | 1 → 1 | no | no |
-| Count sinks (via `Connectors`) | 1 → 1 | yes | no — register the downstream like any sink |
-| `BatchingProcessor` | N → 1 (buffered) | no | yes (when attached as terminal) |
-| `Pipeline.peek` | observe | no | no |
-| `TelemetryTap` (on the receiver) | observe (demand-aware) | no | n/a |
+| Concept                          | Cardinality            | Changes signal? | Owns downstream lifecycle?                 |
+| -------------------------------- | ---------------------- | --------------- | ------------------------------------------ |
+| `Transform` (via `Transforms`)   | 1 → 1                  | no              | no                                         |
+| Count sinks (via `Connectors`)   | 1 → 1                  | yes             | no — register the downstream like any sink |
+| `BatchingProcessor`              | N → 1 (buffered)       | no              | yes (when attached as terminal)            |
+| `Pipeline.peek`                  | observe                | no              | no                                         |
+| `TelemetryTap` (on the receiver) | observe (demand-aware) | no              | n/a                                        |
 
 ## Batch
 
@@ -308,21 +310,21 @@ var batcher = BatchingProcessor.forTraces()
 var subscription = Pipeline.from(receiver.traces()).to(batcher);
 ```
 
-The four factories are `forTraces`, `forMetrics`, `forLogs`, and `forProfiles`. `queued()` reports buffered batches, not telemetry item count. `droppedCount()` counts dropped batches.
+The four factories are `forTraces`, `forMetrics`, `forLogs`, and `forProfilesUnsafe`. `queued()` reports buffered batches, not telemetry item count. `droppedCount()` counts dropped batches.
 
 Overflow behavior:
 
-| Policy | Result |
-| --- | --- |
+| Policy        | Result                                                 |
+| ------------- | ------------------------------------------------------ |
 | `DROP_OLDEST` | Evict the oldest queued batch and accept the new batch |
-| `DROP_NEWEST` | Drop the new batch and return `Partial(1, ...)` |
-| `BLOCK` | Block until queue space is available |
-| `ERROR` | Drop the new batch and return `Rejected` |
+| `DROP_NEWEST` | Drop the new batch and return `Partial(1, ...)`        |
+| `BLOCK`       | Block until queue space is available                   |
+| `ERROR`       | Drop the new batch and return `Rejected`               |
 
 `forceFlush` drains the current queue. `shutdown` stops the timer and drains once; the processor then rejects new batches. A pipeline subscription closes a directly attached batcher.
 
 > [!WARNING]
-> Profiles batching is constrained by the OTLP profile dictionary. A `ProfilesData` batch carries an opaque, batch-level `ProfilesDictionary` that each profile references by index, so merging is only lossless when the batches agree on that dictionary (a shared, or single non-empty, dictionary). `forProfiles()` merges only same-dictionary batches; a flush that drains profiles carrying **distinct non-empty dictionaries** fails — the merge throws and the whole drained batch surfaces as a `BatchDeliveryException` from `forceFlush`/`shutdown`, since re-indexing every reference is out of scope. Forward profiles 1:1 (do not batch them) unless every producer shares one dictionary.
+> Profiles batching is constrained by the OTLP profile dictionary. A `ProfilesData` batch carries an opaque, batch-level `ProfilesDictionary` that each profile references by index, so merging is only lossless when the batches agree on that dictionary (a shared, or single non-empty, dictionary). `forProfilesUnsafe()` merges only same-dictionary batches; a flush that drains profiles carrying **distinct non-empty dictionaries** fails — the merge throws and the whole drained batch surfaces as a `BatchDeliveryException` from `forceFlush`/`shutdown`, since re-indexing every reference is out of scope. Forward profiles 1:1 (do not batch them) unless every producer shares one dictionary.
 
 ## Export
 
@@ -332,17 +334,17 @@ Overflow behavior:
 
 By default the exporter reads no environment — construction is fully explicit and deterministic. Opt in to the standard general OTLP variables with `fromEnvironment()` on the exporter or `ClientConfig` builder, or the static `OtlpGrpcExporter.fromEnvironment()` / `OtlpHttpExporter.fromEnvironment()` shorthand. It reads each variable only when present and only on that call; precedence is "call it first, explicit setters afterwards win"; malformed values throw. Only general (non-signal-specific) variables are read:
 
-| Setting | Builder method | Environment variable | otlp4j default | Notes |
-| --- | --- | --- | --- | --- |
-| Endpoint host/port/scheme | `.endpoint(host, port)` / `.host` / `.port` / `.tls` | `OTEL_EXPORTER_OTLP_ENDPOINT` | gRPC `localhost:4317`, HTTP `localhost:4318`, plaintext | A URL; `http` is plaintext, `https` selects TLS. gRPC uses the authority as-is; HTTP appends the standard `/v1/<signal>` paths to any URL path prefix. A URL without a port keeps the exporter's protocol default (4317 gRPC, 4318 HTTP). |
-| Endpoint path prefix (HTTP) | `.path(String)` (HTTP builder) | path component of `OTEL_EXPORTER_OTLP_ENDPOINT` | none | Prepended to `/v1/<signal>` — `https://host/otlp` → `/otlp/v1/traces`. Normalized (a bare `/` means none); gRPC ignores it. |
-| Request timeout | `.timeout(Duration)` | `OTEL_EXPORTER_OTLP_TIMEOUT` | `10s` | Integer milliseconds; must be > 0. |
-| Headers | `.header(k, v)` / `.headers(map)` / `.addHeaders(map)` | `OTEL_EXPORTER_OTLP_HEADERS` | none | `k=v,k2=v2`; values are percent-decoded (`+` stays literal). `.headers(map)` replaces all existing headers, while `.addHeaders(map)` and the env variable merge onto headers already set — env wins per key, unrelated keys are kept. |
-| Compression | `.compression(Compression)` | `OTEL_EXPORTER_OTLP_COMPRESSION` | `NONE` | `gzip` or `none`. |
-| Insecure (plaintext) | `.tls(Tls.disabled())` | `OTEL_EXPORTER_OTLP_INSECURE` | TLS off | `true`/`false`. Consulted only when no endpoint URL sets the scheme (a present endpoint's `http`/`https` wins); `true` forces plaintext, overriding the certificate variables. |
-| Server CA / trust | `.tls(Tls.trust(path))` | `OTEL_EXPORTER_OTLP_CERTIFICATE` | system trust when TLS is on | Used when the endpoint is `https`, or — with no endpoint set — as an independent input that turns TLS on. Ignored on an `http` endpoint. |
-| Client cert (mTLS) | `.tls(Tls.custom(cert, key, trust))` | `OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE` | none | Requires the client key; honoured with an `https` endpoint or, with no endpoint, as an independent input; ignored on an `http` endpoint. |
-| Client key (mTLS) | `.tls(Tls.custom(cert, key, trust))` | `OTEL_EXPORTER_OTLP_CLIENT_KEY` | none | Requires the client certificate. |
+| Setting                     | Builder method                                         | Environment variable                            | otlp4j default                                          | Notes                                                                                                                                                                                                                                     |
+| --------------------------- | ------------------------------------------------------ | ----------------------------------------------- | ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Endpoint host/port/scheme   | `.endpoint(host, port)` / `.host` / `.port` / `.tls`   | `OTEL_EXPORTER_OTLP_ENDPOINT`                   | gRPC `localhost:4317`, HTTP `localhost:4318`, plaintext | A URL; `http` is plaintext, `https` selects TLS. gRPC uses the authority as-is; HTTP appends the standard `/v1/<signal>` paths to any URL path prefix. A URL without a port keeps the exporter's protocol default (4317 gRPC, 4318 HTTP). |
+| Endpoint path prefix (HTTP) | `.path(String)` (HTTP builder)                         | path component of `OTEL_EXPORTER_OTLP_ENDPOINT` | none                                                    | Prepended to `/v1/<signal>` — `https://host/otlp` → `/otlp/v1/traces`. Normalized (a bare `/` means none); gRPC ignores it.                                                                                                               |
+| Request timeout             | `.timeout(Duration)`                                   | `OTEL_EXPORTER_OTLP_TIMEOUT`                    | `10s`                                                   | Integer milliseconds; must be > 0.                                                                                                                                                                                                        |
+| Headers                     | `.header(k, v)` / `.headers(map)` / `.addHeaders(map)` | `OTEL_EXPORTER_OTLP_HEADERS`                    | none                                                    | `k=v,k2=v2`; values are percent-decoded (`+` stays literal). `.headers(map)` replaces all existing headers, while `.addHeaders(map)` and the env variable merge onto headers already set — env wins per key, unrelated keys are kept.     |
+| Compression                 | `.compression(Compression)`                            | `OTEL_EXPORTER_OTLP_COMPRESSION`                | `NONE`                                                  | `gzip` or `none`.                                                                                                                                                                                                                         |
+| Insecure (plaintext)        | `.tls(Tls.disabled())`                                 | `OTEL_EXPORTER_OTLP_INSECURE`                   | TLS off                                                 | `true`/`false`. Consulted only when no endpoint URL sets the scheme (a present endpoint's `http`/`https` wins); `true` forces plaintext, overriding the certificate variables.                                                            |
+| Server CA / trust           | `.tls(Tls.trust(path))`                                | `OTEL_EXPORTER_OTLP_CERTIFICATE`                | system trust when TLS is on                             | Used when the endpoint is `https`, or — with no endpoint set — as an independent input that turns TLS on. Ignored on an `http` endpoint.                                                                                                  |
+| Client cert (mTLS)          | `.tls(Tls.custom(cert, key, trust))`                   | `OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE`         | none                                                    | Requires the client key; honoured with an `https` endpoint or, with no endpoint, as an independent input; ignored on an `http` endpoint.                                                                                                  |
+| Client key (mTLS)           | `.tls(Tls.custom(cert, key, trust))`                   | `OTEL_EXPORTER_OTLP_CLIENT_KEY`                 | none                                                    | Requires the client certificate.                                                                                                                                                                                                          |
 
 Deliberately not read: `OTEL_EXPORTER_OTLP_PROTOCOL` (the protocol is chosen by which exporter class you instantiate, `OtlpGrpcExporter` vs `OtlpHttpExporter`, not by env). Signal-specific overrides such as `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` are out of scope: one exporter drives all four signals over a single connection, so a per-signal endpoint would need its own exporter — instantiate one `OtlpGrpcExporter`/`OtlpHttpExporter` per destination and route each signal to it through the pipeline. The same `fromEnvironment()` applies to `OtlpHttpExporter`, except a portless endpoint URL keeps the HTTP default port 4318.
 
@@ -379,7 +381,7 @@ var exporter = OtlpGrpcExporter.builder()
         .build();
 ```
 
-The exporter itself owns the channel. Its `traces()`, `metrics()`, `logs()`, and `profiles()` facets carry that lifecycle: each is `Drainable` and `Flushable` and delegates to the exporter, so a pipeline that terminates in (or fans out to) a facet auto-owns the exporter — the subscription drains it on shutdown and reaches it on `forceFlush`, with no separate `Stage.owns(exporter)` or two-arg `to(exporter.traces(), exporter)`. As a `Drainable` it receives the pipeline's *remaining* shared deadline, and its shutdown is cancellation-aware — a timeout interrupts the transport teardown rather than leaving it blocking past the deadline. `forceFlush` itself is a no-op today (the client holds no buffer) but is reachable through the facet. The explicit owner overloads remain for an exporter the pipeline can't otherwise reach, and combine harmlessly with a facet because the drain is idempotent. If you use a facet outside a pipeline (calling `consume` directly), close the exporter yourself.
+The exporter itself owns the channel. Its `traces()`, `metrics()`, `logs()`, and `profiles()` facets are plain sinks that deliver to the client — they do not carry lifecycle. Register the exporter when wiring a pipeline: `Stage.to(exporter.traces(), exporter)` or `Stage.owns(exporter)`. As a `Drainable`, the exporter receives the pipeline's *remaining* shared deadline, and its shutdown is cancellation-aware. `forceFlush` is a no-op today (the client holds no buffer). If you use a facet outside a pipeline (calling `consume` directly), close the exporter yourself.
 
 Implement `Exporter<T>` for a custom typed terminal with flush and shutdown hooks. Implement the lower-level client or server SPI when replacing the wire transport.
 
@@ -395,14 +397,14 @@ var logCounter = Connectors.logRecordCount(exporter.metrics());
 var strictSpanCounter = Connectors.spanCount(exporter.metrics(), FailurePolicy.FAIL);
 ```
 
-The subscription cannot see through a count sink to its downstream `MetricSink`, so register the `AutoCloseable` behind it — typically the exporter — with `Stage.owns(...)`, or, as in the example above, point the count sink at an exporter facet the pipeline already auto-owns (see [Shutdown order](#shutdown-order)).
+The subscription cannot see through a count sink to its downstream `MetricSink`, so register the exporter with `Stage.owns(exporter)` (see [Shutdown order](#shutdown-order)).
 
 The built-ins emit `otlp4j.connector.span.count` and `otlp4j.connector.log.record.count`, each as a monotonic delta sum whose window runs from the previous flush (so the series carries a real per-series start time). A configurable `FailurePolicy` decides how a downstream metric failure maps back onto the input result; the no-policy `spanCount`/`logRecordCount` overloads default to `BEST_EFFORT`, and `spanCount(downstream, policy)` / `logRecordCount(downstream, policy)` set it explicitly:
 
-| Policy | Downstream `Partial`/`Rejected` | Input result |
-| --- | --- | --- |
-| `BEST_EFFORT` (default) | logged | `Accepted` — derived telemetry never fails the originating request |
-| `FAIL` | logged | `Rejected`, so the caller learns the derived metric was not delivered |
+| Policy                  | Downstream `Partial`/`Rejected` | Input result                                                          |
+| ----------------------- | ------------------------------- | --------------------------------------------------------------------- |
+| `BEST_EFFORT` (default) | logged                          | `Accepted` — derived telemetry never fails the originating request    |
+| `FAIL`                  | logged                          | `Rejected`, so the caller learns the derived metric was not delivered |
 
 An exceptionally completed downstream stage still propagates either way (a metric rejection cannot be relabeled as a trace or log rejection).
 
@@ -463,7 +465,7 @@ Configuration arrives through `ClientConfig` and `ServerConfig`. The bundled cli
 
 Stop ingestion before closing downstream resources:
 
-1. Shut down the pipeline subscription to detach the source and drain every owned resource — directly attached processors, exporters reached through their facets, and anything registered with `Stage.owns(...)`, all within a single shared deadline.
+1. Shut down the pipeline subscription to detach the source and drain every owned resource — directly attached processors, exporters registered with `Stage.owns(...)` or `Stage.to(facet, exporter)`, all within a single shared deadline.
 2. Close any resources you did not hand to the subscription: exporters used outside the pipeline, and the exporter behind a count sink (which the subscription does not auto-discover).
 3. Shut down the receiver.
 
@@ -473,28 +475,29 @@ Use `shutdown(Duration)` when completion matters. The convenience `close()` meth
 
 The subscription drains every resource it can *see* under one shared deadline. The rule of thumb: a resource is auto-collected when the pipeline references it directly as a terminal or fan-out peer; it is hidden — and needs `Stage.owns(...)` — when it sits behind a lambda or a connector the pipeline can only see as a plain `Sink`.
 
-| Resource | Owned by the subscription? | How |
-| --- | --- | --- |
-| Exporter facet (`exporter.traces()`, …) as terminal or fan-out peer | **Auto** | The facet is `Drainable`/`Flushable` and carries its exporter's lifecycle, so `to(exporter.traces())` and `fanOut(exporter.traces())` drain the exporter — no `owns(...)` needed. |
-| `BatchingProcessor` attached directly as terminal | **Auto** | A directly-attached batcher is an `AutoCloseable` terminal; the subscription stops its timer and drains it once. |
-| Fan-out peers that are `AutoCloseable` | **Auto** | Each `AutoCloseable`/`Drainable` peer in a `branch()`/`FanOut` is collected and drained within the shared budget. |
-| Count sink's downstream (`Connectors.spanCount(exporter.metrics())`) | **Hidden** | The connector is just a `Sink`; the subscription cannot see the exporter behind it. Point the sink at a facet the pipeline *already* auto-owns, or register the owner with `Stage.owns(exporter)`. |
-| A bare lambda sink that holds a resource | **Hidden** | The pipeline sees only a `Sink`. Declare the resource with `Stage.owns(resource)` (or the `to(terminal, owner)` shorthand). |
-| Exporter used outside any pipeline (direct `consume`) | **No** | Close it yourself (`try`-with-resources or `exporter.close()`). |
-| Receiver | **No** | Always shut down last, after the subscription detaches the source. |
+| Resource                                                             | Owned by the subscription? | How                                                                                                                                              |
+| -------------------------------------------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Exporter (`OtlpGrpcExporter`, …)                                     | **Explicit**               | Register with `Stage.to(exporter.traces(), exporter)` or `Stage.owns(exporter)` before the terminal/branch. Facets alone do not carry lifecycle. |
+| `BatchingProcessor` attached directly as terminal                    | **Auto**                   | A directly-attached batcher is an `AutoCloseable` terminal; the subscription stops its timer and drains it once.                                 |
+| Fan-out peers that are `AutoCloseable`                               | **Auto**                   | Each `AutoCloseable`/`Drainable` peer in a `branch()`/`FanOut` is collected and drained within the shared budget.                                |
+| Count sink's downstream (`Connectors.spanCount(exporter.metrics())`) | **Hidden**                 | The connector is just a `Sink`; register the exporter with `Stage.owns(exporter)`.                                                               |
+| A bare lambda sink that holds a resource                             | **Hidden**                 | Declare the resource with `Stage.owns(resource)` (or the `to(terminal, owner)` shorthand).                                                       |
+| Exporter used outside any pipeline (direct `consume`)                | **No**                     | Close it yourself (`try`-with-resources or `exporter.close()`).                                                                                  |
+| Receiver                                                             | **No**                     | Always shut down last, after the subscription detaches the source.                                                                               |
 
 ```java
-// Auto-owned: the exporter rides along on its facet; count sink's exporter is the SAME one, so still auto-owned.
 var subscription = Pipeline.from(receiver.traces())
+        .owns(exporter)
         .branch()
-            .fanOut(exporter.traces())                          // auto-owns exporter
-            .fanOut(Connectors.spanCount(exporter.metrics()))   // same exporter, already owned
+            .fanOut(exporter.traces())
+            .fanOut(Connectors.spanCount(exporter.metrics()))
         .join();
 
 // Hidden: the count sink points at a SEPARATE metrics exporter the pipeline can't see — declare it.
 var metricsExporter = OtlpGrpcExporter.to("metrics-collector", 4317);
 var subscription2 = Pipeline.from(receiver.traces())
-        .owns(metricsExporter)                                  // before branch(); on the stage, not per peer
+        .owns(metricsExporter)
+        .owns(exporter)
         .branch()
             .fanOut(exporter.traces())
             .fanOut(Connectors.spanCount(metricsExporter.metrics()))
@@ -507,14 +510,14 @@ var subscription2 = Pipeline.from(receiver.traces())
 
 **Thread-safety.** The runtime types are safe to share across threads; the *builders* are not.
 
-| Type | Contract |
-| --- | --- |
-| `OtlpGrpcReceiver` / `OtlpHttpReceiver` | Thread-safe after `start()`; dispatch incoming requests to sinks concurrently. The `…Receiver.Builder` is single-threaded — configure on one thread, then `build()`. |
-| `OtlpGrpcExporter` / `OtlpHttpExporter` and their facets | Thread-safe: a single exporter owns one client/channel and may be called from many threads; each facet's `consume` is concurrency-safe. The builder is single-threaded. |
-| `BatchingProcessor` | Thread-safe: `consume`, `forceFlush`, and `shutdown` may be called concurrently (queue + counters are concurrent). `shutdown` is idempotent and then rejects new batches. |
-| `Pipeline.PipelineSubscription` | `shutdown`/`forceFlush` are safe to call concurrently and idempotently. Build the pipeline on one thread. |
-| `TelemetryTap` | Thread-safe but not transactional: `setOptions` affects subscribers that attach afterward. Each `Flow.Subscriber` manages its own demand. |
-| Model records (`TraceData`, `Attributes`, …) | Immutable and freely shareable; fan-out peers share them without copying. Their builders are single-threaded. |
+| Type                                         | Contract                                                                                                                                                                                                                                                           |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `OtlpGrpcReceiver` / `OtlpHttpReceiver`      | Thread-safe after `start()`; dispatch incoming requests to sinks concurrently. The `…Receiver.Builder` is single-threaded — configure on one thread, then `build()`.                                                                                               |
+| `OtlpGrpcExporter` / `OtlpHttpExporter`      | Thread-safe: a single exporter owns one client/channel and may be called from many threads; each facet's `consume` is concurrency-safe. The builder is single-threaded. Register the exporter for pipeline shutdown via `owns(exporter)` or `to(facet, exporter)`. |
+| `BatchingProcessor`                          | Thread-safe: `consume`, `forceFlush`, and `shutdown` may be called concurrently (queue + counters are concurrent). `shutdown` is idempotent and then rejects new batches.                                                                                          |
+| `Pipeline.PipelineSubscription`              | `shutdown`/`forceFlush` are safe to call concurrently and idempotently. Build the pipeline on one thread.                                                                                                                                                          |
+| `TelemetryTap`                               | Thread-safe but not transactional: `setOptions` affects subscribers that attach afterward. Each `Flow.Subscriber` manages its own demand.                                                                                                                          |
+| Model records (`TraceData`, `Attributes`, …) | Immutable and freely shareable; fan-out peers share them without copying. Their builders are single-threaded.                                                                                                                                                      |
 
 **Nullness.** Every public package is `@NullMarked`: parameters, return types, and fields are non-null unless explicitly annotated `@Nullable`. The intentionally nullable spots in the public surface are:
 

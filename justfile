@@ -4,7 +4,7 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 
 mvn := "./mvnw"
 batch := "-B"
-modules := "otlp4j-model otlp4j-proto otlp4j-api otlp4j-transport otlp4j-samples otlp4j-testing otlp4j-coverage"
+modules := "otlp4j-model otlp4j-proto otlp4j-api otlp4j-codec otlp4j-transport-grpc otlp4j-transport-http otlp4j-samples otlp4j-testing otlp4j-coverage"
 sample_module := "otlp4j-samples"
 sample_test := "OtlpE2eDemoTest"
 coverage_index := "otlp4j-coverage/target/site/jacoco-aggregate/index.html"

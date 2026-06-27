@@ -41,12 +41,14 @@ class HttpTransportTest {
         for (var closeable : closeables) {
             try {
                 closeable.close();
-            } catch (Exception _) { /* keep tearing down */ }
+            } catch (Exception _) {
+                /* keep tearing down */ }
         }
         for (var receiver : receivers) {
             try {
                 receiver.shutdownNow().toCompletableFuture().get(5, TimeUnit.SECONDS);
-            } catch (Exception _) { /* keep tearing down */ }
+            } catch (Exception _) {
+                /* keep tearing down */ }
         }
     }
 
@@ -163,8 +165,8 @@ class HttpTransportTest {
     @DisplayName("A failed-stage dispatcher becomes a transport error (HTTP 500)")
     @Test
     void failedStageDispatcherBecomesATransportError() {
-        var receiver = startReceiver(OtlpHttpReceiver.builder().onTraces(traces ->
-                CompletableFuture.failedStage(new IllegalStateException("async boom"))));
+        var receiver = startReceiver(OtlpHttpReceiver.builder()
+                .onTraces(traces -> CompletableFuture.failedStage(new IllegalStateException("async boom"))));
         var exporter = exporterTo(receiver);
         var traces = Fixtures.traceData(Fixtures.span("op", Span.Kind.INTERNAL));
 
@@ -176,8 +178,8 @@ class HttpTransportTest {
     @DisplayName("A whole-batch Rejected without a cause surfaces as a retryable 503 error")
     @Test
     void rejectedWithoutCauseSurfacesAs503() {
-        var receiver = startReceiver(OtlpHttpReceiver.builder().onTraces(traces ->
-                CompletableFuture.completedStage(ConsumeResult.rejected("queue full"))));
+        var receiver = startReceiver(OtlpHttpReceiver.builder()
+                .onTraces(traces -> CompletableFuture.completedStage(ConsumeResult.rejected("queue full"))));
         var exporter = exporterTo(receiver);
 
         assertThatThrownBy(() -> exporter.traces()
@@ -190,9 +192,8 @@ class HttpTransportTest {
     @DisplayName("A whole-batch Rejected with a cause surfaces as a permanent 500 error")
     @Test
     void rejectedWithCauseSurfacesAs500() {
-        var receiver = startReceiver(OtlpHttpReceiver.builder().onTraces(traces ->
-                CompletableFuture.completedStage(
-                        ConsumeResult.rejected("dropped by policy", new IllegalStateException("disallowed")))));
+        var receiver = startReceiver(OtlpHttpReceiver.builder().onTraces(traces -> CompletableFuture.completedStage(
+                ConsumeResult.rejected("dropped by policy", new IllegalStateException("disallowed")))));
         var exporter = exporterTo(receiver);
 
         assertThatThrownBy(() -> exporter.traces()
@@ -262,13 +263,13 @@ class HttpTransportTest {
             var sub = Pipeline.from(gateway.traces())
                     .transform(Transforms.keepSpansWhere(span -> span.kind() == Span.Kind.SERVER))
                     .filter(t -> !t.spans().isEmpty())
-                    .to(terminalExporter.traces());
+                    .to(terminalExporter.traces(), terminalExporter);
 
             try (var gatewayClient = exporterTo(gateway)) {
                 var result = gatewayClient.traces().consume(Fixtures.traceData(
-                                Fixtures.span("internal-op", Span.Kind.INTERNAL),
-                                Fixtures.span("GET /cart", Span.Kind.SERVER),
-                                Fixtures.span("GET /checkout", Span.Kind.SERVER)))
+                        Fixtures.span("internal-op", Span.Kind.INTERNAL),
+                        Fixtures.span("GET /cart", Span.Kind.SERVER),
+                        Fixtures.span("GET /checkout", Span.Kind.SERVER)))
                         .toCompletableFuture().join();
                 assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
             }
