@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Timeout;
 @DisplayName("OTLP end-to-end demo")
 class OtlpE2eDemoTest {
 
-    @DisplayName("demo filters spans, derives count, and enriches the resource")
+    @DisplayName("demo filters spans, derives count, enriches the resource, and redacts a span attribute")
     @Test
     void demoTraversesTheFullPipeline() throws Exception {
         var result = OtlpE2eDemo.run();
@@ -25,5 +25,8 @@ class OtlpE2eDemoTest {
         assertThat(result.enrichedEnvironment())
                 .as("the processor should have stamped deployment.environment onto the resource")
                 .isEqualTo("demo");
+        assertThat(result.redactedEnduserId())
+                .as("the mapSpans helper should have masked the sensitive enduser.id attribute")
+                .isEqualTo("***");
     }
 }

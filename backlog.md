@@ -15,11 +15,10 @@ Evidence cites stable code symbols or tests rather than line numbers.
 
 ## Dependency Matrix
 
-| Epic              | Depends on | Related                     | Blocks |
-| ----------------- | ---------- | --------------------------- | ------ |
-| BOUNDARY          | none       | PUBLIC-API-HYGIENE          | DOCS   |
-| TRANSFORM-HELPERS | none       | EXAMPLE-COVERAGE            | DOCS   |
-| DOCS              | none       | BOUNDARY, TRANSFORM-HELPERS | none   |
+| Epic     | Depends on | Related            | Blocks |
+| -------- | ---------- | ------------------ | ------ |
+| BOUNDARY | none       | PUBLIC-API-HYGIENE | DOCS   |
+| DOCS     | none       | BOUNDARY           | none   |
 
 ## Epic: BOUNDARY
 
@@ -58,50 +57,13 @@ Evidence / gap:
 - `docs/public-api.md`, `README.md`, and `otlp4j-codec/pom.xml` describe generated proto and codec packages as implementation details.
 - `TraceMapper`, `MetricsMapper`, `LogsMapper`, `ProfilesMapper`, and `SignalResponses` are public codec types and expose generated proto types in signatures.
 
-## Epic: TRANSFORM-HELPERS
-
-Title: Narrow transform helper layer
-
-Depends on: none
-
-Related: EXAMPLE-COVERAGE
-
-Labels: code
-
-Intent: Let users write common redaction and enrichment transforms without manually naming OTLP resource and scope wrapper records.
-
-### Issue: TRANSFORM-HELPERS-01
-
-Title: Add map helpers for spans, log records, and resources
-
-Labels: code
-
-Acceptance criteria:
-
-- A span rewrite transform can be written without naming `TraceData.ResourceSpans` or `TraceData.ScopeSpans`.
-- A log record rewrite transform can be written without naming `LogsData.ResourceLogs` or `LogsData.ScopeLogs`.
-- A resource rewrite transform can be written for traces, metrics, logs, and profiles without manually reconstructing wrapper records.
-- Map helpers preserve empty-resource and empty-scope behavior deliberately, with pruning behavior documented for helpers that can drop records.
-- At least one example covers redaction or enrichment through the helper layer.
-
-Context:
-
-- Keep this layer narrow: map records and resources, but do not introduce a query language or generalized traversal framework.
-- Mapper callbacks rebuild individual records through the model copy helpers (`toBuilder()`, `withAttribute(...)`).
-
-Evidence / gap:
-
-- `Transforms.keepSpansWhere`, `Transforms.keepLogRecordsWhere`, and per-signal resource-attribute helpers already reconstruct wrapper records internally.
-- User-defined transforms still need to reconstruct `TraceData.ResourceSpans`, `TraceData.ScopeSpans`, `MetricsData.ResourceMetrics`, `MetricsData.ScopeMetrics`, `LogsData.ResourceLogs`, and `LogsData.ScopeLogs` by hand for general mapping.
-- Existing samples demonstrate resource enrichment and filtering, but not general redaction or record mapping through a helper layer.
-
 ## Epic: DOCS
 
 Title: Documentation accuracy and first-run UX
 
 Depends on: none
 
-Related: BOUNDARY, TRANSFORM-HELPERS, EXAMPLE-COVERAGE
+Related: BOUNDARY, EXAMPLE-COVERAGE
 
 Labels: docs
 
@@ -181,12 +143,12 @@ Evidence / gap:
 
 ### Pillar: PUBLIC-API-HYGIENE
 
-Blocks: BOUNDARY, TRANSFORM-HELPERS, DOCS
+Blocks: BOUNDARY, DOCS
 
 Summary: Public API additions should be deliberate, consistently documented, nullness-annotated, and compatible with the module boundary. This pillar keeps pre-1.0 hardening focused on stable ergonomics rather than expanding surface area opportunistically.
 
 ### Pillar: EXAMPLE-COVERAGE
 
-Blocks: TRANSFORM-HELPERS, DOCS
+Blocks: DOCS
 
 Summary: New ergonomics should be represented by examples that exercise realistic receive, transform, export, and shutdown flows. Examples are the verification bridge between API shape and user comprehension.

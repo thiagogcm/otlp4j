@@ -23,29 +23,35 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/// End-to-end demo: five spans flow through a gateway pipeline (enrich, filter, fan out to the
-/// exporter and a span-count sink) to a backend. The `exporter.traces()` peer carries the
+/// End-to-end demo: five spans flow through a gateway pipeline (enrich, redact, filter, fan out to
+/// the exporter and a span-count sink) to a backend. The `exporter.traces()` peer carries the
 /// exporter's lifecycle, so the subscription auto-owns it — no `owns(...)` needed.
 public final class OtlpE2eDemo {
 
     private static final Logger log = LoggerFactory.getLogger(OtlpE2eDemo.class);
 
+    private static final String ENDUSER_ID = "enduser.id";
+    private static final String REDACTED = "***";
+
     private OtlpE2eDemo() {}
 
     /// The observable outcome of one demo run — what the `backend` receiver ended up with.
-    public record Result(int spansAtBackend, long derivedSpanCount, String enrichedEnvironment) {}
+    public record Result(
+            int spansAtBackend, long derivedSpanCount, String enrichedEnvironment, String redactedEnduserId) {}
 
     public static void main(String[] args) throws Exception {
         var result = run();
         log.info("=== otlp4j end-to-end demo ===");
         log.info("Client sent 5 spans (3 SERVER, 2 INTERNAL) to the gateway.");
-        log.info("Gateway pipeline: enrich resource attribute -> filter SERVER spans -> "
-                + "fan out to exporter + span count sink.");
+        log.info("Gateway pipeline: enrich resource attribute -> redact enduser.id span attribute -> "
+                + "filter SERVER spans -> fan out to exporter + span count sink.");
         log.info("Backend received:");
         log.info("  filtered spans          : {} (expected 3)", result.spansAtBackend());
         log.info("  derived span-count metric: {} (expected 3)", result.derivedSpanCount());
         log.info("  enriched resource attr   : deployment.environment={} (added by the processor)",
                 result.enrichedEnvironment());
+        log.info("  redacted span attribute  : enduser.id={} (masked by the processor)",
+                result.redactedEnduserId());
         log.info("All telemetry crossed two real OTLP/gRPC hops; this class never touched "
                 + "a proto or gRPC type.");
     }
@@ -78,6 +84,12 @@ public final class OtlpE2eDemo {
             var subscription = Pipeline.from(gateway.traces())
                     .transform(Transforms.withTracesResourceAttribute(
                             "deployment.environment", AttributeValue.of("demo")))
+                    // Redact a sensitive span attribute via the map helper.
+                    .transform(Transforms.mapSpans(span -> span.attributes().contains(ENDUSER_ID)
+                            ? span.toBuilder()
+                                    .attributes(span.attributes().with(ENDUSER_ID, REDACTED))
+                                    .build()
+                            : span))
                     .transform(Transforms.keepSpansWhere(span -> span.kind() == Span.Kind.SERVER))
                     .filter(traces -> traces.spanCount() != 0)
                     // backendExporter.traces() is auto-owned (carries the exporter lifecycle); the
@@ -111,12 +123,23 @@ public final class OtlpE2eDemo {
         var environment = atBackend == null
                 ? "<none>"
                 : extractEnvironment(atBackend);
+        var redactedEnduserId = atBackend == null
+                ? "<none>"
+                : extractEnduserId(atBackend);
         var derivedCount = backendMetrics.stream()
                 .filter(metric -> metric.name().equals("otlp4j.connector.span.count"))
                 .findFirst()
                 .map(OtlpE2eDemo::longValueOf)
                 .orElse(-1L);
-        return new Result(spans, derivedCount, environment);
+        return new Result(spans, derivedCount, environment, redactedEnduserId);
+    }
+
+    private static String extractEnduserId(TraceData traces) {
+        if (traces.spanCount() == 0) {
+            return "<none>";
+        }
+        var value = traces.spans().get(0).attributes().get(ENDUSER_ID);
+        return value instanceof AttributeValue.StringValue s ? s.value() : "<none>";
     }
 
     private static String extractEnvironment(TraceData traces) {
@@ -157,6 +180,8 @@ public final class OtlpE2eDemo {
                 .kind(kind)
                 .startEpochNanos(1_000L)
                 .endEpochNanos(2_000L)
+                // Sensitive attribute the gateway redacts before forwarding.
+                .attributes(Attributes.builder().put(ENDUSER_ID, "alice@example.com").build())
                 .build();
     }
 }
