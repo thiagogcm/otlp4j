@@ -103,7 +103,7 @@ receiver.shutdown(Duration.ofSeconds(10)).toCompletableFuture().join();
 | --- | --- |
 | `otlp4j-model` | JDK-only OTLP domain records |
 | `otlp4j-api` | Public core, pipelines, processors, count sinks, exporters/receivers, configuration, and transport SPI |
-| `otlp4j-codec` | Internal model⇄proto marshalling shared by the transports |
+| `otlp4j-codec` | Internal model⇄proto marshalling, qualified-exported to the two transports |
 | `otlp4j-proto` | Generated OTLP messages and gRPC services, qualified-exported to the codec and transports |
 | `otlp4j-transport-grpc` | OTLP/gRPC exporter and receiver (`OtlpGrpcExporter`/`OtlpGrpcReceiver`), on gRPC + Netty |
 | `otlp4j-transport-http` | OTLP/HTTP exporter and receiver (`OtlpHttpExporter`/`OtlpHttpReceiver`), JDK-only |
