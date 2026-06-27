@@ -85,12 +85,12 @@ var subscription = Pipeline.from(receiver.traces())
         .transform(Transforms.withTracesResourceAttribute(
                 "deployment.environment", AttributeValue.of("production")))
         .filter(traces -> !traces.spans().isEmpty())
-        .to(exporter.traces());
+        .to(exporter.traces(), exporter);
 ```
 
 The receiver accepts one consumer per signal source. Use `branch().fanOut(...).join()` when several consumers need the same batch.
 
-> [!IMPORTANT] An exporter facet such as `exporter.traces()` carries the exporter's lifecycle: terminating the pipeline in it (or fanning out to it) hands the exporter's ownership to the subscription, which drains it on shutdown within the shared deadline and flushes it on `forceFlush`. You then shut down just two lifecycles, in order — subscription, then receiver. The explicit `.to(exporter.traces(), exporter)` overload (equivalently, `.owns(exporter)` before the terminal) remains for an exporter the pipeline can't otherwise reach; combining it with a facet is harmless because the drain is idempotent.
+> [!IMPORTANT] Register exporter lifecycle explicitly when wiring a pipeline: `Stage.to(exporter.traces(), exporter)` or `Stage.owns(exporter)`. Signal facets are plain sinks and do not auto-close the exporter. Shut down the subscription first, then the receiver.
 
 ```java
 subscription.shutdown(Duration.ofSeconds(10)).toCompletableFuture().join();
@@ -99,17 +99,17 @@ receiver.shutdown(Duration.ofSeconds(10)).toCompletableFuture().join();
 
 ## Modules
 
-| Module | Role |
-| --- | --- |
-| `otlp4j-model` | JDK-only OTLP domain records |
-| `otlp4j-api` | Public core, pipelines, processors, count sinks, exporters/receivers, configuration, and transport SPI |
-| `otlp4j-codec` | Internal model⇄proto marshalling, qualified-exported to the two transports |
-| `otlp4j-proto` | Generated OTLP messages and gRPC services, qualified-exported to the codec and transports |
-| `otlp4j-transport-grpc` | OTLP/gRPC exporter and receiver (`OtlpGrpcExporter`/`OtlpGrpcReceiver`), on gRPC + Netty |
-| `otlp4j-transport-http` | OTLP/HTTP exporter and receiver (`OtlpHttpExporter`/`OtlpHttpReceiver`), JDK-only |
-| `otlp4j-samples` | Executable end-to-end example |
-| `otlp4j-testing` | Shared reactor test fixtures |
-| `otlp4j-coverage` | Aggregate JaCoCo report |
+| Module                  | Role                                                                                                   |
+| ----------------------- | ------------------------------------------------------------------------------------------------------ |
+| `otlp4j-model`          | JDK-only OTLP domain records                                                                           |
+| `otlp4j-api`            | Public core, pipelines, processors, count sinks, exporters/receivers, configuration, and transport SPI |
+| `otlp4j-codec`          | Internal model⇄proto marshalling, qualified-exported to the two transports                             |
+| `otlp4j-proto`          | Generated OTLP messages and gRPC services, qualified-exported to the codec and transports              |
+| `otlp4j-transport-grpc` | OTLP/gRPC exporter and receiver (`OtlpGrpcExporter`/`OtlpGrpcReceiver`), on gRPC + Netty               |
+| `otlp4j-transport-http` | OTLP/HTTP exporter and receiver (`OtlpHttpExporter`/`OtlpHttpReceiver`), JDK-only                      |
+| `otlp4j-samples`        | Executable end-to-end example                                                                          |
+| `otlp4j-testing`        | Shared reactor test fixtures                                                                           |
+| `otlp4j-coverage`       | Aggregate JaCoCo report                                                                                |
 
 See [Public API](docs/public-api.md) for usage and [Architecture](docs/architecture.md) for module boundaries, request flow, and extension points. The [sample README](otlp4j-samples/README.md) describes the executable scenario.
 

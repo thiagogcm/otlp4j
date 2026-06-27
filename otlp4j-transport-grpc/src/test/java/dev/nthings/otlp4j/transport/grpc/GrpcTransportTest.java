@@ -40,12 +40,14 @@ class GrpcTransportTest {
         for (var closeable : closeables) {
             try {
                 closeable.close();
-            } catch (Exception _) { /* keep tearing down */ }
+            } catch (Exception _) {
+                /* keep tearing down */ }
         }
         for (var receiver : receivers) {
             try {
                 receiver.shutdownNow().toCompletableFuture().get(5, TimeUnit.SECONDS);
-            } catch (Exception _) { /* keep tearing down */ }
+            } catch (Exception _) {
+                /* keep tearing down */ }
         }
     }
 
@@ -110,9 +112,12 @@ class GrpcTransportTest {
         var result = exporterTo(receiver).profiles().consume(sent).toCompletableFuture().join();
 
         assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
-        // Opaque passthrough: the scalar metadata round-trips, and the receiver additionally captures
-        // the wire bytes as rawProfile (the lossless forwarding payload), so a scalar-built fixture is
-        // not record-equal after the wire — compare the modeled fields and assert the payload was kept.
+        // Opaque passthrough: the scalar metadata round-trips, and the receiver
+        // additionally captures
+        // the wire bytes as rawProfile (the lossless forwarding payload), so a
+        // scalar-built fixture is
+        // not record-equal after the wire — compare the modeled fields and assert the
+        // payload was kept.
         var sentProfile = sent.profiles().getFirst();
         var recvProfile = received.get().profiles().getFirst();
         assertThat(recvProfile.profileId()).isEqualTo(sentProfile.profileId());
@@ -181,13 +186,13 @@ class GrpcTransportTest {
             var sub = Pipeline.from(gateway.traces())
                     .transform(Transforms.keepSpansWhere(span -> span.kind() == Span.Kind.SERVER))
                     .filter(t -> !t.spans().isEmpty())
-                    .to(terminalExporter.traces());
+                    .to(terminalExporter.traces(), terminalExporter);
 
             try (var gatewayClient = exporterTo(gateway)) {
                 var result = gatewayClient.traces().consume(Fixtures.traceData(
-                                Fixtures.span("internal-op", Span.Kind.INTERNAL),
-                                Fixtures.span("GET /cart", Span.Kind.SERVER),
-                                Fixtures.span("GET /checkout", Span.Kind.SERVER)))
+                        Fixtures.span("internal-op", Span.Kind.INTERNAL),
+                        Fixtures.span("GET /cart", Span.Kind.SERVER),
+                        Fixtures.span("GET /checkout", Span.Kind.SERVER)))
                         .toCompletableFuture().join();
                 assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
             }

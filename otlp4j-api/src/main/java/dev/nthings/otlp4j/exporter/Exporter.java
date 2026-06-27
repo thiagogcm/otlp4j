@@ -9,11 +9,10 @@ import java.util.concurrent.CompletionStage;
 
 /// Terminal [Sink] with a lifecycle.
 ///
-/// Implement to send telemetry to a custom destination; the built-in `OtlpGrpcExporter` /
-/// `OtlpHttpExporter` are the OTLP variants. As a [Drainable] and [Flushable] an exporter participates in pipeline
-/// shutdown and `forceFlush` when attached as a terminal or fan-out peer (it is auto-collected as an
-/// `AutoCloseable`), or when registered via `Stage.owns(...)`; both lifecycle hooks default to
-/// no-ops so a minimal exporter need only implement `consume`.
+/// Implement to send telemetry to a custom destination; the built-in
+/// `OtlpGrpcExporter` / `OtlpHttpExporter` are the OTLP variants. Register
+/// exporters explicitly when attaching their signal facets:
+/// `Stage.to(exporter.traces(), exporter)` or `Stage.owns(exporter)`.
 public interface Exporter<T> extends Sink<T>, Drainable, Flushable {
 
     /// Flushes any in-flight batches downstream. The default does nothing.

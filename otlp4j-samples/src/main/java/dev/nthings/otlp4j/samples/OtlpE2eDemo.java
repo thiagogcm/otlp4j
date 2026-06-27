@@ -23,9 +23,9 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/// End-to-end demo: five spans flow through a gateway pipeline (enrich, redact, filter, fan out to
-/// the exporter and a span-count sink) to a backend. The `exporter.traces()` peer carries the
-/// exporter's lifecycle, so the subscription auto-owns it — no `owns(...)` needed.
+/// End-to-end demo: five spans flow through a gateway pipeline (enrich, redact,
+/// filter, fan out to the exporter and a span-count sink) to a backend. Register
+/// the exporter with `owns(exporter)` so the subscription drains it on shutdown.
 public final class OtlpE2eDemo {
 
     private static final Logger log = LoggerFactory.getLogger(OtlpE2eDemo.class);
@@ -33,11 +33,14 @@ public final class OtlpE2eDemo {
     private static final String ENDUSER_ID = "enduser.id";
     private static final String REDACTED = "***";
 
-    private OtlpE2eDemo() {}
+    private OtlpE2eDemo() {
+    }
 
-    /// The observable outcome of one demo run — what the `backend` receiver ended up with.
+    /// The observable outcome of one demo run — what the `backend` receiver ended
+    /// up with.
     public record Result(
-            int spansAtBackend, long derivedSpanCount, String enrichedEnvironment, String redactedEnduserId) {}
+            int spansAtBackend, long derivedSpanCount, String enrichedEnvironment, String redactedEnduserId) {
+    }
 
     public static void main(String[] args) throws Exception {
         var result = run();
@@ -92,11 +95,10 @@ public final class OtlpE2eDemo {
                             : span))
                     .transform(Transforms.keepSpansWhere(span -> span.kind() == Span.Kind.SERVER))
                     .filter(traces -> traces.spanCount() != 0)
-                    // backendExporter.traces() is auto-owned (carries the exporter lifecycle); the
-                    // spanCount sink targets the same exporter, so its transport is covered too.
+                    .owns(backendExporter)
                     .branch()
-                        .fanOut(backendExporter.traces())
-                        .fanOut(spanCounter)
+                    .fanOut(backendExporter.traces())
+                    .fanOut(spanCounter)
                     .join();
 
             // --- Client: export a mixed batch of spans to the gateway.
@@ -106,7 +108,8 @@ public final class OtlpE2eDemo {
             }
             subscription.shutdown(Duration.ofSeconds(5)).toCompletableFuture().join();
         } finally {
-            // Idempotent backstop: the subscription already drained the exporter via its facet.
+            // Idempotent backstop: the subscription already drained the exporter via
+            // owns().
             if (backendExporter != null) {
                 backendExporter.close();
             }

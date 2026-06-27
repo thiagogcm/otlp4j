@@ -131,7 +131,7 @@ Pipeline subscriptions auto-collect exporter facets, drain them within a shared 
 
 ### Experimental Profiles Opaque Passthrough
 
-OTLP4J supports experimental OTLP profiles (`v1development`), parsing resource/scope wrappers and passing profile payloads as opaque bytes. Payloads round-trip losslessly when raw profile bytes and compatible dictionaries are preserved through processing. **`BatchingProcessor.forProfiles()` requires compatible dictionaries across merged batches.**
+OTLP4J supports experimental OTLP profiles (`v1development`), parsing resource/scope wrappers and passing profile payloads as opaque bytes. Payloads round-trip losslessly when raw profile bytes and compatible dictionaries are preserved through processing. **`BatchingProcessor.forProfilesUnsafe()` requires compatible dictionaries across merged batches.**
 
 ---
 

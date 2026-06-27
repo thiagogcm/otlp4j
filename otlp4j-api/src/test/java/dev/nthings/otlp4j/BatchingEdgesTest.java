@@ -112,7 +112,8 @@ class BatchingEdgesTest {
         };
         try (var b = BatchingProcessor.forLogs().downstream(logsDownstream).maxBatchSize(1)
                 .queueCapacity(2).build()) {
-            b.consume(Fixtures.logsData(Fixtures.logRecord("hi", LogRecord.Severity.INFO))).toCompletableFuture().join();
+            b.consume(Fixtures.logsData(Fixtures.logRecord("hi", LogRecord.Severity.INFO))).toCompletableFuture()
+                    .join();
             await().atMost(Duration.ofSeconds(2)).until(() -> logsCaptured.get() != null);
         }
         var profilesCaptured = new AtomicReference<ProfilesData>();
@@ -120,7 +121,7 @@ class BatchingEdgesTest {
             profilesCaptured.set(p);
             return ConsumeResult.acceptedStage();
         };
-        try (var b = BatchingProcessor.forProfiles().downstream(profilesDownstream).maxBatchSize(1)
+        try (var b = BatchingProcessor.forProfilesUnsafe().downstream(profilesDownstream).maxBatchSize(1)
                 .queueCapacity(2).build()) {
             b.consume(Fixtures.profilesData(Fixtures.profile("p"))).toCompletableFuture().join();
             await().atMost(Duration.ofSeconds(2)).until(() -> profilesCaptured.get() != null);
@@ -148,7 +149,8 @@ class BatchingEdgesTest {
                 await().atMost(Duration.ofSeconds(2)).until(() -> captured.get() == 1);
             }
         } finally {
-            // External scheduler is the caller's responsibility — batcher must not shut it down.
+            // External scheduler is the caller's responsibility — batcher must not shut it
+            // down.
             scheduler.shutdown();
         }
     }

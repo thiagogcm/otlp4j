@@ -9,10 +9,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
-/// Tests for the allocation-free traversal and item-count helpers on each signal batch:
-/// `forEachSpan`/`spanCount` and their metric, log, and profile counterparts. Each helper must
-/// visit (or count) the same items in the same order as the flattened accessor, across a
-/// multi-resource/multi-scope batch including empty scopes, and reject a null action.
+/// Tests for the allocation-free traversal and item-count helpers on each
+/// signal batch: `forEachSpan`/`spanCount` and their metric, log, and profile
+/// counterparts. Each helper must visit (or count) the same items in the same
+/// order as the flattened accessor, across a multi-resource/multi-scope batch
+/// including empty scopes, and reject a null action.
 @DisplayName("Signal traversal and count helpers")
 class SignalTraversalTest {
 
@@ -29,7 +30,8 @@ class SignalTraversalTest {
                                         InstrumentationScope.of("s1"), "", List.of(span("a"), span("b"))),
                                 new TraceData.ScopeSpans(InstrumentationScope.of("s2"), "", List.of()),
                                 new TraceData.ScopeSpans(InstrumentationScope.of("s3"), "", List.of(span("c"))))),
-                // A resource with zero scopes: the outer loop must skip it without visiting anything.
+                // A resource with zero scopes: the outer loop must skip it without visiting
+                // anything.
                 new TraceData.ResourceSpans(Resource.EMPTY, "", List.of()),
                 new TraceData.ResourceSpans(
                         Resource.EMPTY,
@@ -117,6 +119,25 @@ class SignalTraversalTest {
         @Test
         void forEachMetricRejectsANullAction() {
             assertThatNullPointerException().isThrownBy(() -> data.forEachMetric(null));
+        }
+
+        @DisplayName("dataPointCount walks every Metric.Data kind")
+        @Test
+        void dataPointCountWalksEveryDataKind() {
+            var point = new NumberPoint(Attributes.empty(), 0L, 1L, NumberPoint.longValue(1L), 0L, List.of());
+            var rich = MetricsData.of(Resource.EMPTY, InstrumentationScope.of("s"), List.of(
+                    Metric.builder().name("g").data(new Metric.Gauge(List.of(point))).build(),
+                    Metric.builder().name("s")
+                            .data(new Metric.Sum(List.of(), Metric.AggregationTemporality.DELTA, true)).build(),
+                    Metric.builder().name("h")
+                            .data(new Metric.Histogram(List.of(), Metric.AggregationTemporality.CUMULATIVE)).build(),
+                    Metric.builder().name("e")
+                            .data(new Metric.ExponentialHistogram(List.of(), Metric.AggregationTemporality.DELTA))
+                            .build(),
+                    Metric.builder().name("su").data(new Metric.Summary(List.of())).build(),
+                    Metric.builder().name("nodata").build()));
+            assertThat(rich.dataPointCount()).isEqualTo(1L);
+            assertThat(new MetricsData(List.of()).dataPointCount()).isZero();
         }
 
         private static Metric metric(String name) {

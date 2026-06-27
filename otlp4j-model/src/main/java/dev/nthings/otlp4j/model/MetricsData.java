@@ -4,7 +4,8 @@ import java.util.List;
 import java.util.Objects;
 import java.util.function.Consumer;
 
-/// A batch of metric telemetry: the domain equivalent of an OTLP `ExportMetricsServiceRequest`.
+/// A batch of metric telemetry: the domain equivalent of an OTLP
+/// `ExportMetricsServiceRequest`.
 ///
 /// Hierarchy: `MetricsData → ResourceMetrics → ScopeMetrics → Metric`.
 public record MetricsData(List<ResourceMetrics> resourceMetrics) {
@@ -19,7 +20,8 @@ public record MetricsData(List<ResourceMetrics> resourceMetrics) {
                 List.of(new ResourceMetrics(resource, "", List.of(new ScopeMetrics(scope, "", metrics)))));
     }
 
-    /// All metrics across every resource and scope, flattened for convenient consumption.
+    /// All metrics across every resource and scope, flattened for convenient
+    /// consumption.
     ///
     /// Allocates a fresh list on every call; on a hot path prefer [#forEachMetric].
     public List<Metric> metrics() {
@@ -29,8 +31,8 @@ public record MetricsData(List<ResourceMetrics> resourceMetrics) {
                 .toList();
     }
 
-    /// Applies `action` to every metric across every resource and scope, in [#metrics] order without
-    /// allocating the flattened list.
+    /// Applies `action` to every metric across every resource and scope, in
+    /// [#metrics] order without allocating the flattened list.
     public void forEachMetric(Consumer<? super Metric> action) {
         Objects.requireNonNull(action, "action");
         for (var resource : resourceMetrics) {
@@ -40,6 +42,27 @@ public record MetricsData(List<ResourceMetrics> resourceMetrics) {
                 }
             }
         }
+    }
+
+    /// The total number of metric data points across every resource, scope,
+    /// and metric.
+    public long dataPointCount() {
+        var count = 0L;
+        for (var resource : resourceMetrics) {
+            for (var scope : resource.scopeMetrics()) {
+                for (var metric : scope.metrics()) {
+                    count += switch (metric.data()) {
+                        case Metric.NoData _ -> 0L;
+                        case Metric.Gauge g -> g.points().size();
+                        case Metric.Sum s -> s.points().size();
+                        case Metric.Histogram h -> h.points().size();
+                        case Metric.ExponentialHistogram e -> e.points().size();
+                        case Metric.Summary s -> s.points().size();
+                    };
+                }
+            }
+        }
+        return count;
     }
 
     /// Metrics from one [Resource], grouped by instrumentation scope.

@@ -15,11 +15,12 @@ import java.util.List;
 
 /// Shared test-data factories for otlp4j test suites.
 ///
-/// Keep small reusable domain objects here; module-specific rich fixtures belong with that module's
-/// own tests.
+/// Keep small reusable domain objects here; module-specific rich fixtures belong
+/// with that module's own tests.
 public final class Fixtures {
 
-    private Fixtures() {}
+    private Fixtures() {
+    }
 
     public static Span span(String name, Span.Kind kind) {
         return Span.builder()
@@ -51,6 +52,16 @@ public final class Fixtures {
 
     public static ProfilesData profilesData(ProfilesData.Profile... profiles) {
         return ProfilesData.of(checkoutResource(), testScope(), List.of(profiles));
+    }
+
+    /// Profiles batch carrying an explicit shared dictionary (for
+    /// batch-merge tests).
+    public static ProfilesData profilesDataWithDictionary(byte[] dictionary, ProfilesData.Profile... profiles) {
+        return new ProfilesData(
+                List.of(new ProfilesData.ResourceProfiles(
+                        checkoutResource(), "", List.of(new ProfilesData.ScopeProfiles(
+                                testScope(), "", List.of(profiles))))),
+                dictionary);
     }
 
     public static ProfilesData.Profile profile(String profileId) {
