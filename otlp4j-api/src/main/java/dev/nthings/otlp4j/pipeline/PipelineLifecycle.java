@@ -4,7 +4,6 @@ import dev.nthings.otlp4j.core.Drainable;
 import dev.nthings.otlp4j.core.Flushable;
 import dev.nthings.otlp4j.core.Sink;
 import dev.nthings.otlp4j.core.Subscription;
-import dev.nthings.otlp4j.pipeline.FanOut;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
