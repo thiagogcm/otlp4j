@@ -68,7 +68,7 @@ Pipeline subscriptions drain lifecycle resources registered explicitly via `Stag
 
 Built-in stateless transforms filter spans or log records and add resource attributes to any signal. Empty resource and scope groups are removed by the record-level filters.
 
-`BatchingProcessor<T>` buffers complete domain batches, then merges their top-level resource groups via signal-specific [BatchMergers]. It flushes when the queue reaches `maxBatchSize`, on the periodic `maxBatchAge` timer, or through `forceFlush`/`shutdown`. Profiles batching is available only through the experimental `forProfilesUnsafe()` factory.
+`BatchingProcessor<T>` buffers complete domain batches, then merges their top-level resource groups via signal-specific `BatchMergers`. It flushes when the queue reaches `maxBatchSize`, on the periodic `maxBatchAge` timer, or through `forceFlush`/`shutdown`. Profiles batching is available only through the experimental `forProfilesUnsafe()` factory.
 
 `Connectors.spanCount` converts a trace batch into the `otlp4j.connector.span.count` metric; `Connectors.logRecordCount` similarly emits `otlp4j.connector.log.record.count`. These count sinks consume their input signal and send the derived `MetricsData` to a supplied `MetricSink`; they do not forward the original batch. Each flush carries a real per-series delta window — `[previous flush, now)`, monotonic even under concurrent calls or a backward wall-clock step. A `FailurePolicy` (default `BEST_EFFORT`) decides how a downstream metric failure maps back onto the input: `BEST_EFFORT` accepts the input and logs the failure, while `FAIL` propagates a downstream `Partial`/`Rejected` as a `Rejected` on the input result.
 
