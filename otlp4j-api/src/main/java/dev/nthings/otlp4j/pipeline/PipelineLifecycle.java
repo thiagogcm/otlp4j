@@ -10,7 +10,10 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.atomic.AtomicReference;
+import org.jspecify.annotations.Nullable;
 
 /// Collects and drains lifecycle resources registered along a pipeline graph.
 final class PipelineLifecycle {
@@ -67,17 +70,29 @@ final class PipelineLifecycle {
         @Override
         public CompletionStage<Void> shutdown(Duration timeout) {
             var deadlineNanos = deadlineNanos(timeout);
-            var future = sourceSubscription.shutdown(timeout).toCompletableFuture();
+            var firstError = new AtomicReference<@Nullable Throwable>();
+            // Best-effort teardown: stop the source, then close every owned resource in
+            // turn even if an earlier step failed, so nothing is left running. Steps share
+            // one deadline, so total teardown stays bounded by `timeout` (not N × timeout).
+            var chain = settle(sourceSubscription.shutdown(remaining(deadlineNanos)), firstError);
             for (var resource : resources) {
-                future = future.thenCompose(v -> closeResource(resource, remaining(deadlineNanos)));
+                chain = chain.thenCompose(
+                        ignored -> settle(closeResource(resource, remaining(deadlineNanos)), firstError));
             }
-            return future;
+            return chain.thenCompose(ignored -> {
+                var error = firstError.get();
+                return error == null
+                        ? CompletableFuture.completedFuture(null)
+                        : CompletableFuture.<Void>failedFuture(error);
+            });
         }
 
         @Override
         public CompletionStage<Void> forceFlush(Duration timeout) {
             var deadlineNanos = deadlineNanos(timeout);
-            var chained = CompletableFuture.<Void>completedFuture(null);
+            // Flush the source first — a buffering source would otherwise be skipped — then
+            // each Flushable resource in turn, all sharing one deadline.
+            var chained = sourceSubscription.forceFlush(remaining(deadlineNanos)).toCompletableFuture();
             for (var resource : resources) {
                 if (resource instanceof Flushable f) {
                     chained = chained.thenCompose(v -> f.forceFlush(remaining(deadlineNanos)).toCompletableFuture());
@@ -100,6 +115,24 @@ final class PipelineLifecycle {
             } catch (ArithmeticException e) {
                 return Duration.ofNanos(Long.MAX_VALUE);
             }
+        }
+
+        /// Runs `stage` to completion, recording the first failure (unwrapped) without
+        /// re-propagating it, so best-effort teardown continues to the next resource.
+        private static CompletableFuture<Void> settle(
+                CompletionStage<Void> stage, AtomicReference<@Nullable Throwable> firstError) {
+            return stage.toCompletableFuture().handle((ignored, error) -> {
+                if (error != null) {
+                    firstError.compareAndSet(null, unwrap(error));
+                }
+                return (Void) null;
+            });
+        }
+
+        private static Throwable unwrap(Throwable error) {
+            return error instanceof CompletionException completion && completion.getCause() != null
+                    ? completion.getCause()
+                    : error;
         }
 
         private static CompletionStage<Void> closeResource(AutoCloseable resource, Duration timeout) {
