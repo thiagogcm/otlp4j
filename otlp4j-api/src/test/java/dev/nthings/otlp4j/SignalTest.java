@@ -3,9 +3,9 @@ package dev.nthings.otlp4j;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import dev.nthings.otlp4j.core.Signal;
 import dev.nthings.otlp4j.model.TraceData;
 import dev.nthings.otlp4j.processor.BatchMergers;
+import dev.nthings.otlp4j.processor.Signal;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
@@ -43,10 +43,8 @@ class SignalTest {
     @DisplayName("profiles unsafe merge rejects distinct dictionaries")
     @Test
     void profilesUnsafeMergeRejectsDistinctDictionaries() {
-        var a = new dev.nthings.otlp4j.model.ProfilesData(
-                Fixtures.profilesData(Fixtures.profile("01")).resourceProfiles(), new byte[] { 1 });
-        var b = new dev.nthings.otlp4j.model.ProfilesData(
-                Fixtures.profilesData(Fixtures.profile("02")).resourceProfiles(), new byte[] { 2 });
+        var a = Fixtures.profilesDataWithDictionary(new byte[] { 1 }, Fixtures.profile("01"));
+        var b = Fixtures.profilesDataWithDictionary(new byte[] { 2 }, Fixtures.profile("02"));
         assertThatThrownBy(() -> Signal.PROFILES.merge(List.of(a, b)))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("ProfilesDictionaries");

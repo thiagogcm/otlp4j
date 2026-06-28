@@ -29,6 +29,7 @@ final class BatchDrainEngine<T> {
     private final ScheduledFuture<?> timer;
     private final ExecutorService drainExecutor;
     private final Object drainMutex = new Object();
+    private final AtomicBoolean drainPending = new AtomicBoolean();
     private CompletableFuture<Void> drainTail = CompletableFuture.completedFuture(null);
 
     BatchDrainEngine(
@@ -55,12 +56,23 @@ final class BatchDrainEngine<T> {
         if (closed.get()) {
             return;
         }
+        // Coalesce: keep at most one drain queued behind the in-flight one. Otherwise a
+        // stalled downstream lets every timer tick and size trigger chain another no-op
+        // drain, growing the chain without bound during an outage. The flag clears once the
+        // queued drain starts, so the next trigger can enqueue exactly one successor.
+        if (!drainPending.compareAndSet(false, true)) {
+            return;
+        }
         CompletableFuture<Void> drain;
         synchronized (drainMutex) {
             if (closed.get()) {
+                drainPending.set(false);
                 return;
             }
-            drain = drainTail.thenComposeAsync(ignored -> drainOnce(), drainExecutor);
+            drain = drainTail.thenComposeAsync(ignored -> {
+                drainPending.set(false);
+                return drainOnce();
+            }, drainExecutor);
             drainTail = drain.exceptionally(t -> null);
         }
         drain.whenComplete((ignored, t) -> {
