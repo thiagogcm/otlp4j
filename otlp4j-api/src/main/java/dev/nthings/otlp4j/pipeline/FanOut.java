@@ -39,7 +39,7 @@ public final class FanOut<T> implements Sink<T> {
     /// Returns a [FanOut] over the given peers. Peers run concurrently; at least one is required.
     public static <T> FanOut<T> of(List<? extends Sink<? super T>> peers) {
         Objects.requireNonNull(peers, "peers");
-        return new FanOut<T>(new ArrayList<>(peers));
+        return new FanOut<T>(peers);
     }
 
     /// The peers this fan-out delivers each batch to.
@@ -85,6 +85,6 @@ public final class FanOut<T> implements Sink<T> {
     /// CompletionException wrapper so the underlying cause is visible.
     private static String describe(Throwable t) {
         var cause = t instanceof CompletionException ? t.getCause() : t;
-        return (cause != null ? cause : t).toString();
+        return Objects.requireNonNullElse(cause, t).toString();
     }
 }
