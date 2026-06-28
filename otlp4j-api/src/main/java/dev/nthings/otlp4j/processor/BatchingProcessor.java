@@ -2,7 +2,6 @@ package dev.nthings.otlp4j.processor;
 
 import dev.nthings.otlp4j.core.Drainable;
 import dev.nthings.otlp4j.core.Flushable;
-import dev.nthings.otlp4j.core.Signal;
 import dev.nthings.otlp4j.core.Sink;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
@@ -110,6 +109,12 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, Flushable
                 return CompletableFuture.completedFuture(
                         ConsumeResult.retryableRejected("batcher shutting down"));
             }
+        }
+        // Close/consume race: shutdown may have flipped `closed` and taken the final-drain
+        // snapshot after our initial check above. If so, reclaim this batch and reject it
+        // rather than leaving it stranded in the queue with no further drain to deliver it.
+        if (closed.get() && queue.remove(batch)) {
+            return CompletableFuture.completedFuture(ConsumeResult.retryableRejected("batcher closed"));
         }
         return ConsumeResult.acceptedStage();
     }
