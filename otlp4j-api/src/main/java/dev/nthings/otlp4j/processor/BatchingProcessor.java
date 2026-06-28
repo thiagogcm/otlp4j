@@ -22,7 +22,6 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.LongAdder;
-import java.util.function.ToLongFunction;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,7 +40,6 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, Flushable
     private final ScheduledExecutorService scheduler;
     private final boolean ownsScheduler;
     private final AtomicBoolean closed = new AtomicBoolean();
-    private final ToLongFunction<T> itemCounter;
     private final ExecutorService drainExecutor;
     private final BatchDrainEngine<T> drainEngine;
 
@@ -52,7 +50,6 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, Flushable
         this.queue = new ArrayBlockingQueue<>(b.queueCapacity);
         this.dropPolicy = b.dropPolicy;
         this.drops = b.drops == null ? new LongAdder() : b.drops;
-        this.itemCounter = b.itemCounter;
         this.ownsScheduler = b.scheduler == null;
         this.scheduler = b.scheduler == null
                 ? Executors.newSingleThreadScheduledExecutor(
@@ -81,7 +78,7 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, Flushable
                 }
                 case DROP_NEWEST -> {
                     drops.increment();
-                    var rejectedItems = itemCounter.applyAsLong(batch);
+                    var rejectedItems = signal.itemCount(batch);
                     return CompletableFuture.completedFuture(rejectedItems == 0
                             ? ConsumeResult.accepted()
                             : ConsumeResult.partial(rejectedItems, "batcher queue full"));
@@ -178,27 +175,26 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, Flushable
     }
 
     public static Builder<TraceData> forTraces() {
-        return new Builder<>(Signal.TRACES, TraceData::spanCount);
+        return new Builder<>(Signal.TRACES);
     }
 
     public static Builder<MetricsData> forMetrics() {
-        return new Builder<>(Signal.METRICS, MetricsData::dataPointCount);
+        return new Builder<>(Signal.METRICS);
     }
 
     public static Builder<LogsData> forLogs() {
-        return new Builder<>(Signal.LOGS, LogsData::logRecordCount);
+        return new Builder<>(Signal.LOGS);
     }
 
     /// Experimental profiles batching. Only safe when every merged batch shares the
     /// same `ProfilesDictionary`; otherwise flush fails
     /// with [BatchDeliveryException].
     public static Builder<ProfilesData> forProfilesUnsafe() {
-        return new Builder<>(Signal.PROFILES, ProfilesData::profileCount);
+        return new Builder<>(Signal.PROFILES);
     }
 
     public static final class Builder<T> {
         private final Signal signal;
-        private final ToLongFunction<T> itemCounter;
         private @Nullable Sink<? super T> downstream;
         private int maxBatchSize = 512;
         private int queueCapacity = 2048;
@@ -206,9 +202,8 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, Flushable
         private @Nullable LongAdder drops;
         private @Nullable ScheduledExecutorService scheduler;
 
-        private Builder(Signal signal, ToLongFunction<T> itemCounter) {
+        private Builder(Signal signal) {
             this.signal = signal;
-            this.itemCounter = itemCounter;
         }
 
         public Builder<T> downstream(Sink<? super T> downstream) {
