@@ -9,6 +9,8 @@ import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.core.Drainable;
 import dev.nthings.otlp4j.core.Flushable;
 import dev.nthings.otlp4j.pipeline.Pipeline;
+import dev.nthings.otlp4j.core.Sink;
+import dev.nthings.otlp4j.core.Source;
 import dev.nthings.otlp4j.core.Subscription;
 import dev.nthings.otlp4j.core.TraceSink;
 import java.time.Duration;
@@ -263,6 +265,51 @@ class PipelineLifecycleTest {
         assertThat(second.flushedWith.get()).isNotNull();
         assertThat(second.flushedWith.get()).isLessThan(first.flushedWith.get());
         assertThat(first.flushedWith.get()).isLessThanOrEqualTo(Duration.ofSeconds(1));
+    }
+
+    @DisplayName("shutdown() closes later resources even when an earlier one fails")
+    @Test
+    void shutdownIsBestEffortAcrossResources() {
+        var source = new ManualSource<TraceData>();
+        var secondClosed = new AtomicBoolean();
+        AutoCloseable failing = () -> {
+            throw new IllegalStateException("boom");
+        };
+        AutoCloseable second = () -> secondClosed.set(true);
+        TraceSink terminal = traces -> ConsumeResult.acceptedStage();
+        var sub = Pipeline.from(source).owns(failing).owns(second).to(terminal);
+
+        var stage = sub.shutdown(Duration.ofSeconds(1)).toCompletableFuture();
+
+        // The failing resource is surfaced, but teardown still reached the later resource.
+        assertThatThrownBy(stage::join)
+                .hasCauseInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("boom");
+        assertThat(secondClosed.get()).isTrue();
+    }
+
+    @DisplayName("forceFlush() flushes the source subscription, not only owned resources")
+    @Test
+    void forceFlushReachesSourceSubscription() {
+        var sourceFlushed = new AtomicInteger();
+        class FlushingSource implements Source<TraceData> {
+            @Override public Subscription subscribe(Sink<? super TraceData> consumer) {
+                return new Subscription() {
+                    @Override public CompletionStage<Void> shutdown(Duration timeout) {
+                        return CompletableFuture.completedFuture(null);
+                    }
+                    @Override public CompletionStage<Void> forceFlush(Duration timeout) {
+                        sourceFlushed.incrementAndGet();
+                        return CompletableFuture.completedFuture(null);
+                    }
+                };
+            }
+        }
+        TraceSink terminal = traces -> ConsumeResult.acceptedStage();
+        var sub = Pipeline.from(new FlushingSource()).to(terminal);
+
+        sub.forceFlush(Duration.ofSeconds(1)).toCompletableFuture().join();
+        assertThat(sourceFlushed.get()).isEqualTo(1);
     }
 
     @DisplayName("forceFlush() reaches a Flushable registered via owns()")
