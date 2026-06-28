@@ -3,14 +3,13 @@ package dev.nthings.otlp4j;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.nthings.otlp4j.model.LogRecord;
-import dev.nthings.otlp4j.processor.BatchItemCounters;
 import dev.nthings.otlp4j.processor.BatchMergers;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-@DisplayName("Batch mergers and item counters")
+@DisplayName("Batch mergers")
 class BatchMergersTest {
 
     @DisplayName("mergeMetrics concatenates resource groups")
@@ -38,12 +37,5 @@ class BatchMergersTest {
         var a = Fixtures.profilesDataWithDictionary(dict, Fixtures.profile("01"));
         var b = Fixtures.profilesDataWithDictionary(dict, Fixtures.profile("02"));
         assertThat(BatchMergers.mergeProfilesUnsafe(List.of(a, b)).profileCount()).isEqualTo(2);
-    }
-
-    @DisplayName("BatchItemCounters delegates to MetricsData.dataPointCount")
-    @Test
-    void metricDataPoints() {
-        var metrics = Fixtures.metricsData(Fixtures.metric("one"));
-        assertThat(BatchItemCounters.metricDataPoints(metrics)).isEqualTo(metrics.dataPointCount());
     }
 }
