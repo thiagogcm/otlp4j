@@ -3,8 +3,6 @@ package dev.nthings.otlp4j;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.nthings.otlp4j.model.LogRecord;
-import dev.nthings.otlp4j.model.MetricsData;
-import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.processor.BatchItemCounters;
 import dev.nthings.otlp4j.processor.BatchMergers;
 import dev.nthings.otlp4j.testing.Fixtures;
@@ -37,8 +35,8 @@ class BatchMergersTest {
     @Test
     void mergeProfilesSharedDictionary() {
         var dict = new byte[] { 9 };
-        var a = new ProfilesData(Fixtures.profilesData(Fixtures.profile("01")).resourceProfiles(), dict);
-        var b = new ProfilesData(Fixtures.profilesData(Fixtures.profile("02")).resourceProfiles(), dict);
+        var a = Fixtures.profilesDataWithDictionary(dict, Fixtures.profile("01"));
+        var b = Fixtures.profilesDataWithDictionary(dict, Fixtures.profile("02"));
         assertThat(BatchMergers.mergeProfilesUnsafe(List.of(a, b)).profileCount()).isEqualTo(2);
     }
 
