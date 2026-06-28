@@ -107,7 +107,10 @@ final class BatchDrainEngine<T> {
             return downstream.consume(merged).toCompletableFuture()
                     .thenCompose(BatchDrainEngine::asDeliveryOutcome);
         } catch (RuntimeException e) {
-            return CompletableFuture.failedFuture(e);
+            // A merge that can't proceed (e.g. profiles carrying distinct dictionaries) surfaces
+            // as the dedicated flush-failure type, the same way a downstream rejection does.
+            return CompletableFuture.failedFuture(new BatchingProcessor.BatchDeliveryException(
+                    "failed to flush drained batch: " + e.getMessage(), e));
         }
     }
 

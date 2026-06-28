@@ -101,11 +101,11 @@ Each signal preserves OTLP's resource and instrumentation-scope grouping while p
 | Batch          | Grouping                                         | Flattened accessor | `forEach` helper             | Count helper       |
 | -------------- | ------------------------------------------------ | ------------------ | ---------------------------- | ------------------ |
 | `TraceData`    | `ResourceSpans` → `ScopeSpans` → `Span`          | `spans()`          | `forEachSpan(Consumer)`      | `spanCount()`      |
-| `MetricsData`  | `ResourceMetrics` → `ScopeMetrics` → `Metric`    | `metrics()`        | `forEachMetric(Consumer)`    | —                  |
+| `MetricsData`  | `ResourceMetrics` → `ScopeMetrics` → `Metric`    | `metrics()`        | `forEachMetric(Consumer)`    | `dataPointCount()` |
 | `LogsData`     | `ResourceLogs` → `ScopeLogs` → `LogRecord`       | `logRecords()`     | `forEachLogRecord(Consumer)` | `logRecordCount()` |
 | `ProfilesData` | `ResourceProfiles` → `ScopeProfiles` → `Profile` | `profiles()`       | `forEachProfile(Consumer)`   | `profileCount()`   |
 
-Each flattened accessor (`spans()`, `metrics()`, `logRecords()`, `profiles()`) walks the resource/scope grouping and allocates a fresh list on every call, so bind it to a local rather than re-calling it in a loop or on a hot path. On hot paths prefer the `forEach…` helper to visit items in the same order without the intermediate list, or the count helper to size a batch without flattening it — these are what batching and the count connectors use. (`MetricsData` has no naive count helper: the OTLP metric item count is nested data points, which the batching processor counts directly via `forEachMetric`.)
+Each flattened accessor (`spans()`, `metrics()`, `logRecords()`, `profiles()`) walks the resource/scope grouping and allocates a fresh list on every call, so bind it to a local rather than re-calling it in a loop or on a hot path. On hot paths prefer the `forEach…` helper to visit items in the same order without the intermediate list, or the count helper to size a batch without flattening it — these are what batching and the count connectors use. (`MetricsData`'s count helper, `dataPointCount()`, counts nested data points — the meaningful OTLP item count for metrics — rather than the number of `Metric` objects.)
 
 Records copy incoming lists and are safe to share between fan-out peers. `Attributes` and the sealed `AttributeValue` hierarchy represent OTLP values. Builders are available for `Attributes`, `Span`, `Metric`, and `LogRecord`, plus the metric data points (`NumberPoint`, `HistogramPoint`, `ExponentialHistogramPoint`) and `Exemplar`; `NumberPoint`, `Exemplar`, and `SummaryPoint` also offer `of(...)` factories for the common case. These builders are batch/model-construction helpers for OTLP payloads in the pipeline, not application instrumentation APIs. The remaining records use canonical constructors. To avoid hand-nesting the resource/scope wrappers, each signal type has an `of(resource, scope, items)` factory, and `Resource.of(...)` / `InstrumentationScope.of(...)` cover the common cases:
 
@@ -240,7 +240,7 @@ Subscription subscription = Pipeline.from(receiver.traces())
         .to(report);
 ```
 
-Calling `consume` again while a source is attached throws `IllegalStateException`. Closing its subscription releases the slot. An unattached signal is acknowledged as accepted.
+Attaching a second consumer to an already-attached source throws `IllegalStateException`. Closing its subscription releases the slot. An unattached signal is acknowledged as accepted.
 
 ## Transform and route
 
@@ -302,7 +302,6 @@ Create a signal-specific batcher and attach it as the terminal consumer:
 var batcher = BatchingProcessor.forTraces()
         .downstream(exporter.traces())
         .maxBatchSize(512)
-        .maxBatchAge(Duration.ofSeconds(5))
         .queueCapacity(2048)
         .dropPolicy(DropPolicy.DROP_NEWEST)
         .build();
@@ -310,16 +309,16 @@ var batcher = BatchingProcessor.forTraces()
 var subscription = Pipeline.from(receiver.traces()).to(batcher);
 ```
 
-The four factories are `forTraces`, `forMetrics`, `forLogs`, and `forProfilesUnsafe`. `queued()` reports buffered batches, not telemetry item count. `droppedCount()` counts dropped batches.
+The four factories are `forTraces`, `forMetrics`, `forLogs`, and `forProfilesUnsafe`. `queued()` reports buffered batches, not telemetry item count. `droppedCount()` counts dropped batches. Besides reaching `maxBatchSize`, a periodic one-second timer flushes whatever has queued, so a partly filled batch never waits indefinitely.
 
 Overflow behavior:
 
-| Policy        | Result                                                 |
-| ------------- | ------------------------------------------------------ |
-| `DROP_OLDEST` | Evict the oldest queued batch and accept the new batch |
-| `DROP_NEWEST` | Drop the new batch and return `Partial(1, ...)`        |
-| `BLOCK`       | Block until queue space is available                   |
-| `ERROR`       | Drop the new batch and return `Rejected`               |
+| Policy        | Result                                                                            |
+| ------------- | --------------------------------------------------------------------------------- |
+| `DROP_OLDEST` | Evict the oldest queued batch and accept the new batch                            |
+| `DROP_NEWEST` | Drop the new batch and return `Partial` with its item count (`Accepted` if empty) |
+| `BLOCK`       | Block until queue space is available                                              |
+| `ERROR`       | Drop the new batch and return `Rejected`                                          |
 
 `forceFlush` drains the current queue. `shutdown` stops the timer and drains once; the processor then rejects new batches. A pipeline subscription closes a directly attached batcher.
 
@@ -515,7 +514,7 @@ var subscription2 = Pipeline.from(receiver.traces())
 | `OtlpGrpcReceiver` / `OtlpHttpReceiver`      | Thread-safe after `start()`; dispatch incoming requests to sinks concurrently. The `…Receiver.Builder` is single-threaded — configure on one thread, then `build()`.                                                                                               |
 | `OtlpGrpcExporter` / `OtlpHttpExporter`      | Thread-safe: a single exporter owns one client/channel and may be called from many threads; each facet's `consume` is concurrency-safe. The builder is single-threaded. Register the exporter for pipeline shutdown via `owns(exporter)` or `to(facet, exporter)`. |
 | `BatchingProcessor`                          | Thread-safe: `consume`, `forceFlush`, and `shutdown` may be called concurrently (queue + counters are concurrent). `shutdown` is idempotent and then rejects new batches.                                                                                          |
-| `Pipeline.PipelineSubscription`              | `shutdown`/`forceFlush` are safe to call concurrently and idempotently. Build the pipeline on one thread.                                                                                                                                                          |
+| `Subscription` (from `Pipeline.from(...)`)   | `shutdown`/`forceFlush` are safe to call concurrently and idempotently. Build the pipeline on one thread.                                                                                                                                                          |
 | `TelemetryTap`                               | Thread-safe but not transactional: `setOptions` affects subscribers that attach afterward. Each `Flow.Subscriber` manages its own demand.                                                                                                                          |
 | Model records (`TraceData`, `Attributes`, …) | Immutable and freely shareable; fan-out peers share them without copying. Their builders are single-threaded.                                                                                                                                                      |
 

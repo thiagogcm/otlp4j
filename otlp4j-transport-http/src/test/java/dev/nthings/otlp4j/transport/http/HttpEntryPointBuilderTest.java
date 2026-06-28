@@ -83,7 +83,6 @@ class HttpEntryPointBuilderTest {
                 .ephemeralPort()
                 .tls(Tls.disabled())
                 .maxInboundMessageSizeBytes(1024)
-                .maxConcurrentCallsPerConnection(8)
                 .handshakeTimeout(Duration.ofSeconds(5))
                 .serverExecutor(executor)
                 .onTraces(t -> ConsumeResult.acceptedStage())

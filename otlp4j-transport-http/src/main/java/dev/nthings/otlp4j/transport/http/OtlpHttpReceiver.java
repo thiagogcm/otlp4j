@@ -97,13 +97,6 @@ public final class OtlpHttpReceiver extends AbstractOtlpReceiver {
             return this;
         }
 
-        /// Caps in-flight calls per connection; `0` (the default) leaves it unlimited. Not all
-        /// transports honour this; the HTTP receiver bounds concurrency through its server executor.
-        public Builder maxConcurrentCallsPerConnection(int max) {
-            config.maxConcurrentCallsPerConnection(max);
-            return this;
-        }
-
         /// Bounds the transport/TLS handshake only — not a slow request body or idle connection.
         /// Defaults to 20s.
         public Builder handshakeTimeout(Duration handshakeTimeout) {

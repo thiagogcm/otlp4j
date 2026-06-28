@@ -12,6 +12,7 @@ import dev.nthings.otlp4j.model.NumberPoint;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TraceData;
 import dev.nthings.otlp4j.model.ConsumeResult;
+import dev.nthings.otlp4j.core.ProfileSink;
 import dev.nthings.otlp4j.core.TraceSink;
 import dev.nthings.otlp4j.processor.BatchingProcessor;
 import dev.nthings.otlp4j.processor.DropPolicy;
@@ -286,5 +287,29 @@ class BatchingProcessorTest {
                 .isInstanceOf(ExecutionException.class)
                 .cause()
                 .hasMessageContaining("kaboom");
+    }
+
+    @DisplayName("forProfilesUnsafe surfaces a distinct-dictionary merge as BatchDeliveryException")
+    @Test
+    @Timeout(15)
+    void shutdownSurfacesDistinctDictionaryMergeFailure() {
+        ProfileSink downstream = profiles -> ConsumeResult.acceptedStage();
+        var batcher = BatchingProcessor.forProfilesUnsafe()
+                .downstream(downstream)
+                .maxBatchSize(100) // no size-trigger; both batches merge in the shutdown drain
+                .queueCapacity(100)
+                .build();
+        batcher.consume(Fixtures.profilesDataWithDictionary(new byte[] { 1 }, Fixtures.profile("01")))
+                .toCompletableFuture().join();
+        batcher.consume(Fixtures.profilesDataWithDictionary(new byte[] { 2 }, Fixtures.profile("02")))
+                .toCompletableFuture().join();
+
+        var shutdown = batcher.shutdown(Duration.ofSeconds(2)).toCompletableFuture();
+
+        assertThatThrownBy(() -> shutdown.get(5, TimeUnit.SECONDS))
+                .isInstanceOf(ExecutionException.class)
+                .hasCauseInstanceOf(BatchingProcessor.BatchDeliveryException.class)
+                .cause()
+                .hasMessageContaining("distinct ProfilesDictionaries");
     }
 }

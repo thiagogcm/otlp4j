@@ -163,7 +163,8 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, Flushable
         }
     }
 
-    /// Surfaces downstream delivery failures from [#shutdown] and [#forceFlush].
+    /// Surfaces a flush failure — an impossible merge or a downstream rejection — from
+    /// [#shutdown] and [#forceFlush].
     public static final class BatchDeliveryException extends RuntimeException {
         BatchDeliveryException(String message) {
             super(message);
