@@ -276,7 +276,7 @@ var subscription = Pipeline.from(receiver.traces())
 // subscription.shutdown(timeout) drains primary and secondary within one budget.
 ```
 
-For a resource the pipeline can't reach as a terminal or peer — declare it on the linear stage with `owns(...)` (chainable) *before* `branch()`. Ownership is declared on the stage, not per peer.
+For a resource the pipeline can't reach as a terminal or peer — declare it on the linear stage with `owns(...)` (chainable) _before_ `branch()`. Ownership is declared on the stage, not per peer.
 
 Available built-in transforms are span and log-record filters plus per-signal resource-attribute setters. Implement `Transform<T>` for other synchronous one-to-one rewrites.
 
@@ -323,6 +323,7 @@ Overflow behavior:
 `forceFlush` drains the current queue. `shutdown` stops the timer and drains once; the processor then rejects new batches. A pipeline subscription closes a directly attached batcher.
 
 > [!WARNING]
+>
 > Profiles batching is constrained by the OTLP profile dictionary. A `ProfilesData` batch carries an opaque, batch-level `ProfilesDictionary` that each profile references by index, so merging is only lossless when the batches agree on that dictionary (a shared, or single non-empty, dictionary). `forProfilesUnsafe()` merges only same-dictionary batches; a flush that drains profiles carrying **distinct non-empty dictionaries** fails — the merge throws and the whole drained batch surfaces as a `BatchDeliveryException` from `forceFlush`/`shutdown`, since re-indexing every reference is out of scope. Forward profiles 1:1 (do not batch them) unless every producer shares one dictionary.
 
 ## Export
@@ -380,7 +381,7 @@ var exporter = OtlpGrpcExporter.builder()
         .build();
 ```
 
-The exporter itself owns the channel. Its `traces()`, `metrics()`, `logs()`, and `profiles()` facets are plain sinks that deliver to the client — they do not carry lifecycle. Register the exporter when wiring a pipeline: `Stage.to(exporter.traces(), exporter)` or `Stage.owns(exporter)`. As a `Drainable`, the exporter receives the pipeline's *remaining* shared deadline, and its shutdown is cancellation-aware. `forceFlush` is a no-op today (the client holds no buffer). If you use a facet outside a pipeline (calling `consume` directly), close the exporter yourself.
+The exporter itself owns the channel. Its `traces()`, `metrics()`, `logs()`, and `profiles()` facets are plain sinks that deliver to the client — they do not carry lifecycle. Register the exporter when wiring a pipeline: `Stage.to(exporter.traces(), exporter)` or `Stage.owns(exporter)`. As a `Drainable`, the exporter receives the pipeline's _remaining_ shared deadline, and its shutdown is cancellation-aware. `forceFlush` is a no-op today (the client holds no buffer). If you use a facet outside a pipeline (calling `consume` directly), close the exporter yourself.
 
 Implement `Exporter<T>` for a custom typed terminal with flush and shutdown hooks. Implement the lower-level client or server SPI when replacing the wire transport.
 
@@ -472,7 +473,7 @@ Use `shutdown(Duration)` when completion matters. The convenience `close()` meth
 
 ### Lifecycle cheat sheet
 
-The subscription drains every resource it can *see* under one shared deadline. The rule of thumb: a resource is auto-collected when the pipeline references it directly as a terminal or fan-out peer; it is hidden — and needs `Stage.owns(...)` — when it sits behind a lambda or a connector the pipeline can only see as a plain `Sink`.
+The subscription drains every resource it can _see_ under one shared deadline. The rule of thumb: a resource is auto-collected when the pipeline references it directly as a terminal or fan-out peer; it is hidden — and needs `Stage.owns(...)` — when it sits behind a lambda or a connector the pipeline can only see as a plain `Sink`.
 
 | Resource                                                             | Owned by the subscription? | How                                                                                                                                              |
 | -------------------------------------------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -503,11 +504,11 @@ var subscription2 = Pipeline.from(receiver.traces())
         .join();
 ```
 
-`Stage.owns(...)` is chainable and must be declared on the linear stage *before* `branch()`. Shutdown drains owned resources alongside the auto-collected terminals under the one deadline; see [Shutdown order](#shutdown-order).
+`Stage.owns(...)` is chainable and must be declared on the linear stage _before_ `branch()`. Shutdown drains owned resources alongside the auto-collected terminals under the one deadline; see [Shutdown order](#shutdown-order).
 
 ## Thread-safety and nullness
 
-**Thread-safety.** The runtime types are safe to share across threads; the *builders* are not.
+**Thread-safety.** The runtime types are safe to share across threads; the _builders_ are not.
 
 | Type                                         | Contract                                                                                                                                                                                                                                                           |
 | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |

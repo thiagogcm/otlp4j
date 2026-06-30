@@ -1,7 +1,7 @@
 ---
 title: "otlp4j"
 description: "Java library for receiving, processing, observing, and exporting OpenTelemetry Protocol telemetry"
-tags: [ "Java", "OpenTelemetry", "OTLP" ]
+tags: ["Java", "OpenTelemetry", "OTLP"]
 ---
 
 ## What it does

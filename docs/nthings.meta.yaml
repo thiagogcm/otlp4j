@@ -4,4 +4,3 @@ include:
 pageOrder:
   - architecture.md
   - public-api.md
-
