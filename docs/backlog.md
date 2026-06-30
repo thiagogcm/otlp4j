@@ -1,560 +1,278 @@
-# otlp4j Backlog
-
-This backlog is grouped for migration to GitHub issues. Each issue has a stable slug, GitHub-ready title, labels, dependencies, context, and checkbox acceptance criteria.
-
-## Issue Template
-
-Use this shape when creating GitHub issues from this file:
-
-```yaml
-slug: issue-slug
-github_title: "Short imperative title"
-type: feature | refactor | improvement
-phase: 1 | 2 | 3
-workstream: ws-name
-labels:
-  - label
-depends_on:
-  - other-issue-slug
-```
-
-Issue body:
-
-- Context: why this exists.
-- Acceptance criteria: copy the checkbox list.
-- Dependency notes: hard blockers only. Soft coordination belongs in the rollout notes.
-
-## Label Legend
-
-- `api-surface`: adds, removes, renames, or changes visibility of public symbols.
-- `breaking`: binary- or source-incompatible change.
-- Component labels name affected areas: `core`, `model`, `pipeline`, `processor`, `receiver`, `exporter`, `transport`, `spi`, `docs`, `lifecycle`, `sdk-alignment`, `ergonomics`, `internal`, `new-module`.
-
-## Phase 1: Quick Wins
-
-Dependency-free items that either do not break users or are small enough to land early while the API is still soft.
-
-### `internalize-signal-batchmergers`
-
-```yaml
-slug: internalize-signal-batchmergers
-github_title: "Internalize Signal and BatchMergers"
-type: refactor
-phase: 1
-workstream: ws1-internal-surface-and-tiering
-labels: [breaking, api-surface, internal, processor]
-depends_on: []
-```
-
-Context: `processor.Signal` and `processor.BatchMergers` are public in the exported `processor` package, but they are implementation details. They appear in autocomplete and javadoc and risk becoming accidental API.
-
-Acceptance criteria:
-
-- [ ] Move both types to `dev.nthings.otlp4j.processor.internal`, keeping them accessible inside `otlp4j-api` without exporting the package.
-- [ ] Do not expose the internal package in `module-info.java`.
-- [ ] Keep `BatchMergers` reachable only through internal `Signal.merge`.
-- [ ] Relocate or update existing `SignalTest` / `BatchMergersTest` so they still compile.
-- [ ] Remove both types from `docs/public-api.md` concept inventory.
-- [ ] Build and existing tests pass.
-
-### `endpoint-url-overload`
-
-```yaml
-slug: endpoint-url-overload
-github_title: "Add URL endpoint overloads to exporter builders"
-type: feature
-phase: 1
-workstream: ws4-config-transport-buffering
-labels: [api-surface, transport, exporter, sdk-alignment]
-depends_on: []
-```
-
-Context: exporter builders expose `endpoint(String host, int port)`, while OpenTelemetry SDK and `OTEL_EXPORTER_OTLP_ENDPOINT` use URL-shaped endpoints.
-
-Acceptance criteria:
-
-- [ ] `OtlpGrpcExporter.builder().endpoint("https://collector:4317")` compiles and configures the exporter correctly.
-- [ ] HTTP exporter has the same `endpoint(String)` shape.
-- [ ] `endpoint(URI)` overloads exist alongside the `String` overloads.
-- [ ] Reuse `config.OtlpEnv.applyEndpoint(...)` parsing behavior rather than adding a parallel parser.
-- [ ] Preserve the existing `endpoint(host, port)` form.
-- [ ] HTTP honors parsed path; gRPC documents that path is ignored.
-- [ ] `https` implies TLS.
-- [ ] Tests cover TLS inference, default ports, IPv6 bracket stripping, HTTP path parsing, and invalid URL errors.
-
-### `batching-schedule-delay`
-
-```yaml
-slug: batching-schedule-delay
-github_title: "Add scheduleDelay to BatchingProcessor"
-type: feature
-phase: 1
-workstream: ws4-config-transport-buffering
-labels: [api-surface, processor, sdk-alignment]
-depends_on: []
-```
-
-Context: `BatchDrainEngine` hardcodes a one-second flush cadence. The `scheduler` setting chooses the executor, not the interval.
-
-Acceptance criteria:
-
-- [ ] `BatchingProcessor` builder exposes `scheduleDelay(Duration)`.
-- [ ] Default stays one second.
-- [ ] `BatchDrainEngine` uses the configured interval.
-- [ ] Reject non-positive durations.
-- [ ] Do not add an `exporterTimeout` knob.
-- [ ] Docs describe the new knob.
-- [ ] Tests verify a custom interval triggers flushes at that cadence.
-
-### `readme-accepting-shortcut`
-
-```yaml
-slug: readme-accepting-shortcut
-github_title: "Show accepting shortcut in the README hello example"
-type: improvement
-phase: 1
-workstream: ws6-standalone-docs
-labels: [docs, ergonomics]
-depends_on: []
-```
-
-Context: the hello example returns `ConsumeResult.acceptedStage()`, making that boilerplate look mandatory.
-
-Acceptance criteria:
-
-- [ ] README hello example demonstrates the `TraceSink.accepting(...)` shortcut.
-- [ ] Text clarifies that explicit `acceptedStage()` remains available but is not required for the common callback shape.
-
-### `pipeline-link-transforms`
-
-```yaml
-slug: pipeline-link-transforms
-github_title: "Cross-link Transforms from pipeline javadoc"
-type: improvement
-phase: 1
-workstream: ws6-standalone-docs
-labels: [docs, pipeline, processor]
-depends_on: []
-```
-
-Context: users building a `Pipeline` naturally look in the `pipeline` package, but ready-made transforms live in `processor.Transforms`.
-
-Acceptance criteria:
-
-- [ ] `pipeline` package javadoc references `processor.Transforms`.
-- [ ] Optionally cross-link from README or `docs/public-api.md`.
-
-### `tap-foreach`
-
-```yaml
-slug: tap-foreach
-github_title: "Add tap forEach convenience methods"
-type: feature
-phase: 1
-workstream: ws3-pipeline-and-observation
-labels: [api-surface, receiver, tap, ergonomics]
-depends_on: []
-```
-
-Context: observing the tap currently requires a handwritten `Flow.Subscriber` for the common "just inspect batches" use case.
-
-Acceptance criteria:
-
-- [ ] Add a `forEach(Consumer)`-style API for traces, metrics, logs, and profiles.
-- [ ] Prefer an additive route that does not change existing `TelemetryTap.traces()` / `metrics()` / `logs()` / `profiles()` return types.
-- [ ] If an existing return type is widened in a binary-incompatible way, add the `breaking` label to this issue before migration.
-- [ ] The helper subscribes a demand-aware subscriber and honors `TapOptions` backpressure behavior.
-- [ ] The helper returns a handle that can be cancelled.
-- [ ] Tests cover delivery and cancellation.
-
-### `consume-sync-helper`
-
-```yaml
-slug: consume-sync-helper
-github_title: "Add a synchronous consume helper"
-type: feature
-phase: 1
-workstream: ws5-model-and-send-path
-labels: [api-surface, ergonomics, core, exporter]
-depends_on: []
-```
-
-Context: the construct-and-send workflow has to end in `.toCompletableFuture().join()` today.
-
-Acceptance criteria:
-
-- [ ] Add a blocking helper such as `Sink.consumeSync(batch, Duration)` or a static `join(CompletionStage<ConsumeResult<T>>, Duration)`.
-- [ ] Return `ConsumeResult`.
-- [ ] Honor a timeout or deadline.
-- [ ] Surface failures without requiring callers to use `.toCompletableFuture()` directly.
-- [ ] Keep the async `CompletionStage` API unchanged.
-- [ ] Update README or `docs/public-api.md` construct-and-send examples to use the helper.
-
-### `receiver-start-convenience`
-
-```yaml
-slug: receiver-start-convenience
-github_title: "Decide and smooth receiver start ergonomics"
-type: improvement
-phase: 1
-workstream: ws3-pipeline-and-observation
-labels: [api-surface, receiver, ergonomics, lifecycle]
-depends_on: []
-```
-
-Context: the report calls out `build().start()` as easy to forget, and notes the asymmetry that exporter `to(...)` connects while receiver `on(...)` factories do not start.
-
-Acceptance criteria:
-
-- [ ] Decide whether the API should add a started factory, an explicit `buildStarted()` / `start()` convenience, or docs-only guidance.
-- [ ] Preserve the existing `to()` exporter and `on()` receiver mnemonic unless the decision explicitly replaces it.
-- [ ] If an API convenience is added, tests cover started and not-started receiver states.
-- [ ] If the decision is docs-only, document the rationale in README or `docs/public-api.md`.
-
-## Phase 2: Pre-Release Breaking Changes
-
-Source-breaking changes worth making before a wider public release.
-
-### `unify-overflow-policy`
-
-```yaml
-slug: unify-overflow-policy
-github_title: "Collapse DropPolicy and BackpressureStrategy into OverflowPolicy"
-type: refactor
-phase: 2
-workstream: ws4-config-transport-buffering
-labels: [breaking, api-surface, core, processor, receiver]
-depends_on: []
-```
-
-Context: `processor.DropPolicy` and `receiver.BackpressureStrategy` have identical constants and model the same overflow choice.
-
-Acceptance criteria:
-
-- [ ] Add `core.OverflowPolicy { DROP_OLDEST, DROP_NEWEST, BLOCK, ERROR }`.
-- [ ] Change `BatchingProcessor` from `dropPolicy(...)` to `overflow(OverflowPolicy)`.
-- [ ] Change `TapOptions` to use `OverflowPolicy`.
-- [ ] Remove `DropPolicy` and `BackpressureStrategy`.
-- [ ] Docs preserve context-specific behavior for `BLOCK`, `ERROR`, and `DROP_NEWEST` in the batcher vs tap.
-- [ ] Tests and samples compile with the unified enum.
-
-### `rename-tracesdata`
-
-```yaml
-slug: rename-tracesdata
-github_title: "Rename TraceData to TracesData"
-type: refactor
-phase: 2
-workstream: ws2-naming-renames
-labels: [breaking, api-surface, model, naming, sdk-alignment]
-depends_on: []
-```
-
-Context: OTLP uses `TracesData`, and otlp4j already uses plural `MetricsData`, `LogsData`, and `ProfilesData`.
-
-Acceptance criteria:
-
-- [ ] Rename `model.TraceData` to `TracesData`.
-- [ ] Update every referencing module: api, model, codec, transport-grpc, transport-http, testing, samples, and tests.
-- [ ] `TracesData.of(...)` works.
-- [ ] `Source<TracesData>`, the trace sink alias, and `traces()` references compile.
-- [ ] Keep `spans()` and `spanCount()` accessors.
-- [ ] Docs are updated.
-
-### `rename-subscription-handle`
-
-```yaml
-slug: rename-subscription-handle
-github_title: "Rename core Subscription to PipelineHandle"
-type: refactor
-phase: 2
-workstream: ws2-naming-renames
-labels: [breaking, api-surface, core, naming, pipeline]
-depends_on: []
-```
-
-Context: `core.Subscription` collides with `java.util.concurrent.Flow.Subscription`, which users encounter through the tap.
-
-Acceptance criteria:
-
-- [ ] Rename `core.Subscription` to `PipelineHandle` unless a better final name is chosen.
-- [ ] Update `Pipeline.to`, `Pipeline.join`, `Source.subscribe`, SPI/internal references, and samples.
-- [ ] Avoid examples that import both the otlp4j handle and `Flow.Subscription` under colliding names.
-- [ ] Docs are updated.
-
-### `rename-flushable`
-
-```yaml
-slug: rename-flushable
-github_title: "Resolve core Flushable naming clash"
-type: refactor
-phase: 2
-workstream: ws2-naming-renames
-labels: [breaking, api-surface, core, naming]
-depends_on: []
-```
-
-Context: `core.Flushable` shadows `java.io.Flushable` but has a different signature.
-
-Acceptance criteria:
-
-- [ ] Rename `core.Flushable` to an unambiguous name such as `ForceFlushable` or `Flushing`.
-- [ ] Do not merge it into `Drainable`.
-- [ ] Update `PipelineLifecycle` `instanceof` checks.
-- [ ] Update implementors such as `BatchingProcessor` and `AbstractOtlpExporter`.
-- [ ] `Receiver` remains intentionally not force-flushable.
-- [ ] Docs and javadocs are updated.
-
-### `to-exporter-overload`
-
-```yaml
-slug: to-exporter-overload
-github_title: "Add pipeline overloads that accept exporter objects"
-type: feature
-phase: 2
-workstream: ws3-pipeline-and-observation
-labels: [api-surface, lifecycle, pipeline, exporter, ergonomics]
-depends_on: []
-```
-
-Context: exporter facets are plain sinks, so users must remember `owns(exporter)` or `to(facet, exporter)` or they leak the channel.
-
-Acceptance criteria:
-
-- [ ] Add `Pipeline.from(src).to(exporter)` or equivalent signal-aware overload that resolves the signal facet and registers exporter lifecycle.
-- [ ] Add `branch().fanOut(exporter)` or equivalent fan-out shape.
-- [ ] Retain existing `to(facet, owner)` and `owns(...)` APIs.
-- [ ] Keep facets as plain sinks; do not make bare facets `AutoCloseable`.
-- [ ] Account for type erasure by threading a signal discriminator through `Source` to `Stage`, or document the equivalent facet-resolution mechanism.
-- [ ] Add a test proving the exporter is registered and shut down exactly once through the new overload.
-- [ ] If the public `Source` interface changes, add the `breaking` label before migration.
-
-### `shrink-lifecycle-cheatsheet`
-
-```yaml
-slug: shrink-lifecycle-cheatsheet
-github_title: "Shrink lifecycle cheat sheet after exporter overloads"
-type: improvement
-phase: 2
-workstream: ws3-pipeline-and-observation
-labels: [docs, lifecycle]
-depends_on:
-  - to-exporter-overload
-```
-
-Context: once exporter lifecycle travels with the exporter object in common wiring, repeated documentation warnings can be reduced.
-
-Acceptance criteria:
-
-- [ ] Remove or reduce repeated "register the exporter with `owns(...)`" caveats where the new overload is the recommended path.
-- [ ] Update README, `docs/public-api.md`, and `docs/architecture.md` to show the new simplest wiring path.
-- [ ] Keep any remaining lifecycle caveats limited to advanced or legacy wiring.
-
-### `rename-max-queued-batches`
-
-```yaml
-slug: rename-max-queued-batches
-github_title: "Rename maxBatchSize on BatchingProcessor"
-type: refactor
-phase: 2
-workstream: ws2-naming-renames
-labels: [breaking, api-surface, processor, naming, sdk-alignment]
-depends_on: []
-```
-
-Context: `maxBatchSize` counts queued batches, not telemetry items, so it reads like the SDK's per-item `setMaxExportBatchSize` while meaning something else.
-
-Acceptance criteria:
-
-- [ ] Rename the builder method and field to `maxQueuedBatches`, or choose `flushThreshold` if that better matches the implementation.
-- [ ] Preserve `queueCapacity` as the hard queue cap.
-- [ ] Align `docs/public-api.md` wording around queued batches.
-- [ ] Tests and samples compile.
-
-### `relocate-abstract-bases`
-
-```yaml
-slug: relocate-abstract-bases
-github_title: "Relocate abstract transport bases as internal SPI"
-type: refactor
-phase: 2
-workstream: ws1-internal-surface-and-tiering
-labels: [breaking, api-surface, spi, internal, transport]
-depends_on: []
-```
-
-Context: `AbstractOtlpExporter` and `AbstractOtlpReceiver` are implementation details of bundled transports, not supported third-party extension points.
-
-Acceptance criteria:
-
-- [ ] Move both bases to `dev.nthings.otlp4j.spi.internal`.
-- [ ] Qualified-export the package only to `dev.nthings.otlp4j.transport.grpc` and `dev.nthings.otlp4j.transport.http`.
-- [ ] Do not generally export the internal SPI package.
-- [ ] Bundled transport classes compile against the new location.
-- [ ] API module tests or test fixtures using these bases are updated.
-- [ ] Docs classify them as internal SPI or omit them from public API inventory.
-
-## Phase 3: Follow-On Features and Deeper Docs
-
-Items that depend on earlier API cleanup or are broader design/documentation follow-ups.
-
-### `resource-merge`
-
-```yaml
-slug: resource-merge
-github_title: "Add Resource.merge and settle enrichment helper scope"
-type: feature
-phase: 3
-workstream: ws5-model-and-send-path
-labels: [api-surface, model, sdk-alignment]
-depends_on: []
-```
-
-Context: `Resource` has per-key `withAttribute`, but the SDK exposes `merge`; the action plan also calls out enrichment ergonomics.
-
-Acceptance criteria:
-
-- [ ] Add `Resource.merge(Resource)`.
-- [ ] Document precedence semantics.
-- [ ] Tests cover precedence, `EMPTY`, and empty-side cases.
-- [ ] Evaluate whether a small enrichment helper is still needed after `merge`.
-- [ ] If existing `Transforms.*Resource` helpers already cover enrichment, record that decision in docs and do not add duplicate transforms.
-
-### `remove-peek`
-
-```yaml
-slug: remove-peek
-github_title: "Remove Pipeline.peek in favor of tap observation"
-type: refactor
-phase: 3
-workstream: ws3-pipeline-and-observation
-labels: [breaking, api-surface, pipeline]
-depends_on:
-  - tap-foreach
-```
-
-Context: maintainer decision: remove `peek`; with `tap().<signal>().forEach(...)`, the tap becomes the single observation mechanism.
-
-Acceptance criteria:
-
-- [ ] Remove `Pipeline.peek(Consumer)`.
-- [ ] Update tests and samples that use `peek`.
-- [ ] Document that migration is not semantically one-to-one because `peek` was in-path and fire-and-forget while tap is demand-aware side-channel.
-- [ ] Observation docs point to the tap.
-
-### `document-processor-connector-distinction`
-
-```yaml
-slug: document-processor-connector-distinction
-github_title: "Document processor versus connector semantics"
-type: improvement
-phase: 3
-workstream: ws6-standalone-docs
-labels: [docs, processor, connector]
-depends_on: []
-```
-
-Context: maintainer decision: keep the package split. The docs should make the distinction intentional.
-
-Acceptance criteria:
-
-- [ ] `docs/architecture.md` or `docs/public-api.md` states that processors are in-pipeline, single-signal transforms or buffers.
-- [ ] The same docs state that connectors perform cross-signal derivation.
-- [ ] Include guidance for when to use each package.
-- [ ] No package merge is performed.
-
-### `publish-api-tiers`
-
-```yaml
-slug: publish-api-tiers
-github_title: "Publish the 0.1 API tiers"
-type: improvement
-phase: 3
-workstream: ws1-internal-surface-and-tiering
-labels: [docs, api-surface]
-depends_on:
-  - internalize-signal-batchmergers
-  - relocate-abstract-bases
-```
-
-Context: users need to know which public types are the frozen 0.1 surface, which are advanced, and which are internal or extension-only.
-
-Acceptance criteria:
-
-- [ ] README or `docs/public-api.md` presents Tier 1, Tier 2, Tier 3, and Internal categories.
-- [ ] Tier 1 identifies the stable 80 percent path.
-- [ ] `Signal`, `BatchMergers`, and relocated abstract bases are excluded from public tiers.
-- [ ] Tier 3 reflects the final SPI/internal placement.
-
-### `otel-sdk-adapter`
-
-```yaml
-slug: otel-sdk-adapter
-github_title: "Build optional otlp4j OpenTelemetry SDK adapter"
-type: feature
-phase: 3
-workstream: ws2-naming-renames
-labels: [api-surface, new-module, sdk-alignment, exporter]
-depends_on:
-  - rename-tracesdata
-```
-
-Context: the core should keep `CompletionStage` and `ConsumeResult`; a thin optional adapter should bridge to OpenTelemetry SDK types.
-
-Acceptance criteria:
-
-- [ ] Add an optional `otlp4j-otel-sdk` module.
-- [ ] Provide an SDK `SpanExporter` adapter that forwards to a `TraceSink`.
-- [ ] Convert `Collection<SpanData>` to `TracesData`.
-- [ ] Convert `CompletionStage<ConsumeResult<TracesData>>` to `CompletableResultCode`.
-- [ ] Test against OpenTelemetry SDK types.
-- [ ] Document the module as optional.
-- [ ] Keep core modules free of `CompletableResultCode`.
-
-## Dependency and Workstream Graphs
-
-### Hard Dependencies
-
-```mermaid
-graph LR
-  toexp["to-exporter-overload"] --> shrink["shrink-lifecycle-cheatsheet"]
-  tapfe["tap-foreach"] --> rmpeek["remove-peek"]
-  rntraces["rename-tracesdata"] --> otel["otel-sdk-adapter"]
-  intern["internalize-signal-batchmergers"] --> tiers["publish-api-tiers"]
-  reloc["relocate-abstract-bases"] --> tiers["publish-api-tiers"]
-```
-
-### Workstreams
-
-```mermaid
-graph TB
-  subgraph WS1["WS1: Internal surface and tiering"]
-    intern["internalize-signal-batchmergers"] --> tiers["publish-api-tiers"]
-    reloc["relocate-abstract-bases"] --> tiers
-  end
-  subgraph WS2["WS2: Naming and SDK adapter"]
-    rntraces["rename-tracesdata"] --> otel["otel-sdk-adapter"]
-    rnsub["rename-subscription-handle"]
-    rnflush["rename-flushable"]
-    rnmax["rename-max-queued-batches"]
-  end
-  subgraph WS3["WS3: Pipeline and observation ergonomics"]
-    toexp["to-exporter-overload"] --> shrink["shrink-lifecycle-cheatsheet"]
-    tapfe["tap-foreach"] --> rmpeek["remove-peek"]
-    rstart["receiver-start-convenience"]
-  end
-  subgraph WS4["WS4: Config, transport, and buffering"]
-    endp["endpoint-url-overload"]
-    sched["batching-schedule-delay"]
-    overflow["unify-overflow-policy"]
-  end
-  subgraph WS5["WS5: Model and send path"]
-    rmerge["resource-merge"]
-    csync["consume-sync-helper"]
-  end
-  subgraph WS6["WS6: Standalone docs"]
-    rdme["readme-accepting-shortcut"]
-    plink["pipeline-link-transforms"]
-    pcdoc["document-processor-connector-distinction"]
-  end
-```
+# otlp4j — Road to 1.0
+
+This plan defines the work required to cut a stable `1.0`. It is organized around one question: **what must be right before the surface freezes.**
+
+## Freeze charter
+
+otlp4j is pre-1.0 and carries no compatibility promise yet, so breaking changes are free today and expensive forever after the freeze. The whole plan follows from that asymmetry:
+
+- **Spend the entire breaking-change budget before 1.0.** Every change that should ever break the public surface — a removed type, a renamed member, a changed contract — lands now or never.
+- **Ship only what must be correct at 1.0.** Anything that can be *added* later without breaking callers is out of scope and revisited from real usage feedback.
+- **JDK 25 is the baseline.** Raising or lowering it after 1.0 is a major-version event.
+
+This document is the decision record and the freeze gate. It is not the public API documentation: the user-facing docs (`README.md`, `docs/public-api.md`, package javadoc) describe only the target surface by its final names — they never narrate a change or carry "formerly" wording.
+
+### How to read it
+
+- **§1 Compatibility policy** — what "1.0 stable" promises. Blocking.
+- **§2 Breaking changes** — surface-defining work; every item is **Decided**.
+- **§3 Correctness & ergonomics** — non-breaking, so not a compatibility blocker, but worth doing for a credible 1.0.
+- **§4 Surface hygiene** — smaller pre-1.0 cleanups.
+- **§5 Frozen surface** — the tiered inventory the freeze is checked against.
+- **§6 Out of 1.0 scope** — deferred, additive, feedback-driven.
+- **§7 Sequencing** — the order to land §2/§4 without re-churning files.
+- **§8 Definition of done** — the auditable freeze gate.
+- **§9 Decisions log** — the previously-open calls, now settled, consolidated.
+
+Every decision in §2–§4 is settled; §9 is the consolidated log of how the contested ones landed.
+
+---
+
+## 1. Stability and compatibility policy (blocking)
+
+The policy must be written down (`docs/compatibility.md`, linked from the README) and adopted before the freeze. Without it, "1.0" promises nothing specific.
+
+**What counts as public API.** A type is part of the promise **only if it is `public` *and* lives in an unqualified `exports` package of a published module.** `public` alone is not enough. This rule puts the qualified-exported `codec` and generated proto packages outside the promise by construction, and makes "move a type to a non-exported package" the canonical way to remove something from the surface.
+
+**Covered (the Application API), per current exports:**
+
+- `dev.nthings.otlp4j.model`
+- `dev.nthings.otlp4j.{core, pipeline, receiver, exporter, processor, connector, config}`
+- `dev.nthings.otlp4j.{transport.grpc, transport.http}`
+
+Covered changes guarantee **source and binary compatibility** across all of 1.x: no removed or renamed exported types/members, no narrowed returns or widened checked throws, and frozen permit lists on **every** sealed type (load-bearing for exhaustive switches — `ConsumeResult`, `Metric.Data`, `Telemetry`, `AttributeValue`, `Tls`, `Pipeline.Stage`/`Branch`, and the rest).
+
+**Excluded, even though shipped:**
+
+- Any `*.internal` package and the qualified-exported `codec` / proto packages.
+- Anything annotated `@Experimental` (today, profiles).
+- The `otlp4j-proto` / `otlp4j-codec` artifacts as a *compile* surface (runtime carriers only).
+
+**Defaults — two kinds, governed differently:**
+
+- **Tuning defaults** (flush cadence, buffer sizes, default executors) are not contract and may change in a minor.
+- **Contract / safety defaults** (the acknowledgement a receiver gives an unattached signal; the interface a receiver binds by default) *are* part of the promise and are frozen at 1.0. §2.4 settles these while they are still free to change.
+
+**Two tiers, because they evolve under different rules:**
+
+| Tier                                                        | Audience          | Evolution rule                                                                                                                                                                                                                                                                                                                      |
+| ----------------------------------------------------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Application API**                                         | callers           | Grows freely; callers do not implement most of these. The *implemented* surface — the functional SAMs (`TraceSink`/`MetricSink`/`LogSink`/`ProfileSink`, `Transform`, `ThrowingConsumer`; kept single-method) and the extension interfaces `Sink<T>` and `Exporter<T>` — grows by `default` methods only, the same rule as the SPI. |
+| **Provider SPI** (`spi`, plus the internal transport bases) | transport authors | Implemented types. Grow **only** via `default` methods. A new OTLP signal is a major-version event by design (it touches `Dispatchers`, `OtlpClient`, `OtlpServer`, and the facets together). State this in `spi/package-info.java`.                                                                                                |
+
+**`@Experimental` is the stability boundary.** Absence of the annotation means stable. Keep its `CLASS` retention (visible in bytecode/javadoc/IDE, no runtime cost). Add a paired `@Internal` marker so "no annotation = stable" is enforceable for types that must be `public` for cross-module reasons but are not for end users. Write the disclaimer into the policy: *"`@Experimental` elements are excluded from the compatibility promise and may change or be removed in any release."*
+
+**Profiles stay experimental under a stable core — the design already supports it.** `ProfilesData` models only the stable resource/scope wrapper and carries the `v1development` payload as opaque bytes, so the unstable schema never enters the typed model. Traces, metrics, and logs ride stable OTLP `v1`; profiles is quarantined behind opacity plus the annotation. The follow-through is completing annotation coverage (§4).
+
+---
+
+## 2. Breaking changes (the 1.0-blocking set)
+
+### 2.1 Remove implementation detail from the public surface
+
+**`internalize-signal-and-mergers` — Decided.** `processor.Signal` and `processor.BatchMergers` are public but are internal multiplexers for batching/dispatch (`Signal`'s own javadoc says so; `BatchMergers` has no external consumers). Neither appears in the public type table; no other module uses them.
+
+- [ ] Move both to a non-exported `dev.nthings.otlp4j.internal` (or `processor.internal`) package.
+- [ ] Keep `BatchingProcessor` reaching them internally; drop them from `exports processor`.
+- [ ] Update the in-module `SignalTest` / `BatchMergersTest` imports.
+
+**`internalize-transport-bases` — Decided (internal).** `AbstractOtlpExporter` and `AbstractOtlpReceiver` are `public abstract` in application packages but exist only so the bundled transports can subclass them. Leaving them as unqualified-exported public types silently promises subclassing stability to every application.
+
+- [ ] Move both to `dev.nthings.otlp4j.spi.internal`, qualified-exported only to `transport.grpc` and `transport.http`. The supported extension points are the `spi` contracts plus `Exporter<T>`, not these bases.
+- [ ] Both transports compile against the new location; the qualified export names both modules.
+- [ ] They are absent from the public type inventory.
+
+**`settle-exporter-extension-point` — Decided (keep + document).** `exporter.Exporter<T>` is a public extension interface (`Sink` + `Drainable` + `ForceFlushable`) implemented by nothing in production today, but with the transport bases going internal it becomes the natural public way to write a custom terminal.
+
+- [ ] Keep `Exporter<T>` as *the* supported way to build a custom typed terminal (facets + the lifecycle it inherits), and document it as such — distinct from wiring a bundled exporter. Govern it by the default-only growth rule (§1). Keeping it is non-breaking, so this is a documentation task, not a code change.
+
+### 2.2 Naming — clarity and JDK-collision avoidance
+
+All renames below are source-breaking and therefore pre-1.0-only.
+
+| Target name           | Type                                                                                   | Why                                                                                                                                                                                                              |
+| --------------------- | -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `model.TracesData`    | the trace batch                                                                        | The lone singular among `MetricsData`/`LogsData`/`ProfilesData`; OTLP itself names the message `TracesData`. `spans()` / `spanCount()` accessors stay.                                                           |
+| `core.PipelineHandle` | the wired-pipeline handle (returned by `Pipeline.to(...)` and `Source.subscribe(...)`) | Removes the clash with `java.util.concurrent.Flow.Subscription`, which users meet in the tap a few lines away, and reads well at the dominant `Pipeline.to` call site.                                           |
+| `core.ForceFlushable` | the force-flush capability                                                             | Unambiguous against `java.io.Flushable` (different signature) for users who import both, and matches the `forceFlush` method. Stays separate from `Drainable` (`Receiver` is drainable but not force-flushable). |
+
+- [ ] `TracesData`: rename across model, api, codec, both transports, testing, samples, tests, and `///` javadoc links.
+- [ ] `PipelineHandle`: **semantic (IDE) rename only** — `Flow.Subscription`/`Flow.Subscriber` appear in the same files (tap code, tests), so a textual sweep would rewrite the JDK type.
+- [ ] `ForceFlushable`: textual rename is safe today (`java.io.Flushable` is not used in the tree), but prefer the IDE rename for the `///` links.
+
+**`batcher-knob-names` — Decided.** On `BatchingProcessor` both builder parameters are named `items` yet both count *batches*: `maxBatchSize` gates on `queue.size()`, and `queueCapacity` sizes the batch queue. Rename for honesty.
+
+- [ ] `maxBatchSize` → `flushThreshold(int batches)` — chosen over `maxQueuedBatches`, which would read as a synonym of the hard cap; `flushThreshold` (drain trigger) and `queueCapacity` (hard cap) name two genuinely different knobs.
+- [ ] `queueCapacity`'s parameter is renamed to `batches` too — fix both mislabels, not one.
+- [ ] `docs/public-api.md` describes both knobs in batch units.
+
+**`unify-overflow-policy` — Decided (merge with site-neutral names).** `processor.DropPolicy` and `receiver.BackpressureStrategy` share constant *spellings* but **not semantics**: the terminal constant means "reject this batch (retryable)" for the processor and "terminate the subscription with an error" for the tap, and `BLOCK` blocks different threads at each site.
+
+- [ ] Merge into one `core.OverflowPolicy` with **site-neutral** constants `{DROP_OLDEST, DROP_NEWEST, BLOCK, FAIL}` — one vocabulary; `FAIL` reads as "fail the operation" for both the rejected batch (processor) and the terminated stream (tap), avoiding the misleading `ERROR`/`REJECT` spellings.
+- [ ] Document the per-site effect of each constant (which thread `BLOCK` blocks; batch-reject vs. stream-terminate for `FAIL`).
+
+### 2.3 Remove redundant mechanisms
+
+**`remove-pipeline-peek` — Decided (with honest migration framing).** `Pipeline.peek` is a third observation mechanism that runs its observer inline-before-the-terminal and silently swallows failures. It should go — and removal is the reversible choice (re-adding a method post-1.0 is additive; keeping then removing it would be breaking). There is **no behavior-preserving one-liner replacement**, and the docs must say so:
+
+- [ ] Remove `Pipeline.peek`.
+- [ ] Document the trade-offs of each in-path alternative honestly: an in-path observing `Sink` (e.g. via `fanOut`) runs *concurrently* with the terminal and a rejecting observer rejects the batch back to the sender; an identity `transform` runs inline but turns an observer throw into a `permanentRejected` unless it catches its own exceptions. The maintainer decides whether "an observer fault rejects telemetry" is acceptable guidance.
+- [ ] Sweep all `peek` references in prose: `docs/public-api.md` (2 spots), `docs/architecture.md`, and `pipeline/package-info.java`.
+
+**`trim-consumeresult-factories` — Decided.** `ConsumeResult` ships `retryableRejected`, `permanentRejected`, `rejected(String)`, and `rejected(String, cause)` — four ways to reject. `retryableRejected` / `permanentRejected` are the blessed pair.
+
+- [ ] Cut `rejected(String)`. Keep at most one low-level escape hatch (`rejected(String, @Nullable cause)`) for transports forwarding a cause decided elsewhere, and document it as such.
+- [ ] Update the test files that call `rejected(String)` (≈6).
+
+**`hide-batcher-concurrency-knobs` — Decided.** `BatchingProcessor.Builder` exposes JDK concurrency primitives directly: `dropCounter(LongAdder)` and `scheduler(ScheduledExecutorService)`.
+
+- [ ] Remove `dropCounter(LongAdder)` — `droppedCount()` already exposes the number.
+- [ ] Remove `scheduler(ScheduledExecutorService)` from the public builder; use an internal default. It is additive to re-introduce later if feedback wants a custom scheduler.
+
+### 2.4 Contract and safety defaults
+
+These are frozen-contract defaults (§1), so they are settled now while they are still free to change. Both flips preserve the prior behavior as an explicit opt-in — only the default moves.
+
+**`unattached-source-default` — Decided (reject-retryable).** An unattached signal source today acknowledges the batch as **accepted** and then drops it — for a data plane, "tell the sender it is safe to forget this, then discard it." It bites two ways: a gateway that attaches only `traces()` silently black-holes the other three signals while reporting success, and a receiver wired *after* `start()` loses everything in the gap.
+
+- [ ] Default an unattached source to `retryableRejected` (→ gRPC `UNAVAILABLE` / HTTP 503), so a missing or mis-ordered attachment is loud and retried, not silently lost.
+- [ ] Accept-and-drop remains available as an explicit per-signal `discard(...)` opt-in.
+
+**`receiver-bind-default` — Decided (loopback).** The receiver today defaults to plaintext on the wildcard interface (`0.0.0.0`), so the easy path exposes an unauthenticated decoder on every interface.
+
+- [ ] Default `bindHost` to loopback; binding the wildcard interface becomes an explicit opt-in. Flips the unsafe default without removing capability.
+
+---
+
+## 3. Correctness and ergonomics (non-breaking; recommended for 1.0)
+
+**`exporter-ownership-footgun` — Decided (loud-leak for 1.0; auto-drain deferred).** An exporter's signal facets are plain sinks with no lifecycle, so attaching `exporter.traces()` to a pipeline wires delivery but not teardown: forget `owns(exporter)` and the client channel leaks silently. Even the canonical sample wears a belt and suspenders (`owns(exporter)` *plus* a `finally` close), and a 7-row "lifecycle cheat sheet" exists to compensate.
+
+Two facts shape the fix:
+
+- It is **not a breaking change** to address: a facet can implement `Drainable`/`ForceFlushable` while still returning its `TraceSink` static type, so callers compile unchanged. By the freeze charter, that makes the deeper fix *additive* — it can ship in a 1.x minor and is not a freeze blocker.
+- **Naive auto-drain is unsafe for the mainline topology.** One exporter serves all four signals, and each signal is its own `Pipeline.from(source)` subscription. If every attached facet auto-registers the exporter for teardown, the *first* subscription to shut down closes the shared channel and the other three suffer use-after-close (and lose their final drained batch). Close-once memoization does not fix this — it dedupes a double close, not a *premature* one.
+
+Resolution:
+
+- [ ] **For 1.0 (non-breaking, cheap, safe):** make the leak *loud* — a `Cleaner`-based warning when an exporter is garbage-collected without having been shut down — and make the explicit-ownership docs/examples first-class (safe build → wire → `start()`; one canonical fan-out-with-per-destination-queue topology).
+- [ ] **Deferred to 1.x (§6):** facets carry lifecycle with **ref-counted teardown** — the exporter closes only after the last registration releases, explicitly *not* memoization. It is additive, so it need not gate the freeze, and its cross-subscription quiescing + first-caller-deadline design wants soak time it would not get late in the cut. Count connectors must then forward their downstream facet's lifecycle so the exporter behind a count sink is reachable too.
+
+The loud-leak mitigation is sufficient for the freeze; the redesign is a 1.x item.
+
+---
+
+## 4. Surface hygiene (pre-1.0, mostly mechanical)
+
+- **`transforms-discoverability` — Decided (keep the split, cross-link).** `Transform` (the DSL primitive `Pipeline.transform` consumes) stays in `pipeline`; `Transforms` (the ready-made processor-tier transforms) stays in `processor` beside the other in-pipeline building blocks — consistent with the Collector taxonomy the library targets (see *keep-with-rationale* below). Fix discoverability with a cross-link from `pipeline/package-info.java` and `docs/public-api.md`, not a move that fights the taxonomy.
+- **`document-transforms-map` — Decided.** `Transforms` publicly ships `mapSpans`, `mapLogRecords`, and `mapTracesResource`/`mapMetricsResource`/`mapLogsResource`/`mapProfilesResource` (used in the sample) but the docs describe only filters and attribute-setters. Document them as API — do not freeze undocumented public methods.
+- **`complete-experimental-coverage` — Decided.** Annotate **every public element whose signature names a profiles type** `@Experimental`, not just `ProfilesData` — including `Receiver.profiles()`, `TelemetryTap.profiles()`, the exporter `profiles()` facet, `BatchingProcessor.forProfilesUnsafe()`, `core.ProfileSink`, `core.Telemetry.Profiles`, `Transforms.mapProfilesResource` / `withProfilesResourceAttribute`, and the profiles slot of `spi.Dispatchers`. Drive completeness from the surface manifest (§5) rather than a hand list. Add the `@Internal` marker from §1.
+- **`packaging-gate` — Decided.** Set `maven.deploy.skip` on `otlp4j-samples`. Modularize `otlp4j-testing` (give it a `module-info.java`) and treat it as a supported test-support artifact — the docs already point users at `testing.FlowSubscribers`, so removing it would strand documented usage. Add a release check asserting the artifact ↔ module-name mapping; verify/bump the reproducible-build timestamp and release `revision`.
+- **`spi-dispatchers-policy` — Decided (keep + state policy).** `spi.Dispatchers` is a four-component record, so a fifth OTLP signal is a breaking change to a "stable" type. Keep the record; the SPI policy states that adding an OTLP signal is a major-version event (it co-changes `Dispatchers`, `OtlpClient`, `OtlpServer`, and the facets together). A signal-keyed builder would be over-engineering for 1.0.
+- **`keep-with-rationale` — Decided.** Record these so they are not "cleaned up" later:
+  - `ConsumeResult<T>`'s type parameter is an intentional phantom — it enforces signal discipline on `Sink<T>`/`Source<T>` and prevents cross-signal rejection mixing; the internal `retag` casts are the deliberate cost.
+  - The `processor` / `connector` split mirrors the OTLP Collector taxonomy (processors are in-pipeline single-signal transforms/buffers; connectors do cross-signal derivation). Keep it; state the distinction in `docs/architecture.md`.
+
+---
+
+## 5. Frozen surface inventory (blocking deliverable)
+
+The authoritative artifact is a generated, checked-in manifest of every exported package → public type → public member, tagged by tier, with a CI diff gate (revapi/japicmp) that fails on any unreviewed change after the freeze. The table below is the *illustrative* intent the manifest is checked against — the manifest, not this table, is authoritative.
+
+| Tier                      | Contents (representative)                                                                                                                                                                                                                                                                           |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Tier 1 — the 80% path** | `Otlp{Grpc,Http}{Receiver,Exporter}`, `Pipeline`, `Transforms`, `BatchingProcessor`, the model `of(...)` factories and core records (`TracesData`, `MetricsData`, `LogsData`, `Resource`, `Attributes`, `Span`, `Metric`, `LogRecord`, `ConsumeResult`).                                            |
+| **Tier 2 — advanced**     | `FanOut`, `Connectors`/`FailurePolicy`, `TelemetryTap`/`TapOptions`, `OverflowPolicy`, `PipelineHandle`, `Source`, `Telemetry`, `Drainable`/`ForceFlushable`, `Exporter`/`Receiver`, `Transform`, `ThrowingConsumer`, config (`ClientConfig`, `ServerConfig`, `Tls`, `Compression`, `RetryPolicy`). |
+| **Provider SPI**          | `spi.OtlpClient`, `spi.OtlpServer`, `spi.Dispatchers`.                                                                                                                                                                                                                                              |
+| **Experimental**          | `ProfilesData` and all profiles entry points (§4).                                                                                                                                                                                                                                                  |
+| **Internal (excluded)**   | `Signal`, `BatchMergers`, the transport bases (`spi.internal`), `codec`, proto.                                                                                                                                                                                                                     |
+
+- [ ] Manifest generated and checked in; contains **zero** internal/experimental-leak types in the covered tiers.
+- [ ] CI diff gate active.
+- [ ] `docs/public-api.md`'s type table reconciled to contain exactly the Application-tier types.
+
+---
+
+## 6. Out of 1.0 scope (deferred — additive, feedback-driven)
+
+Non-breaking to add after 1.0, so deliberately not in the freeze. Listed to record they were considered, not as a committed roadmap — each is revisited only if real usage asks for it.
+
+- **Ref-counted exporter auto-drain** (§3) — facets carry their exporter's lifecycle via ref-counted teardown, removing the explicit-`owns` step for the common case. The 1.0 loud-leak mitigation covers the gap until then.
+- `endpoint(String url)` / `endpoint(URI)` builder overloads.
+- `scheduleDelay(Duration)` (the batcher flush cadence; the current default stays).
+- A synchronous `consume` helper that unwraps failures (fix the *doc pattern* now — stop modeling raw `.toCompletableFuture().join()` — and defer the API).
+- `tap().<signal>().forEach(...)` / `subscribe(Consumer)` convenience.
+- `Resource.merge(...)`.
+- A signal-aware `to(exporter)` overload + a purpose-built public `SignalKind` discriminator (only if feedback wants it; the §3 ownership work removes the need that would motivate it).
+- A re-introduced custom batcher `scheduler(...)` knob, if asked for.
+- An optional `otlp4j-otel-sdk` adapter module bridging to OpenTelemetry SDK types.
+
+---
+
+## 7. Sequencing
+
+Two waves. Wave 1 is §2/§4/§5 (breaking or surface-defining; lands before the freeze) plus the §3 mitigation. Wave 2 is §6 (post-1.0). The principle within Wave 1: **touch each file's logic once, and let the compiler-verified blind sweeps land last** — the widest rename last (javac flags every miss), the behavioral work first (for soak).
+
+| #   | Step                                                                                                                                                                                                           | Risk                        | Note                                                                                                                                                                                           |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **Behavioral/contract work first (for soak)** — the §2.4 default flips (reject-retryable, loopback bind) and the §3 loud-leak mitigation                                                                       | Moderate (behavioral)       | Land behavior changes early so they soak. The §3 auto-drain redesign is deferred (§6), so no risky concurrency work is in the cut.                                                             |
+| 2   | **Processor/receiver consolidation, one pass** — `OverflowPolicy`, internalize `Signal`/`BatchMergers`, `flushThreshold`/`queueCapacity` params, **and** the batcher-builder trims (`dropCounter`/`scheduler`) | Mechanical                  | All rewrite `BatchingProcessor`/its builder together — one edit so the file is touched once; `module-info` loses its `Signal`-era exports here. `OverflowPolicy` also sweeps the tap path.     |
+| 3   | **Relocate transport bases (§2.1) + qualified export**                                                                                                                                                         | Tricky (JPMS)               | File move + `module-info` + imports. Like `codec`, api's `module-info` will need `@SuppressWarnings("module")` for the reactor-order lint. Failures surface at transport compile, so not last. |
+| 4   | **Core renames `PipelineHandle`/`ForceFlushable` + remove `peek` + cut `ConsumeResult.rejected(String)`**                                                                                                      | Mechanical, collision-prone | `PipelineHandle` is IDE-rename-only. (`Exporter<T>` is keep+document — a docs task that interleaves freely.)                                                                                   |
+| 5   | **`TracesData` rename**                                                                                                                                                                                        | Mechanical, widest          | Compiler-verified across ~47 files; the safest possible last move before the freeze.                                                                                                           |
+
+Hygiene that isn't a rename (§4 docs, the policy doc, `@Experimental` coverage, the packaging gate) interleaves freely.
+
+**Blast radius (verified counts):**
+
+| Change                                  | Occurrences / files                                   | Modules                                            |
+| --------------------------------------- | ----------------------------------------------------- | -------------------------------------------------- |
+| `TracesData` rename                     | ~301 occ / ~47 files                                  | model, api, codec, grpc, http, testing, samples    |
+| `PipelineHandle` rename                 | ~17 api files                                         | api (⚠ `Flow.Subscription` alongside — IDE rename) |
+| `ForceFlushable` rename                 | ~9 api files                                          | api                                                |
+| `OverflowPolicy` unify                  | ~28 occ / ~12 api files                               | api (not samples)                                  |
+| `flushThreshold`/`queueCapacity` params | ~7 main + ~26 test sites                              | api                                                |
+| Internalize `Signal`/`BatchMergers`     | api only; no external consumer                        | api                                                |
+| Relocate transport bases                | api + grpc + http + `module-info`                     | api, grpc, http                                    |
+| Remove `peek`                           | decl + impl + 1 test + 3 prose spots                  | api + docs                                         |
+| Cut `ConsumeResult.rejected(String)`    | 1 main + ~6 test files                                | model, api, transports                             |
+| Hide batcher knobs                      | `BatchingProcessor.Builder` + tests                   | api                                                |
+| §3 loud-leak mitigation                 | exporter + sample + `public-api.md`/`architecture.md` | api, samples, docs                                 |
+| §2.4 default flips                      | `SignalSource`/`ServerConfig` + tests + docs          | api, docs                                          |
+
+**Verification.** `./mvnw verify` runs surefire, JaCoCo, the `lint-javadoc` profile, and the JDK-25 enforcer. Two gaps the compiler does **not** cover:
+
+- `lint-javadoc` validates `///` markdown links (`[TracesData]`, …) — grep `///` references after each rename.
+- **Plain markdown is unvalidated by any build step.** A rename/removal/internalization that misses `docs/public-api.md`, `docs/architecture.md`, or `README.md` passes the entire build green (e.g. internalizing `BatchMergers` would otherwise leave it named in `architecture.md`). Add an explicit grep sweep of `docs/*.md` + `README.md` for every renamed/removed/internalized type to each step.
+
+Run `./mvnw -q -pl <module> -am test` per step; full `verify` (incl. the codec round-trip tests in the `TracesData` blast radius) at each landing.
+
+---
+
+## 8. Definition of done (freeze gate)
+
+The freeze is auditable when all of the following are true:
+
+- [ ] **Compatibility policy** (§1) written, adopted, published as `docs/compatibility.md`, linked from the README — including the tuning-vs-contract default split.
+- [ ] **All §2 breaking items** landed or consciously parked (the §9 decisions are settled).
+- [ ] **§3 ownership** loud-leak mitigation landed; the ref-counted auto-drain redesign deferred to 1.x (§6).
+- [ ] **Frozen-surface manifest** (§5) checked in, clean against tier intent, CI diff gate active.
+- [ ] **`@Experimental` coverage** complete (manifest-driven); `@Internal` marker added; `spi/package-info.java` states the SPI evolution rule.
+- [ ] **Packaging gate** green: `samples` deploy-skipped; `testing` modularized; artifact ↔ module-name check passing; reproducible timestamp and release `revision` set.
+- [ ] **Docs reconciled**: `public-api.md` type table matches the Application tier; the `docs/*.md` + `README.md` grep sweep is clean for every renamed/removed/internalized type; every example uses the safe build → wire → `start()` order and the documented per-destination-queue fan-out; no change-narration or "formerly" wording in user-facing docs.
+
+---
+
+## 9. Decisions log (resolved)
+
+The calls that were open are settled as follows; the body sections above are marked Decided to match.
+
+| #   | Decision                             | Resolution                                                                                    |
+| --- | ------------------------------------ | --------------------------------------------------------------------------------------------- |
+| 1   | Unattached-source default (§2.4)     | **Reject-retryably**; accept-and-drop only as an explicit per-signal `discard(...)` opt-in.   |
+| 2   | Receiver bind default (§2.4)         | **Default to loopback**; wildcard becomes explicit.                                           |
+| 3   | Transport-base placement (§2.1)      | **Internal SPI** (`spi.internal`), qualified-exported to the two transports only.             |
+| 4   | `Exporter<T>` (§2.1)                 | **Keep** as the supported custom-exporter SPI and document it; govern by default-only growth. |
+| 5   | Overflow enums (§2.2)                | **Merge** into `OverflowPolicy {DROP_OLDEST, DROP_NEWEST, BLOCK, FAIL}` with per-site docs.   |
+| 6   | Exporter-ownership fix (§3)          | **Loud leak-detection for 1.0**; ref-counted (not memoized) auto-drain deferred to 1.x (§6).  |
+| 7   | `spi.Dispatchers` extensibility (§4) | **Keep the record**; SPI policy states a new signal is a major-version event.                 |
