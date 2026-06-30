@@ -8,19 +8,18 @@ import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.Span;
-import dev.nthings.otlp4j.model.TraceData;
+import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.core.LogSink;
 import dev.nthings.otlp4j.core.MetricSink;
+import dev.nthings.otlp4j.core.OverflowPolicy;
 import dev.nthings.otlp4j.core.ProfileSink;
 import dev.nthings.otlp4j.core.TraceSink;
 import dev.nthings.otlp4j.processor.BatchingProcessor;
-import dev.nthings.otlp4j.processor.DropPolicy;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.DisplayName;
@@ -32,16 +31,16 @@ class BatchingEdgesTest {
     @DisplayName("BLOCK drop policy eventually delivers every span")
     @Test
     void blockPolicyEventuallyDeliversAllBatches() {
-        var captured = new CopyOnWriteArrayList<TraceData>();
+        var captured = new CopyOnWriteArrayList<TracesData>();
         TraceSink downstream = traces -> {
             captured.add(traces);
             return ConsumeResult.acceptedStage();
         };
         try (var batcher = BatchingProcessor.forTraces()
                 .downstream(downstream)
-                .maxBatchSize(2)
+                .flushThreshold(2)
                 .queueCapacity(2)
-                .dropPolicy(DropPolicy.BLOCK)
+                .overflowPolicy(OverflowPolicy.BLOCK)
                 .build()) {
             for (var i = 0; i < 6; i++) {
                 batcher.consume(Fixtures.traceData(Fixtures.span("s" + i, Span.Kind.SERVER)))
@@ -60,7 +59,7 @@ class BatchingEdgesTest {
         TraceSink downstream = traces -> ConsumeResult.acceptedStage();
         var batcher = BatchingProcessor.forTraces()
                 .downstream(downstream)
-                .maxBatchSize(10)
+                .flushThreshold(10)
                 .queueCapacity(10)
                 .build();
         batcher.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
@@ -73,7 +72,7 @@ class BatchingEdgesTest {
         TraceSink slow = traces -> new CompletableFuture<>();
         try (var batcher = BatchingProcessor.forTraces()
                 .downstream(slow)
-                .maxBatchSize(100)
+                .flushThreshold(100)
                 .queueCapacity(10)
                 .build()) {
             batcher.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER))).toCompletableFuture().join();
@@ -85,12 +84,12 @@ class BatchingEdgesTest {
     @DisplayName("Every per-signal factory flushes at the batch-size threshold")
     @Test
     void everyPerSignalFactoryFlushesAtThreshold() {
-        var traceCaptured = new AtomicReference<TraceData>();
+        var traceCaptured = new AtomicReference<TracesData>();
         TraceSink traceDownstream = traces -> {
             traceCaptured.set(traces);
             return ConsumeResult.acceptedStage();
         };
-        try (var b = BatchingProcessor.forTraces().downstream(traceDownstream).maxBatchSize(1)
+        try (var b = BatchingProcessor.forTraces().downstream(traceDownstream).flushThreshold(1)
                 .queueCapacity(2).build()) {
             b.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER))).toCompletableFuture().join();
             await().atMost(Duration.ofSeconds(2)).until(() -> traceCaptured.get() != null);
@@ -100,7 +99,7 @@ class BatchingEdgesTest {
             metricsCaptured.set(m);
             return ConsumeResult.acceptedStage();
         };
-        try (var b = BatchingProcessor.forMetrics().downstream(metricsDownstream).maxBatchSize(1)
+        try (var b = BatchingProcessor.forMetrics().downstream(metricsDownstream).flushThreshold(1)
                 .queueCapacity(2).build()) {
             b.consume(Fixtures.metricsData(Fixtures.metric("m"))).toCompletableFuture().join();
             await().atMost(Duration.ofSeconds(2)).until(() -> metricsCaptured.get() != null);
@@ -110,7 +109,7 @@ class BatchingEdgesTest {
             logsCaptured.set(l);
             return ConsumeResult.acceptedStage();
         };
-        try (var b = BatchingProcessor.forLogs().downstream(logsDownstream).maxBatchSize(1)
+        try (var b = BatchingProcessor.forLogs().downstream(logsDownstream).flushThreshold(1)
                 .queueCapacity(2).build()) {
             b.consume(Fixtures.logsData(Fixtures.logRecord("hi", LogRecord.Severity.INFO))).toCompletableFuture()
                     .join();
@@ -121,37 +120,29 @@ class BatchingEdgesTest {
             profilesCaptured.set(p);
             return ConsumeResult.acceptedStage();
         };
-        try (var b = BatchingProcessor.forProfilesUnsafe().downstream(profilesDownstream).maxBatchSize(1)
+        try (var b = BatchingProcessor.forProfilesUnsafe().downstream(profilesDownstream).flushThreshold(1)
                 .queueCapacity(2).build()) {
             b.consume(Fixtures.profilesData(Fixtures.profile("p"))).toCompletableFuture().join();
             await().atMost(Duration.ofSeconds(2)).until(() -> profilesCaptured.get() != null);
         }
     }
 
-    @DisplayName("External scheduler drives age-based flush and is not shut down")
+    @DisplayName("The periodic timer drives an age-based flush below the threshold")
     @Test
-    void externalSchedulerIsHonoured() {
-        var scheduler = Executors.newSingleThreadScheduledExecutor();
-        try {
-            var captured = new AtomicInteger();
-            TraceSink downstream = traces -> {
-                captured.incrementAndGet();
-                return ConsumeResult.acceptedStage();
-            };
-            try (var batcher = BatchingProcessor.forTraces()
-                    .downstream(downstream)
-                    .maxBatchSize(1000)
-                    .queueCapacity(1000)
-                    .scheduler(scheduler)
-                    .build()) {
-                batcher.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
-                        .toCompletableFuture().join();
-                await().atMost(Duration.ofSeconds(2)).until(() -> captured.get() == 1);
-            }
-        } finally {
-            // External scheduler is the caller's responsibility — batcher must not shut it
-            // down.
-            scheduler.shutdown();
+    void timerDrivesAgeBasedFlush() {
+        var captured = new AtomicInteger();
+        TraceSink downstream = traces -> {
+            captured.incrementAndGet();
+            return ConsumeResult.acceptedStage();
+        };
+        try (var batcher = BatchingProcessor.forTraces()
+                .downstream(downstream)
+                .flushThreshold(1000)
+                .queueCapacity(1000)
+                .build()) {
+            batcher.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
+                    .toCompletableFuture().join();
+            await().atMost(Duration.ofSeconds(3)).until(() -> captured.get() == 1);
         }
     }
 }

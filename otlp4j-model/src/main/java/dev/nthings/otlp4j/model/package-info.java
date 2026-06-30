@@ -1,6 +1,6 @@
 /// Pure, immutable OTLP domain records shared across the whole SDK.
 ///
-/// Application code reads and constructs these types — `TraceData`, `MetricsData`, `LogsData`,
+/// Application code reads and constructs these types — `TracesData`, `MetricsData`, `LogsData`,
 /// `ProfilesData` and their building blocks (`Resource`, `InstrumentationScope`, `Attributes`,
 /// `AttributeValue`, `Span`, `Metric`, `LogRecord`). Every signal batch preserves OTLP's
 /// resource/scope grouping and offers a flattened accessor plus allocation-free `forEach…` and

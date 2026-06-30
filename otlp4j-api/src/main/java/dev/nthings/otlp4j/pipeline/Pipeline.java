@@ -2,7 +2,7 @@ package dev.nthings.otlp4j.pipeline;
 
 import dev.nthings.otlp4j.core.Sink;
 import dev.nthings.otlp4j.core.Source;
-import dev.nthings.otlp4j.core.Subscription;
+import dev.nthings.otlp4j.core.PipelineHandle;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import java.util.ArrayList;
 import java.util.List;
@@ -10,23 +10,18 @@ import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
-import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import org.jspecify.annotations.Nullable;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /// Fluent builder for a per-signal consumer chain.
 ///
 /// `Pipeline.from(source)` opens a [Stage] that transforms or filters the batch,
 /// optionally fans it out, and is terminated by `.to(consumer)` or `.join()`
-/// (when a branch is already in play). The returned [Subscription] owns the
+/// (when a branch is already in play). The returned [PipelineHandle] owns the
 /// wiring: closing it detaches every leaf and releases any lifecycle resources
 /// attached along the way.
 public final class Pipeline {
-
-    private static final Logger log = LoggerFactory.getLogger(Pipeline.class);
 
     private Pipeline() {
     }
@@ -46,12 +41,8 @@ public final class Pipeline {
         /// Drops the batch entirely if `keep` rejects it.
         Stage<T> filter(Predicate<? super T> keep);
 
-        /// Adds a fire-and-forget side-effect observer that cannot alter or reject
-        /// the batch.
-        Stage<T> peek(Consumer<? super T> observer);
-
         /// Registers a lifecycle resource that the subscription drains on shutdown and
-        /// flushes on forceFlush if it is [dev.nthings.otlp4j.core.Flushable]. Required
+        /// flushes on forceFlush if it is [dev.nthings.otlp4j.core.ForceFlushable]. Required
         /// for exporters and any resource hidden behind a lambda sink.
         Stage<T> owns(AutoCloseable resource);
 
@@ -62,11 +53,11 @@ public final class Pipeline {
         /// Terminates the pipeline by delivering to `terminal`. Returns the
         /// subscription that owns the wiring. Register exporter owners explicitly via
         /// [#owns(AutoCloseable)] or the two-arg overload.
-        Subscription to(Sink<? super T> terminal);
+        PipelineHandle to(Sink<? super T> terminal);
 
         /// Terminates the pipeline by delivering to `terminal`, also registering
         /// `owner` as a lifecycle resource. Shorthand for `owns(owner).to(terminal)`.
-        default Subscription to(Sink<? super T> terminal, AutoCloseable owner) {
+        default PipelineHandle to(Sink<? super T> terminal, AutoCloseable owner) {
             return owns(owner).to(terminal);
         }
     }
@@ -79,7 +70,7 @@ public final class Pipeline {
 
         /// Closes the branch, attaches the fan-out to the source, and returns
         /// the subscription.
-        Subscription join();
+        PipelineHandle join();
     }
 
     private static final class StageImpl<T> implements Stage<T> {
@@ -110,22 +101,6 @@ public final class Pipeline {
         }
 
         @Override
-        public Stage<T> peek(Consumer<? super T> observer) {
-            Objects.requireNonNull(observer, "observer");
-            Function<@Nullable T, @Nullable T> peek = batch -> {
-                if (batch != null) {
-                    try {
-                        observer.accept(batch);
-                    } catch (Throwable t) {
-                        log.warn("pipeline peek observer threw; ignoring to protect the delivery path", t);
-                    }
-                }
-                return batch;
-            };
-            return new StageImpl<>(source, stageFn.andThen(peek), resources);
-        }
-
-        @Override
         public Stage<T> owns(AutoCloseable resource) {
             Objects.requireNonNull(resource, "resource");
             var next = new ArrayList<AutoCloseable>(resources.size() + 1);
@@ -140,7 +115,7 @@ public final class Pipeline {
         }
 
         @Override
-        public Subscription to(Sink<? super T> terminal) {
+        public PipelineHandle to(Sink<? super T> terminal) {
             Objects.requireNonNull(terminal, "terminal");
             Sink<T> chain = batch -> {
                 @Nullable
@@ -178,7 +153,7 @@ public final class Pipeline {
         }
 
         @Override
-        public Subscription join() {
+        public PipelineHandle join() {
             if (peers.isEmpty()) {
                 throw new IllegalStateException("branch has no fanOut peers");
             }

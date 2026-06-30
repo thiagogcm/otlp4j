@@ -8,7 +8,7 @@ import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.Span;
-import dev.nthings.otlp4j.model.TraceData;
+import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.pipeline.Pipeline;
 import dev.nthings.otlp4j.processor.Transforms;
@@ -51,10 +51,10 @@ class GrpcTransportTest {
         }
     }
 
-    @DisplayName("Round-trips rich TraceData losslessly")
+    @DisplayName("Round-trips rich TracesData losslessly")
     @Test
     void roundTripsRichTraceDataLosslessly() {
-        var received = new AtomicReference<TraceData>();
+        var received = new AtomicReference<TracesData>();
         var receiver = startReceiver(OtlpGrpcReceiver.builder().onTraces(traces -> {
             received.set(traces);
             return ConsumeResult.acceptedStage();
@@ -151,7 +151,7 @@ class GrpcTransportTest {
                 .consume(new LogsData(List.of())).toCompletableFuture().join();
 
         assertThat(traceResult).isInstanceOf(ConsumeResult.Partial.class);
-        assertThat(((ConsumeResult.Partial<TraceData>) traceResult).rejectedItems()).isEqualTo(2L);
+        assertThat(((ConsumeResult.Partial<TracesData>) traceResult).rejectedItems()).isEqualTo(2L);
         assertThat(metricResult).isInstanceOf(ConsumeResult.Partial.class);
         assertThat(((ConsumeResult.Partial<MetricsData>) metricResult).rejectedItems()).isEqualTo(5L);
         assertThat(logResult).isInstanceOf(ConsumeResult.Partial.class);
@@ -172,10 +172,23 @@ class GrpcTransportTest {
                 .hasMessageContaining("handler boom");
     }
 
+    @DisplayName("An unattached source surfaces as retryable UNAVAILABLE")
+    @Test
+    void unattachedSourceSurfacesAsUnavailable() {
+        var receiver = startReceiver(OtlpGrpcReceiver.builder());
+        var exporter = exporterTo(receiver);
+
+        assertThatThrownBy(() -> exporter.traces()
+                .consume(TransportFixtures.richTraceData()).toCompletableFuture().join())
+                .isInstanceOf(CompletionException.class)
+                .hasMessageContaining("UNAVAILABLE")
+                .hasMessageContaining("no consumer attached for TracesData");
+    }
+
     @DisplayName("End-to-end receive, filter, export Pipeline keeps only SERVER spans")
     @Test
     void endToEndReceiveFilterExportPipeline() {
-        var terminalCapture = new AtomicReference<TraceData>();
+        var terminalCapture = new AtomicReference<TracesData>();
         var terminal = startReceiver(OtlpGrpcReceiver.builder().onTraces(traces -> {
             terminalCapture.set(traces);
             return ConsumeResult.acceptedStage();
@@ -232,7 +245,7 @@ class GrpcTransportTest {
     @DisplayName("Facade builder convenience knobs (compression, retry, receiver hardening) wire through")
     @Test
     void facadeBuilderConvenienceKnobsRoundTrip() {
-        var received = new AtomicReference<TraceData>();
+        var received = new AtomicReference<TracesData>();
         var receiver = startReceiver(OtlpGrpcReceiver.builder()
                 .maxInboundMessageSizeBytes(8 * 1024 * 1024)
                 .maxConcurrentCallsPerConnection(64)

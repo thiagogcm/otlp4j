@@ -4,7 +4,7 @@ import com.google.protobuf.InvalidProtocolBufferException;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
-import dev.nthings.otlp4j.model.TraceData;
+import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.codec.LogsMapper;
 import dev.nthings.otlp4j.codec.MetricsMapper;
@@ -100,7 +100,7 @@ public final class HttpOtlpClient implements OtlpClient {
     }
 
     @Override
-    public CompletionStage<ConsumeResult<TraceData>> exportTraces(TraceData traces) {
+    public CompletionStage<ConsumeResult<TracesData>> exportTraces(TracesData traces) {
         return CompletableFuture.supplyAsync(() -> export(
                 tracesUri, TraceMapper.toProto(traces).toByteArray(),
                 ExportTraceServiceResponse::parseFrom, TraceMapper::result), executor);

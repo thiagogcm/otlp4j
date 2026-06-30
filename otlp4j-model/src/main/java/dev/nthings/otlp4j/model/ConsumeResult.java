@@ -66,7 +66,7 @@ public sealed interface ConsumeResult<T> permits ConsumeResult.Accepted, Consume
     }
 
     /// A whole-batch rejection the sender SHOULD retry (transient, e.g. a full queue). Maps to gRPC
-    /// `UNAVAILABLE`. Prefer this over the [#rejected(String)] alias when retry intent is known.
+    /// `UNAVAILABLE`.
     static <T> ConsumeResult<T> retryableRejected(String message) {
         return new Rejected<>(message, null);
     }
@@ -75,11 +75,6 @@ public sealed interface ConsumeResult<T> permits ConsumeResult.Accepted, Consume
     /// fault). The required non-null `cause` maps it to gRPC `INTERNAL` rather than `UNAVAILABLE`.
     static <T> ConsumeResult<T> permanentRejected(String message, Throwable cause) {
         return rejected(message, Objects.requireNonNull(cause, "cause"));
-    }
-
-    /// Low-level alias for [#retryableRejected(String)].
-    static <T> ConsumeResult<T> rejected(String message) {
-        return retryableRejected(message);
     }
 
     /// Low-level [Rejected] factory forwarding `cause` verbatim (null retries, non-null does not).

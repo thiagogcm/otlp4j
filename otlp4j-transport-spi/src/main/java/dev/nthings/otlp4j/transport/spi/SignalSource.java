@@ -1,9 +1,9 @@
-package dev.nthings.otlp4j.receiver;
+package dev.nthings.otlp4j.transport.spi;
 
 import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.core.Sink;
 import dev.nthings.otlp4j.core.Source;
-import dev.nthings.otlp4j.core.Subscription;
+import dev.nthings.otlp4j.core.PipelineHandle;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
@@ -25,13 +25,13 @@ final class SignalSource<T> implements Source<T> {
     }
 
     @Override
-    public Subscription subscribe(Sink<? super T> consumer) {
+    public PipelineHandle subscribe(Sink<? super T> consumer) {
         Objects.requireNonNull(consumer, "consumer");
         if (!attached.compareAndSet(null, consumer)) {
             throw new IllegalStateException(
                     "source for " + signalType.getSimpleName() + " already has a consumer; wrap with FanOut for multi-consumer attach");
         }
-        return new Subscription() {
+        return new PipelineHandle() {
             @Override
             public CompletionStage<Void> shutdown(Duration timeout) {
                 attached.compareAndSet(consumer, null);
@@ -46,7 +46,9 @@ final class SignalSource<T> implements Source<T> {
     public CompletionStage<ConsumeResult<T>> dispatch(T batch) {
         @Nullable Sink<? super T> sink = attached.get();
         if (sink == null) {
-            return ConsumeResult.acceptedStage();
+            return CompletableFuture.completedFuture(ConsumeResult.retryableRejected(
+                    "no consumer attached for " + signalType.getSimpleName()
+                            + "; attach a sink or call discard() to accept and drop"));
         }
         @SuppressWarnings("unchecked")
         var typed = (Sink<T>) sink;

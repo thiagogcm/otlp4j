@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.nthings.otlp4j.model.Span;
-import dev.nthings.otlp4j.model.TraceData;
+import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.config.ClientConfig;
 import dev.nthings.otlp4j.config.Compression;
@@ -153,10 +153,10 @@ class TransportConfigTest {
         assertThat(flaky.calls.get()).isEqualTo(1);
     }
 
-    @DisplayName("Round-trips TraceData over custom TLS")
+    @DisplayName("Round-trips TracesData over custom TLS")
     @Test
     void roundTripsOverTls() {
-        var received = new AtomicReference<TraceData>();
+        var received = new AtomicReference<TracesData>();
         var receiver = startReceiver(serverTls(), OtlpGrpcReceiver.builder().onTraces(t -> {
             received.set(t);
             return ConsumeResult.acceptedStage();
@@ -223,6 +223,7 @@ class TransportConfigTest {
         var receiver = OtlpGrpcReceiver.on(0);
         receivers.add(receiver);
         receiver.start();
+        closeables.add(receiver.traces().discard());
 
         assertThat(receiver.port()).isPositive();
         var exporter = exporter(ClientConfig.builder()
@@ -281,7 +282,7 @@ class TransportConfigTest {
     }
 
     private static ServerConfig serverTls() {
-        // Wildcard default; a specific bind host binds that interface only (see
+        // Default loopback bind; a specific bind host binds that interface only (see
         // specificBindHostBindsThatInterface).
         return ServerConfig.builder()
                 .port(0)
@@ -314,7 +315,7 @@ class TransportConfigTest {
         }
     }
 
-    private static TraceData traces() {
+    private static TracesData traces() {
         return Fixtures.traceData(Fixtures.span("op", Span.Kind.SERVER));
     }
 

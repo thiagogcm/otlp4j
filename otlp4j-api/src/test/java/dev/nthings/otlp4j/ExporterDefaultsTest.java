@@ -3,7 +3,7 @@ package dev.nthings.otlp4j;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.nthings.otlp4j.exporter.Exporter;
-import dev.nthings.otlp4j.model.TraceData;
+import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import java.time.Duration;
 import java.util.List;
@@ -22,9 +22,9 @@ class ExporterDefaultsTest {
     void defaultsAreSafeNoOpsThatCloseInvokesShutdown() {
         var consumed = new AtomicBoolean();
         var shutdownCalled = new AtomicBoolean();
-        var exporter = new Exporter<TraceData>() {
+        var exporter = new Exporter<TracesData>() {
             @Override
-            public CompletionStage<ConsumeResult<TraceData>> consume(TraceData batch) {
+            public CompletionStage<ConsumeResult<TracesData>> consume(TracesData batch) {
                 consumed.set(true);
                 return ConsumeResult.acceptedStage();
             }
@@ -34,7 +34,7 @@ class ExporterDefaultsTest {
                 return CompletableFuture.completedFuture(null);
             }
         };
-        exporter.consume(new TraceData(List.of())).toCompletableFuture().join();
+        exporter.consume(new TracesData(List.of())).toCompletableFuture().join();
         exporter.forceFlush(Duration.ofSeconds(1)).toCompletableFuture().join();
         exporter.close();
         assertThat(consumed.get()).isTrue();
@@ -44,7 +44,7 @@ class ExporterDefaultsTest {
     @DisplayName("Default forceFlush and shutdown complete normally")
     @Test
     void defaultForceFlushAndShutdownComplete() {
-        Exporter<TraceData> exporter = batch -> ConsumeResult.acceptedStage();
+        Exporter<TracesData> exporter = batch -> ConsumeResult.acceptedStage();
         exporter.forceFlush(Duration.ofSeconds(1)).toCompletableFuture().join();
         exporter.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
         exporter.close();

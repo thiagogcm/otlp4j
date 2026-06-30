@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>dev.nthings.otlp4j</groupId>
+        <artifactId>otlp4j-parent</artifactId>
+        <version>${revision}</version>
+    </parent>
+
+    <artifactId>otlp4j-transport-spi</artifactId>
+    <name>otlp4j-transport-spi</name>
+    <description>Shared implementation machinery for the bundled OTLP transports: the abstract
+        exporter/receiver bases and the receiver-side dispatch and tap plumbing. JPMS module
+        dev.nthings.otlp4j.transport.spi — internal, read by the gRPC and HTTP transports, not part
+        of the supported public API.</description>
+
+    <properties>
+        <!-- Internal module: no Javadoc report (compiler doclint still runs). -->
+        <maven.javadoc.skip>true</maven.javadoc.skip>
+    </properties>
+
+    <dependencies>
+        <!-- api transitively supplies model + jspecify on the compile path, as the transports rely on. -->
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-api</artifactId>
+        </dependency>
+        <!-- Logging facade only; no backend bound here. -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
+
+        <!-- Shared OTLP test fixtures (Fixtures, FlowSubscribers). -->
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-testing</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Opt in to the shared coverage floor (parent POM). The abstract bases and the
+                 ReceiverTap fan-out need a concrete transport to exercise — covered by the transport
+                 suites + aggregate — so they're excluded; MulticastPublisher/SignalSource are floored
+                 by this module's own suites. -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>check-coverage</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                        <configuration>
+                            <excludes>
+                                <exclude>dev/nthings/otlp4j/transport/spi/AbstractOtlpExporter*</exclude>
+                                <exclude>dev/nthings/otlp4j/transport/spi/AbstractOtlpReceiver*</exclude>
+                                <exclude>dev/nthings/otlp4j/transport/spi/ReceiverTap*</exclude>
+                            </excludes>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

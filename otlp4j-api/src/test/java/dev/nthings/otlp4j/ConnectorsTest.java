@@ -10,7 +10,7 @@ import dev.nthings.otlp4j.model.Metric;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.NumberPoint;
 import dev.nthings.otlp4j.model.Span;
-import dev.nthings.otlp4j.model.TraceData;
+import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.core.MetricSink;
 import dev.nthings.otlp4j.testing.Fixtures;
@@ -67,7 +67,7 @@ class ConnectorsTest {
     @Test
     void bestEffortAcceptsInputDespiteDownstreamRejected() {
         MetricSink downstream = metrics ->
-                CompletableFuture.completedStage(ConsumeResult.rejected("backend down"));
+                CompletableFuture.completedStage(ConsumeResult.retryableRejected("backend down"));
         var connector = Connectors.spanCount(downstream);
         var result = connector.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
                 .toCompletableFuture().join();
@@ -78,7 +78,7 @@ class ConnectorsTest {
     @Test
     void failPropagatesDownstreamRejected() {
         MetricSink downstream = metrics ->
-                CompletableFuture.completedStage(ConsumeResult.rejected("backend down"));
+                CompletableFuture.completedStage(ConsumeResult.retryableRejected("backend down"));
         var connector = Connectors.spanCount(downstream, FailurePolicy.FAIL);
         var result = connector.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
                 .toCompletableFuture().join();
@@ -106,7 +106,7 @@ class ConnectorsTest {
         var result = connector.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
                 .toCompletableFuture().join();
         assertThat(result).isInstanceOf(ConsumeResult.Rejected.class);
-        var rejected = (ConsumeResult.Rejected<TraceData>) result;
+        var rejected = (ConsumeResult.Rejected<TracesData>) result;
         // Non-null cause => permanent, not retryable.
         assertThat(rejected.cause()).isInstanceOf(RuntimeException.class).hasMessage("sink blew up");
     }
@@ -132,7 +132,7 @@ class ConnectorsTest {
         var result = connector.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
                 .toCompletableFuture().join();
         assertThat(result).isInstanceOf(ConsumeResult.Rejected.class);
-        var rejected = (ConsumeResult.Rejected<TraceData>) result;
+        var rejected = (ConsumeResult.Rejected<TracesData>) result;
         assertThat(rejected.cause()).isInstanceOf(IllegalStateException.class).hasMessage("backend exploded");
     }
 

@@ -5,7 +5,7 @@ import dev.nthings.otlp4j.core.MetricSink;
 import dev.nthings.otlp4j.core.Sink;
 import dev.nthings.otlp4j.core.TraceSink;
 import dev.nthings.otlp4j.model.LogsData;
-import dev.nthings.otlp4j.model.TraceData;
+import dev.nthings.otlp4j.model.TracesData;
 
 /// Factories for the built-in count sinks; no-policy overloads default to [FailurePolicy#BEST_EFFORT].
 public final class Connectors {
@@ -19,12 +19,12 @@ public final class Connectors {
 
     /// Trace count sink emitting `otlp4j.connector.span.count` into `downstream` under `policy`.
     public static TraceSink spanCount(MetricSink downstream, FailurePolicy policy) {
-        Sink<TraceData> counter = new CountConnector<>(
+        Sink<TracesData> counter = new CountConnector<>(
                 downstream,
                 policy,
                 "otlp4j.connector.span.count",
                 "Items observed by the span count connector",
-                TraceData::spanCount);
+                TracesData::spanCount);
         return counter::consume;
     }
 

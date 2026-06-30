@@ -4,6 +4,7 @@
 module dev.nthings.otlp4j.transport.grpc {
     requires dev.nthings.otlp4j.model;
     requires transitive dev.nthings.otlp4j.api;
+    requires transitive dev.nthings.otlp4j.transport.spi;
     requires dev.nthings.otlp4j.codec;
     requires dev.nthings.otlp4j.proto;
     requires io.grpc;

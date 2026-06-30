@@ -6,7 +6,7 @@ import dev.nthings.otlp4j.core.LogSink;
 import dev.nthings.otlp4j.core.MetricSink;
 import dev.nthings.otlp4j.core.ProfileSink;
 import dev.nthings.otlp4j.core.TraceSink;
-import dev.nthings.otlp4j.receiver.AbstractOtlpReceiver;
+import dev.nthings.otlp4j.transport.spi.AbstractOtlpReceiver;
 import dev.nthings.otlp4j.transport.grpc.internal.GrpcOtlpServer;
 import java.time.Duration;
 import java.util.concurrent.Executor;
@@ -17,7 +17,7 @@ import org.jspecify.annotations.Nullable;
 ///
 /// `.onTraces(...)`-style builder sugar attaches a single sink per signal; richer graphs
 /// (branches, fan-out) wire the sources via `Pipeline.from(receiver.traces()) ...`. Shared
-/// dispatch and lifecycle live in [AbstractOtlpReceiver]. The default bind is `0.0.0.0:4317`.
+/// dispatch and lifecycle live in [AbstractOtlpReceiver]. The default bind is `localhost:4317`.
 public final class OtlpGrpcReceiver extends AbstractOtlpReceiver {
 
     private OtlpGrpcReceiver(Builder b) {
@@ -29,7 +29,7 @@ public final class OtlpGrpcReceiver extends AbstractOtlpReceiver {
         return new Builder();
     }
 
-    /// Builds (but does not [#start()]) a receiver bound to `port` on all interfaces.
+    /// Builds (but does not [#start()]) a receiver bound to `port` on the default loopback host.
     public static OtlpGrpcReceiver on(int port) {
         return builder().port(port).build();
     }
@@ -45,7 +45,7 @@ public final class OtlpGrpcReceiver extends AbstractOtlpReceiver {
         return this;
     }
 
-    /// Builder for [OtlpGrpcReceiver]. Defaults bind `0.0.0.0:4317` with plaintext transport.
+    /// Builder for [OtlpGrpcReceiver]. Defaults bind `localhost:4317` with plaintext transport.
     public static final class Builder {
 
         private ServerConfig.Builder config = ServerConfig.builder();

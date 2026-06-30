@@ -6,7 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.sun.net.httpserver.HttpServer;
 import dev.nthings.otlp4j.testing.TransportFixtures;
 import dev.nthings.otlp4j.model.Span;
-import dev.nthings.otlp4j.model.TraceData;
+import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.config.ClientConfig;
 import dev.nthings.otlp4j.config.Compression;
@@ -111,10 +111,10 @@ class HttpTransportConfigTest {
         });
     }
 
-    @DisplayName("Round-trips TraceData over custom TLS")
+    @DisplayName("Round-trips TracesData over custom TLS")
     @Test
     void roundTripsOverTls() {
-        var received = new java.util.concurrent.atomic.AtomicReference<TraceData>();
+        var received = new java.util.concurrent.atomic.AtomicReference<TracesData>();
         var receiver = startReceiver(serverTls(), OtlpHttpReceiver.builder().onTraces(t -> {
             received.set(t);
             return ConsumeResult.acceptedStage();
@@ -292,7 +292,7 @@ class HttpTransportConfigTest {
                 .build();
     }
 
-    private static TraceData traces() {
+    private static TracesData traces() {
         return Fixtures.traceData(Fixtures.span("op", Span.Kind.SERVER));
     }
 

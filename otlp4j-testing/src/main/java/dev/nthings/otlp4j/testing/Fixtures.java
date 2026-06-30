@@ -10,7 +10,7 @@ import dev.nthings.otlp4j.model.NumberPoint;
 import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.Resource;
 import dev.nthings.otlp4j.model.Span;
-import dev.nthings.otlp4j.model.TraceData;
+import dev.nthings.otlp4j.model.TracesData;
 import java.util.List;
 
 /// Shared test-data factories for otlp4j test suites.
@@ -33,8 +33,8 @@ public final class Fixtures {
                 .build();
     }
 
-    public static TraceData traceData(Span... spans) {
-        return TraceData.of(checkoutResource(), testScope(), List.of(spans));
+    public static TracesData traceData(Span... spans) {
+        return TracesData.of(checkoutResource(), testScope(), List.of(spans));
     }
 
     public static MetricsData metricsData(Metric... metrics) {

@@ -70,14 +70,14 @@ class ModelFactoriesTest {
                 .isFalse();
     }
 
-    @DisplayName("TraceData.of wraps spans under one resource and scope")
+    @DisplayName("TracesData.of wraps spans under one resource and scope")
     @Test
     void traceDataOfWrapsSpansUnderOneResourceAndScope() {
         var resource = Resource.of(Attributes.builder().put("k", "v").build());
         var scope = InstrumentationScope.of("lib", "1.0");
         var span = Span.builder().name("op").build();
 
-        var data = TraceData.of(resource, scope, List.of(span));
+        var data = TracesData.of(resource, scope, List.of(span));
 
         assertThat(data.resourceSpans()).singleElement().satisfies(rs -> {
             assertThat(rs.resource()).isEqualTo(resource);

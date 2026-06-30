@@ -3,7 +3,7 @@ package dev.nthings.otlp4j;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import dev.nthings.otlp4j.model.TraceData;
+import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.pipeline.FanOut;
 import dev.nthings.otlp4j.core.TraceSink;
@@ -25,8 +25,8 @@ class FanOutTest {
             hits.incrementAndGet();
             return ConsumeResult.acceptedStage();
         };
-        var fan = FanOut.<TraceData>of(peer, peer, peer);
-        var result = fan.consume(new TraceData(List.of())).toCompletableFuture().join();
+        var fan = FanOut.<TracesData>of(peer, peer, peer);
+        var result = fan.consume(new TracesData(List.of())).toCompletableFuture().join();
         assertThat(hits.get()).isEqualTo(3);
         assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
     }
@@ -36,15 +36,15 @@ class FanOutTest {
     void onePeerFailureDoesNotBlockOthers() {
         TraceSink healthy = traces -> ConsumeResult.acceptedStage();
         TraceSink broken = traces -> CompletableFuture.failedStage(new RuntimeException("nope"));
-        var fan = FanOut.<TraceData>of(broken, healthy);
-        var result = fan.consume(new TraceData(List.of())).toCompletableFuture().join();
+        var fan = FanOut.<TracesData>of(broken, healthy);
+        var result = fan.consume(new TracesData(List.of())).toCompletableFuture().join();
         assertThat(result).isInstanceOf(ConsumeResult.Rejected.class);
     }
 
     @DisplayName("of() rejects an empty peer set")
     @Test
     void rejectsEmptyPeerSet() {
-        assertThatThrownBy(() -> FanOut.<TraceData>of(List.of()))
+        assertThatThrownBy(() -> FanOut.<TracesData>of(List.of()))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(FanOut::of)
                 .isInstanceOf(IllegalArgumentException.class);
@@ -55,8 +55,8 @@ class FanOutTest {
     void captureErrorThrowingPeer() {
         TraceSink healthy = traces -> ConsumeResult.acceptedStage();
         TraceSink broken = traces -> { throw new AssertionError("boom"); };
-        var fan = FanOut.<TraceData>of(broken, healthy);
-        var result = fan.consume(new TraceData(List.of())).toCompletableFuture().join();
+        var fan = FanOut.<TracesData>of(broken, healthy);
+        var result = fan.consume(new TracesData(List.of())).toCompletableFuture().join();
         assertThat(result).isInstanceOf(ConsumeResult.Rejected.class);
     }
 
@@ -64,8 +64,8 @@ class FanOutTest {
     @Test
     void rejectionMessageIncludesExceptionClass() {
         TraceSink broken = traces -> { throw new IllegalStateException(); };
-        var fan = FanOut.<TraceData>of(broken);
-        var result = fan.consume(new TraceData(List.of())).toCompletableFuture().join();
+        var fan = FanOut.<TracesData>of(broken);
+        var result = fan.consume(new TracesData(List.of())).toCompletableFuture().join();
         assertThat(result).isInstanceOfSatisfying(ConsumeResult.Rejected.class,
                 r -> assertThat(r.message()).contains("java.lang.IllegalStateException"));
     }
@@ -75,8 +75,8 @@ class FanOutTest {
     void rejectionMessageUnwrapsCompletionException() {
         TraceSink broken = traces -> CompletableFuture.failedFuture(
                 new CompletionException(new IllegalArgumentException("cause")));
-        var fan = FanOut.<TraceData>of(broken);
-        var result = fan.consume(new TraceData(List.of())).toCompletableFuture().join();
+        var fan = FanOut.<TracesData>of(broken);
+        var result = fan.consume(new TracesData(List.of())).toCompletableFuture().join();
         assertThat(result).isInstanceOfSatisfying(ConsumeResult.Rejected.class,
                 r -> assertThat(r.message()).contains("cause"));
     }
@@ -86,9 +86,9 @@ class FanOutTest {
     void mergesRejectionCountsWithMax() {
         TraceSink p1 = traces -> CompletableFuture.completedStage(ConsumeResult.partial(3L, "one"));
         TraceSink p2 = traces -> CompletableFuture.completedStage(ConsumeResult.partial(7L, "two"));
-        var fan = FanOut.<TraceData>of(p1, p2);
-        var result = fan.consume(new TraceData(List.of())).toCompletableFuture().join();
+        var fan = FanOut.<TracesData>of(p1, p2);
+        var result = fan.consume(new TracesData(List.of())).toCompletableFuture().join();
         assertThat(result).isInstanceOf(ConsumeResult.Partial.class);
-        assertThat(((ConsumeResult.Partial<TraceData>) result).rejectedItems()).isEqualTo(7L);
+        assertThat(((ConsumeResult.Partial<TracesData>) result).rejectedItems()).isEqualTo(7L);
     }
 }

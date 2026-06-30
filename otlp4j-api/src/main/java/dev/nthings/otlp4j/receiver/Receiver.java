@@ -3,7 +3,7 @@ package dev.nthings.otlp4j.receiver;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
-import dev.nthings.otlp4j.model.TraceData;
+import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.core.Drainable;
 import dev.nthings.otlp4j.core.Source;
 import java.time.Duration;
@@ -17,7 +17,7 @@ import java.util.concurrent.CompletionStage;
 public interface Receiver extends Drainable {
 
     /// The trace ingest source.
-    Source<TraceData> traces();
+    Source<TracesData> traces();
 
     /// The metrics ingest source.
     Source<MetricsData> metrics();

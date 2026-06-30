@@ -33,7 +33,7 @@ class ConnectorRebrandTest {
     @Test
     void spanCountConnectorAcceptsInputDespiteDownstreamRejected() {
         MetricSink downstream = metrics -> CompletableFuture.completedStage(
-                ConsumeResult.rejected("backend down"));
+                ConsumeResult.retryableRejected("backend down"));
         var connector = Connectors.spanCount(downstream);
         var r = connector.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
                 .toCompletableFuture().join();
@@ -55,7 +55,7 @@ class ConnectorRebrandTest {
     @Test
     void logRecordCountConnectorAcceptsInputDespiteDownstreamRejected() {
         MetricSink downstream = metrics -> CompletableFuture.completedStage(
-                ConsumeResult.rejected("backend down"));
+                ConsumeResult.retryableRejected("backend down"));
         var connector = Connectors.logRecordCount(downstream);
         var r = connector.consume(Fixtures.logsData(Fixtures.logRecord("hi", LogRecord.Severity.INFO)))
                 .toCompletableFuture().join();

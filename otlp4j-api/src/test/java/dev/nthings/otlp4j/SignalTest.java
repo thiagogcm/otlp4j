@@ -3,9 +3,9 @@ package dev.nthings.otlp4j;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import dev.nthings.otlp4j.model.TraceData;
-import dev.nthings.otlp4j.processor.BatchMergers;
-import dev.nthings.otlp4j.processor.Signal;
+import dev.nthings.otlp4j.model.TracesData;
+import dev.nthings.otlp4j.processor.internal.BatchMergers;
+import dev.nthings.otlp4j.processor.internal.Signal;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
@@ -36,7 +36,7 @@ class SignalTest {
     @DisplayName("Signal.TRACES wraps Telemetry envelope")
     @Test
     void tracesEnvelope() {
-        var batch = new TraceData(List.of());
+        var batch = new TracesData(List.of());
         assertThat(Signal.TRACES.envelope(batch)).isInstanceOf(dev.nthings.otlp4j.core.Telemetry.Traces.class);
     }
 

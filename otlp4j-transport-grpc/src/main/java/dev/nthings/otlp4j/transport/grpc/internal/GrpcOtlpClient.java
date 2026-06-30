@@ -3,7 +3,7 @@ package dev.nthings.otlp4j.transport.grpc.internal;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
-import dev.nthings.otlp4j.model.TraceData;
+import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.codec.LogsMapper;
 import dev.nthings.otlp4j.codec.MetricsMapper;
@@ -86,7 +86,7 @@ public final class GrpcOtlpClient implements OtlpClient {
     }
 
     @Override
-    public CompletionStage<ConsumeResult<TraceData>> exportTraces(TraceData traces) {
+    public CompletionStage<ConsumeResult<TracesData>> exportTraces(TracesData traces) {
         return CompletableFuture.supplyAsync(
                 () -> TraceMapper.result(call(traceStub).export(TraceMapper.toProto(traces))), executor);
     }

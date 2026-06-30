@@ -95,7 +95,7 @@ Pipeline.from(receiver.traces())
 
 ### Live Stream Observation (TelemetryTap)
 
-Every receiver exposes independent `Flow.Publisher` streams with configurable backpressure (`DROP_OLDEST`, `DROP_NEWEST`, `BLOCK`, `ERROR`). Observation is independent of the acknowledgement path by default. **`BackpressureStrategy.BLOCK` can block the receiver dispatch thread** and should be used with care in production.
+Every receiver exposes independent `Flow.Publisher` streams with a configurable overflow policy (`DROP_OLDEST`, `DROP_NEWEST`, `BLOCK`, `FAIL`). Observation is independent of the acknowledgement path by default. **`OverflowPolicy.BLOCK` can block the receiver dispatch thread** and should be used with care in production.
 
 **Use cases:** real-time telemetry inspection, test assertions, and local anomaly detectors without degrading the main forwarding path.
 
@@ -127,7 +127,7 @@ Pipeline subscriptions drain explicitly-registered lifecycle resources — expor
 
 ### Configurable Batching with Overflow Policies
 
-`BatchingProcessor` offers `DROP_OLDEST`, `DROP_NEWEST`, `BLOCK`, and `ERROR` overflow policies. The SDK's `BatchSpanProcessor` has a single fixed overflow behavior (block + drop when full).
+`BatchingProcessor` offers `DROP_OLDEST`, `DROP_NEWEST`, `BLOCK`, and `FAIL` overflow policies. The SDK's `BatchSpanProcessor` has a single fixed overflow behavior (block + drop when full).
 
 ### Experimental Profiles Opaque Passthrough
 

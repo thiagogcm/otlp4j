@@ -1,10 +1,10 @@
-package dev.nthings.otlp4j.processor;
+package dev.nthings.otlp4j.processor.internal;
 
 import dev.nthings.otlp4j.core.Telemetry;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
-import dev.nthings.otlp4j.model.TraceData;
+import dev.nthings.otlp4j.model.TracesData;
 import java.util.List;
 import java.util.function.ToLongFunction;
 
@@ -13,7 +13,7 @@ import java.util.function.ToLongFunction;
 /// across batching, dispatch, and tests.
 public enum Signal {
 
-    TRACES(TraceData.class, BatchMergers::mergeTraces, TraceData::spanCount),
+    TRACES(TracesData.class, BatchMergers::mergeTraces, TracesData::spanCount),
     METRICS(MetricsData.class, BatchMergers::mergeMetrics, MetricsData::dataPointCount),
     LOGS(LogsData.class, BatchMergers::mergeLogs, LogsData::logRecordCount),
     PROFILES(ProfilesData.class, BatchMergers::mergeProfilesUnsafe, ProfilesData::profileCount);
@@ -49,7 +49,7 @@ public enum Signal {
     /// Wraps a batch in the matching [Telemetry] envelope.
     public Telemetry envelope(Object batch) {
         return switch (this) {
-            case TRACES -> new Telemetry.Traces((TraceData) batch);
+            case TRACES -> new Telemetry.Traces((TracesData) batch);
             case METRICS -> new Telemetry.Metrics((MetricsData) batch);
             case LOGS -> new Telemetry.Logs((LogsData) batch);
             case PROFILES -> new Telemetry.Profiles((ProfilesData) batch);

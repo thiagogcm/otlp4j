@@ -3,7 +3,7 @@ package dev.nthings.otlp4j;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.core.Sink;
 import dev.nthings.otlp4j.core.Source;
-import dev.nthings.otlp4j.core.Subscription;
+import dev.nthings.otlp4j.core.PipelineHandle;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicReference;
@@ -16,7 +16,7 @@ final class ManualSource<T> implements Source<T> {
     private final AtomicReference<Sink<? super T>> attached = new AtomicReference<>();
 
     @Override
-    public Subscription subscribe(Sink<? super T> consumer) {
+    public PipelineHandle subscribe(Sink<? super T> consumer) {
         if (!attached.compareAndSet(null, consumer)) {
             throw new IllegalStateException("source already has a consumer");
         }

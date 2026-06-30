@@ -1,8 +1,10 @@
-package dev.nthings.otlp4j.receiver;
+package dev.nthings.otlp4j.transport.spi;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
+import dev.nthings.otlp4j.core.OverflowPolicy;
+import dev.nthings.otlp4j.receiver.TapOptions;
 import dev.nthings.otlp4j.testing.FlowSubscribers;
 import java.time.Duration;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -22,7 +24,7 @@ class MulticastBackpressureTest {
     void dropOldestEvictsOlderItems() {
         var drops = new LongAdder();
         var pub = new MulticastPublisher<Integer>(drops);
-        pub.setOptions(new TapOptions(BackpressureStrategy.DROP_OLDEST, 2));
+        pub.setOptions(new TapOptions(OverflowPolicy.DROP_OLDEST, 2));
         try {
             pub.subscribe(FlowSubscribers.noOp());
             for (var i = 0; i < 10; i++) {
@@ -34,12 +36,12 @@ class MulticastBackpressureTest {
         }
     }
 
-    @DisplayName("ERROR strategy signals overflow via onError")
+    @DisplayName("FAIL strategy signals overflow via onError")
     @Test
     void errorStrategySignalsViaOnError() {
         var drops = new LongAdder();
         var pub = new MulticastPublisher<Integer>(drops);
-        pub.setOptions(new TapOptions(BackpressureStrategy.ERROR, 1));
+        pub.setOptions(new TapOptions(OverflowPolicy.FAIL, 1));
         try {
             var error = new AtomicReference<Throwable>();
             pub.subscribe(new Flow.Subscriber<>() {
@@ -63,7 +65,7 @@ class MulticastBackpressureTest {
     void blockStrategyEventuallyDelivers() {
         var drops = new LongAdder();
         var pub = new MulticastPublisher<Integer>(drops);
-        pub.setOptions(new TapOptions(BackpressureStrategy.BLOCK, 2));
+        pub.setOptions(new TapOptions(OverflowPolicy.BLOCK, 2));
         try {
             var sink = new CopyOnWriteArrayList<Integer>();
             pub.subscribe(new Flow.Subscriber<>() {
@@ -97,7 +99,7 @@ class MulticastBackpressureTest {
         var drops = new LongAdder();
         var pub = new MulticastPublisher<Integer>(drops);
         // Buffer > publish count so only demand can gate delivery; the old BLOCK bypass delivered all.
-        pub.setOptions(new TapOptions(BackpressureStrategy.BLOCK, 16));
+        pub.setOptions(new TapOptions(OverflowPolicy.BLOCK, 16));
         try {
             var sink = new CopyOnWriteArrayList<Integer>();
             var subRef = new AtomicReference<Flow.Subscription>();
@@ -134,7 +136,7 @@ class MulticastBackpressureTest {
     void cancelReleasesBlockedBlockProducer() throws InterruptedException {
         var drops = new LongAdder();
         var pub = new MulticastPublisher<Integer>(drops);
-        pub.setOptions(new TapOptions(BackpressureStrategy.BLOCK, 1));
+        pub.setOptions(new TapOptions(OverflowPolicy.BLOCK, 1));
         var subRef = new AtomicReference<Flow.Subscription>();
         // Subscriber never requests, so the demand-gated dispatcher never drains the queue.
         pub.subscribe(new Flow.Subscriber<>() {

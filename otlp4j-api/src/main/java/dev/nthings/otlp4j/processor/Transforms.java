@@ -7,7 +7,7 @@ import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.Resource;
 import dev.nthings.otlp4j.model.Span;
-import dev.nthings.otlp4j.model.TraceData;
+import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.pipeline.Transform;
 import java.util.ArrayList;
 import java.util.function.Predicate;
@@ -22,22 +22,22 @@ public final class Transforms {
     private Transforms() {}
 
     /// Filters spans by `keep`; scopes and resources with no surviving spans are pruned.
-    public static Transform<TraceData> keepSpansWhere(Predicate<Span> keep) {
+    public static Transform<TracesData> keepSpansWhere(Predicate<Span> keep) {
         return traces -> {
-            var resources = new ArrayList<TraceData.ResourceSpans>();
+            var resources = new ArrayList<TracesData.ResourceSpans>();
             for (var rs : traces.resourceSpans()) {
-                var scopes = new ArrayList<TraceData.ScopeSpans>();
+                var scopes = new ArrayList<TracesData.ScopeSpans>();
                 for (var ss : rs.scopeSpans()) {
                     var kept = ss.spans().stream().filter(keep).toList();
                     if (!kept.isEmpty()) {
-                        scopes.add(new TraceData.ScopeSpans(ss.scope(), ss.schemaUrl(), kept));
+                        scopes.add(new TracesData.ScopeSpans(ss.scope(), ss.schemaUrl(), kept));
                     }
                 }
                 if (!scopes.isEmpty()) {
-                    resources.add(new TraceData.ResourceSpans(rs.resource(), rs.schemaUrl(), scopes));
+                    resources.add(new TracesData.ResourceSpans(rs.resource(), rs.schemaUrl(), scopes));
                 }
             }
-            return new TraceData(resources);
+            return new TracesData(resources);
         };
     }
 
@@ -63,13 +63,13 @@ public final class Transforms {
 
     /// Rewrites every span 1:1 with `mapper`; scopes and resources are kept, never pruned (use
     /// [#keepSpansWhere] to drop).
-    public static Transform<TraceData> mapSpans(UnaryOperator<Span> mapper) {
-        return traces -> new TraceData(traces.resourceSpans().stream()
-                .map(rs -> new TraceData.ResourceSpans(
+    public static Transform<TracesData> mapSpans(UnaryOperator<Span> mapper) {
+        return traces -> new TracesData(traces.resourceSpans().stream()
+                .map(rs -> new TracesData.ResourceSpans(
                         rs.resource(),
                         rs.schemaUrl(),
                         rs.scopeSpans().stream()
-                                .map(ss -> new TraceData.ScopeSpans(
+                                .map(ss -> new TracesData.ScopeSpans(
                                         ss.scope(),
                                         ss.schemaUrl(),
                                         ss.spans().stream().map(mapper).toList()))
@@ -94,9 +94,9 @@ public final class Transforms {
     }
 
     /// Rewrites every [Resource] in a trace batch with `mapper`.
-    public static Transform<TraceData> mapTracesResource(UnaryOperator<Resource> mapper) {
-        return traces -> new TraceData(traces.resourceSpans().stream()
-                .map(rs -> new TraceData.ResourceSpans(
+    public static Transform<TracesData> mapTracesResource(UnaryOperator<Resource> mapper) {
+        return traces -> new TracesData(traces.resourceSpans().stream()
+                .map(rs -> new TracesData.ResourceSpans(
                         mapper.apply(rs.resource()), rs.schemaUrl(), rs.scopeSpans()))
                 .toList());
     }
@@ -128,7 +128,7 @@ public final class Transforms {
     }
 
     /// Adds (or overwrites) a resource attribute on every [Resource] in a trace batch.
-    public static Transform<TraceData> withTracesResourceAttribute(String key, AttributeValue value) {
+    public static Transform<TracesData> withTracesResourceAttribute(String key, AttributeValue value) {
         return mapTracesResource(resource -> resource.withAttribute(key, value));
     }
 

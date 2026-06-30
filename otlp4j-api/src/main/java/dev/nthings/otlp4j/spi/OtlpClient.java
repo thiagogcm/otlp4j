@@ -3,7 +3,7 @@ package dev.nthings.otlp4j.spi;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
-import dev.nthings.otlp4j.model.TraceData;
+import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import java.util.concurrent.CompletionStage;
 
@@ -13,7 +13,7 @@ import java.util.concurrent.CompletionStage;
 /// normally uses `OtlpGrpcExporter` rather than this SPI directly.
 public interface OtlpClient extends AutoCloseable {
 
-    CompletionStage<ConsumeResult<TraceData>>    exportTraces(TraceData traces);
+    CompletionStage<ConsumeResult<TracesData>>    exportTraces(TracesData traces);
 
     CompletionStage<ConsumeResult<MetricsData>>  exportMetrics(MetricsData metrics);
 

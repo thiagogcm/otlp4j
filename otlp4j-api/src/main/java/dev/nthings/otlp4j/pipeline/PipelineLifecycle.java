@@ -1,9 +1,9 @@
 package dev.nthings.otlp4j.pipeline;
 
 import dev.nthings.otlp4j.core.Drainable;
-import dev.nthings.otlp4j.core.Flushable;
+import dev.nthings.otlp4j.core.ForceFlushable;
 import dev.nthings.otlp4j.core.Sink;
-import dev.nthings.otlp4j.core.Subscription;
+import dev.nthings.otlp4j.core.PipelineHandle;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -52,16 +52,16 @@ final class PipelineLifecycle {
         return combined;
     }
 
-    static Subscription subscription(Subscription sourceSubscription, List<AutoCloseable> resources) {
+    static PipelineHandle subscription(PipelineHandle sourceSubscription, List<AutoCloseable> resources) {
         return new PipelineSubscription(sourceSubscription, resources);
     }
 
-    static final class PipelineSubscription implements Subscription {
+    static final class PipelineSubscription implements PipelineHandle {
 
-        private final Subscription sourceSubscription;
+        private final PipelineHandle sourceSubscription;
         private final List<AutoCloseable> resources;
 
-        PipelineSubscription(Subscription sourceSubscription, List<AutoCloseable> resources) {
+        PipelineSubscription(PipelineHandle sourceSubscription, List<AutoCloseable> resources) {
             this.sourceSubscription = sourceSubscription;
             this.resources = Collections.unmodifiableList(resources);
         }
@@ -90,10 +90,10 @@ final class PipelineLifecycle {
         public CompletionStage<Void> forceFlush(Duration timeout) {
             var deadlineNanos = deadlineNanos(timeout);
             // Flush the source first — a buffering source would otherwise be skipped — then
-            // each Flushable resource in turn, all sharing one deadline.
+            // each ForceFlushable resource in turn, all sharing one deadline.
             var chained = sourceSubscription.forceFlush(remaining(deadlineNanos)).toCompletableFuture();
             for (var resource : resources) {
-                if (resource instanceof Flushable f) {
+                if (resource instanceof ForceFlushable f) {
                     chained = chained.thenCompose(v -> f.forceFlush(remaining(deadlineNanos)).toCompletableFuture());
                 }
             }

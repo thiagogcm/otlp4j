@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.nthings.otlp4j.model.Attributes;
 import dev.nthings.otlp4j.model.Span;
-import dev.nthings.otlp4j.model.TraceData;
+import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.util.List;
 import java.util.stream.Stream;
@@ -15,7 +15,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
 /// Mapper-unit round-trip coverage for [TraceMapper]: spans with events/links/status present
-/// and absent, an empty `TraceData`, and a multi-resource / multi-scope payload.
+/// and absent, an empty `TracesData`, and a multi-resource / multi-scope payload.
 @DisplayName("TraceMapper round-trips")
 class TraceMapperRoundTripTest {
 
@@ -80,10 +80,10 @@ class TraceMapperRoundTripTest {
                 .isEqualTo(sent);
     }
 
-    @DisplayName("Empty TraceData round-trips through TraceMapper")
+    @DisplayName("Empty TracesData round-trips through TraceMapper")
     @Test
     void roundTripsAnEmptyTraceData() {
-        var sent = new TraceData(List.of());
+        var sent = new TracesData(List.of());
         assertThat(TraceMapper.toDomain(TraceMapper.toProto(sent))).isEqualTo(sent);
     }
 

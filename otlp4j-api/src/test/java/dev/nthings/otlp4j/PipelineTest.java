@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.nthings.otlp4j.model.AttributeValue;
 import dev.nthings.otlp4j.model.Span;
-import dev.nthings.otlp4j.model.TraceData;
+import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.pipeline.FanOut;
 import dev.nthings.otlp4j.pipeline.Pipeline;
@@ -29,8 +29,8 @@ class PipelineTest {
     @DisplayName("Transform and filter stages apply in declared order")
     @Test
     void transformAndFilterApplyInOrder() {
-        var source = new ManualSource<TraceData>();
-        var captured = new ArrayList<TraceData>();
+        var source = new ManualSource<TracesData>();
+        var captured = new ArrayList<TracesData>();
         TraceSink terminal = traces -> {
             captured.add(traces);
             return ConsumeResult.acceptedStage();
@@ -58,7 +58,7 @@ class PipelineTest {
     @DisplayName("branch() fans out each item to every peer consumer")
     @Test
     void branchFansOutToEveryPeer() {
-        var source = new ManualSource<TraceData>();
+        var source = new ManualSource<TracesData>();
         var a = new AtomicInteger();
         var b = new AtomicInteger();
         TraceSink peerA = traces -> {
@@ -82,36 +82,12 @@ class PipelineTest {
         assertThat(b.get()).isEqualTo(1);
     }
 
-    @DisplayName("Exceptions thrown by a peek observer do not break the main path")
-    @Test
-    void peekErrorsDoNotAffectMainPath() {
-        var source = new ManualSource<TraceData>();
-        var captured = new ArrayList<TraceData>();
-        TraceSink terminal = traces -> {
-            captured.add(traces);
-            return ConsumeResult.acceptedStage();
-        };
-        var sub = Pipeline.from(source)
-                .peek(traces -> {
-                    throw new RuntimeException("peek exploded");
-                })
-                .to(terminal);
-        try {
-            var result = source.dispatch(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
-                    .toCompletableFuture().join();
-            assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
-            assertThat(captured).hasSize(1);
-        } finally {
-            sub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
-        }
-    }
-
     @DisplayName("A transform after a filter is not invoked on a dropped (null) batch")
     @Test
     void transformAfterFilterIsNotInvokedOnDroppedBatch() {
-        var source = new ManualSource<TraceData>();
+        var source = new ManualSource<TracesData>();
         var observedByTransform = new AtomicInteger();
-        var delivered = new ArrayList<TraceData>();
+        var delivered = new ArrayList<TracesData>();
         TraceSink terminal = traces -> {
             delivered.add(traces);
             return ConsumeResult.acceptedStage();
@@ -140,7 +116,7 @@ class PipelineTest {
         var seenByTerminal = new AtomicInteger();
         var seenByPeer = new AtomicInteger();
         // Sink<Object> is a supertype sink; it compiles into to/fanOut/FanOut.of only because they
-        // accept Sink<? super TraceData>. No casts.
+        // accept Sink<? super TracesData>. No casts.
         Sink<Object> universalTerminal = batch -> {
             seenByTerminal.incrementAndGet();
             return ConsumeResult.acceptedStage();
@@ -152,17 +128,17 @@ class PipelineTest {
 
         var batch = Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER));
 
-        // Both FanOut.of overloads accept Sink<? super TraceData>; consume drives the supertype peer.
+        // Both FanOut.of overloads accept Sink<? super TracesData>; consume drives the supertype peer.
         assertThat(FanOut.of(List.of(universalPeer)).consume(batch).toCompletableFuture().join())
                 .isInstanceOf(ConsumeResult.Accepted.class);
-        assertThat(FanOut.<TraceData>of(universalPeer).consume(batch).toCompletableFuture().join())
+        assertThat(FanOut.<TracesData>of(universalPeer).consume(batch).toCompletableFuture().join())
                 .isInstanceOf(ConsumeResult.Accepted.class);
 
         // Stage.to, Stage.to(terminal, owner), and Branch.fanOut all accept the supertype sink.
         // One consumer slot per ManualSource, so drive each path on its own source.
-        var terminalSource = new ManualSource<TraceData>();
-        var ownedSource = new ManualSource<TraceData>();
-        var peerSource = new ManualSource<TraceData>();
+        var terminalSource = new ManualSource<TracesData>();
+        var ownedSource = new ManualSource<TracesData>();
+        var peerSource = new ManualSource<TracesData>();
         var ownerClosed = new AtomicBoolean();
         var terminalSub = Pipeline.from(terminalSource).to(universalTerminal);
         var ownedSub = Pipeline.from(ownedSource).to(universalTerminal, () -> ownerClosed.set(true));
@@ -188,7 +164,7 @@ class PipelineTest {
     @DisplayName("A synchronous terminal throw becomes a permanent rejection, not an escaped exception")
     @Test
     void synchronousTerminalThrowBecomesPermanentRejection() {
-        var source = new ManualSource<TraceData>();
+        var source = new ManualSource<TracesData>();
         TraceSink terminal = traces -> {
             throw new RuntimeException("terminal exploded");
         };
@@ -197,7 +173,7 @@ class PipelineTest {
             var result = source.dispatch(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
                     .toCompletableFuture().join();
             assertThat(result).isInstanceOf(ConsumeResult.Rejected.class);
-            var rejected = (ConsumeResult.Rejected<TraceData>) result;
+            var rejected = (ConsumeResult.Rejected<TracesData>) result;
             // Non-null cause => permanent, not retryable.
             assertThat(rejected.cause()).isInstanceOf(RuntimeException.class).hasMessage("terminal exploded");
             assertThat(rejected.message()).contains("pipeline terminal threw");
@@ -209,7 +185,7 @@ class PipelineTest {
     @DisplayName("An asynchronous terminal failure becomes a permanent rejection")
     @Test
     void asynchronousTerminalFailureBecomesPermanentRejection() {
-        var source = new ManualSource<TraceData>();
+        var source = new ManualSource<TracesData>();
         TraceSink terminal = traces ->
                 CompletableFuture.failedFuture(new IllegalStateException("async boom"));
         var sub = Pipeline.from(source).to(terminal);
@@ -217,7 +193,7 @@ class PipelineTest {
             var result = source.dispatch(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
                     .toCompletableFuture().join();
             assertThat(result).isInstanceOf(ConsumeResult.Rejected.class);
-            var rejected = (ConsumeResult.Rejected<TraceData>) result;
+            var rejected = (ConsumeResult.Rejected<TracesData>) result;
             assertThat(rejected.cause()).isInstanceOf(IllegalStateException.class).hasMessage("async boom");
             assertThat(rejected.message()).contains("pipeline terminal failed");
         } finally {
@@ -228,7 +204,7 @@ class PipelineTest {
     @DisplayName("An Error completing the terminal stage propagates instead of becoming a rejection")
     @Test
     void asynchronousTerminalErrorPropagates() {
-        var source = new ManualSource<TraceData>();
+        var source = new ManualSource<TracesData>();
         var overflow = new StackOverflowError("terminal error");
         TraceSink terminal = traces -> CompletableFuture.failedFuture(overflow);
         var sub = Pipeline.from(source).to(terminal);
@@ -246,7 +222,7 @@ class PipelineTest {
     @Test
     void synchronousTerminalCheckedThrowIsNormalizedAndRestoresInterrupt() {
         Thread.interrupted();
-        var source = new ManualSource<TraceData>();
+        var source = new ManualSource<TracesData>();
         var interrupted = new InterruptedException("terminal interrupted");
         // consume() declares no checked exceptions; sneaky-throw one as a blocking sink might.
         TraceSink terminal = traces -> sneakyThrow(interrupted);
@@ -266,7 +242,7 @@ class PipelineTest {
     @DisplayName("A terminal that sneaky-throws a bare Throwable is normalized, not escaped")
     @Test
     void synchronousTerminalBareThrowableIsNormalized() {
-        var source = new ManualSource<TraceData>();
+        var source = new ManualSource<TracesData>();
         var raw = new Throwable("bare throwable");
         TraceSink terminal = traces -> sneakyThrow(raw);
         var sub = Pipeline.from(source).to(terminal);
@@ -283,7 +259,7 @@ class PipelineTest {
     @DisplayName("A terminal that returns a null stage is normalized, not escaped as an NPE")
     @Test
     void terminalReturningNullStageIsNormalized() {
-        var source = new ManualSource<TraceData>();
+        var source = new ManualSource<TracesData>();
         TraceSink terminal = traces -> null;
         var sub = Pipeline.from(source).to(terminal);
         try {
@@ -296,11 +272,11 @@ class PipelineTest {
         }
     }
 
-    @DisplayName("Shutting down the Subscription detaches the consumer")
+    @DisplayName("Shutting down the PipelineHandle detaches the consumer")
     @Test
     void closingSubscriptionDetachesSink() {
-        var source = new ManualSource<TraceData>();
-        var captured = new ArrayList<TraceData>();
+        var source = new ManualSource<TracesData>();
+        var captured = new ArrayList<TracesData>();
         TraceSink terminal = traces -> {
             captured.add(traces);
             return ConsumeResult.acceptedStage();

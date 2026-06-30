@@ -7,7 +7,7 @@ import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.Span;
-import dev.nthings.otlp4j.model.TraceData;
+import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.core.Telemetry;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.util.List;
@@ -40,7 +40,7 @@ class TelemetryEnvelopeTest {
     @Test
     void sealedExhaustiveSwitch() {
         List<Telemetry> items = List.of(
-                new Telemetry.Traces(new TraceData(List.of())),
+                new Telemetry.Traces(new TracesData(List.of())),
                 new Telemetry.Metrics(new MetricsData(List.of())),
                 new Telemetry.Logs(new LogsData(List.of())),
                 new Telemetry.Profiles(new ProfilesData(List.of(), new byte[0])));

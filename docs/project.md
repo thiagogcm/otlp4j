@@ -18,6 +18,6 @@ otlp4j is experimental and currently released only as a `0.1.0-SNAPSHOT`. The AP
 
 - The built-in OTLP transports carry all four signals over gRPC and HTTP (binary protobuf), with plaintext or TLS (and `bindHost` interface selection on the receiver), authentication headers, gzip compression, and retries (gRPC-native on the gRPC transport, an HTTP backoff loop on the HTTP transport).
 - Profiles track the experimental OpenTelemetry `v1development` schema; payloads round-trip losslessly via opaque passthrough, but the signal is not yet stable.
-- Telemetry received without a configured consumer is acknowledged but not processed, so every required signal must be connected explicitly.
+- Telemetry received without a configured consumer is rejected retryably, so every required signal must be connected explicitly and intentional drops must use `discard()`.
 
 The project aims to provide a focused, Java-native foundation for custom OTLP workflows while keeping protocol-specific types out of application code. Feedback and issue reports are welcome, especially around interoperability and real-world telemetry workloads.

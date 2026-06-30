@@ -13,7 +13,7 @@ import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.Resource;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.SummaryPoint;
-import dev.nthings.otlp4j.model.TraceData;
+import dev.nthings.otlp4j.model.TracesData;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.OptionalDouble;
@@ -36,7 +36,7 @@ public final class TransportFixtures {
     }
 
     /// A trace with every span field — events, links, status, dropped counts — populated.
-    public static TraceData richTraceData() {
+    public static TracesData richTraceData() {
         var span = Span.builder()
                 .traceId("0102030405060708090a0b0c0d0e0f10")
                 .spanId("0102030405060708")
@@ -65,10 +65,10 @@ public final class TransportFixtures {
                 .droppedLinksCount(6)
                 .status(new Span.Status(Span.Status.Code.ERROR, "boom"))
                 .build();
-        return new TraceData(List.of(new TraceData.ResourceSpans(
+        return new TracesData(List.of(new TracesData.ResourceSpans(
                 new Resource(Attributes.builder().put("service.name", "checkout").build(), 7),
                 "https://schema/resource",
-                List.of(new TraceData.ScopeSpans(
+                List.of(new TracesData.ScopeSpans(
                         new InstrumentationScope(
                                 "otlp4j-test",
                                 "1.0.0",
@@ -197,9 +197,9 @@ public final class TransportFixtures {
 
     // --- malformed / mutated inputs for the bug-hunt tests -------------------------------------
 
-    /// A [TraceData] carrying a single span whose `traceId` is the given (possibly malformed)
+    /// A [TracesData] carrying a single span whose `traceId` is the given (possibly malformed)
     /// hex string — used to probe `CommonMapper.bytes` input validation through `TraceMapper`.
-    public static TraceData traceWithTraceId(String traceId) {
+    public static TracesData traceWithTraceId(String traceId) {
         return Fixtures.traceData(Span.builder()
                 .traceId(traceId)
                 .spanId("0102030405060708")
@@ -208,9 +208,9 @@ public final class TransportFixtures {
                 .build());
     }
 
-    /// A [TraceData] with a single span whose `flags` is set to the given value — used to probe
+    /// A [TracesData] with a single span whose `flags` is set to the given value — used to probe
     /// the unsigned-int `(int)` cast / `& 0xFFFFFFFFL` decode round-trip.
-    public static TraceData traceWithSpanFlags(long flags) {
+    public static TracesData traceWithSpanFlags(long flags) {
         return Fixtures.traceData(Span.builder()
                 .traceId("0102030405060708090a0b0c0d0e0f10")
                 .spanId("0102030405060708")
@@ -220,18 +220,18 @@ public final class TransportFixtures {
                 .build());
     }
 
-    /// A [TraceData] with one resource holding the given number of single-span scopes — used to
+    /// A [TracesData] with one resource holding the given number of single-span scopes — used to
     /// exercise the multi-resource / multi-scope mapper loops.
-    public static TraceData traceWithScopes(int scopeCount) {
-        var scopes = new ArrayList<TraceData.ScopeSpans>(scopeCount);
+    public static TracesData traceWithScopes(int scopeCount) {
+        var scopes = new ArrayList<TracesData.ScopeSpans>(scopeCount);
         for (var i = 0; i < scopeCount; i++) {
-            scopes.add(new TraceData.ScopeSpans(
+            scopes.add(new TracesData.ScopeSpans(
                     new InstrumentationScope("scope-" + i, "1.0." + i, Attributes.empty(), i),
                     "https://schema/scope/" + i,
                     List.of(Fixtures.span("op-" + i, Span.Kind.INTERNAL))));
         }
-        return new TraceData(List.of(
-                new TraceData.ResourceSpans(Fixtures.checkoutResource(), "https://schema/r", scopes),
-                new TraceData.ResourceSpans(Resource.EMPTY, "", scopes)));
+        return new TracesData(List.of(
+                new TracesData.ResourceSpans(Fixtures.checkoutResource(), "https://schema/r", scopes),
+                new TracesData.ResourceSpans(Resource.EMPTY, "", scopes)));
     }
 }

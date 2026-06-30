@@ -70,7 +70,7 @@ public record ServerConfig(
 
     public static final class Builder {
 
-        private String bindHost = "0.0.0.0";
+        private String bindHost = "localhost";
         private int port = 4317;
         private Tls tls = Tls.disabled();
         private int maxInboundMessageSizeBytes = DEFAULT_MAX_INBOUND_MESSAGE_SIZE_BYTES;

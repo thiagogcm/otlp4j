@@ -3,7 +3,7 @@ package dev.nthings.otlp4j.transport.grpc.internal;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
-import dev.nthings.otlp4j.model.TraceData;
+import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.codec.DeliveryResults;
 import dev.nthings.otlp4j.codec.LogsMapper;
@@ -137,9 +137,9 @@ final class GrpcServiceAdapters {
 
 final class TraceServiceAdapter extends TraceServiceGrpc.TraceServiceImplBase {
 
-    private final Function<TraceData, CompletionStage<ConsumeResult<TraceData>>> dispatcher;
+    private final Function<TracesData, CompletionStage<ConsumeResult<TracesData>>> dispatcher;
 
-    TraceServiceAdapter(Function<TraceData, CompletionStage<ConsumeResult<TraceData>>> dispatcher) {
+    TraceServiceAdapter(Function<TracesData, CompletionStage<ConsumeResult<TracesData>>> dispatcher) {
         this.dispatcher = dispatcher;
     }
 

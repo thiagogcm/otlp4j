@@ -72,7 +72,7 @@ class ConfigRecordsTest {
     @Test
     void serverConfigDefaults() {
         var c = ServerConfig.builder().build();
-        assertThat(c.bindHost()).isEqualTo("0.0.0.0");
+        assertThat(c.bindHost()).isEqualTo("localhost");
         assertThat(c.port()).isEqualTo(4317);
         assertThat(c.tls()).isEqualTo(Tls.disabled());
         assertThat(c.maxInboundMessageSizeBytes()).isEqualTo(4 * 1024 * 1024);

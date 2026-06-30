@@ -10,12 +10,12 @@ import dev.nthings.otlp4j.model.Metric;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.NumberPoint;
 import dev.nthings.otlp4j.model.Span;
-import dev.nthings.otlp4j.model.TraceData;
+import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
+import dev.nthings.otlp4j.core.OverflowPolicy;
 import dev.nthings.otlp4j.core.ProfileSink;
 import dev.nthings.otlp4j.core.TraceSink;
 import dev.nthings.otlp4j.processor.BatchingProcessor;
-import dev.nthings.otlp4j.processor.DropPolicy;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -32,17 +32,17 @@ import org.junit.jupiter.api.Timeout;
 @DisplayName("BatchingProcessor")
 class BatchingProcessorTest {
 
-    @DisplayName("Flushes a batch once maxBatchSize is reached")
+    @DisplayName("Flushes a batch once flushThreshold is reached")
     @Test
     void flushesOnSizeThreshold() {
-        var captured = new ArrayList<TraceData>();
+        var captured = new ArrayList<TracesData>();
         TraceSink downstream = traces -> {
             captured.add(traces);
             return ConsumeResult.acceptedStage();
         };
         try (var batcher = BatchingProcessor.forTraces()
                 .downstream(downstream)
-                .maxBatchSize(3)
+                .flushThreshold(3)
                 .queueCapacity(16)
                 .build()) {
             for (var i = 0; i < 3; i++) {
@@ -58,14 +58,14 @@ class BatchingProcessorTest {
     @DisplayName("Flushes a batch once maxBatchAge elapses")
     @Test
     void flushesOnAgeThreshold() {
-        var captured = new ArrayList<TraceData>();
+        var captured = new ArrayList<TracesData>();
         TraceSink downstream = traces -> {
             captured.add(traces);
             return ConsumeResult.acceptedStage();
         };
         try (var batcher = BatchingProcessor.forTraces()
                 .downstream(downstream)
-                .maxBatchSize(100)
+                .flushThreshold(100)
                 .queueCapacity(100)
                 .build()) {
             batcher.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
@@ -85,9 +85,9 @@ class BatchingProcessorTest {
         };
         try (var batcher = BatchingProcessor.forTraces()
                 .downstream(downstream)
-                .maxBatchSize(100)
+                .flushThreshold(100)
                 .queueCapacity(2)
-                .dropPolicy(DropPolicy.DROP_NEWEST)
+                .overflowPolicy(OverflowPolicy.DROP_NEWEST)
                 .build()) {
             batcher.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER))).toCompletableFuture()
                     .join();
@@ -178,7 +178,7 @@ class BatchingProcessorTest {
         var r = dropNewestOverflow(
                 BatchingProcessor.forTraces().downstream(traces -> new CompletableFuture<>()),
                 Fixtures.traceData(Fixtures.span("warm", Span.Kind.SERVER)),
-                new TraceData(List.of()));
+                new TracesData(List.of()));
         assertThat(r).isInstanceOf(ConsumeResult.Accepted.class);
     }
 
@@ -188,9 +188,9 @@ class BatchingProcessorTest {
     private static <T> ConsumeResult<T> dropNewestOverflow(
             BatchingProcessor.Builder<T> builder, T warmup, T dropped) {
         try (var batcher = builder
-                .maxBatchSize(100)
+                .flushThreshold(100)
                 .queueCapacity(1)
-                .dropPolicy(DropPolicy.DROP_NEWEST)
+                .overflowPolicy(OverflowPolicy.DROP_NEWEST)
                 .build()) {
             batcher.consume(warmup).toCompletableFuture().join();
             return batcher.consume(dropped).toCompletableFuture().join();
@@ -200,14 +200,14 @@ class BatchingProcessorTest {
     @DisplayName("Shutdown drains buffered traces downstream")
     @Test
     void shutdownDrains() {
-        var captured = new ArrayList<TraceData>();
+        var captured = new ArrayList<TracesData>();
         TraceSink downstream = traces -> {
             captured.add(traces);
             return ConsumeResult.acceptedStage();
         };
         var batcher = BatchingProcessor.forTraces()
                 .downstream(downstream)
-                .maxBatchSize(100)
+                .flushThreshold(100)
                 .queueCapacity(100)
                 .build();
         batcher.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER))).toCompletableFuture().join();
@@ -218,7 +218,7 @@ class BatchingProcessorTest {
     @DisplayName("Builder without downstream throws IllegalStateException")
     @Test
     void rejectsBuilderWithoutDownstream() {
-        var builder = BatchingProcessor.forTraces().maxBatchSize(1);
+        var builder = BatchingProcessor.forTraces().flushThreshold(1);
         assertThatThrownBy(builder::build).isInstanceOf(IllegalStateException.class);
     }
 
@@ -231,7 +231,7 @@ class BatchingProcessorTest {
         TraceSink stalling = traces -> new CompletableFuture<>();
         var batcher = BatchingProcessor.forTraces()
                 .downstream(stalling)
-                .maxBatchSize(1) // flush immediately on the first consume
+                .flushThreshold(1) // flush immediately on the first consume
                 .queueCapacity(16)
                 .build();
         batcher.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
@@ -250,10 +250,10 @@ class BatchingProcessorTest {
     @Timeout(15)
     void shutdownPropagatesDownstreamRejection() {
         TraceSink rejecting = traces -> CompletableFuture
-                .completedFuture(ConsumeResult.rejected("backend unavailable"));
+                .completedFuture(ConsumeResult.retryableRejected("backend unavailable"));
         var batcher = BatchingProcessor.forTraces()
                 .downstream(rejecting)
-                .maxBatchSize(100) // no size-trigger; the queued batch drains on shutdown
+                .flushThreshold(100) // no size-trigger; the queued batch drains on shutdown
                 .queueCapacity(100)
                 .build();
         batcher.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
@@ -275,7 +275,7 @@ class BatchingProcessorTest {
         TraceSink failing = traces -> CompletableFuture.failedFuture(new RuntimeException("kaboom"));
         var batcher = BatchingProcessor.forTraces()
                 .downstream(failing)
-                .maxBatchSize(100)
+                .flushThreshold(100)
                 .queueCapacity(100)
                 .build();
         batcher.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
@@ -296,7 +296,7 @@ class BatchingProcessorTest {
         ProfileSink downstream = profiles -> ConsumeResult.acceptedStage();
         var batcher = BatchingProcessor.forProfilesUnsafe()
                 .downstream(downstream)
-                .maxBatchSize(100) // no size-trigger; both batches merge in the shutdown drain
+                .flushThreshold(100) // no size-trigger; both batches merge in the shutdown drain
                 .queueCapacity(100)
                 .build();
         batcher.consume(Fixtures.profilesDataWithDictionary(new byte[] { 1 }, Fixtures.profile("01")))

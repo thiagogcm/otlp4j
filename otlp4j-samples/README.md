@@ -12,7 +12,7 @@ sequenceDiagram
     participant Backend
 
     Client->>Gateway: Export 5 spans
-    Gateway->>Pipeline: TraceData
+    Gateway->>Pipeline: TracesData
     Pipeline->>Pipeline: Enrich resource and keep 3 SERVER spans
     par Forward traces
         Pipeline->>Backend: Export 3 spans

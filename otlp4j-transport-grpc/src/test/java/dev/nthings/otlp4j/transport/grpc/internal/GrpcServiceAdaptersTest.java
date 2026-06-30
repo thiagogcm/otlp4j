@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
-import dev.nthings.otlp4j.model.TraceData;
+import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.codec.LogsMapper;
 import dev.nthings.otlp4j.codec.MetricsMapper;
@@ -34,7 +34,7 @@ class GrpcServiceAdaptersTest {
     @Test
     void traceAdapterDecodesTheRequestAndForwardsItToTheDispatcher() {
         var sent = TransportFixtures.richTraceData();
-        var received = new AtomicReference<TraceData>();
+        var received = new AtomicReference<TracesData>();
         var observer = new RecordingObserver<ExportTraceServiceResponse>();
 
         new TraceServiceAdapter(traces -> {
@@ -68,7 +68,7 @@ class GrpcServiceAdaptersTest {
     void traceAdapterMapsRejectedToUnavailable() {
         var observer = new RecordingObserver<ExportTraceServiceResponse>();
         new TraceServiceAdapter(traces -> CompletableFuture.completedStage(
-                ConsumeResult.rejected("queue full"))).export(
+                ConsumeResult.retryableRejected("queue full"))).export(
                         TraceMapper.toProto(TransportFixtures.richTraceData()), observer);
         observer.await();
         assertThat(observer.values).isEmpty();
@@ -100,7 +100,7 @@ class GrpcServiceAdaptersTest {
     void rejectionCauseDecidesRetryability() {
         var noCause = new RecordingObserver<ExportTraceServiceResponse>();
         new TraceServiceAdapter(traces -> CompletableFuture.completedStage(
-                ConsumeResult.rejected("dropped by policy"))).export(
+                ConsumeResult.retryableRejected("dropped by policy"))).export(
                         TraceMapper.toProto(TransportFixtures.richTraceData()), noCause);
         noCause.await();
         assertThat(Status.fromThrowable(noCause.error).getCode()).isEqualTo(Status.Code.UNAVAILABLE);

@@ -47,7 +47,7 @@ sequenceDiagram
 
 The transport converts a completed `ConsumeResult` into the signal's OTLP partial-success response. A thrown exception or exceptionally completed stage becomes a gRPC failure. The tap is outside this acknowledgement path unless its buffer strategy is explicitly set to `BLOCK`.
 
-An unattached source returns `Accepted`. A source has one attachment slot; fan-out must therefore be part of the attached consumer graph.
+An unattached source returns a retryable `Rejected` so missing or late wiring is visible to the sender. A source has one attachment slot; fan-out must therefore be part of the attached consumer graph. If accept-and-drop is intentional for a signal, attach it with `Source.discard()`.
 
 ## Pipeline semantics
 
@@ -55,20 +55,19 @@ An unattached source returns `Accepted`. A source has one attachment slot; fan-o
 
 - `transform` rewrites one batch without changing its signal type.
 - `filter` acknowledges a batch as accepted without forwarding it when the predicate returns false.
-- `peek` invokes a best-effort observer (a plain `java.util.function.Consumer`) and ignores its result. It does not wait for an asynchronous observer or handle its later failure.
 - `owns` registers an `AutoCloseable` (e.g. the exporter behind a count sink's downstream, or any resource reachable only behind a lambda) for the subscription to drain on shutdown and flush on `forceFlush`.
 - `branch` builds a concurrent `FanOut`; `join` attaches it.
 - `to` attaches one terminal consumer.
 
 Fan-out sends the same immutable batch reference to every peer. If any peer rejects the batch, the merged result is rejected. Otherwise, partial rejection uses the largest rejected-item count rather than a sum because all peers saw the same input.
 
-Pipeline subscriptions drain lifecycle resources registered explicitly via `Stage.owns(...)` or `Stage.to(terminal, owner)`, plus any terminal or fan-out peer that implements `AutoCloseable` (such as a directly attached `BatchingProcessor`). Exporter signal facets are plain sinks; register the exporter itself for shutdown.
+Pipeline subscriptions drain lifecycle resources registered explicitly via `Stage.owns(...)` or `Stage.to(terminal, owner)`, plus any terminal or fan-out peer that implements `AutoCloseable` (such as a directly attached `BatchingProcessor`). Exporter signal facets are plain sinks; register the exporter itself for shutdown. An exporter collected without a `shutdown()`/`close()` logs a warning, so a missed registration surfaces in the logs rather than silently leaking the client channel.
 
 ## Processing and routing
 
 Built-in stateless transforms filter spans or log records and add resource attributes to any signal. Empty resource and scope groups are removed by the record-level filters.
 
-`BatchingProcessor<T>` buffers complete domain batches, then merges their top-level resource groups via signal-specific `BatchMergers`. It flushes when the queue reaches `maxBatchSize`, on a periodic one-second timer, or through `forceFlush`/`shutdown`. Profiles batching is available only through the experimental `forProfilesUnsafe()` factory.
+`BatchingProcessor<T>` buffers complete domain batches, then merges their top-level resource groups per signal. It flushes when the queue reaches the `flushThreshold`, on a periodic one-second timer, or through `forceFlush`/`shutdown`. Profiles batching is available only through the experimental `forProfilesUnsafe()` factory.
 
 `Connectors.spanCount` converts a trace batch into the `otlp4j.connector.span.count` metric; `Connectors.logRecordCount` similarly emits `otlp4j.connector.log.record.count`. These count sinks consume their input signal and send the derived `MetricsData` to a supplied `MetricSink`; they do not forward the original batch. Each flush carries a real per-series delta window — `[previous flush, now)`, monotonic even under concurrent calls or a backward wall-clock step. A `FailurePolicy` (default `BEST_EFFORT`) decides how a downstream metric failure maps back onto the input: `BEST_EFFORT` accepts the input and logs the failure, while `FAIL` propagates a downstream `Partial`/`Rejected` as a `Rejected` on the input result.
 

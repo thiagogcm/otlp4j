@@ -6,7 +6,7 @@ import java.util.concurrent.CompletionStage;
 /// A resource with a graceful, deadline-bounded asynchronous shutdown.
 ///
 /// [#shutdown(Duration)] drains in-flight work and releases resources, completing successfully on a
-/// clean drain and exceptionally if the deadline elapses. [Subscription] and the framework's
+/// clean drain and exceptionally if the deadline elapses. [PipelineHandle] and the framework's
 /// terminals (exporter, batching processor, receiver) are all `Drainable`, so a pipeline can drain
 /// everything it owns within one shared budget — see `Pipeline.Stage.owns(AutoCloseable)`.
 public interface Drainable extends AutoCloseable {

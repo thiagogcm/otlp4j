@@ -3,7 +3,7 @@ package dev.nthings.otlp4j.core;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
-import dev.nthings.otlp4j.model.TraceData;
+import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.receiver.TelemetryTap;
 
 /// A sealed envelope around the four OTLP signals.
@@ -14,7 +14,7 @@ import dev.nthings.otlp4j.receiver.TelemetryTap;
 public sealed interface Telemetry permits Telemetry.Traces, Telemetry.Metrics, Telemetry.Logs, Telemetry.Profiles {
 
     /// A trace batch.
-    record Traces(TraceData data) implements Telemetry {}
+    record Traces(TracesData data) implements Telemetry {}
 
     /// A metrics batch.
     record Metrics(MetricsData data) implements Telemetry {}

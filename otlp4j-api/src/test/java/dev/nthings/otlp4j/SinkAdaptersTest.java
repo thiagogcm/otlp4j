@@ -10,7 +10,7 @@ import dev.nthings.otlp4j.core.Sink;
 import dev.nthings.otlp4j.core.TraceSink;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.model.Span;
-import dev.nthings.otlp4j.model.TraceData;
+import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.io.IOException;
 import java.util.concurrent.CompletableFuture;
@@ -23,7 +23,7 @@ import org.junit.jupiter.api.Test;
 @DisplayName("Sink authoring adapters")
 class SinkAdaptersTest {
 
-    private static final TraceData BATCH = Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER));
+    private static final TracesData BATCH = Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER));
 
     private static <T> ConsumeResult<T> consume(Sink<T> sink, T batch) {
         return sink.consume(batch).toCompletableFuture().join();
@@ -32,8 +32,8 @@ class SinkAdaptersTest {
     @DisplayName("accepting runs the action and accepts on normal return")
     @Test
     void acceptingAcceptsOnNormalReturn() {
-        var seen = new AtomicReference<TraceData>();
-        Sink<TraceData> sink = Sink.accepting(seen::set);
+        var seen = new AtomicReference<TracesData>();
+        Sink<TracesData> sink = Sink.accepting(seen::set);
 
         var result = consume(sink, BATCH);
 
@@ -45,7 +45,7 @@ class SinkAdaptersTest {
     @Test
     void acceptingMapsThrowToRejectedWithCause() {
         var boom = new IOException("disk full");
-        Sink<TraceData> sink = Sink.accepting(batch -> {
+        Sink<TracesData> sink = Sink.accepting(batch -> {
             throw boom;
         });
 
@@ -61,7 +61,7 @@ class SinkAdaptersTest {
     @Test
     void acceptingLetsErrorsPropagate() {
         var overflow = new StackOverflowError("boom");
-        Sink<TraceData> sink = Sink.accepting(batch -> {
+        Sink<TracesData> sink = Sink.accepting(batch -> {
             throw overflow;
         });
 
@@ -77,7 +77,7 @@ class SinkAdaptersTest {
     @Test
     void acceptingUnwrapsCompletionException() {
         var boom = new IllegalStateException("wrapped");
-        Sink<TraceData> sink = Sink.accepting(batch -> {
+        Sink<TracesData> sink = Sink.accepting(batch -> {
             throw new CompletionException(boom);
         });
 
@@ -94,7 +94,7 @@ class SinkAdaptersTest {
     void acceptingRestoresInterruptFlag() {
         Thread.interrupted();
         var interrupted = new InterruptedException("stop");
-        Sink<TraceData> sink = Sink.accepting(batch -> {
+        Sink<TracesData> sink = Sink.accepting(batch -> {
             throw interrupted;
         });
 
@@ -114,7 +114,7 @@ class SinkAdaptersTest {
     void acceptingRestoresInterruptFlagFromWrappedFailure() {
         Thread.interrupted();
         var interrupted = new InterruptedException("wrapped stop");
-        Sink<TraceData> sink = Sink.accepting(batch -> {
+        Sink<TracesData> sink = Sink.accepting(batch -> {
             throw new CompletionException(interrupted);
         });
 
@@ -132,8 +132,8 @@ class SinkAdaptersTest {
     @DisplayName("fromStage accepts when the returned stage completes normally")
     @Test
     void fromStageAcceptsOnNormalCompletion() {
-        var seen = new AtomicReference<TraceData>();
-        Sink<TraceData> sink = Sink.fromStage(batch -> {
+        var seen = new AtomicReference<TracesData>();
+        Sink<TracesData> sink = Sink.fromStage(batch -> {
             seen.set(batch);
             return CompletableFuture.completedFuture(null);
         });
@@ -148,7 +148,7 @@ class SinkAdaptersTest {
     @Test
     void fromStageMapsFailureToRejected() {
         var boom = new IllegalStateException("downstream gone");
-        Sink<TraceData> sink = Sink.fromStage(batch -> CompletableFuture.failedFuture(boom));
+        Sink<TracesData> sink = Sink.fromStage(batch -> CompletableFuture.failedFuture(boom));
 
         var result = consume(sink, BATCH);
 
@@ -160,7 +160,7 @@ class SinkAdaptersTest {
     @Test
     void fromStageUnwrapsAsyncFailure() {
         var boom = new IllegalStateException("async downstream gone");
-        Sink<TraceData> sink = Sink.fromStage(batch -> CompletableFuture.supplyAsync(() -> {
+        Sink<TracesData> sink = Sink.fromStage(batch -> CompletableFuture.supplyAsync(() -> {
             throw boom;
         }));
 
@@ -177,7 +177,7 @@ class SinkAdaptersTest {
     @Test
     void fromStageMapsSynchronousThrowToRejected() {
         var boom = new IllegalArgumentException("bad batch");
-        Sink<TraceData> sink = Sink.fromStage(batch -> {
+        Sink<TracesData> sink = Sink.fromStage(batch -> {
             throw boom;
         });
 
@@ -191,7 +191,7 @@ class SinkAdaptersTest {
     @Test
     void fromStageLetsErrorsPropagate() {
         var overflow = new StackOverflowError("boom");
-        Sink<TraceData> sink = Sink.fromStage(batch -> {
+        Sink<TracesData> sink = Sink.fromStage(batch -> {
             throw overflow;
         });
 
@@ -207,7 +207,7 @@ class SinkAdaptersTest {
     @Test
     void acceptingNormalizesBareThrowable() {
         var raw = new Throwable("bare");
-        Sink<TraceData> sink = Sink.accepting(batch -> {
+        Sink<TracesData> sink = Sink.accepting(batch -> {
             sneakyThrow(raw);
         });
 
@@ -221,7 +221,7 @@ class SinkAdaptersTest {
     @Test
     void fromStageLetsStageErrorsPropagate() {
         var overflow = new StackOverflowError("async boom");
-        Sink<TraceData> sink = Sink.fromStage(batch -> CompletableFuture.failedFuture(overflow));
+        Sink<TracesData> sink = Sink.fromStage(batch -> CompletableFuture.failedFuture(overflow));
 
         assertThatThrownBy(() -> sink.consume(BATCH).toCompletableFuture().join())
                 .isInstanceOf(CompletionException.class)
@@ -232,7 +232,7 @@ class SinkAdaptersTest {
     @Test
     void fromStageUnwrapsSynchronousCompletionException() {
         var boom = new IllegalStateException("sync wrapped");
-        Sink<TraceData> sink = Sink.fromStage(batch -> {
+        Sink<TracesData> sink = Sink.fromStage(batch -> {
             throw new CompletionException(boom);
         });
 
@@ -249,7 +249,7 @@ class SinkAdaptersTest {
     void fromStageRestoresInterruptFlag() {
         Thread.interrupted();
         var interrupted = new InterruptedException("stop");
-        Sink<TraceData> sink = Sink.fromStage(batch -> sneakyThrow(interrupted));
+        Sink<TracesData> sink = Sink.fromStage(batch -> sneakyThrow(interrupted));
 
         try {
             var result = consume(sink, BATCH);
@@ -267,7 +267,7 @@ class SinkAdaptersTest {
     void fromStageRestoresInterruptFlagFromWrappedSynchronousFailure() {
         Thread.interrupted();
         var interrupted = new InterruptedException("sync wrapped stop");
-        Sink<TraceData> sink = Sink.fromStage(batch -> {
+        Sink<TracesData> sink = Sink.fromStage(batch -> {
             throw new CompletionException(interrupted);
         });
 
@@ -287,7 +287,7 @@ class SinkAdaptersTest {
     void fromStageRestoresInterruptFlagForStageFailure() {
         Thread.interrupted();
         var interrupted = new InterruptedException("async stop");
-        Sink<TraceData> sink = Sink.fromStage(batch -> CompletableFuture.failedFuture(interrupted));
+        Sink<TracesData> sink = Sink.fromStage(batch -> CompletableFuture.failedFuture(interrupted));
 
         try {
             var result = consume(sink, BATCH);
@@ -303,7 +303,7 @@ class SinkAdaptersTest {
     @DisplayName("fromStage maps a null returned stage to a rejection")
     @Test
     void fromStageMapsNullStageToRejected() {
-        Sink<TraceData> sink = Sink.fromStage(batch -> null);
+        Sink<TracesData> sink = Sink.fromStage(batch -> null);
 
         var result = consume(sink, BATCH);
 
@@ -334,7 +334,7 @@ class SinkAdaptersTest {
             throw new IOException("nope");
         });
 
-        CompletionStage<ConsumeResult<TraceData>> stage = sink.consume(BATCH);
+        CompletionStage<ConsumeResult<TracesData>> stage = sink.consume(BATCH);
 
         assertThat(stage.toCompletableFuture().join()).isInstanceOf(ConsumeResult.Rejected.class);
     }

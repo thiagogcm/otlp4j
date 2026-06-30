@@ -3,7 +3,7 @@ package dev.nthings.otlp4j.receiver;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
-import dev.nthings.otlp4j.model.TraceData;
+import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.core.Telemetry;
 import java.util.concurrent.Flow;
 
@@ -16,7 +16,7 @@ import java.util.concurrent.Flow;
 public interface TelemetryTap {
 
     /// Live trace batches.
-    Flow.Publisher<TraceData>    traces();
+    Flow.Publisher<TracesData>    traces();
 
     /// Live metric batches.
     Flow.Publisher<MetricsData>  metrics();

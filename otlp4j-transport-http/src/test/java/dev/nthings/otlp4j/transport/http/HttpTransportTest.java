@@ -8,7 +8,7 @@ import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.Span;
-import dev.nthings.otlp4j.model.TraceData;
+import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.pipeline.Pipeline;
 import dev.nthings.otlp4j.processor.Transforms;
@@ -52,10 +52,10 @@ class HttpTransportTest {
         }
     }
 
-    @DisplayName("Round-trips rich TraceData losslessly")
+    @DisplayName("Round-trips rich TracesData losslessly")
     @Test
     void roundTripsRichTraceDataLosslessly() {
-        var received = new AtomicReference<TraceData>();
+        var received = new AtomicReference<TracesData>();
         var receiver = startReceiver(OtlpHttpReceiver.builder().onTraces(traces -> {
             received.set(traces);
             return ConsumeResult.acceptedStage();
@@ -141,7 +141,7 @@ class HttpTransportTest {
                 .consume(new LogsData(List.of())).toCompletableFuture().join();
 
         assertThat(traceResult).isInstanceOf(ConsumeResult.Partial.class);
-        assertThat(((ConsumeResult.Partial<TraceData>) traceResult).rejectedItems()).isEqualTo(2L);
+        assertThat(((ConsumeResult.Partial<TracesData>) traceResult).rejectedItems()).isEqualTo(2L);
         assertThat(metricResult).isInstanceOf(ConsumeResult.Partial.class);
         assertThat(((ConsumeResult.Partial<MetricsData>) metricResult).rejectedItems()).isEqualTo(5L);
         assertThat(logResult).isInstanceOf(ConsumeResult.Partial.class);
@@ -179,7 +179,7 @@ class HttpTransportTest {
     @Test
     void rejectedWithoutCauseSurfacesAs503() {
         var receiver = startReceiver(OtlpHttpReceiver.builder()
-                .onTraces(traces -> CompletableFuture.completedStage(ConsumeResult.rejected("queue full"))));
+                .onTraces(traces -> CompletableFuture.completedStage(ConsumeResult.retryableRejected("queue full"))));
         var exporter = exporterTo(receiver);
 
         assertThatThrownBy(() -> exporter.traces()
@@ -203,10 +203,23 @@ class HttpTransportTest {
                 .hasMessageContaining("dropped by policy");
     }
 
+    @DisplayName("An unattached source surfaces as a retryable 503 error")
+    @Test
+    void unattachedSourceSurfacesAs503() {
+        var receiver = startReceiver(OtlpHttpReceiver.builder());
+        var exporter = exporterTo(receiver);
+
+        assertThatThrownBy(() -> exporter.traces()
+                .consume(TransportFixtures.richTraceData()).toCompletableFuture().join())
+                .isInstanceOf(CompletionException.class)
+                .hasMessageContaining("503")
+                .hasMessageContaining("no consumer attached for TracesData");
+    }
+
     @DisplayName("Round-trips with gzip compression")
     @Test
     void roundTripsWithGzipCompression() {
-        var received = new AtomicReference<TraceData>();
+        var received = new AtomicReference<TracesData>();
         var receiver = startReceiver(OtlpHttpReceiver.builder().onTraces(traces -> {
             received.set(traces);
             return ConsumeResult.acceptedStage();
@@ -231,7 +244,7 @@ class HttpTransportTest {
         var calls = new AtomicInteger();
         var receiver = startReceiver(OtlpHttpReceiver.builder().onTraces(traces -> {
             if (calls.incrementAndGet() < 3) {
-                return CompletableFuture.completedStage(ConsumeResult.rejected("warming up"));
+                return CompletableFuture.completedStage(ConsumeResult.retryableRejected("warming up"));
             }
             return ConsumeResult.acceptedStage();
         }));
@@ -252,7 +265,7 @@ class HttpTransportTest {
     @DisplayName("End-to-end receive, filter, export Pipeline keeps only SERVER spans")
     @Test
     void endToEndReceiveFilterExportPipeline() {
-        var terminalCapture = new AtomicReference<TraceData>();
+        var terminalCapture = new AtomicReference<TracesData>();
         var terminal = startReceiver(OtlpHttpReceiver.builder().onTraces(traces -> {
             terminalCapture.set(traces);
             return ConsumeResult.acceptedStage();
@@ -309,7 +322,7 @@ class HttpTransportTest {
     @DisplayName("Facade builder convenience knobs (compression, retry, hardening) wire through")
     @Test
     void facadeBuilderConvenienceKnobsRoundTrip() {
-        var received = new AtomicReference<TraceData>();
+        var received = new AtomicReference<TracesData>();
         var receiver = startReceiver(OtlpHttpReceiver.builder()
                 .maxInboundMessageSizeBytes(8 * 1024 * 1024)
                 .onTraces(traces -> {

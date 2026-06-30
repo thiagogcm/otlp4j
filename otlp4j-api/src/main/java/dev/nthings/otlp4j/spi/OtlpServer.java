@@ -29,7 +29,7 @@ public interface OtlpServer extends Drainable {
     /// The default grace period applied by [#close()] when none is supplied.
     Duration DEFAULT_CLOSE_TIMEOUT = Duration.ofSeconds(30);
 
-    /// Closes the server gracefully, like the rest of the API (`Receiver`/`Exporter`/`Subscription`).
+    /// Closes the server gracefully, like the rest of the API (`Receiver`/`Exporter`/`PipelineHandle`).
     /// Use [#shutdownNow()] to force-kill in-flight requests instead of draining them.
     @Override
     default void close() {

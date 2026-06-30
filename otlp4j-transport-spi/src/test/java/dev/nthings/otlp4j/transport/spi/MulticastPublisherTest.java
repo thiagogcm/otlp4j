@@ -1,8 +1,10 @@
-package dev.nthings.otlp4j.receiver;
+package dev.nthings.otlp4j.transport.spi;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
+import dev.nthings.otlp4j.core.OverflowPolicy;
+import dev.nthings.otlp4j.receiver.TapOptions;
 import dev.nthings.otlp4j.testing.FlowSubscribers;
 import java.time.Duration;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -35,7 +37,7 @@ class MulticastPublisherTest {
     void droppingSubscriberDoesNotBlockProducer() {
         var drops = new LongAdder();
         var pub = new MulticastPublisher<Integer>(drops);
-        pub.setOptions(new TapOptions(BackpressureStrategy.DROP_NEWEST, 2));
+        pub.setOptions(new TapOptions(OverflowPolicy.DROP_NEWEST, 2));
         pub.subscribe(FlowSubscribers.noOp());
         for (var i = 0; i < 50; i++) {
             pub.publish(i);
@@ -82,6 +84,45 @@ class MulticastPublisherTest {
         pub.close();
         await().atMost(Duration.ofSeconds(2)).until(done::get);
         assertThat(done.get()).isTrue();
+    }
+
+    @DisplayName("close() is idempotent and publishing afterwards is a silent no-op")
+    @Test
+    void closeIsIdempotentAndDropsLaterPublishes() {
+        var drops = new LongAdder();
+        var pub = new MulticastPublisher<String>(drops);
+        pub.subscribe(FlowSubscribers.noOp());
+        pub.close();
+        pub.close(); // second close is a no-op
+        pub.publish("after-close"); // publishing on a closed publisher is dropped
+        assertThat(drops.sum()).isZero();
+    }
+
+    @DisplayName("publish with no subscribers is a no-op")
+    @Test
+    void publishWithoutSubscribersIsNoOp() {
+        var drops = new LongAdder();
+        var pub = new MulticastPublisher<String>(drops);
+        pub.publish("ignored"); // no subscribers attached
+        assertThat(drops.sum()).isZero();
+        pub.close();
+    }
+
+    @DisplayName("cancelling a subscription twice is idempotent")
+    @Test
+    void cancelIsIdempotent() {
+        var drops = new LongAdder();
+        var pub = new MulticastPublisher<String>(drops);
+        var subRef = new AtomicReference<Flow.Subscription>();
+        pub.subscribe(new Flow.Subscriber<>() {
+            @Override public void onSubscribe(Flow.Subscription s) { subRef.set(s); }
+            @Override public void onNext(String item) {}
+            @Override public void onError(Throwable t) {}
+            @Override public void onComplete() {}
+        });
+        subRef.get().cancel();
+        subRef.get().cancel(); // second cancel is a no-op
+        pub.close();
     }
 
 }

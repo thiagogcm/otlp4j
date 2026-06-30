@@ -1,4 +1,4 @@
-package dev.nthings.otlp4j.receiver;
+package dev.nthings.otlp4j.transport.spi;
 
 import dev.nthings.otlp4j.core.LogSink;
 import dev.nthings.otlp4j.core.MetricSink;
@@ -9,7 +9,9 @@ import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
-import dev.nthings.otlp4j.model.TraceData;
+import dev.nthings.otlp4j.model.TracesData;
+import dev.nthings.otlp4j.receiver.Receiver;
+import dev.nthings.otlp4j.receiver.TelemetryTap;
 import dev.nthings.otlp4j.spi.Dispatchers;
 import dev.nthings.otlp4j.spi.OtlpServer;
 import java.io.IOException;
@@ -30,7 +32,7 @@ public abstract class AbstractOtlpReceiver implements Receiver {
 
     private static final Logger log = LoggerFactory.getLogger(AbstractOtlpReceiver.class);
 
-    private final SignalSource<TraceData>    traces   = new SignalSource<>(TraceData.class);
+    private final SignalSource<TracesData>    traces   = new SignalSource<>(TracesData.class);
     private final SignalSource<MetricsData>  metrics  = new SignalSource<>(MetricsData.class);
     private final SignalSource<LogsData>     logs     = new SignalSource<>(LogsData.class);
     private final SignalSource<ProfilesData> profiles = new SignalSource<>(ProfilesData.class);
@@ -61,7 +63,7 @@ public abstract class AbstractOtlpReceiver implements Receiver {
     }
 
     @Override
-    public final Source<TraceData> traces() { return traces; }
+    public final Source<TracesData> traces() { return traces; }
 
     @Override
     public final Source<MetricsData> metrics() { return metrics; }
@@ -105,7 +107,7 @@ public abstract class AbstractOtlpReceiver implements Receiver {
         return server.shutdownNow();
     }
 
-    private CompletionStage<ConsumeResult<TraceData>> dispatchTraces(TraceData batch) {
+    private CompletionStage<ConsumeResult<TracesData>> dispatchTraces(TracesData batch) {
         tap.publishTraces(batch);
         return traces.dispatch(batch);
     }

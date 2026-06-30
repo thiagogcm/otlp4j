@@ -18,25 +18,25 @@ import org.junit.jupiter.api.Test;
 class SignalTraversalTest {
 
     @Nested
-    @DisplayName("TraceData")
+    @DisplayName("TracesData")
     class Traces {
 
-        private final TraceData data = new TraceData(List.of(
-                new TraceData.ResourceSpans(
+        private final TracesData data = new TracesData(List.of(
+                new TracesData.ResourceSpans(
                         Resource.EMPTY,
                         "",
                         List.of(
-                                new TraceData.ScopeSpans(
+                                new TracesData.ScopeSpans(
                                         InstrumentationScope.of("s1"), "", List.of(span("a"), span("b"))),
-                                new TraceData.ScopeSpans(InstrumentationScope.of("s2"), "", List.of()),
-                                new TraceData.ScopeSpans(InstrumentationScope.of("s3"), "", List.of(span("c"))))),
+                                new TracesData.ScopeSpans(InstrumentationScope.of("s2"), "", List.of()),
+                                new TracesData.ScopeSpans(InstrumentationScope.of("s3"), "", List.of(span("c"))))),
                 // A resource with zero scopes: the outer loop must skip it without visiting
                 // anything.
-                new TraceData.ResourceSpans(Resource.EMPTY, "", List.of()),
-                new TraceData.ResourceSpans(
+                new TracesData.ResourceSpans(Resource.EMPTY, "", List.of()),
+                new TracesData.ResourceSpans(
                         Resource.EMPTY,
                         "",
-                        List.of(new TraceData.ScopeSpans(
+                        List.of(new TracesData.ScopeSpans(
                                 InstrumentationScope.of("s4"), "", List.of(span("d"), span("e")))))));
 
         @DisplayName("forEachSpan visits every span in flattened order")
@@ -59,7 +59,7 @@ class SignalTraversalTest {
         @DisplayName("an empty batch counts zero and never invokes the action")
         @Test
         void emptyBatchCountsZeroAndNeverInvokesTheAction() {
-            var empty = new TraceData(List.of());
+            var empty = new TracesData(List.of());
 
             assertThat(empty.spanCount()).isZero();
             empty.forEachSpan(span -> {

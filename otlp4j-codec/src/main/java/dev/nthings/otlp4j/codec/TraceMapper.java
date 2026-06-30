@@ -1,7 +1,7 @@
 package dev.nthings.otlp4j.codec;
 
 import dev.nthings.otlp4j.model.Span;
-import dev.nthings.otlp4j.model.TraceData;
+import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceRequest;
 import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceResponse;
@@ -22,30 +22,30 @@ public final class TraceMapper {
 
     // --- proto -> domain ---------------------------------------------------------------------
 
-    public static TraceData toDomain(ExportTraceServiceRequest request) {
-        var resourceSpans = new ArrayList<TraceData.ResourceSpans>(request.getResourceSpansCount());
+    public static TracesData toDomain(ExportTraceServiceRequest request) {
+        var resourceSpans = new ArrayList<TracesData.ResourceSpans>(request.getResourceSpansCount());
         for (var rs : request.getResourceSpansList()) {
             resourceSpans.add(toDomain(rs));
         }
-        return new TraceData(resourceSpans);
+        return new TracesData(resourceSpans);
     }
 
-    private static TraceData.ResourceSpans toDomain(
+    private static TracesData.ResourceSpans toDomain(
             ResourceSpans rs) {
-        var scopeSpans = new ArrayList<TraceData.ScopeSpans>(rs.getScopeSpansCount());
+        var scopeSpans = new ArrayList<TracesData.ScopeSpans>(rs.getScopeSpansCount());
         for (var ss : rs.getScopeSpansList()) {
             scopeSpans.add(toDomain(ss));
         }
-        return new TraceData.ResourceSpans(
+        return new TracesData.ResourceSpans(
                 CommonMapper.resource(rs.getResource()), rs.getSchemaUrl(), scopeSpans);
     }
 
-    private static TraceData.ScopeSpans toDomain(ScopeSpans ss) {
+    private static TracesData.ScopeSpans toDomain(ScopeSpans ss) {
         var spans = new ArrayList<Span>(ss.getSpansCount());
         for (var span : ss.getSpansList()) {
             spans.add(toDomain(span));
         }
-        return new TraceData.ScopeSpans(
+        return new TracesData.ScopeSpans(
                 CommonMapper.scope(ss.getScope()), ss.getSchemaUrl(), spans);
     }
 
@@ -94,7 +94,7 @@ public final class TraceMapper {
     }
 
     /// Interprets an OTLP trace export response as a [ConsumeResult].
-    public static ConsumeResult<TraceData> result(ExportTraceServiceResponse response) {
+    public static ConsumeResult<TracesData> result(ExportTraceServiceResponse response) {
         var partial = response.getPartialSuccess();
         return CommonMapper.result(
                 response.hasPartialSuccess(), partial.getRejectedSpans(), partial.getErrorMessage());
@@ -102,7 +102,7 @@ public final class TraceMapper {
 
     // --- domain -> proto ---------------------------------------------------------------------
 
-    public static ExportTraceServiceRequest toProto(TraceData traces) {
+    public static ExportTraceServiceRequest toProto(TracesData traces) {
         var request = ExportTraceServiceRequest.newBuilder();
         for (var rs : traces.resourceSpans()) {
             request.addResourceSpans(toProto(rs));
@@ -111,7 +111,7 @@ public final class TraceMapper {
     }
 
     private static ResourceSpans toProto(
-            TraceData.ResourceSpans rs) {
+            TracesData.ResourceSpans rs) {
         var builder =
                 ResourceSpans.newBuilder()
                         .setResource(CommonMapper.toProtoResource(rs.resource()))
@@ -122,7 +122,7 @@ public final class TraceMapper {
         return builder.build();
     }
 
-    private static ScopeSpans toProto(TraceData.ScopeSpans ss) {
+    private static ScopeSpans toProto(TracesData.ScopeSpans ss) {
         var builder =
                 ScopeSpans.newBuilder()
                         .setScope(CommonMapper.toProtoScope(ss.scope()))

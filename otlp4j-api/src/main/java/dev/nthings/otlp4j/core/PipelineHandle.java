@@ -16,9 +16,9 @@ import java.util.concurrent.CompletionStage;
 /// As a [Drainable], [#close()] performs a best-effort synchronous drain with a
 /// default timeout and [#shutdown(Duration)] returns a stage that completes when
 /// the drain finishes or the timeout elapses. As a
-/// [Flushable], [#forceFlush(Duration)] pushes buffered batches downstream
+/// [ForceFlushable], [#forceFlush(Duration)] pushes buffered batches downstream
 /// without tearing the subscription down.
-public interface Subscription extends Drainable, Flushable {
+public interface PipelineHandle extends Drainable, ForceFlushable {
 
     /// Drains all in-flight batches and releases resources, returning a stage that
     /// completes successfully on a clean drain and exceptionally if the

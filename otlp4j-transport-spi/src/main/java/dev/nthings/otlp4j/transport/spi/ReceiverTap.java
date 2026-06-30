@@ -1,10 +1,12 @@
-package dev.nthings.otlp4j.receiver;
+package dev.nthings.otlp4j.transport.spi;
 
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
-import dev.nthings.otlp4j.model.TraceData;
+import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.core.Telemetry;
+import dev.nthings.otlp4j.receiver.TapOptions;
+import dev.nthings.otlp4j.receiver.TelemetryTap;
 import java.util.concurrent.Flow;
 import java.util.concurrent.atomic.LongAdder;
 
@@ -12,14 +14,14 @@ import java.util.concurrent.atomic.LongAdder;
 final class ReceiverTap implements TelemetryTap, AutoCloseable {
 
     private final LongAdder drops = new LongAdder();
-    private final MulticastPublisher<TraceData>    traces    = new MulticastPublisher<>(drops);
+    private final MulticastPublisher<TracesData>    traces    = new MulticastPublisher<>(drops);
     private final MulticastPublisher<MetricsData>  metrics   = new MulticastPublisher<>(drops);
     private final MulticastPublisher<LogsData>     logs      = new MulticastPublisher<>(drops);
     private final MulticastPublisher<ProfilesData> profiles  = new MulticastPublisher<>(drops);
     private final MulticastPublisher<Telemetry>    all       = new MulticastPublisher<>(drops);
 
     @Override
-    public Flow.Publisher<TraceData> traces() {
+    public Flow.Publisher<TracesData> traces() {
         return traces;
     }
 
@@ -57,7 +59,7 @@ final class ReceiverTap implements TelemetryTap, AutoCloseable {
         return drops.sum();
     }
 
-    public void publishTraces(TraceData batch) {
+    public void publishTraces(TracesData batch) {
         traces.publish(batch);
         if (all.hasSubscribers()) all.publish(new Telemetry.Traces(batch));
     }

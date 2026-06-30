@@ -3,7 +3,7 @@ package dev.nthings.otlp4j.codec;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
-import dev.nthings.otlp4j.model.TraceData;
+import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import io.opentelemetry.proto.collector.logs.v1.ExportLogsPartialSuccess;
 import io.opentelemetry.proto.collector.logs.v1.ExportLogsServiceResponse;
@@ -25,15 +25,15 @@ public final class SignalResponses {
 
     private SignalResponses() {}
 
-    public static ExportTraceServiceResponse traces(ConsumeResult<TraceData> result) {
+    public static ExportTraceServiceResponse traces(ConsumeResult<TracesData> result) {
         var resp = ExportTraceServiceResponse.newBuilder();
         switch (result) {
-            case ConsumeResult.Accepted<TraceData> _ -> { }
-            case ConsumeResult.Partial<TraceData>(var rejected, var message) ->
+            case ConsumeResult.Accepted<TracesData> _ -> { }
+            case ConsumeResult.Partial<TracesData>(var rejected, var message) ->
                     resp.setPartialSuccess(ExportTracePartialSuccess.newBuilder()
                             .setRejectedSpans(rejected)
                             .setErrorMessage(message));
-            case ConsumeResult.Rejected<TraceData> _ -> throw rejectedNotMapped();
+            case ConsumeResult.Rejected<TracesData> _ -> throw rejectedNotMapped();
         }
         return resp.build();
     }

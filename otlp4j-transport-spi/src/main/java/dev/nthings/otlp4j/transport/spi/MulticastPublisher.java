@@ -1,5 +1,7 @@
-package dev.nthings.otlp4j.receiver;
+package dev.nthings.otlp4j.transport.spi;
 
+import dev.nthings.otlp4j.core.OverflowPolicy;
+import dev.nthings.otlp4j.receiver.TapOptions;
 import java.util.Objects;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -81,7 +83,7 @@ final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoCloseable {
         private static final long BLOCK_OFFER_POLL_NANOS = TimeUnit.MILLISECONDS.toNanos(100);
 
         private final Flow.Subscriber<? super T> subscriber;
-        private final BackpressureStrategy strategy;
+        private final OverflowPolicy strategy;
         private final ArrayBlockingQueue<T> queue;
         private final LongAdder drops;
         private final CopyOnWriteArrayList<SubscriptionImpl<T>> roster;
@@ -132,7 +134,7 @@ final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoCloseable {
                         Thread.currentThread().interrupt();
                     }
                 }
-                case ERROR -> {
+                case FAIL -> {
                     if (!queue.offer(item)) {
                         drops.increment();
                         completeExceptionally(new IllegalStateException("tap buffer overflow"));

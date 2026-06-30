@@ -4,7 +4,7 @@ import dev.nthings.otlp4j.config.ClientConfig;
 import dev.nthings.otlp4j.config.Compression;
 import dev.nthings.otlp4j.config.RetryPolicy;
 import dev.nthings.otlp4j.config.Tls;
-import dev.nthings.otlp4j.exporter.AbstractOtlpExporter;
+import dev.nthings.otlp4j.transport.spi.AbstractOtlpExporter;
 import dev.nthings.otlp4j.transport.http.internal.HttpOtlpClient;
 import java.time.Duration;
 import java.util.Map;

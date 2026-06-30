@@ -1,13 +1,15 @@
 package dev.nthings.otlp4j.processor;
 
 import dev.nthings.otlp4j.core.Drainable;
-import dev.nthings.otlp4j.core.Flushable;
+import dev.nthings.otlp4j.core.ForceFlushable;
+import dev.nthings.otlp4j.core.OverflowPolicy;
 import dev.nthings.otlp4j.core.Sink;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
-import dev.nthings.otlp4j.model.TraceData;
+import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
+import dev.nthings.otlp4j.processor.internal.Signal;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -27,18 +29,17 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /// An asynchronous, queue-backed, timer-triggered batching processor.
-public final class BatchingProcessor<T> implements Sink<T>, Drainable, Flushable {
+public final class BatchingProcessor<T> implements Sink<T>, Drainable, ForceFlushable {
 
     private static final Logger log = LoggerFactory.getLogger(BatchingProcessor.class);
 
     private final Signal signal;
     private final Sink<? super T> downstream;
-    private final int maxBatchSize;
+    private final int flushThreshold;
     private final ArrayBlockingQueue<T> queue;
-    private final DropPolicy dropPolicy;
-    private final LongAdder drops;
+    private final OverflowPolicy overflowPolicy;
+    private final LongAdder drops = new LongAdder();
     private final ScheduledExecutorService scheduler;
-    private final boolean ownsScheduler;
     private final AtomicBoolean closed = new AtomicBoolean();
     private final ExecutorService drainExecutor;
     private final BatchDrainEngine<T> drainEngine;
@@ -46,15 +47,11 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, Flushable
     private BatchingProcessor(Signal signal, Builder<T> b) {
         this.signal = signal;
         this.downstream = Objects.requireNonNull(b.downstream, "downstream");
-        this.maxBatchSize = b.maxBatchSize;
+        this.flushThreshold = b.flushThreshold;
         this.queue = new ArrayBlockingQueue<>(b.queueCapacity);
-        this.dropPolicy = b.dropPolicy;
-        this.drops = b.drops == null ? new LongAdder() : b.drops;
-        this.ownsScheduler = b.scheduler == null;
-        this.scheduler = b.scheduler == null
-                ? Executors.newSingleThreadScheduledExecutor(
-                        Thread.ofPlatform().daemon().name("otlp4j-batcher").factory())
-                : b.scheduler;
+        this.overflowPolicy = b.overflowPolicy;
+        this.scheduler = Executors.newSingleThreadScheduledExecutor(
+                Thread.ofPlatform().daemon().name("otlp4j-batcher").factory());
         this.drainExecutor = Executors.newSingleThreadExecutor(
                 Thread.ofPlatform().daemon().name("otlp4j-batcher-drain").factory());
         this.drainEngine = new BatchDrainEngine<>(
@@ -68,7 +65,7 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, Flushable
         }
         var offered = queue.offer(batch);
         if (!offered) {
-            switch (dropPolicy) {
+            switch (overflowPolicy) {
                 case DROP_OLDEST -> {
                     var dropped = queue.poll();
                     if (dropped != null) {
@@ -92,14 +89,14 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, Flushable
                                 ConsumeResult.permanentRejected("interrupted waiting for batcher capacity", e));
                     }
                 }
-                case ERROR -> {
+                case FAIL -> {
                     drops.increment();
                     return CompletableFuture.completedFuture(
                             ConsumeResult.retryableRejected("batcher queue full"));
                 }
             }
         }
-        if (queue.size() >= maxBatchSize) {
+        if (queue.size() >= flushThreshold) {
             try {
                 drainEngine.tryScheduleDrain();
             } catch (RejectedExecutionException rex) {
@@ -139,9 +136,7 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, Flushable
                 .orTimeout(timeout.toNanos(), TimeUnit.NANOSECONDS)
                 .whenComplete((ignored, t) -> {
                     drainExecutor.shutdown();
-                    if (ownsScheduler) {
-                        scheduler.shutdown();
-                    }
+                    scheduler.shutdown();
                 });
     }
 
@@ -175,7 +170,7 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, Flushable
         }
     }
 
-    public static Builder<TraceData> forTraces() {
+    public static Builder<TracesData> forTraces() {
         return new Builder<>(Signal.TRACES);
     }
 
@@ -197,11 +192,9 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, Flushable
     public static final class Builder<T> {
         private final Signal signal;
         private @Nullable Sink<? super T> downstream;
-        private int maxBatchSize = 512;
+        private int flushThreshold = 512;
         private int queueCapacity = 2048;
-        private DropPolicy dropPolicy = DropPolicy.DROP_NEWEST;
-        private @Nullable LongAdder drops;
-        private @Nullable ScheduledExecutorService scheduler;
+        private OverflowPolicy overflowPolicy = OverflowPolicy.DROP_NEWEST;
 
         private Builder(Signal signal) {
             this.signal = signal;
@@ -212,32 +205,24 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, Flushable
             return this;
         }
 
-        public Builder<T> maxBatchSize(int items) {
-            if (items < 1)
-                throw new IllegalArgumentException("maxBatchSize must be >= 1");
-            this.maxBatchSize = items;
+        /// Flushes the queue once it holds this many batches (the drain trigger).
+        public Builder<T> flushThreshold(int batches) {
+            if (batches < 1)
+                throw new IllegalArgumentException("flushThreshold must be >= 1");
+            this.flushThreshold = batches;
             return this;
         }
 
-        public Builder<T> queueCapacity(int items) {
-            if (items < 1)
+        /// Caps the queue at this many batches (the hard limit; overflow follows [#overflowPolicy]).
+        public Builder<T> queueCapacity(int batches) {
+            if (batches < 1)
                 throw new IllegalArgumentException("queueCapacity must be >= 1");
-            this.queueCapacity = items;
+            this.queueCapacity = batches;
             return this;
         }
 
-        public Builder<T> dropPolicy(DropPolicy policy) {
-            this.dropPolicy = Objects.requireNonNull(policy, "policy");
-            return this;
-        }
-
-        public Builder<T> dropCounter(LongAdder drops) {
-            this.drops = drops;
-            return this;
-        }
-
-        public Builder<T> scheduler(ScheduledExecutorService scheduler) {
-            this.scheduler = scheduler;
+        public Builder<T> overflowPolicy(OverflowPolicy policy) {
+            this.overflowPolicy = Objects.requireNonNull(policy, "policy");
             return this;
         }
 

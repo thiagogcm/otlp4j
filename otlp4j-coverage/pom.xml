@@ -45,6 +45,10 @@
         </dependency>
         <dependency>
             <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-transport-spi</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
             <artifactId>otlp4j-transport-grpc</artifactId>
         </dependency>
         <dependency>

@@ -1,12 +1,14 @@
-package dev.nthings.otlp4j.receiver;
+package dev.nthings.otlp4j.transport.spi;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
 import dev.nthings.otlp4j.model.Span;
-import dev.nthings.otlp4j.model.TraceData;
+import dev.nthings.otlp4j.model.TracesData;
+import dev.nthings.otlp4j.core.OverflowPolicy;
 import dev.nthings.otlp4j.core.Telemetry;
+import dev.nthings.otlp4j.receiver.TapOptions;
 import dev.nthings.otlp4j.testing.Fixtures;
 import dev.nthings.otlp4j.testing.FlowSubscribers;
 import java.time.Duration;
@@ -26,7 +28,7 @@ class TapAndMulticastEdgesTest {
     void receiverTapPublishesToTypedAndUnifiedChannels() {
         var tap = new ReceiverTap();
         try {
-            var traces = new CopyOnWriteArrayList<TraceData>();
+            var traces = new CopyOnWriteArrayList<TracesData>();
             var all = new CopyOnWriteArrayList<Telemetry>();
             tap.traces().subscribe(FlowSubscribers.recording(traces));
             tap.all().subscribe(FlowSubscribers.recording(all));
@@ -44,7 +46,7 @@ class TapAndMulticastEdgesTest {
     @Test
     void droppedCountIncrementsWhenSubscriberStalls() {
         var tap = new ReceiverTap();
-        tap.setOptions(new TapOptions(BackpressureStrategy.DROP_NEWEST, 1));
+        tap.setOptions(new TapOptions(OverflowPolicy.DROP_NEWEST, 1));
         try {
             tap.traces().subscribe(FlowSubscribers.noOp());
             for (var i = 0; i < 50; i++) {
@@ -129,14 +131,14 @@ class TapAndMulticastEdgesTest {
     @Test
     void tapOptionsDefaultsAreSane() {
         var opts = TapOptions.defaults();
-        assertThat(opts.strategy()).isEqualTo(BackpressureStrategy.DROP_OLDEST);
+        assertThat(opts.strategy()).isEqualTo(OverflowPolicy.DROP_OLDEST);
         assertThat(opts.bufferSize()).isEqualTo(256);
     }
 
     @DisplayName("TapOptions rejects a non-positive buffer size")
     @Test
     void tapOptionsRejectsBadBuffer() {
-        assertThatThrownBy(() -> new TapOptions(BackpressureStrategy.BLOCK, 0))
+        assertThatThrownBy(() -> new TapOptions(OverflowPolicy.BLOCK, 0))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 

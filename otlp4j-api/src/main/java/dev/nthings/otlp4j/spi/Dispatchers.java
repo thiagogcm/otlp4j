@@ -4,7 +4,7 @@ import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
-import dev.nthings.otlp4j.model.TraceData;
+import dev.nthings.otlp4j.model.TracesData;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Function;
 
@@ -12,7 +12,7 @@ import java.util.function.Function;
 /// Each returns a [CompletionStage] so the transport can hold the request open until the pipeline
 /// acknowledges (or partial-succeeds).
 public record Dispatchers(
-        Function<TraceData,    CompletionStage<ConsumeResult<TraceData>>>    traces,
+        Function<TracesData,    CompletionStage<ConsumeResult<TracesData>>>    traces,
         Function<MetricsData,  CompletionStage<ConsumeResult<MetricsData>>>  metrics,
         Function<LogsData,     CompletionStage<ConsumeResult<LogsData>>>     logs,
         Function<ProfilesData, CompletionStage<ConsumeResult<ProfilesData>>> profiles) {}

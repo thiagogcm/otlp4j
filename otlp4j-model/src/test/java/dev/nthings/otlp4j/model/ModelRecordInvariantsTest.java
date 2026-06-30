@@ -10,8 +10,8 @@ import dev.nthings.otlp4j.model.MetricsData.ScopeMetrics;
 import dev.nthings.otlp4j.model.ProfilesData.Profile;
 import dev.nthings.otlp4j.model.ProfilesData.ResourceProfiles;
 import dev.nthings.otlp4j.model.ProfilesData.ScopeProfiles;
-import dev.nthings.otlp4j.model.TraceData.ResourceSpans;
-import dev.nthings.otlp4j.model.TraceData.ScopeSpans;
+import dev.nthings.otlp4j.model.TracesData.ResourceSpans;
+import dev.nthings.otlp4j.model.TracesData.ScopeSpans;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.OptionalDouble;
@@ -25,10 +25,10 @@ class ModelRecordInvariantsTest {
 
     // --- flattening across resources/scopes -------------------------------------------------
 
-    @DisplayName("TraceData.spans flattens across every resource and scope")
+    @DisplayName("TracesData.spans flattens across every resource and scope")
     @Test
     void traceDataSpansFlattensAcrossEveryResourceAndScope() {
-        var trace = new TraceData(List.of(
+        var trace = new TracesData(List.of(
                 new ResourceSpans(Resource.EMPTY, "", List.of(
                         new ScopeSpans(InstrumentationScope.EMPTY, "", List.of(
                                 span("a"), span("b"))),
@@ -84,11 +84,11 @@ class ModelRecordInvariantsTest {
 
     // --- defensive list copying in compact constructors -------------------------------------
 
-    @DisplayName("TraceData defensively copies its ResourceSpans list")
+    @DisplayName("TracesData defensively copies its ResourceSpans list")
     @Test
     void traceDataDefensivelyCopiesItsResourceSpansList() {
         var source = new ArrayList<ResourceSpans>();
-        var trace = new TraceData(source);
+        var trace = new TracesData(source);
 
         source.add(new ResourceSpans(Resource.EMPTY, "", List.of()));
 

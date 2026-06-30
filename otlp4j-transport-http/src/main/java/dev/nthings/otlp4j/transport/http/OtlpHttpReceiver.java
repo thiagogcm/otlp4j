@@ -6,7 +6,7 @@ import dev.nthings.otlp4j.core.LogSink;
 import dev.nthings.otlp4j.core.MetricSink;
 import dev.nthings.otlp4j.core.ProfileSink;
 import dev.nthings.otlp4j.core.TraceSink;
-import dev.nthings.otlp4j.receiver.AbstractOtlpReceiver;
+import dev.nthings.otlp4j.transport.spi.AbstractOtlpReceiver;
 import dev.nthings.otlp4j.transport.http.internal.HttpOtlpServer;
 import java.time.Duration;
 import java.util.concurrent.Executor;
@@ -20,7 +20,7 @@ import org.jspecify.annotations.Nullable;
 /// dispatch and lifecycle live in [AbstractOtlpReceiver].
 ///
 /// Exports are accepted by POST on the standard signal paths — `/v1/traces`, `/v1/metrics`,
-/// `/v1/logs`, and `/v1development/profiles`. The default bind is `0.0.0.0:4318` with plaintext.
+/// `/v1/logs`, and `/v1development/profiles`. The default bind is `localhost:4318` with plaintext.
 public final class OtlpHttpReceiver extends AbstractOtlpReceiver {
 
     /// The conventional OTLP/HTTP port, used as the builder default (gRPC uses 4317).
@@ -35,7 +35,7 @@ public final class OtlpHttpReceiver extends AbstractOtlpReceiver {
         return new Builder();
     }
 
-    /// Builds — but does not [#start()] — a receiver bound to `port` on all interfaces.
+    /// Builds — but does not [#start()] — a receiver bound to `port` on the default loopback host.
     public static OtlpHttpReceiver on(int port) {
         return builder().port(port).build();
     }
@@ -51,7 +51,7 @@ public final class OtlpHttpReceiver extends AbstractOtlpReceiver {
         return this;
     }
 
-    /// Builder for [OtlpHttpReceiver]. Defaults bind `0.0.0.0:4318` with plaintext transport.
+    /// Builder for [OtlpHttpReceiver]. Defaults bind `localhost:4318` with plaintext transport.
     public static final class Builder {
 
         private ServerConfig.Builder config =

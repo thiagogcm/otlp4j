@@ -10,7 +10,7 @@ import dev.nthings.otlp4j.model.Metric;
 import dev.nthings.otlp4j.model.NumberPoint;
 import dev.nthings.otlp4j.model.Resource;
 import dev.nthings.otlp4j.model.Span;
-import dev.nthings.otlp4j.model.TraceData;
+import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.pipeline.Pipeline;
 import dev.nthings.otlp4j.processor.Transforms;
 import dev.nthings.otlp4j.transport.grpc.OtlpGrpcExporter;
@@ -61,7 +61,7 @@ public final class OtlpE2eDemo {
 
     /// Runs the full pipeline once and returns what reached the backend.
     public static Result run() throws Exception {
-        var backendTraces = new AtomicReference<TraceData>();
+        var backendTraces = new AtomicReference<TracesData>();
         var backendMetrics = Collections.synchronizedList(new ArrayList<Metric>());
 
         OtlpGrpcReceiver backend = null;
@@ -79,8 +79,9 @@ public final class OtlpE2eDemo {
             backendExporter = OtlpGrpcExporter.to("localhost", backend.port());
 
             // --- Gateway: receive -> enrich -> filter -> fan out to exporter + count sink.
-            gateway = OtlpGrpcReceiver.builder().ephemeralPort().build().start();
-            log.info("Gateway receiver started on port {}.", gateway.port());
+            // Build -> wire -> start, so the consumer graph (and exporter ownership) attaches
+            // before any batch arrives.
+            gateway = OtlpGrpcReceiver.builder().ephemeralPort().build();
 
             var spanCounter = Connectors.spanCount(backendExporter.metrics());
 
@@ -100,6 +101,9 @@ public final class OtlpE2eDemo {
                     .fanOut(backendExporter.traces())
                     .fanOut(spanCounter)
                     .join();
+
+            gateway.start();
+            log.info("Gateway receiver started on port {}.", gateway.port());
 
             // --- Client: export a mixed batch of spans to the gateway.
             try (var client = OtlpGrpcExporter.to("localhost", gateway.port())) {
@@ -137,7 +141,7 @@ public final class OtlpE2eDemo {
         return new Result(spans, derivedCount, environment, redactedEnduserId);
     }
 
-    private static String extractEnduserId(TraceData traces) {
+    private static String extractEnduserId(TracesData traces) {
         if (traces.spanCount() == 0) {
             return "<none>";
         }
@@ -145,7 +149,7 @@ public final class OtlpE2eDemo {
         return value instanceof AttributeValue.StringValue s ? s.value() : "<none>";
     }
 
-    private static String extractEnvironment(TraceData traces) {
+    private static String extractEnvironment(TracesData traces) {
         if (traces.resourceSpans().isEmpty()) {
             return "<none>";
         }
@@ -163,7 +167,7 @@ public final class OtlpE2eDemo {
         return -1L;
     }
 
-    private static TraceData sampleTraces() {
+    private static TracesData sampleTraces() {
         var resource = Resource.of(Attributes.builder().put("service.name", "checkout").build());
         var scope = InstrumentationScope.of("otlp4j-demo", "1.0.0");
         var spans = List.of(
@@ -172,7 +176,7 @@ public final class OtlpE2eDemo {
                 span("POST /pay", Span.Kind.SERVER),
                 span("db.query", Span.Kind.INTERNAL),
                 span("cache.lookup", Span.Kind.INTERNAL));
-        return TraceData.of(resource, scope, spans);
+        return TracesData.of(resource, scope, spans);
     }
 
     private static Span span(String name, Span.Kind kind) {
