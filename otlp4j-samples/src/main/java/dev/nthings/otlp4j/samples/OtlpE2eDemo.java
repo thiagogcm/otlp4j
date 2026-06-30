@@ -3,6 +3,8 @@ package dev.nthings.otlp4j.samples;
 import dev.nthings.otlp4j.connector.Connectors;
 import dev.nthings.otlp4j.core.MetricSink;
 import dev.nthings.otlp4j.core.TraceSink;
+import dev.nthings.otlp4j.exporter.OtlpExporter;
+import dev.nthings.otlp4j.receiver.Receiver;
 import dev.nthings.otlp4j.model.AttributeValue;
 import dev.nthings.otlp4j.model.Attributes;
 import dev.nthings.otlp4j.model.InstrumentationScope;
@@ -64,9 +66,9 @@ public final class OtlpE2eDemo {
         var backendTraces = new AtomicReference<TracesData>();
         var backendMetrics = Collections.synchronizedList(new ArrayList<Metric>());
 
-        OtlpGrpcReceiver backend = null;
-        OtlpGrpcExporter backendExporter = null;
-        OtlpGrpcReceiver gateway = null;
+        Receiver backend = null;
+        OtlpExporter backendExporter = null;
+        Receiver gateway = null;
         try {
             // --- Backend: the final destination, capturing whatever survives the pipeline.
             backend = OtlpGrpcReceiver.builder()

@@ -6,52 +6,44 @@ import dev.nthings.otlp4j.core.LogSink;
 import dev.nthings.otlp4j.core.MetricSink;
 import dev.nthings.otlp4j.core.ProfileSink;
 import dev.nthings.otlp4j.core.TraceSink;
-import dev.nthings.otlp4j.transport.spi.AbstractOtlpReceiver;
+import dev.nthings.otlp4j.receiver.Receiver;
+import dev.nthings.otlp4j.transport.spi.ServerReceiver;
 import dev.nthings.otlp4j.transport.http.internal.HttpOtlpServer;
 import java.time.Duration;
 import java.util.concurrent.Executor;
 import org.jspecify.annotations.Nullable;
 
-/// Receives OTLP/HTTP requests (binary-protobuf bodies), dispatches them to per-signal sinks,
-/// and exposes a telemetry tap for live observation.
+/// Builds [Receiver]s that accept OTLP/HTTP requests (binary-protobuf bodies), dispatch them to
+/// per-signal sinks, and expose a telemetry tap for live observation.
 ///
 /// `.onTraces(...)`-style builder sugar attaches a single sink per signal; richer graphs
-/// (branches, fan-out) wire the sources via `Pipeline.from(receiver.traces()) ...`. Shared
-/// dispatch and lifecycle live in [AbstractOtlpReceiver].
+/// (branches, fan-out) wire the sources via `Pipeline.from(receiver.traces()) ...`. Call
+/// [Receiver#start()] on the built receiver to bind the transport.
 ///
-/// Exports are accepted by POST on the standard signal paths — `/v1/traces`, `/v1/metrics`,
-/// `/v1/logs`, and `/v1development/profiles`. The default bind is `localhost:4318` with plaintext.
-public final class OtlpHttpReceiver extends AbstractOtlpReceiver {
+/// Exports are accepted by POST on the standard signal paths (`/v1/traces`, `/v1/metrics`,
+/// `/v1/logs`, and `/v1development/profiles`). The default bind is `localhost:4318` with plaintext.
+public final class OtlpHttpReceiver {
 
     /// The conventional OTLP/HTTP port, used as the builder default (gRPC uses 4317).
     static final int DEFAULT_HTTP_PORT = 4318;
 
-    private OtlpHttpReceiver(Builder b) {
-        super("OTLP/HTTP", disp -> new HttpOtlpServer(b.config.build(), disp),
-                b.traces, b.metrics, b.logs, b.profiles);
-    }
+    private OtlpHttpReceiver() {}
 
     public static Builder builder() {
         return new Builder();
     }
 
-    /// Builds — but does not [#start()] — a receiver bound to `port` on the default loopback host.
-    public static OtlpHttpReceiver on(int port) {
+    /// Builds (but does not start) a receiver bound to `port` on the default loopback host.
+    public static Receiver on(int port) {
         return builder().port(port).build();
     }
 
-    /// Builds — but does not [#start()] — a receiver bound to `bindHost:port`.
-    public static OtlpHttpReceiver on(String bindHost, int port) {
+    /// Builds (but does not start) a receiver bound to `bindHost:port`.
+    public static Receiver on(String bindHost, int port) {
         return builder().endpoint(bindHost, port).build();
     }
 
-    @Override
-    public OtlpHttpReceiver start() {
-        startServer();
-        return this;
-    }
-
-    /// Builder for [OtlpHttpReceiver]. Defaults bind `localhost:4318` with plaintext transport.
+    /// Builder for an OTLP/HTTP [Receiver]. Defaults bind `localhost:4318` with plaintext transport.
     public static final class Builder {
 
         private ServerConfig.Builder config =
@@ -130,8 +122,9 @@ public final class OtlpHttpReceiver extends AbstractOtlpReceiver {
             return this;
         }
 
-        public OtlpHttpReceiver build() {
-            return new OtlpHttpReceiver(this);
+        public Receiver build() {
+            return new ServerReceiver("OTLP/HTTP", disp -> new HttpOtlpServer(config.build(), disp),
+                    traces, metrics, logs, profiles);
         }
     }
 }

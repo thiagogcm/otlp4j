@@ -11,9 +11,9 @@ import java.util.concurrent.CompletionStage;
 
 /// An ingest endpoint for OTLP telemetry.
 ///
-/// A receiver exposes one [Source] per signal — these are the typed attachment points the
-/// pipeline DSL consumes — plus a [TelemetryTap] for side-channel live streaming. Concrete
-/// receivers (`OtlpGrpcReceiver`, `OtlpHttpReceiver`, etc.) implement this interface.
+/// A receiver exposes one [Source] per signal (the typed attachment points the pipeline DSL
+/// consumes) plus a [TelemetryTap] for side-channel live streaming. Build one with
+/// `OtlpGrpcReceiver` / `OtlpHttpReceiver`.
 public interface Receiver extends Drainable {
 
     /// The trace ingest source.

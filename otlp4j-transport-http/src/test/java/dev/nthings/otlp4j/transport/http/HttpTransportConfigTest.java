@@ -8,6 +8,8 @@ import dev.nthings.otlp4j.testing.TransportFixtures;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
+import dev.nthings.otlp4j.exporter.OtlpExporter;
+import dev.nthings.otlp4j.receiver.Receiver;
 import dev.nthings.otlp4j.config.ClientConfig;
 import dev.nthings.otlp4j.config.Compression;
 import dev.nthings.otlp4j.config.ServerConfig;
@@ -38,7 +40,7 @@ import org.junit.jupiter.api.Timeout;
 class HttpTransportConfigTest {
 
     private final List<AutoCloseable> closeables = new ArrayList<>();
-    private final List<OtlpHttpReceiver> receivers = new ArrayList<>();
+    private final List<Receiver> receivers = new ArrayList<>();
     private HttpServer rawServer;
 
     @AfterEach
@@ -243,13 +245,13 @@ class HttpTransportConfigTest {
                 .isInstanceOf(CompletionException.class);
     }
 
-    private OtlpHttpReceiver startReceiver(ServerConfig config, OtlpHttpReceiver.Builder builder) {
+    private Receiver startReceiver(ServerConfig config, OtlpHttpReceiver.Builder builder) {
         var receiver = builder.transport(config).build();
         receivers.add(receiver);
         return receiver.start();
     }
 
-    private OtlpHttpExporter exporter(ClientConfig config) {
+    private OtlpExporter exporter(ClientConfig config) {
         var exporter = OtlpHttpExporter.builder().transport(config).build();
         closeables.add(exporter);
         return exporter;

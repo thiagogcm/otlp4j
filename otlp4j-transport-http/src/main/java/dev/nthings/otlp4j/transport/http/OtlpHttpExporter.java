@@ -4,42 +4,40 @@ import dev.nthings.otlp4j.config.ClientConfig;
 import dev.nthings.otlp4j.config.Compression;
 import dev.nthings.otlp4j.config.RetryPolicy;
 import dev.nthings.otlp4j.config.Tls;
-import dev.nthings.otlp4j.transport.spi.AbstractOtlpExporter;
+import dev.nthings.otlp4j.exporter.OtlpExporter;
+import dev.nthings.otlp4j.transport.spi.ClientExporter;
 import dev.nthings.otlp4j.transport.http.internal.HttpOtlpClient;
 import java.time.Duration;
 import java.util.Map;
 
-/// Exports typed telemetry to an OTLP/HTTP endpoint using binary-protobuf request bodies
-/// (`Content-Type: application/x-protobuf`).
+/// Builds [OtlpExporter]s that send typed telemetry to an OTLP/HTTP endpoint using binary-protobuf
+/// request bodies (`Content-Type: application/x-protobuf`).
 ///
-/// One instance handles all four signals via the per-signal facets ([#traces()], [#metrics()],
-/// [#logs()], [#profiles()]); lifecycle (flush, drain, shutdown) is inherited from
-/// [AbstractOtlpExporter].
+/// One exporter handles all four signals via the per-signal facets (`traces()`, `metrics()`,
+/// `logs()`, `profiles()`); flush/drain/shutdown live on the returned `OtlpExporter`.
 ///
-/// Each signal is POSTed to its standard path under the configured `host:port` —
-/// `/v1/traces`, `/v1/metrics`, `/v1/logs`, and `/v1development/profiles` — with the scheme chosen
+/// Each signal is POSTed to its standard path under the configured `host:port`
+/// (`/v1/traces`, `/v1/metrics`, `/v1/logs`, and `/v1development/profiles`), with the scheme chosen
 /// by [Tls] (`http` when disabled, otherwise `https`). The default endpoint is `localhost:4318`.
-public final class OtlpHttpExporter extends AbstractOtlpExporter {
+public final class OtlpHttpExporter {
 
     /// The conventional OTLP/HTTP port, used as the builder default (gRPC uses 4317).
     static final int DEFAULT_HTTP_PORT = 4318;
 
-    private OtlpHttpExporter(Builder b) {
-        super(new HttpOtlpClient(b.config.build()));
-    }
+    private OtlpHttpExporter() {}
 
     public static Builder builder() {
         return new Builder();
     }
 
-    /// Convenience constructor: build, connect, ready-to-use.
-    public static OtlpHttpExporter to(String host, int port) {
+    /// Convenience factory: build, connect, ready-to-use.
+    public static OtlpExporter to(String host, int port) {
         return builder().endpoint(host, port).build();
     }
 
     /// Builds from the standard `OTEL_EXPORTER_OTLP_*` variables (see [Builder#fromEnvironment()]),
     /// including any endpoint path prefix. Equivalent to `builder().fromEnvironment().build()`.
-    public static OtlpHttpExporter fromEnvironment() {
+    public static OtlpExporter fromEnvironment() {
         return builder().fromEnvironment().build();
     }
 
@@ -131,8 +129,8 @@ public final class OtlpHttpExporter extends AbstractOtlpExporter {
             return this;
         }
 
-        public OtlpHttpExporter build() {
-            return new OtlpHttpExporter(this);
+        public OtlpExporter build() {
+            return new ClientExporter(new HttpOtlpClient(config.build()), OtlpHttpExporter.class.getName());
         }
     }
 }

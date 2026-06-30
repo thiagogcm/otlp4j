@@ -3,6 +3,7 @@ package dev.nthings.otlp4j.transport.http;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.nthings.otlp4j.model.ConsumeResult;
+import dev.nthings.otlp4j.receiver.Receiver;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -21,7 +22,7 @@ import org.junit.jupiter.api.Timeout;
 @DisplayName("OTLP/HTTP server error mapping")
 class HttpServerErrorsTest {
 
-    private final List<OtlpHttpReceiver> receivers = new ArrayList<>();
+    private final List<Receiver> receivers = new ArrayList<>();
     private final HttpClient client = HttpClient.newHttpClient();
 
     @AfterEach

@@ -6,6 +6,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
+import dev.nthings.otlp4j.exporter.OtlpExporter;
+import dev.nthings.otlp4j.receiver.Receiver;
 import dev.nthings.otlp4j.config.ClientConfig;
 import dev.nthings.otlp4j.config.Compression;
 import dev.nthings.otlp4j.config.RetryPolicy;
@@ -53,7 +55,7 @@ class TransportConfigTest {
             Metadata.Key.of("grpc-encoding", Metadata.ASCII_STRING_MARSHALLER);
 
     private final List<AutoCloseable> closeables = new ArrayList<>();
-    private final List<OtlpGrpcReceiver> receivers = new ArrayList<>();
+    private final List<Receiver> receivers = new ArrayList<>();
     private Server rawServer;
 
     @AfterEach
@@ -290,13 +292,13 @@ class TransportConfigTest {
                 .build();
     }
 
-    private OtlpGrpcReceiver startReceiver(ServerConfig config, OtlpGrpcReceiver.Builder builder) {
+    private Receiver startReceiver(ServerConfig config, OtlpGrpcReceiver.Builder builder) {
         var receiver = builder.transport(config).build();
         receivers.add(receiver);
         return receiver.start();
     }
 
-    private OtlpGrpcExporter exporter(ClientConfig config) {
+    private OtlpExporter exporter(ClientConfig config) {
         var exporter = OtlpGrpcExporter.builder().transport(config).build();
         closeables.add(exporter);
         return exporter;

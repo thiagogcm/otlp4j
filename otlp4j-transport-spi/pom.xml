@@ -12,15 +12,10 @@
 
     <artifactId>otlp4j-transport-spi</artifactId>
     <name>otlp4j-transport-spi</name>
-    <description>Shared implementation machinery for the bundled OTLP transports: the abstract
-        exporter/receiver bases and the receiver-side dispatch and tap plumbing. JPMS module
-        dev.nthings.otlp4j.transport.spi — internal, read by the gRPC and HTTP transports, not part
-        of the supported public API.</description>
-
-    <properties>
-        <!-- Internal module: no Javadoc report (compiler doclint still runs). -->
-        <maven.javadoc.skip>true</maven.javadoc.skip>
-    </properties>
+    <description>Transport SPI for the bundled OTLP transports: the shared ClientExporter /
+        ServerReceiver composition primitives (each wrapping an OtlpClient / OtlpServer) and the
+        receiver-side dispatch and tap plumbing. JPMS module dev.nthings.otlp4j.transport.spi, a
+        low-level layer below the OtlpGrpc* / OtlpHttp* entry points.</description>
 
     <dependencies>
         <!-- api transitively supplies model + jspecify on the compile path, as the transports rely on. -->
@@ -44,10 +39,10 @@
 
     <build>
         <plugins>
-            <!-- Opt in to the shared coverage floor (parent POM). The abstract bases and the
-                 ReceiverTap fan-out need a concrete transport to exercise — covered by the transport
-                 suites + aggregate — so they're excluded; MulticastPublisher/SignalSource are floored
-                 by this module's own suites. -->
+            <!-- Opt in to the shared coverage floor (parent POM). The shared exporter/receiver impls
+                 and the ReceiverTap fan-out need a concrete transport to exercise (covered by the
+                 transport suites and aggregate), so they're excluded; MulticastPublisher/SignalSource
+                 are floored by this module's own suites. -->
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
@@ -60,8 +55,8 @@
                         </goals>
                         <configuration>
                             <excludes>
-                                <exclude>dev/nthings/otlp4j/transport/spi/AbstractOtlpExporter*</exclude>
-                                <exclude>dev/nthings/otlp4j/transport/spi/AbstractOtlpReceiver*</exclude>
+                                <exclude>dev/nthings/otlp4j/transport/spi/ClientExporter*</exclude>
+                                <exclude>dev/nthings/otlp4j/transport/spi/ServerReceiver*</exclude>
                                 <exclude>dev/nthings/otlp4j/transport/spi/ReceiverTap*</exclude>
                             </excludes>
                         </configuration>

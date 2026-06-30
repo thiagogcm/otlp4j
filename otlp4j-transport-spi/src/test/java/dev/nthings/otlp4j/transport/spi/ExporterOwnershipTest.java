@@ -18,7 +18,7 @@ class ExporterOwnershipTest {
     @Test
     void explicitOwnerDrainsExporter() {
         var client = new RecordingOtlpClient();
-        var exporter = new TestExporter(client);
+        var exporter = new ClientExporter(client, "test");
         var source = new SignalSource<>(TracesData.class);
 
         var sub = Pipeline.from(source).to(exporter.traces(), exporter);
@@ -31,7 +31,7 @@ class ExporterOwnershipTest {
     @DisplayName("facets are plain sinks without lifecycle interfaces")
     @Test
     void facetsArePlainSinks() {
-        var exporter = new TestExporter(new RecordingOtlpClient());
+        var exporter = new ClientExporter(new RecordingOtlpClient(), "test");
         var facet = exporter.traces();
 
         assertThat(facet).isNotInstanceOf(AutoCloseable.class);
@@ -42,8 +42,8 @@ class ExporterOwnershipTest {
     void fanOutWithExplicitOwnersDrainsEachExporter() {
         var clientA = new RecordingOtlpClient();
         var clientB = new RecordingOtlpClient();
-        var exporterA = new TestExporter(clientA);
-        var exporterB = new TestExporter(clientB);
+        var exporterA = new ClientExporter(clientA, "test");
+        var exporterB = new ClientExporter(clientB, "test");
         var source = new SignalSource<>(TracesData.class);
 
         var sub = Pipeline.from(source)

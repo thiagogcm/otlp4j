@@ -6,46 +6,39 @@ import dev.nthings.otlp4j.core.LogSink;
 import dev.nthings.otlp4j.core.MetricSink;
 import dev.nthings.otlp4j.core.ProfileSink;
 import dev.nthings.otlp4j.core.TraceSink;
-import dev.nthings.otlp4j.transport.spi.AbstractOtlpReceiver;
+import dev.nthings.otlp4j.receiver.Receiver;
+import dev.nthings.otlp4j.transport.spi.ServerReceiver;
 import dev.nthings.otlp4j.transport.grpc.internal.GrpcOtlpServer;
 import java.time.Duration;
 import java.util.concurrent.Executor;
 import org.jspecify.annotations.Nullable;
 
-/// Receives OTLP/gRPC requests, dispatches them to per-signal sinks, and exposes a telemetry tap
-/// for live observation.
+/// Builds [Receiver]s that accept OTLP/gRPC requests, dispatch them to per-signal sinks, and expose
+/// a telemetry tap for live observation.
 ///
 /// `.onTraces(...)`-style builder sugar attaches a single sink per signal; richer graphs
-/// (branches, fan-out) wire the sources via `Pipeline.from(receiver.traces()) ...`. Shared
-/// dispatch and lifecycle live in [AbstractOtlpReceiver]. The default bind is `localhost:4317`.
-public final class OtlpGrpcReceiver extends AbstractOtlpReceiver {
+/// (branches, fan-out) wire the sources via `Pipeline.from(receiver.traces()) ...`. Call
+/// [Receiver#start()] on the built receiver to bind the transport. The default bind is
+/// `localhost:4317`.
+public final class OtlpGrpcReceiver {
 
-    private OtlpGrpcReceiver(Builder b) {
-        super("OTLP/gRPC", disp -> new GrpcOtlpServer(b.config.build(), disp),
-                b.traces, b.metrics, b.logs, b.profiles);
-    }
+    private OtlpGrpcReceiver() {}
 
     public static Builder builder() {
         return new Builder();
     }
 
-    /// Builds (but does not [#start()]) a receiver bound to `port` on the default loopback host.
-    public static OtlpGrpcReceiver on(int port) {
+    /// Builds (but does not start) a receiver bound to `port` on the default loopback host.
+    public static Receiver on(int port) {
         return builder().port(port).build();
     }
 
-    /// Builds — but does not [#start()] — a receiver bound to `bindHost:port`.
-    public static OtlpGrpcReceiver on(String bindHost, int port) {
+    /// Builds (but does not start) a receiver bound to `bindHost:port`.
+    public static Receiver on(String bindHost, int port) {
         return builder().endpoint(bindHost, port).build();
     }
 
-    @Override
-    public OtlpGrpcReceiver start() {
-        startServer();
-        return this;
-    }
-
-    /// Builder for [OtlpGrpcReceiver]. Defaults bind `localhost:4317` with plaintext transport.
+    /// Builder for an OTLP/gRPC [Receiver]. Defaults bind `localhost:4317` with plaintext transport.
     public static final class Builder {
 
         private ServerConfig.Builder config = ServerConfig.builder();
@@ -128,8 +121,9 @@ public final class OtlpGrpcReceiver extends AbstractOtlpReceiver {
             return this;
         }
 
-        public OtlpGrpcReceiver build() {
-            return new OtlpGrpcReceiver(this);
+        public Receiver build() {
+            return new ServerReceiver("OTLP/gRPC", disp -> new GrpcOtlpServer(config.build(), disp),
+                    traces, metrics, logs, profiles);
         }
     }
 }

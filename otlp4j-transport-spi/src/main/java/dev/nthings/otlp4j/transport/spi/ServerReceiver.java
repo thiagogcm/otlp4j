@@ -23,14 +23,13 @@ import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/// Shared machinery for the OTLP receivers: per-signal [Source]s, the live [TelemetryTap], and the
-/// dispatch wiring that feeds decoded batches to subscribers while mirroring them to the tap.
-///
-/// A concrete subclass (in a transport module) supplies a factory turning the [Dispatchers] built
-/// here into its transport [OtlpServer], plus a display name for logs; the rest lives here.
-public abstract class AbstractOtlpReceiver implements Receiver {
+/// Shared [Receiver] implementation: backed by a transport [OtlpServer], exposes per-signal
+/// [Source]s and a live [TelemetryTap], and dispatches decoded batches to subscribers while
+/// mirroring them to the tap. The gRPC and HTTP entry points compose one of these, supplying a
+/// factory from [Dispatchers] to their [OtlpServer] plus a display name for logs.
+public final class ServerReceiver implements Receiver {
 
-    private static final Logger log = LoggerFactory.getLogger(AbstractOtlpReceiver.class);
+    private static final Logger log = LoggerFactory.getLogger(ServerReceiver.class);
 
     private final SignalSource<TracesData>    traces   = new SignalSource<>(TracesData.class);
     private final SignalSource<MetricsData>  metrics  = new SignalSource<>(MetricsData.class);
@@ -42,7 +41,7 @@ public abstract class AbstractOtlpReceiver implements Receiver {
 
     /// Builds the dispatch wiring, then asks `serverFactory` for the transport server bound to it.
     /// `transportName` (e.g. `OTLP/gRPC`) is used only for log messages.
-    protected AbstractOtlpReceiver(
+    public ServerReceiver(
             String transportName,
             Function<Dispatchers, OtlpServer> serverFactory,
             @Nullable TraceSink onTraces,
@@ -63,45 +62,46 @@ public abstract class AbstractOtlpReceiver implements Receiver {
     }
 
     @Override
-    public final Source<TracesData> traces() { return traces; }
+    public Source<TracesData> traces() { return traces; }
 
     @Override
-    public final Source<MetricsData> metrics() { return metrics; }
+    public Source<MetricsData> metrics() { return metrics; }
 
     @Override
-    public final Source<LogsData> logs() { return logs; }
+    public Source<LogsData> logs() { return logs; }
 
     @Override
-    public final Source<ProfilesData> profiles() { return profiles; }
+    public Source<ProfilesData> profiles() { return profiles; }
 
     @Override
-    public final TelemetryTap tap() { return tap; }
+    public TelemetryTap tap() { return tap; }
 
-    /// Starts the underlying transport, throwing [UncheckedIOException] if the bind fails. Concrete
-    /// receivers call this from their covariant [#start()] override and return `this`.
-    protected final void startServer() {
+    @Override
+    public Receiver start() {
+        // Starts the underlying transport, throwing UncheckedIOException if the bind fails.
         try {
             server.start();
         } catch (IOException e) {
             throw new UncheckedIOException("failed to start " + transportName + " receiver", e);
         }
         log.debug("{} receiver started on port {}", transportName, server.port());
+        return this;
     }
 
     @Override
-    public final int port() {
+    public int port() {
         return server.port();
     }
 
     @Override
-    public final CompletionStage<Void> shutdown(Duration timeout) {
+    public CompletionStage<Void> shutdown(Duration timeout) {
         // Graceful: drain the server first, then close the tap. Closing it up front makes
         // MulticastPublisher.publish early-return, dropping telemetry accepted during the drain.
         return server.shutdown(timeout).whenComplete((v, t) -> tap.close());
     }
 
     @Override
-    public final CompletionStage<Void> shutdownNow() {
+    public CompletionStage<Void> shutdownNow() {
         // Forceful: nothing further will be accepted, so detach subscribers immediately.
         tap.close();
         return server.shutdownNow();

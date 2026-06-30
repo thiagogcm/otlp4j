@@ -4,34 +4,33 @@ import dev.nthings.otlp4j.config.ClientConfig;
 import dev.nthings.otlp4j.config.Compression;
 import dev.nthings.otlp4j.config.RetryPolicy;
 import dev.nthings.otlp4j.config.Tls;
-import dev.nthings.otlp4j.transport.spi.AbstractOtlpExporter;
+import dev.nthings.otlp4j.exporter.OtlpExporter;
+import dev.nthings.otlp4j.transport.spi.ClientExporter;
 import dev.nthings.otlp4j.transport.grpc.internal.GrpcOtlpClient;
 import java.time.Duration;
 import java.util.Map;
 
-/// Exports typed telemetry to an OTLP/gRPC endpoint.
+/// Builds [OtlpExporter]s that send typed telemetry to an OTLP/gRPC endpoint.
 ///
-/// One instance handles all four signals via the per-signal facets ([#traces()], [#metrics()],
-/// [#logs()], [#profiles()]); lifecycle (flush, drain, shutdown) is inherited from
-/// [AbstractOtlpExporter]. The default endpoint is `localhost:4317`.
-public final class OtlpGrpcExporter extends AbstractOtlpExporter {
+/// One exporter handles all four signals via the per-signal facets (`traces()`, `metrics()`,
+/// `logs()`, `profiles()`); flush/drain/shutdown live on the returned `OtlpExporter`. The default
+/// endpoint is `localhost:4317`.
+public final class OtlpGrpcExporter {
 
-    private OtlpGrpcExporter(Builder b) {
-        super(new GrpcOtlpClient(b.config.build()));
-    }
+    private OtlpGrpcExporter() {}
 
     public static Builder builder() {
         return new Builder();
     }
 
-    /// Convenience constructor: build, connect, ready-to-use.
-    public static OtlpGrpcExporter to(String host, int port) {
+    /// Convenience factory: build, connect, ready-to-use.
+    public static OtlpExporter to(String host, int port) {
         return builder().endpoint(host, port).build();
     }
 
     /// Builds from the standard `OTEL_EXPORTER_OTLP_*` variables (see [Builder#fromEnvironment()]).
     /// Equivalent to `builder().fromEnvironment().build()`.
-    public static OtlpGrpcExporter fromEnvironment() {
+    public static OtlpExporter fromEnvironment() {
         return builder().fromEnvironment().build();
     }
 
@@ -112,8 +111,8 @@ public final class OtlpGrpcExporter extends AbstractOtlpExporter {
             return this;
         }
 
-        public OtlpGrpcExporter build() {
-            return new OtlpGrpcExporter(this);
+        public OtlpExporter build() {
+            return new ClientExporter(new GrpcOtlpClient(config.build()), OtlpGrpcExporter.class.getName());
         }
     }
 }

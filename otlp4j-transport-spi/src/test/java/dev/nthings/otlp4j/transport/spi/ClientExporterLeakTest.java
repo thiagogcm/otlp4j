@@ -2,7 +2,7 @@ package dev.nthings.otlp4j.transport.spi;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import dev.nthings.otlp4j.transport.spi.AbstractOtlpExporter.LeakWatch;
+import dev.nthings.otlp4j.transport.spi.ClientExporter.LeakWatch;
 import java.util.ArrayList;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -14,7 +14,7 @@ import org.junit.jupiter.api.Test;
 /// Verifies the garbage-collection leak backstop: an exporter dropped without `shutdown()` (or
 /// `close()`) reports a leak, while one that was shut down stays quiet.
 @DisplayName("Exporter leak detection")
-class AbstractOtlpExporterLeakTest {
+class ClientExporterLeakTest {
 
     @DisplayName("warns when an un-shut-down exporter is collected")
     @Test
@@ -68,6 +68,6 @@ class AbstractOtlpExporterLeakTest {
 
     /// Builds an exporter and keeps no reference to it, so it is collectable once this returns.
     private static void abandonExporter(Consumer<String> reporter) {
-        new TestExporter(new RecordingOtlpClient(), reporter);
+        new ClientExporter(new RecordingOtlpClient(), "com.example.DemoExporter", reporter);
     }
 }

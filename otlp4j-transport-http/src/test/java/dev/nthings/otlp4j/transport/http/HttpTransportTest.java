@@ -10,6 +10,8 @@ import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
+import dev.nthings.otlp4j.exporter.OtlpExporter;
+import dev.nthings.otlp4j.receiver.Receiver;
 import dev.nthings.otlp4j.pipeline.Pipeline;
 import dev.nthings.otlp4j.processor.Transforms;
 import dev.nthings.otlp4j.config.Compression;
@@ -33,7 +35,7 @@ import org.junit.jupiter.api.Timeout;
 @DisplayName("OTLP/HTTP transport")
 class HttpTransportTest {
 
-    private final List<OtlpHttpReceiver> receivers = new ArrayList<>();
+    private final List<Receiver> receivers = new ArrayList<>();
     private final List<AutoCloseable> closeables = new ArrayList<>();
 
     @AfterEach
@@ -344,13 +346,13 @@ class HttpTransportTest {
         assertThat(received.get()).isEqualTo(sent);
     }
 
-    private OtlpHttpReceiver startReceiver(OtlpHttpReceiver.Builder builder) {
+    private Receiver startReceiver(OtlpHttpReceiver.Builder builder) {
         var receiver = builder.ephemeralPort().build();
         receivers.add(receiver);
         return receiver.start();
     }
 
-    private OtlpHttpExporter exporterTo(OtlpHttpReceiver receiver) {
+    private OtlpExporter exporterTo(Receiver receiver) {
         var exporter = OtlpHttpExporter.builder()
                 .endpoint("localhost", receiver.port())
                 .timeout(Duration.ofSeconds(5))

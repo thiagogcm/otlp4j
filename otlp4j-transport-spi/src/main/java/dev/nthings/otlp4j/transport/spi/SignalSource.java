@@ -18,10 +18,14 @@ import org.jspecify.annotations.Nullable;
 final class SignalSource<T> implements Source<T> {
 
     private final Class<T> signalType;
+    private final ConsumeResult<T> noConsumerResult;
     private final AtomicReference<@Nullable Sink<? super T>> attached = new AtomicReference<>();
 
     public SignalSource(Class<T> signalType) {
         this.signalType = Objects.requireNonNull(signalType, "signalType");
+        this.noConsumerResult = ConsumeResult.retryableRejected(
+                "no consumer attached for " + signalType.getSimpleName()
+                        + "; attach a sink or call discard() to accept and drop");
     }
 
     @Override
@@ -46,9 +50,7 @@ final class SignalSource<T> implements Source<T> {
     public CompletionStage<ConsumeResult<T>> dispatch(T batch) {
         @Nullable Sink<? super T> sink = attached.get();
         if (sink == null) {
-            return CompletableFuture.completedFuture(ConsumeResult.retryableRejected(
-                    "no consumer attached for " + signalType.getSimpleName()
-                            + "; attach a sink or call discard() to accept and drop"));
+            return CompletableFuture.completedFuture(noConsumerResult);
         }
         @SuppressWarnings("unchecked")
         var typed = (Sink<T>) sink;

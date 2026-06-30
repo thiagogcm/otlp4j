@@ -10,6 +10,8 @@ import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
+import dev.nthings.otlp4j.exporter.OtlpExporter;
+import dev.nthings.otlp4j.receiver.Receiver;
 import dev.nthings.otlp4j.pipeline.Pipeline;
 import dev.nthings.otlp4j.processor.Transforms;
 import dev.nthings.otlp4j.config.Compression;
@@ -32,7 +34,7 @@ import org.junit.jupiter.api.Timeout;
 @DisplayName("OTLP/gRPC transport")
 class GrpcTransportTest {
 
-    private final List<OtlpGrpcReceiver> receivers = new ArrayList<>();
+    private final List<Receiver> receivers = new ArrayList<>();
     private final List<AutoCloseable> closeables = new ArrayList<>();
 
     @AfterEach
@@ -269,13 +271,13 @@ class GrpcTransportTest {
         assertThat(received.get()).isEqualTo(sent);
     }
 
-    private OtlpGrpcReceiver startReceiver(OtlpGrpcReceiver.Builder builder) {
+    private Receiver startReceiver(OtlpGrpcReceiver.Builder builder) {
         var receiver = builder.ephemeralPort().build();
         receivers.add(receiver);
         return receiver.start();
     }
 
-    private OtlpGrpcExporter exporterTo(OtlpGrpcReceiver receiver) {
+    private OtlpExporter exporterTo(Receiver receiver) {
         var exporter = OtlpGrpcExporter.builder()
                 .endpoint("localhost", receiver.port())
                 .timeout(Duration.ofSeconds(5))
