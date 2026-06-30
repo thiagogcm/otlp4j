@@ -1,12 +1,12 @@
 /// The high-level, user-facing otlp4j API: typed model, pipeline DSL, exporter/receiver abstractions,
-/// configuration, and the transport SPI contracts — no generated proto code or gRPC. The protocol
-/// modules (`otlp4j-transport-grpc`/`-http`) supply the concrete exporters/receivers.
+/// configuration, and the transport SPI contracts - no generated proto code or gRPC. The protocol
+/// modules (otlp4j-transport-grpc/-http) supply the concrete exporters/receivers.
 module dev.nthings.otlp4j.api {
-    // Re-export the model so api signatures expose model types without an explicit `requires`.
+    // Re-export the model so api signatures expose model types without an explicit requires.
     requires transitive dev.nthings.otlp4j.model;
     requires static transitive org.jspecify;
 
-    // Logging facade; not transitive — consumers bring their own backend.
+    // Logging facade; not transitive - consumers bring their own backend.
     requires org.slf4j;
 
     exports dev.nthings.otlp4j.core;

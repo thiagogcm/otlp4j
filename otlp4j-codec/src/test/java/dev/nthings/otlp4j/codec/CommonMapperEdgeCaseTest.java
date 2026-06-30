@@ -9,7 +9,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /// White-box / bug-hunt coverage for [CommonMapper] and the unsigned-int flag handling shared by
-/// the trace, metrics and logs mappers. Each test pins the *actual* observed behaviour — the
+/// the trace, metrics and logs mappers. Each test pins the actual observed behaviour - the
 /// report flags which of these are suspected real production bugs and which are intentional.
 @DisplayName("CommonMapper edge cases")
 class CommonMapperEdgeCaseTest {

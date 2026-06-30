@@ -15,29 +15,28 @@ import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 
-/// Maps OTLP common/resource types between the generated proto layer and the pure domain model,
-/// in both directions.
+/// Maps OTLP common/resource types between proto and domain, in both directions.
 ///
-/// **Internal.** Part of the transport layer; not public API. The generated proto
-/// classes are confined to this package and never escape into the domain or high-level layers.
+/// Internal. Part of the transport layer; not public API. Generated proto
+/// classes are confined to this package and never escape into domain or high-level layers.
 final class CommonMapper {
 
     private static final HexFormat HEX = HexFormat.of();
 
     private CommonMapper() {}
 
-    // --- proto -> domain ---------------------------------------------------------------------
+    // --- proto -> domain ---
 
-    /// Renders an id (trace id, span id, profile id) as a lowercase-hex string.
+    /// Renders a trace/span/profile ID as lowercase-hex.
     public static String hex(ByteString bytes) {
         return bytes.isEmpty() ? "" : HEX.formatHex(bytes.toByteArray());
     }
 
-    /// Interprets an OTLP export response's partial-success block as a [ConsumeResult]. Shared by
-    /// all four signal mappers, which differ only in the `rejected_*` accessor they read.
+    /// Interprets an OTLP export partial-success as a [ConsumeResult]. Shared by
+    /// all four signal mappers.
     ///
-    /// A zero rejected count with a non-empty message is a whole-batch [ConsumeResult.Rejected], not a
-    /// partial success; a positive count is a [ConsumeResult.Partial]; anything else is accepted.
+    /// Zero rejected count with non-empty message is [ConsumeResult.Rejected]; positive
+    /// count is [ConsumeResult.Partial]; anything else is accepted.
     public static <T> ConsumeResult<T> result(
             boolean hasPartialSuccess, long rejectedItems, String errorMessage) {
         if (!hasPartialSuccess || (rejectedItems == 0 && errorMessage.isEmpty())) {
@@ -84,9 +83,8 @@ final class CommonMapper {
                 yield AttributeValue.of(map);
             }
             // string_value_strindex is a profiling-only reference into ProfilesDictionary.
-            // Forwarded profiles round-trip losslessly via opaque payload passthrough, but the
-            // modeled attribute view still surfaces this as empty because the dictionary is not
-            // resolved into modeled attributes.
+            // Forwarded profiles round-trip losslessly via opaque payload passthrough, but
+            // modeled attributes surface this as empty because the dictionary is unresolved.
             case STRING_VALUE_STRINDEX, VALUE_NOT_SET -> AttributeValue.empty();
         };
     }
@@ -105,9 +103,9 @@ final class CommonMapper {
                 scope.getDroppedAttributesCount());
     }
 
-    // --- domain -> proto ---------------------------------------------------------------------
+    // --- domain -> proto ---
 
-    /// Parses a lowercase-hex id back into its wire bytes; an empty string yields empty bytes.
+    /// Parses a lowercase-hex ID back into wire bytes. Empty string yields empty bytes.
     public static ByteString bytes(String hex) {
         return hex.isEmpty() ? ByteString.EMPTY : ByteString.copyFrom(HEX.parseHex(hex));
     }

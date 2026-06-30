@@ -3,9 +3,9 @@ package dev.nthings.otlp4j.model;
 import java.util.List;
 import java.util.Objects;
 
-/// A named metric and its time series. Mirrors `opentelemetry.proto.metrics.v1.Metric`.
+/// A named metric and its time series. Mirrors the [Metric] proto message.
 ///
-/// The `data` field is a non-null [sealed type][Data]; the empty [NoData] variant models the
+/// The `data` field is a non-null sealed [Data] type; the empty [NoData] variant models the
 /// wire `DATA_NOT_SET` form (round-tripped faithfully), so [#data()] is never null.
 public record Metric(String name, String description, String unit, Data data, Attributes metadata) {
 
@@ -21,7 +21,7 @@ public record Metric(String name, String description, String unit, Data data, At
         return new Builder();
     }
 
-    /// Returns a [Builder] pre-populated with this metric's fields, for copy-modify transforms.
+    /// Returns a pre-populated [Builder] for copy-modify transforms.
     public Builder toBuilder() {
         return new Builder()
                 .name(name)
@@ -148,8 +148,8 @@ public record Metric(String name, String description, String unit, Data data, At
         }
     }
 
-    /// Fluent builder for [Metric]. `name`/`description`/`unit` default to empty strings,
-    /// `metadata` to [Attributes#empty()], and `data` to the empty [NoData] form.
+    /// Fluent builder for [Metric]. Fields default to empty/zero; `data` defaults to
+    /// the empty [NoData] form.
     public static final class Builder {
 
         private String name = "";

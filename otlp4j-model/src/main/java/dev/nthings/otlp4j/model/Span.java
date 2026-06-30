@@ -4,7 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
-/// A single operation within a trace. Mirrors `opentelemetry.proto.trace.v1.Span`.
+/// A single operation within a trace. Mirrors the [Span] proto message.
 ///
 /// Trace and span identifiers are lowercase-hex strings. Prefer [#builder()] over the positional
 /// constructor.
@@ -27,7 +27,7 @@ public record Span(
         Status status) {
 
     public Span {
-        // Validate ids, flags, and nulls at construction, not later on the async export thread.
+        // Validate at construction, not on the export thread.
         traceId = Ids.traceId(traceId);
         spanId = Ids.spanId(spanId);
         parentSpanId = Ids.parentSpanId(parentSpanId);
@@ -45,7 +45,7 @@ public record Span(
         return new Builder();
     }
 
-    /// Returns a [Builder] pre-populated with this span's fields, for copy-modify transforms.
+    /// Returns a pre-populated [Builder] for copy-modify transforms.
     public Builder toBuilder() {
         return new Builder()
                 .traceId(traceId)
@@ -226,7 +226,6 @@ public record Span(
         }
 
         public Builder events(List<Event> events) {
-            // Null-check before clear() so a bad arg can't half-mutate the builder.
             Objects.requireNonNull(events, "events");
             this.events.clear();
             this.events.addAll(events);

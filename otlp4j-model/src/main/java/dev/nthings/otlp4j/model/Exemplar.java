@@ -4,13 +4,13 @@ import java.util.Objects;
 import org.jspecify.annotations.Nullable;
 
 /// An exemplar attached to a metric data point. Mirrors
-/// `opentelemetry.proto.metrics.v1.Exemplar`.
+/// the [Exemplar] proto message.
 ///
 /// An exemplar links a single metric measurement to the trace/span it was recorded under,
 /// letting a backend pivot from an aggregate series to a concrete sampled request.
 /// `filteredAttributes` are the key/values the aggregator dropped when collapsing the
 /// measurement into its series but kept on the exemplar. `spanId`/`traceId` are
-/// lowercase-hex strings — empty when the measurement was not recorded inside a sampled
+/// lowercase-hex strings - empty when the measurement was not recorded inside a sampled
 /// trace, and rejected at construction time if not valid hex. `value` reuses
 /// [NumberPoint.Value]; it may be null for an invalid exemplar whose wire `value` oneof
 /// recognized neither an integer nor a double.
@@ -36,7 +36,7 @@ public record Exemplar(
         return new Builder();
     }
 
-    /// Returns a [Builder] pre-populated with this exemplar's fields, for copy-modify transforms.
+    /// Returns a pre-populated [Builder] for copy-modify transforms.
     public Builder toBuilder() {
         return new Builder()
                 .filteredAttributes(filteredAttributes)
@@ -46,8 +46,8 @@ public record Exemplar(
                 .traceId(traceId);
     }
 
-    /// Fluent builder for [Exemplar]. Fields default to empty/zero; `value` defaults to `null`,
-    /// preserving the round-trip of an exemplar whose wire value oneof was unset.
+    /// Fluent builder for [Exemplar]. Fields default to empty/zero; `value` defaults to
+    /// `null` (wire value oneof was unset).
     public static final class Builder {
 
         private Attributes filteredAttributes = Attributes.empty();

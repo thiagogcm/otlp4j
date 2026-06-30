@@ -7,7 +7,7 @@ import dev.nthings.otlp4j.core.TraceSink;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.TracesData;
 
-/// Factories for the built-in count sinks; no-policy overloads default to [FailurePolicy#BEST_EFFORT].
+/// Factories for built-in count sinks; overloads default to [FailurePolicy#BEST_EFFORT].
 public final class Connectors {
 
     private Connectors() {}

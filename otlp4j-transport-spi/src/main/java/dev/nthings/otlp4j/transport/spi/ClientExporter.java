@@ -19,16 +19,16 @@ import java.util.function.Consumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/// Shared [OtlpExporter] implementation: fans all four signal facets to a single [OtlpClient] and
-/// owns the shutdown lifecycle. The gRPC and HTTP entry points compose one of these.
+/// Shared [OtlpExporter] implementation that fans all four signal facets to a single [OtlpClient]
+/// and manages shutdown lifecycle. Used by gRPC and HTTP entry points.
 ///
-/// As a backstop, an exporter garbage-collected without a `shutdown()`/`close()` logs a warning
-/// rather than silently leaking its client channel.
+/// An exporter garbage-collected without [ClientExporter#shutdown] logs a warning
+/// instead of silently leaking its client channel.
 public final class ClientExporter implements OtlpExporter {
 
     private static final Logger log = LoggerFactory.getLogger(ClientExporter.class);
 
-    /// Warns when an exporter is dropped without `shutdown()`; see `LeakWatch`.
+    /// Warns when an exporter is dropped without [ClientExporter#shutdown].
     private static final Cleaner CLEANER = Cleaner.create();
 
     private static final Consumer<String> DEFAULT_REPORTER = log::warn;
@@ -45,7 +45,7 @@ public final class ClientExporter implements OtlpExporter {
     private final LeakWatch leakWatch;
     private final Cleaner.Cleanable cleanable;
 
-    /// Composes an exporter over `client`; `exporterType` labels it in the leak warning.
+    /// Creates an exporter over `client`. `exporterType` labels it in the leak warning.
     public ClientExporter(OtlpClient client, String exporterType) {
         this(client, exporterType, DEFAULT_REPORTER);
     }
@@ -108,8 +108,8 @@ public final class ClientExporter implements OtlpExporter {
         });
     }
 
-    /// Cleaner action that warns when the exporter became unreachable without being shut down. Holds
-    /// no reference back to the exporter, which would otherwise keep it reachable forever.
+    /// [Cleaner] action that warns when the exporter is garbage-collected without [ClientExporter#shutdown].
+    /// Holds no reference back to the exporter.
     static final class LeakWatch implements Runnable {
 
         private final String exporterType;

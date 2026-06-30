@@ -12,9 +12,8 @@ import java.util.Map;
 
 /// Builds [OtlpExporter]s that send typed telemetry to an OTLP/gRPC endpoint.
 ///
-/// One exporter handles all four signals via the per-signal facets (`traces()`, `metrics()`,
-/// `logs()`, `profiles()`); flush/drain/shutdown live on the returned `OtlpExporter`. The default
-/// endpoint is `localhost:4317`.
+/// One exporter handles all four signals via per-signal facets; flush/drain/shutdown live on the
+/// returned [OtlpExporter]. The default endpoint is `localhost:4317`.
 public final class OtlpGrpcExporter {
 
     private OtlpGrpcExporter() {}
@@ -23,7 +22,7 @@ public final class OtlpGrpcExporter {
         return new Builder();
     }
 
-    /// Convenience factory: build, connect, ready-to-use.
+    /// Convenience factory: builds and returns a ready-to-use [OtlpExporter].
     public static OtlpExporter to(String host, int port) {
         return builder().endpoint(host, port).build();
     }
@@ -74,8 +73,8 @@ public final class OtlpGrpcExporter {
             return this;
         }
 
-        /// Selects the client TLS mode (e.g. [Tls#systemTrust()] or [Tls#custom]). Defaults to
-        /// plaintext.
+    /// Selects the client TLS mode (e.g. [Tls#systemTrust()] or [Tls.Custom]). Defaults to
+    /// no TLS (plaintext).
         public Builder tls(Tls tls) {
             config.tls(tls);
             return this;

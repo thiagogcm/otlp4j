@@ -7,27 +7,28 @@ import java.util.concurrent.CompletionStage;
 /// A handle that owns a wired-up pipeline graph.
 ///
 /// Closing a subscription detaches the consumer from its source and drains
-/// lifecycle resources registered explicitly via `Stage.owns(...)` or the
-/// two-arg `Stage.to(terminal, owner)`. Terminals that implement
-/// [AutoCloseable] (such as a directly attached
-/// [dev.nthings.otlp4j.processor.BatchingProcessor]) are also collected
-/// automatically.
+/// lifecycle resources registered explicitly via [Pipeline.Stage#owns] or the
+/// two-arg [Pipeline.Stage#to]. Terminals that implement [AutoCloseable] (such
+/// as a directly attached [BatchingProcessor]) are also collected automatically.
 ///
 /// As a [Drainable], [#close()] performs a best-effort synchronous drain with a
 /// default timeout and [#shutdown(Duration)] returns a stage that completes when
-/// the drain finishes or the timeout elapses. As a
-/// [ForceFlushable], [#forceFlush(Duration)] pushes buffered batches downstream
-/// without tearing the subscription down.
+/// the drain finishes or the timeout elapses. As a [ForceFlushable],
+/// [#forceFlush(Duration)] pushes buffered batches downstream without tearing the
+/// subscription down.
 public interface PipelineHandle extends Drainable, ForceFlushable {
 
-    /// Drains all in-flight batches and releases resources, returning a stage that
-    /// completes successfully on a clean drain and exceptionally if the
-    /// timeout elapses.
+    /// Drains in-flight batches and releases resources.
+    ///
+    /// @param timeout the drain deadline
+    /// @return a stage that completes on clean drain or exceptionally on timeout
     @Override
     CompletionStage<Void> shutdown(Duration timeout);
 
-    /// Flushes any buffered batches downstream without tearing the
-    /// subscription down.
+    /// Flushes buffered batches downstream without tearing the subscription down.
+    ///
+    /// @param timeout the flush deadline
+    /// @return a stage that completes when flushed
     @Override
     default CompletionStage<Void> forceFlush(Duration timeout) {
         return CompletableFuture.completedFuture(null);

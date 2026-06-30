@@ -5,7 +5,7 @@ import java.util.List;
 import java.util.Objects;
 
 /// A data point for a [Metric.Summary]: a set of quantile values. Mirrors
-/// `opentelemetry.proto.metrics.v1.SummaryDataPoint`.
+/// the [Summary] proto message.
 public record SummaryPoint(
         Attributes attributes,
         long startEpochNanos,
@@ -35,7 +35,7 @@ public record SummaryPoint(
         return new Builder();
     }
 
-    /// Returns a [Builder] pre-populated with this point's fields, for copy-modify transforms.
+    /// Returns a pre-populated [Builder] for copy-modify transforms.
     public Builder toBuilder() {
         return new Builder()
                 .attributes(attributes)
@@ -86,7 +86,6 @@ public record SummaryPoint(
         }
 
         public Builder quantileValues(List<Quantile> quantileValues) {
-            // Null-check before clear() so a bad arg can't half-mutate the builder.
             Objects.requireNonNull(quantileValues, "quantileValues");
             this.quantileValues.clear();
             this.quantileValues.addAll(quantileValues);

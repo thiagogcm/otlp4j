@@ -11,16 +11,16 @@ import io.opentelemetry.proto.profiles.v1development.ResourceProfiles;
 import io.opentelemetry.proto.profiles.v1development.ScopeProfiles;
 import java.util.ArrayList;
 
-/// Maps profiles between generated proto types and [ProfilesData].
+/// Maps profiles between proto and [ProfilesData].
 ///
-/// Profiles are `v1development`; only top-level metadata is modeled for inspection, but forwarding
-/// is lossless via opaque payload passthrough: the shared dictionary and each profile's raw bytes
-/// are captured verbatim so domain-to-proto re-emits byte-identical output.
+/// Profiles use the `v1development` spec. Only top-level metadata is modeled for inspection;
+/// forwarding is lossless via opaque payload passthrough so domain-to-proto re-emits
+/// byte-identical output.
 public final class ProfilesMapper {
 
     private ProfilesMapper() {}
 
-    // --- proto -> domain ---------------------------------------------------------------------
+    // --- proto -> domain ---
 
     public static ProfilesData toDomain(ExportProfilesServiceRequest request) {
         var resourceProfiles =
@@ -74,7 +74,7 @@ public final class ProfilesMapper {
                 response.hasPartialSuccess(), partial.getRejectedProfiles(), partial.getErrorMessage());
     }
 
-    // --- domain -> proto ---------------------------------------------------------------------
+    // --- domain -> proto ---
 
     public static ExportProfilesServiceRequest toProto(ProfilesData profiles) {
         var request = ExportProfilesServiceRequest.newBuilder();

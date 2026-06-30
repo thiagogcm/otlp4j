@@ -1,4 +1,4 @@
-/// The OTLP/gRPC transport: `OtlpGrpcExporter` and `OtlpGrpcReceiver`, built on
+/// The OTLP/gRPC transport: [OtlpGrpcExporter] and [OtlpGrpcReceiver], built on
 /// gRPC + Netty. The only module that pulls in `grpc-netty`, so an HTTP-only
 /// deployment never carries Netty.
 module dev.nthings.otlp4j.transport.grpc {

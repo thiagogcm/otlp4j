@@ -29,19 +29,14 @@ import java.util.zip.GZIPInputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/// Registers the four OTLP/HTTP collector endpoints on a [HttpServer], decoding
-/// binary-protobuf export requests, dispatching to the per-signal handlers, and
-/// encoding the [ConsumeResult] back.
+/// Registers the four OTLP/HTTP collector endpoints on an [HttpServer], decoding
+/// binary-protobuf export requests and dispatching to per-signal handlers.
 ///
-/// The response contract mirrors the gRPC adapters (see [GrpcServiceAdapters]):
+/// The response contract mirrors the gRPC adapters:
 /// - [ConsumeResult.Accepted] / [ConsumeResult.Partial] -> `200` with the
-///   protobuf `Export*ServiceResponse` (partial success carries the rejected
-///   count and message).
-/// - A whole-batch [ConsumeResult.Rejected] is a delivery failure, never
-///   `rejected_*=0`: no cause -> `503` (transient, retryable by a well-behaved
-///   client), with cause -> `500` (permanent).
-/// - A malformed body -> `400`; an oversized body -> `413`; a non-POST -> `405`;
-///   a dispatcher failure -> `500`.
+///   protobuf response (partial success carries rejected count and message).
+/// - [ConsumeResult.Rejected] without cause -> `503` (retryable); with cause -> `500` (permanent).
+/// - Malformed body -> `400`, oversized -> `413`, non-POST -> `405`, dispatcher error -> `500`.
 final class HttpExchangeHandlers {
 
     private static final Logger log = LoggerFactory.getLogger(HttpExchangeHandlers.class);
@@ -131,9 +126,8 @@ final class HttpExchangeHandlers {
         }
     }
 
-    /// Reads the request body, transparently inflating a `Content-Encoding: gzip`
-    /// stream, and caps it at `maxBytes` decoded to guard against memory-exhausting
-    /// oversized requests.
+    /// Reads the request body, transparently inflating `Content-Encoding: gzip`,
+    /// capped at `maxBytes` decoded.
     private static byte[] readBody(HttpExchange exchange, int maxBytes) throws IOException {
         var encoding = exchange.getRequestHeaders().getFirst("Content-Encoding");
         InputStream in = exchange.getRequestBody();
@@ -172,8 +166,7 @@ final class HttpExchangeHandlers {
         }
     }
 
-    /// Signals that a request body exceeded the configured decoded-size cap, mapped
-    /// to a `413`.
+    /// Signals that a request body exceeded the decoded-size cap, mapped to `413`.
     private static final class PayloadTooLargeException extends IOException {
         PayloadTooLargeException(String message) {
             super(message);

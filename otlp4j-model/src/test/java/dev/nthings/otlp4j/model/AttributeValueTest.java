@@ -17,12 +17,12 @@ import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/// Unit tests for [AttributeValue] — every variant, factory and the defensive-copy contract of
+/// Unit tests for [AttributeValue] - every variant, factory and the defensive-copy contract of
 /// [BytesValue], plus nested-structure deep equality.
 @DisplayName("AttributeValue")
 class AttributeValueTest {
 
-    // --- BytesValue: the priority — defensive copying both ways -----------------------------
+    // --- BytesValue: the priority - defensive copying both ways -----------------------------
 
     @DisplayName("BytesValue defensively copies the constructor input")
     @Test

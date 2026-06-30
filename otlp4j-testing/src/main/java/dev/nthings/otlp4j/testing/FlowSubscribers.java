@@ -8,12 +8,12 @@ public final class FlowSubscribers {
 
     private FlowSubscribers() {}
 
-    /// Records every `onNext` value into `sink` and requests `initialDemand` items on subscribe.
+    /// Records every onNext value into sink and requests initialDemand items on subscribe.
     public static <T> Flow.Subscriber<T> recording(List<T> sink, long initialDemand) {
         return new Recording<>(sink, initialDemand);
     }
 
-    /// Records with `Long.MAX_VALUE` initial demand.
+    /// Records with [Long.MAX_VALUE] initial demand.
     public static <T> Flow.Subscriber<T> recording(List<T> sink) {
         return recording(sink, Long.MAX_VALUE);
     }

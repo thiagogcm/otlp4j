@@ -6,9 +6,9 @@ import java.util.Objects;
 import org.jspecify.annotations.Nullable;
 
 /// A scalar data point for a [Metric.Gauge] or [Metric.Sum]. Mirrors
-/// `opentelemetry.proto.metrics.v1.NumberDataPoint`.
+/// the [NumberPoint] proto message.
 ///
-/// The point's value is a [sealed type][Value] — either an integer or a double — or `null` when
+/// The point's value is a sealed [Value] type - either an integer or a double - or `null` when
 /// the wire `value` oneof was unset. `exemplars` carry the trace/span links sampled for this point
 /// (empty when none were recorded).
 public record NumberPoint(
@@ -53,7 +53,7 @@ public record NumberPoint(
         return new Builder();
     }
 
-    /// Returns a [Builder] pre-populated with this point's fields, for copy-modify transforms.
+    /// Returns a pre-populated [Builder] for copy-modify transforms.
     public Builder toBuilder() {
         Builder builder = new Builder()
                 .attributes(attributes)
@@ -61,8 +61,7 @@ public record NumberPoint(
                 .epochNanos(epochNanos)
                 .flags(flags)
                 .exemplars(exemplars);
-        // value is null for a wire point whose value oneof was unset; the builder already defaults
-        // to null, and its value(...) setter does not accept null.
+        // value is null when the wire oneof was unset; the builder already defaults to null.
         if (value != null) {
             builder.value(value);
         }
@@ -70,7 +69,7 @@ public record NumberPoint(
     }
 
     /// Fluent builder for [NumberPoint]. Fields default to empty/zero; `value` defaults to
-    /// `null`, mirroring a wire point whose value oneof was never set.
+    /// `null` (wire value oneof was unset).
     public static final class Builder {
 
         private Attributes attributes = Attributes.empty();
@@ -118,7 +117,6 @@ public record NumberPoint(
         }
 
         public Builder exemplars(List<Exemplar> exemplars) {
-            // Null-check before clear() so a bad arg can't half-mutate the builder.
             Objects.requireNonNull(exemplars, "exemplars");
             this.exemplars.clear();
             this.exemplars.addAll(exemplars);

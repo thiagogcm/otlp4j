@@ -2,7 +2,7 @@ package dev.nthings.otlp4j.model;
 
 import java.util.Objects;
 
-/// A single log record. Mirrors `opentelemetry.proto.logs.v1.LogRecord`.
+/// A single log record. Mirrors the [LogRecord] proto message.
 ///
 /// `body` is an arbitrary [AttributeValue]. Trace and span identifiers are lowercase-hex strings
 /// when present. Prefer [#builder()] over the positional constructor.
@@ -20,7 +20,7 @@ public record LogRecord(
         String eventName) {
 
     public LogRecord {
-        // Validate ids and flags at construction, not later on the async export thread.
+        // Validate at construction, not on the export thread.
         Objects.requireNonNull(severity, "severity");
         Objects.requireNonNull(severityText, "severityText");
         Objects.requireNonNull(body, "body");
@@ -35,7 +35,7 @@ public record LogRecord(
         return new Builder();
     }
 
-    /// Returns a [Builder] pre-populated with this record's fields, for copy-modify transforms.
+    /// Returns a pre-populated [Builder] for copy-modify transforms.
     public Builder toBuilder() {
         return new Builder()
                 .epochNanos(epochNanos)

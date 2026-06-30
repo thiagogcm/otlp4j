@@ -9,7 +9,7 @@ import java.util.Map;
 /// A typed OpenTelemetry attribute value, decoupled from the wire (`AnyValue`) representation.
 ///
 /// An attribute value is one of: a string, boolean, signed 64-bit integer, double, byte string,
-/// a heterogeneous array, a nested key/value map, or [empty][Empty] (no value set).
+/// a heterogeneous array, a nested key/value map, or [Empty] (no value set).
 public sealed interface AttributeValue {
 
     record StringValue(String value) implements AttributeValue {}

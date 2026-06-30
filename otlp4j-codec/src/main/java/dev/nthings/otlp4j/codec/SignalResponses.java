@@ -14,13 +14,13 @@ import io.opentelemetry.proto.collector.profiles.v1development.ExportProfilesSer
 import io.opentelemetry.proto.collector.trace.v1.ExportTracePartialSuccess;
 import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceResponse;
 
-/// Builds the four OTLP `Export*ServiceResponse` messages from a [ConsumeResult], shared by the gRPC
-/// service adapters and the HTTP exchange handlers so both encode partial success identically.
+/// Builds the four OTLP `Export*ServiceResponse` messages from a [ConsumeResult], shared
+/// by gRPC and HTTP adapters so both encode partial success identically.
 ///
-/// [ConsumeResult.Accepted] leaves `partial_success` unset; [ConsumeResult.Partial] carries the
-/// rejected count and message. [ConsumeResult.Rejected] is never a response message — both transports
-/// intercept it first (a gRPC error / an HTTP 5xx) — so its switch arm only keeps the switch
-/// exhaustive and throws [#rejectedNotMapped()] if ever reached.
+/// [ConsumeResult.Accepted] leaves `partial_success` unset; [ConsumeResult.Partial] carries
+/// the rejected count and message. [ConsumeResult.Rejected] is never a response message -
+/// both transports intercept it first (gRPC error / HTTP 5xx) - so its switch arm only
+/// keeps exhaustiveness and throws [#rejectedNotMapped()] if ever reached.
 public final class SignalResponses {
 
     private SignalResponses() {}
@@ -77,7 +77,7 @@ public final class SignalResponses {
         return resp.build();
     }
 
-    /// Guards the unreachable [ConsumeResult.Rejected] switch arms: callers map a whole-batch
+    /// Guards the unreachable [ConsumeResult.Rejected] switch arms. Callers map a whole-batch
     /// rejection to a transport error before building a response message.
     static IllegalStateException rejectedNotMapped() {
         return new IllegalStateException(

@@ -16,7 +16,7 @@ import dev.nthings.otlp4j.core.TraceSink;
 /// `Stage.to(exporter.traces(), exporter)`, or [#close()] it directly when a facet is used outside a
 /// pipeline. Build one with `OtlpGrpcExporter` / `OtlpHttpExporter`.
 ///
-/// [Exporter] is the orthogonal single-signal terminal for a custom destination.
+/// [Exporter] is the single-signal terminal for a custom destination.
 public interface OtlpExporter extends Drainable, ForceFlushable {
 
     /// The trace export facet.

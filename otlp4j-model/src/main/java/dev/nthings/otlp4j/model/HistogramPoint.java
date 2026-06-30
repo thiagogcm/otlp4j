@@ -6,7 +6,7 @@ import java.util.Objects;
 import java.util.OptionalDouble;
 
 /// A data point for a [Metric.Histogram]: an explicit-bounds bucket distribution. Mirrors
-/// `opentelemetry.proto.metrics.v1.HistogramDataPoint`.
+/// the [Histogram] proto message.
 ///
 /// `bucketCounts` has exactly one more element than `explicitBounds` (or both are
 /// empty when only `count`/`sum` are known); this invariant is enforced at construction.
@@ -42,7 +42,7 @@ public record HistogramPoint(
         return new Builder();
     }
 
-    /// Returns a [Builder] pre-populated with this point's fields, for copy-modify transforms.
+    /// Returns a pre-populated [Builder] for copy-modify transforms.
     public Builder toBuilder() {
         Builder builder = new Builder()
                 .attributes(attributes)
@@ -60,7 +60,7 @@ public record HistogramPoint(
         return builder;
     }
 
-    /// Fluent builder for [HistogramPoint]. Optional fields default to empty/zero; [#build()]
+    /// Fluent builder for [HistogramPoint]. Fields default to empty/zero; [#build()]
     /// enforces the bucket invariant at construction.
     public static final class Builder {
 
@@ -104,7 +104,6 @@ public record HistogramPoint(
         }
 
         public Builder bucketCounts(List<Long> bucketCounts) {
-            // Null-check before clear() so a bad arg can't half-mutate the builder.
             Objects.requireNonNull(bucketCounts, "bucketCounts");
             this.bucketCounts.clear();
             this.bucketCounts.addAll(bucketCounts);

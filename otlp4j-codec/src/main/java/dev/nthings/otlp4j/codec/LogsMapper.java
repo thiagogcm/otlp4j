@@ -10,15 +10,14 @@ import io.opentelemetry.proto.logs.v1.ResourceLogs;
 import io.opentelemetry.proto.logs.v1.ScopeLogs;
 import java.util.ArrayList;
 
-/// Maps OTLP logs types between the generated proto layer and the domain model, in both
-/// directions.
+/// Maps OTLP logs types between proto and domain, in both directions.
 ///
-/// **Internal.** Part of the transport layer; not public API.
+/// Internal. Part of the transport layer; not public API.
 public final class LogsMapper {
 
     private LogsMapper() {}
 
-    // --- proto -> domain ---------------------------------------------------------------------
+    // --- proto -> domain ---
 
     public static LogsData toDomain(ExportLogsServiceRequest request) {
         var resourceLogs = new ArrayList<LogsData.ResourceLogs>(request.getResourceLogsCount());
@@ -68,7 +67,7 @@ public final class LogsMapper {
                 response.hasPartialSuccess(), partial.getRejectedLogRecords(), partial.getErrorMessage());
     }
 
-    // --- domain -> proto ---------------------------------------------------------------------
+    // --- domain -> proto ---
 
     public static ExportLogsServiceRequest toProto(LogsData logs) {
         var request = ExportLogsServiceRequest.newBuilder();

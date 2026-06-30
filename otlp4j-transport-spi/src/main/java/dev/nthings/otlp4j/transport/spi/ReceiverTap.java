@@ -10,7 +10,7 @@ import dev.nthings.otlp4j.receiver.TelemetryTap;
 import java.util.concurrent.Flow;
 import java.util.concurrent.atomic.LongAdder;
 
-/// Internal [TelemetryTap] implementation backed by per-signal [MulticastPublisher]s.
+/// [TelemetryTap] implementation backed by per-signal [MulticastPublisher]s.
 final class ReceiverTap implements TelemetryTap, AutoCloseable {
 
     private final LongAdder drops = new LongAdder();

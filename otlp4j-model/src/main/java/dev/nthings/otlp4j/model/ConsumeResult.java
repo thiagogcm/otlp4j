@@ -8,11 +8,9 @@ import org.jspecify.annotations.Nullable;
 
 /// The outcome of feeding one batch of signal `T` to a sink.
 ///
-/// Three variants map directly to OTLP partial-success semantics: [Accepted] is full success,
-/// [Partial] reports an item-level rejection count plus a free-form message, and [Rejected]
-/// reports whole-batch failure. The `<T>` parameter prevents accidentally merging rejection
-/// counts across signals — OTLP carries `rejected_spans`, `rejected_log_records`,
-/// `rejected_data_points` and `rejected_profiles` as four independent fields for the same reason.
+/// Three variants map directly to OTLP partial-success semantics: [Accepted] for full success,
+/// [Partial] with an item-level rejection count and message, and [Rejected] for whole-batch
+/// failure. The `<T>` parameter prevents accidentally merging rejection counts across signals.
 ///
 /// @param <T> the OTLP signal this result describes
 public sealed interface ConsumeResult<T> permits ConsumeResult.Accepted, ConsumeResult.Partial, ConsumeResult.Rejected {
@@ -30,7 +28,7 @@ public sealed interface ConsumeResult<T> permits ConsumeResult.Accepted, Consume
 
     /// The downstream rejected `rejectedItems` items; `message` explains why.
     ///
-    /// `rejectedItems` is always strictly positive — a zero-rejection partial is just [Accepted].
+    /// `rejectedItems` is always strictly positive - a zero-rejection partial is just [Accepted].
     record Partial<T>(long rejectedItems, String message) implements ConsumeResult<T> {
 
         public Partial {
@@ -43,11 +41,9 @@ public sealed interface ConsumeResult<T> permits ConsumeResult.Accepted, Consume
 
     /// The whole batch was rejected.
     ///
-    /// The presence of `cause` carries retry intent in the gRPC transport: a `null` cause
-    /// means the rejection is **transient** and the sender should retry (mapped to gRPC
-    /// `UNAVAILABLE`), while a non-null `cause` means the rejection is **permanent** and must not
-    /// be retried (mapped to gRPC `INTERNAL`). Prefer the [#retryableRejected(String)] and
-    /// [#permanentRejected(String, Throwable)] factories to make that intent explicit.
+    /// The presence of `cause` carries retry intent: a `null` cause is transient (mapped to
+    /// gRPC `UNAVAILABLE`), a non-null cause is permanent (mapped to gRPC `INTERNAL`). Prefer
+    /// [#retryableRejected(String)] and [#permanentRejected(String, Throwable)] factories.
     record Rejected<T>(String message, @Nullable Throwable cause) implements ConsumeResult<T> {
 
         public Rejected {
@@ -93,7 +89,7 @@ public sealed interface ConsumeResult<T> permits ConsumeResult.Accepted, Consume
     /// (fan-out semantics):
     ///
     ///   - Any [Rejected] wins (the batch failed for at least one peer).
-    ///   - Otherwise the worst-case [Partial#rejectedItems] across peers is reported — sums would
+    ///   - Otherwise the worst-case [Partial#rejectedItems] across peers is reported - sums would
     ///     overstate the rejection from the original sender's viewpoint, since all peers saw the
     ///     same input.
     ///   - Non-empty messages are concatenated with `"; "` for diagnostics.

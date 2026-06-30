@@ -13,12 +13,9 @@ import java.time.Duration;
 import java.util.concurrent.Executor;
 import org.jspecify.annotations.Nullable;
 
-/// Builds [Receiver]s that accept OTLP/gRPC requests, dispatch them to per-signal sinks, and expose
-/// a telemetry tap for live observation.
+/// Builds [Receiver]s that accept OTLP/gRPC requests and dispatch to per-signal sinks.
 ///
-/// `.onTraces(...)`-style builder sugar attaches a single sink per signal; richer graphs
-/// (branches, fan-out) wire the sources via `Pipeline.from(receiver.traces()) ...`. Call
-/// [Receiver#start()] on the built receiver to bind the transport. The default bind is
+/// Call [Receiver#start()] on the built receiver to bind the transport. The default bind is
 /// `localhost:4317`.
 public final class OtlpGrpcReceiver {
 
@@ -81,21 +78,20 @@ public final class OtlpGrpcReceiver {
             return this;
         }
 
-        /// Caps in-flight calls per connection; `0` (the default) leaves it unlimited.
+        /// Caps in-flight calls per connection; `0` (default) is unlimited.
         public Builder maxConcurrentCallsPerConnection(int max) {
             config.maxConcurrentCallsPerConnection(max);
             return this;
         }
 
-        /// Bounds the transport/TLS handshake only — not a slow request body or idle connection.
+        /// Bounds the transport/TLS handshake deadline, not request body or connection idle time.
         /// Defaults to 20s.
         public Builder handshakeTimeout(Duration handshakeTimeout) {
             config.handshakeTimeout(handshakeTimeout);
             return this;
         }
 
-        /// Supplies the executor that runs admitted calls; a bounded pool caps concurrent work.
-        /// Defaults to gRPC's own executor.
+        /// Supplies the executor that runs admitted calls. Defaults to gRPC's own executor.
         public Builder serverExecutor(Executor serverExecutor) {
             config.serverExecutor(serverExecutor);
             return this;

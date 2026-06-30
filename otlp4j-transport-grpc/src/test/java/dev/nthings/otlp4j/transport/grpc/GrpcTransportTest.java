@@ -114,12 +114,9 @@ class GrpcTransportTest {
         var result = exporterTo(receiver).profiles().consume(sent).toCompletableFuture().join();
 
         assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
-        // Opaque passthrough: the scalar metadata round-trips, and the receiver
-        // additionally captures
-        // the wire bytes as rawProfile (the lossless forwarding payload), so a
-        // scalar-built fixture is
-        // not record-equal after the wire — compare the modeled fields and assert the
-        // payload was kept.
+        // Opaque passthrough: scalar metadata round-trips; receiver captures wire bytes as
+        // rawProfile, so a scalar-built fixture is not record-equal after the wire - compare
+        // modeled fields and assert the payload was kept.
         var sentProfile = sent.profiles().getFirst();
         var recvProfile = received.get().profiles().getFirst();
         assertThat(recvProfile.profileId()).isEqualTo(sentProfile.profileId());

@@ -70,7 +70,6 @@ public final class GrpcOtlpClient implements OtlpClient {
         }
         var retry = config.retry();
         if (retry.maxAttempts() > 1) {
-            // gRPC's native retry bounds total attempts; the per-call deadline still caps wall time.
             builder.enableRetry()
                     .maxRetryAttempts(retry.maxAttempts())
                     .defaultServiceConfig(RetryServiceConfig.build(retry, OTLP_SERVICE_NAMES));
@@ -109,17 +108,15 @@ public final class GrpcOtlpClient implements OtlpClient {
                 () -> ProfilesMapper.result(call(profilesStub).export(ProfilesMapper.toProto(profiles))), executor);
     }
 
-    /// Applies the per-call deadline and, when enabled, gzip compression to a stub.
+    /// Applies the per-call deadline and optional gzip compression to a stub.
     private <S extends AbstractStub<S>> S call(S stub) {
         var s = stub.withDeadlineAfter(config.timeout().toNanos(), TimeUnit.NANOSECONDS);
         return compress ? s.withCompression("gzip") : s;
     }
 
-    /// Blocking, two-phase teardown bounded by [#CLOSE_TIMEOUT_SECONDS] per await. Both awaits are
-    /// interrupt-responsive: when the caller's deadline elapses, the exporter's shutdown executor
-    /// `shutdownNow()`s its thread, which interrupts whichever await is in flight; that path forces
-    /// `shutdownNow()` on both the channel and the executor so teardown stops promptly instead of
-    /// blocking the caller past its deadline.
+    /// Two-phase teardown bounded by [#CLOSE_TIMEOUT_SECONDS] per await. Both awaits are
+    /// interrupt-responsive: an interrupt propagates through both phases so teardown stops
+    /// promptly when the caller's deadline elapses.
     @Override
     public void close() {
         channel.shutdown();
@@ -130,17 +127,13 @@ public final class GrpcOtlpClient implements OtlpClient {
                 channel.shutdownNow();
             }
         } catch (InterruptedException e) {
-            // Interrupt (typically from the exporter's deadline) unblocks this await; force the
-            // channel down now. The interrupt flag stays set so the finally's executor await below
-            // returns immediately rather than spending another budget, bounding teardown.
+            // Interrupt unblocks this await; force channel down. The interrupt flag stays set so
+            // the executor await in the finally block returns immediately.
             log.warn("interrupted while closing OTLP/gRPC channel; forcing shutdown");
             channel.shutdownNow();
             Thread.currentThread().interrupt();
         } finally {
-            // Bound teardown to the close budget: ExecutorService.close() awaits up to a day, so
-            // shut down, wait CLOSE_TIMEOUT_SECONDS, then shutdownNow() so no export carrier leaks.
-            // If the interrupt flag is already set (interrupted channel await above), this await
-            // returns at once and we shutdownNow() immediately, so the deadline is honoured.
+            // Bound teardown: shut down, wait, then force so no export carriers leak.
             executor.shutdown();
             try {
                 if (!executor.awaitTermination(CLOSE_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
@@ -155,7 +148,7 @@ public final class GrpcOtlpClient implements OtlpClient {
         }
     }
 
-    /// The fully-qualified OTLP collector service names, used to scope the retry service config.
+    /// OTLP collector service names used to scope the retry service config.
     private static final List<String> OTLP_SERVICE_NAMES = List.of(
             TraceServiceGrpc.SERVICE_NAME,
             MetricsServiceGrpc.SERVICE_NAME,

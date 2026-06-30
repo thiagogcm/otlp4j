@@ -21,20 +21,18 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
 
-/// Builds JDK [SSLContext]s from PEM certificate/key files for the OTLP/HTTP transport, mirroring the
-/// same PEM material the gRPC transport feeds to its native credentials. The HTTP transports use the
-/// JDK [javax.net.ssl] stack (`java.net.http.HttpClient` and `com.sun.net.httpserver.HttpsServer`),
-/// which take an [SSLContext] rather than PEM files directly.
+/// Builds JDK [SSLContext]s from PEM certificate/key files for the OTLP/HTTP transport.
 ///
-/// The private key's algorithm is read from the paired certificate's public key, so RSA and EC keys
-/// load without trial-and-error.
+/// The HTTP transports use the JDK SSL stack which takes an [SSLContext] rather than PEM files
+/// directly. The private key's algorithm is read from the paired certificate's public key, so RSA
+/// and EC keys load without trial-and-error.
 final class PemSsl {
 
     private static final char[] NO_PASSWORD = new char[0];
 
     private PemSsl() {}
 
-    /// Server context: a key manager holding the certificate chain and its matching private key.
+    /// Server context with the certificate chain and matching private key.
     static SSLContext serverContext(Path certFile, Path keyFile) {
         try {
             return context(keyManagers(certFile, keyFile), null);
@@ -43,9 +41,8 @@ final class PemSsl {
         }
     }
 
-    /// Client context honouring a custom trust store and/or a client certificate (mTLS). A null
-    /// `trustFile` keeps the JVM default trust; a null `certFile`/`keyFile` pair means no client
-    /// certificate is presented.
+    /// Client context with custom trust store and/or client certificate (mTLS). Null `trustFile`
+    /// keeps the JVM default trust; null `certFile`/`keyFile` means no client certificate.
     static SSLContext clientContext(Path certFile, Path keyFile, Path trustFile) {
         try {
             var trust = trustFile == null ? null : trustManagers(trustFile);

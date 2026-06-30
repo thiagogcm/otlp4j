@@ -4,7 +4,7 @@
 /// user-facing API.
 module dev.nthings.otlp4j.proto {
     // Protobuf and gRPC runtime APIs are used directly by the generated code here and
-    // re-declared by the transport module, which is the only reader of this module — so they
+    // re-declared by the transport module, which is the only reader of this module - so they
     // need not be transitive.
     requires com.google.protobuf;
     requires io.grpc;
@@ -15,7 +15,7 @@ module dev.nthings.otlp4j.proto {
     requires transitive io.grpc.protobuf;
     requires transitive com.google.common;
     // failureaccess backs Guava's ListenableFuture at runtime but is named by nothing downstream
-    // — only this module's own generated code needs it readable — so it is not transitive.
+    // - only this module's own generated code needs it readable - so it is not transitive.
     requires com.google.common.util.concurrent.internal;
 
     exports io.opentelemetry.proto.common.v1 to dev.nthings.otlp4j.codec, dev.nthings.otlp4j.transport.grpc, dev.nthings.otlp4j.transport.http;
@@ -30,6 +30,6 @@ module dev.nthings.otlp4j.proto {
     exports io.opentelemetry.proto.collector.profiles.v1development to dev.nthings.otlp4j.codec, dev.nthings.otlp4j.transport.grpc, dev.nthings.otlp4j.transport.http;
 
     // processcontext.v1development is generated but intentionally not exported: ProcessContext is a
-    // non-OTLP, memory-mapped sidecar (not collector-exchanged), so the transport has no mapper for
-    // it. Kept encapsulated rather than excluded so update-protos stays a faithful upstream mirror.
+    // non-OTLP memory-mapped sidecar, so the transport has no mapper for it.
+    // Kept encapsulated rather than excluded so update-protos stays a faithful upstream mirror.
 }

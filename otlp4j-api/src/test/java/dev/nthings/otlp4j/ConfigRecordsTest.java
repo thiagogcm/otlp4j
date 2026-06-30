@@ -130,7 +130,7 @@ class ConfigRecordsTest {
     void retryPolicyValidates() {
         assertThatThrownBy(() -> new RetryPolicy(0, Duration.ZERO, Duration.ZERO))
                 .isInstanceOf(IllegalArgumentException.class);
-        // With retries enabled, backoffs must be positive and ordered — rejected, not clamped.
+        // With retries enabled, backoffs must be positive and ordered - rejected, not clamped.
         assertThatThrownBy(() -> new RetryPolicy(3, Duration.ZERO, Duration.ofSeconds(1)))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new RetryPolicy(3, Duration.ofMillis(200), Duration.ofMillis(50)))

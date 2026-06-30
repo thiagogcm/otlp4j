@@ -12,15 +12,14 @@ import io.opentelemetry.proto.trace.v1.Span.Link;
 import io.opentelemetry.proto.trace.v1.Span.SpanKind;
 import java.util.ArrayList;
 
-/// Maps OTLP trace types between the generated proto layer and the domain model, in both
-/// directions.
+/// Maps OTLP trace types between proto and domain, in both directions.
 ///
-/// **Internal.** Part of the transport layer; not public API.
+/// Internal. Part of the transport layer; not public API.
 public final class TraceMapper {
 
     private TraceMapper() {}
 
-    // --- proto -> domain ---------------------------------------------------------------------
+    // --- proto -> domain ---
 
     public static TracesData toDomain(ExportTraceServiceRequest request) {
         var resourceSpans = new ArrayList<TracesData.ResourceSpans>(request.getResourceSpansCount());
@@ -100,7 +99,7 @@ public final class TraceMapper {
                 response.hasPartialSuccess(), partial.getRejectedSpans(), partial.getErrorMessage());
     }
 
-    // --- domain -> proto ---------------------------------------------------------------------
+    // --- domain -> proto ---
 
     public static ExportTraceServiceRequest toProto(TracesData traces) {
         var request = ExportTraceServiceRequest.newBuilder();

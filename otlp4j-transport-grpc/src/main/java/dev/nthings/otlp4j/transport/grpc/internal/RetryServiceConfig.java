@@ -7,12 +7,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/// Builds the gRPC channel service config (`defaultServiceConfig`) that maps a [RetryPolicy] onto
-/// gRPC's native retry subsystem.
+/// Builds the gRPC service config that maps [RetryPolicy] onto gRPC's retry subsystem.
 ///
-/// One `methodConfig` entry is emitted per OTLP service so the retry policy applies to all four
-/// collector services without relying on the catch-all default-name behaviour. The retryable
-/// status codes are the set the OTLP/gRPC spec recommends clients retry.
+/// One `methodConfig` per OTLP service so the policy applies to all four collector services.
+/// Retryable status codes follow the OTLP/gRPC spec.
 ///
 /// **Internal.** Part of the transport layer; not public API.
 final class RetryServiceConfig {
@@ -28,7 +26,7 @@ final class RetryServiceConfig {
 
     private RetryServiceConfig() {}
 
-    /// Returns the channel service-config map for `policy`, scoped to `serviceNames`.
+    /// Returns the service-config map for `policy`, scoped to `serviceNames`.
     static Map<String, Object> build(RetryPolicy policy, List<String> serviceNames) {
         var retryPolicy = new LinkedHashMap<String, Object>();
         retryPolicy.put("maxAttempts", (double) policy.maxAttempts());
@@ -47,7 +45,7 @@ final class RetryServiceConfig {
         return Map.of("methodConfig", methodConfigs);
     }
 
-    /// Renders a duration as the decimal-seconds-with-`s`-suffix form gRPC service configs expect.
+    /// Renders a duration as decimal-seconds with `s` suffix, the form gRPC service configs expect.
     private static String seconds(Duration d) {
         return (d.toNanos() / 1_000_000_000.0) + "s";
     }

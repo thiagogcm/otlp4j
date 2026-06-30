@@ -36,13 +36,12 @@ public final class Attributes {
         return new Builder();
     }
 
-    /// Returns a [Builder] pre-populated with these attributes.
+    /// Returns a pre-populated [Builder] for copy-modify transforms.
     public Builder toBuilder() {
         return new Builder().putAll(this);
     }
 
-    /// Returns a copy of these attributes with `key` added or replaced, without a manual
-    /// [#toBuilder()] round trip. Insertion order is preserved; an existing key keeps its position.
+    /// Returns a copy with `key` added or replaced, preserving insertion order.
     public Attributes with(String key, AttributeValue value) {
         var copy = new LinkedHashMap<>(values);
         copy.put(key, value);

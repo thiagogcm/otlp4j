@@ -20,10 +20,9 @@ import java.util.function.ToLongFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/// Counts each input batch and emits a delta-sum metric downstream, backing [Connectors#spanCount]
-/// and [Connectors#logRecordCount]. The window runs from the previous flush and stays monotonic
-/// under concurrent flushes and a backward clock step (`getAndAccumulate(now, Math::max)`, end
-/// clamped to `max(start, now)`); [FailurePolicy] governs whether a downstream failure fails the input.
+/// Counts each input batch and emits a delta-sum metric downstream. Backs [Connectors#spanCount]
+/// and [Connectors#logRecordCount]. The window stays monotonic under concurrent flushes and clock
+/// steps; [FailurePolicy] governs downstream failure propagation.
 final class CountConnector<I> implements Sink<I> {
 
     private static final InstrumentationScope SCOPE =

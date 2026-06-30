@@ -8,9 +8,8 @@ import dev.nthings.otlp4j.receiver.TelemetryTap;
 
 /// A sealed envelope around the four OTLP signals.
 ///
-/// Used by [TelemetryTap#all()] when a subscriber wants every signal
-/// through one channel. Exhaustive pattern matching gives Kotlin `when` and Java `switch`
-/// compile-time coverage.
+/// Used by [TelemetryTap#all()] when a subscriber wants every signal through one channel.
+/// Exhaustive pattern matching gives Kotlin when and Java switch compile-time coverage.
 public sealed interface Telemetry permits Telemetry.Traces, Telemetry.Metrics, Telemetry.Logs, Telemetry.Profiles {
 
     /// A trace batch.

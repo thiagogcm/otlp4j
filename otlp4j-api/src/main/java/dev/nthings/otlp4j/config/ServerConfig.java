@@ -7,18 +7,14 @@ import org.jspecify.annotations.Nullable;
 
 /// Configuration for an OTLP receiver transport.
 ///
-/// Beyond the bind address and [Tls], this carries the production-hardening limits the gRPC
-/// receiver applies: a cap on decoded request size, an optional per-connection concurrency cap,
-/// a deadline on the connection handshake, and an optional bounded server executor. The handshake
-/// deadline bounds only the transport/TLS handshake; it does not bound a slow request body or an
-/// idle connection post-handshake (keepalive / max-connection-idle limits are not yet exposed). The
-/// defaults match gRPC's own, so an unconfigured receiver behaves as before but is now tunable.
+/// Carries bind address, [Tls], and hardening limits: max decoded request size, optional
+/// per-connection concurrency cap, handshake deadline, and optional server executor. Defaults
+/// match gRPC's own. The handshake deadline bounds only the transport/TLS handshake - not a slow
+/// request body or idle connection.
 ///
-/// Compression is asymmetric and intentionally one-sided. The server transparently DECODES gzip
-/// request bodies via gRPC's default decoder, so no server-side switch is needed to accept
-/// compressed exports. Response compression is deliberately not configured because OTLP export
-/// responses are negligible (an empty ack or a small partial-success count). gzip on the request
-/// path is selected by the client via [Compression]; there is no server compression knob.
+/// Compression is asymmetric: the server transparently decodes gzip requests but response
+/// compression is not configured (OTLP responses are negligible). gzip is selected by the
+/// client via [Compression].
 public record ServerConfig(
         String bindHost,
         int port,
@@ -110,7 +106,7 @@ public record ServerConfig(
         }
 
         /// Bounds how long a new connection may take to finish its transport/TLS handshake
-        /// (default 20s). Bounds the handshake only — not a slow request body or an idle connection.
+        /// (default 20s). Handshake-only bound, not a slow body or idle connection timeout.
         public Builder handshakeTimeout(Duration handshakeTimeout) {
             this.handshakeTimeout = handshakeTimeout;
             return this;

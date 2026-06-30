@@ -3,7 +3,7 @@ package dev.nthings.otlp4j.model;
 import java.util.Objects;
 
 /// The entity producing telemetry (e.g. a service, host, or container), described by its
-/// [Attributes]. Mirrors `opentelemetry.proto.resource.v1.Resource`.
+/// [Attributes]. Mirrors the [Resource] proto message.
 public record Resource(Attributes attributes, int droppedAttributesCount) {
 
     public Resource {

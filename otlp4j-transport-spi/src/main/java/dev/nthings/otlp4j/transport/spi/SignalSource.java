@@ -13,8 +13,8 @@ import org.jspecify.annotations.Nullable;
 
 /// [Source] backed by a single-consumer slot.
 ///
-/// Throws on a second [#subscribe] attach — multi-consumer fan-out is the caller's
-/// responsibility via `FanOut` in the pipeline package.
+/// Throws on second [SignalSource#subscribe]. Multi-consumer fan-out is the
+/// caller's responsibility.
 final class SignalSource<T> implements Source<T> {
 
     private final Class<T> signalType;
@@ -44,9 +44,9 @@ final class SignalSource<T> implements Source<T> {
         };
     }
 
-    /// Forwards the batch verbatim: a direct subscriber's throw or failed stage is NOT normalized into
-    /// a [ConsumeResult.Rejected] — it propagates so the transport renders it as gRPC `INTERNAL` / HTTP
-    /// `500`. Pipeline/`FanOut`/[Sink] adapters normalize before this slot.
+    /// Forwards the batch verbatim. A direct subscriber's throw or failed stage is NOT
+    /// normalized into [ConsumeResult.Rejected] - it propagates so the transport renders
+    /// gRPC `INTERNAL` / HTTP `500`. Pipeline/[FanOut]/[Sink] adapters normalize first.
     public CompletionStage<ConsumeResult<T>> dispatch(T batch) {
         @Nullable Sink<? super T> sink = attached.get();
         if (sink == null) {

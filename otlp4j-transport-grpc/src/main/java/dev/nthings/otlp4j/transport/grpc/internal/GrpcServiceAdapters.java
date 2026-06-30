@@ -33,31 +33,18 @@ import java.util.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/// Builds gRPC services that decode OTLP requests and call the four per-signal
-/// dispatchers.
+/// Builds gRPC services that decode OTLP requests and dispatch to per-signal handlers.
 ///
-/// The [ConsumeResult] -> gRPC status contract is deliberate and load-bearing
-/// for client retries:
+/// The [ConsumeResult] to gRPC status contract drives client retries:
 ///
-/// - [ConsumeResult.Accepted] / [ConsumeResult.Partial] -> OTLP
-///   `partial_success` on a normal response. (`Accepted` leaves
-///   `partial_success` unset; `Partial` carries the rejected count and message.)
-/// - A whole-batch [ConsumeResult.Rejected] is NOT a partial success — encoding
-///   it as `rejected_*=0` would read to the client as "all accepted" — so it
-///   always maps to a gRPC error, never a response message:
-///   - Rejected with NO cause => gRPC `UNAVAILABLE`. By design this means
-///     "transient/retryable": a well-behaved OTLP client will retry within its
-///     budget. Use it for back-pressure such as a full queue.
-///   - Rejected WITH a cause => gRPC `INTERNAL`, a non-retryable fault (same
-///     mapping as a thrown exception). The cause is the signal that this is a
-///     permanent failure.
+/// - [ConsumeResult.Accepted] / [ConsumeResult.Partial] -> normal OTLP
+///   response with appropriate `partial_success`.
+/// - [ConsumeResult.Rejected] without cause -> gRPC `UNAVAILABLE` (retryable).
+///   Use for back-pressure such as a full queue.
+/// - [ConsumeResult.Rejected] with cause -> gRPC `INTERNAL` (permanent failure).
 ///
-/// Consequence for deterministic/permanent rejections: a dispatcher that will
-/// reject the SAME batch every time (e.g. a content filter dropping disallowed
-/// data) MUST attach a cause so it maps to `INTERNAL`. A no-cause `UNAVAILABLE`
-/// would otherwise be retried until the client's budget is exhausted — wasted
-/// work for an outcome that can never change. "No cause == retryable" is the
-/// contract; permanent failures opt out by carrying a cause.
+/// Deterministic rejections (e.g. content filtering) MUST attach a cause so the
+/// client does not waste retries on a permanently unreachable outcome.
 final class GrpcServiceAdapters {
 
     private static final Logger log = LoggerFactory.getLogger(GrpcServiceAdapters.class);
@@ -75,8 +62,8 @@ final class GrpcServiceAdapters {
                 new ProfilesServiceAdapter(dispatchers.profiles()));
     }
 
-    /// Decodes `request` and runs the signal's `dispatcher`. A synchronous
-    /// decode/dispatch failure maps to gRPC `INTERNAL`; the asynchronous outcome is
+    /// Decodes `request` and dispatches to the signal handler. A synchronous
+    /// failure maps to gRPC `INTERNAL`; the asynchronous outcome is
     /// handed to [#respond].
     static <REQ, SIG, RESP> void dispatch(
             REQ request,
@@ -95,8 +82,8 @@ final class GrpcServiceAdapters {
         respond(observer, stage, asResponse);
     }
 
-    /// Asynchronously consumes `request`, mapping the eventual [ConsumeResult] back
-    /// to the gRPC response (via `partial`) or to an INTERNAL error.
+    /// Asynchronously consumes the result, mapping [ConsumeResult] to a gRPC
+    /// response or to an INTERNAL error.
     static <SIG, RESP> void respond(
             StreamObserver<RESP> observer,
             CompletionStage<ConsumeResult<SIG>> stage,

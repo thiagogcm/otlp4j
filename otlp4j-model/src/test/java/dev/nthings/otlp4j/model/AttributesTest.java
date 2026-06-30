@@ -8,8 +8,8 @@ import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/// Unit tests for [Attributes] — the builder overloads, the [Attributes#of(Map)] copy/order/
-/// empty-singleton contract, and every accessor including the `getString` type-mismatch path.
+/// Unit tests for [Attributes] - the builder overloads, the [Attributes#of(Map)] copy/order/
+/// empty-singleton contract, and every accessor including the getString type-mismatch path.
 @DisplayName("Attributes")
 class AttributesTest {
 

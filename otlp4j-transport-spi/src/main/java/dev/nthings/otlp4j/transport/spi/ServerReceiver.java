@@ -23,10 +23,9 @@ import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/// Shared [Receiver] implementation: backed by a transport [OtlpServer], exposes per-signal
-/// [Source]s and a live [TelemetryTap], and dispatches decoded batches to subscribers while
-/// mirroring them to the tap. The gRPC and HTTP entry points compose one of these, supplying a
-/// factory from [Dispatchers] to their [OtlpServer] plus a display name for logs.
+/// Shared [Receiver] implementation backed by a transport [OtlpServer]. Exposes per-signal
+/// [Source]s and a [TelemetryTap], dispatches decoded batches to subscribers while mirroring
+/// to the tap. gRPC and HTTP entry points compose one of these.
 public final class ServerReceiver implements Receiver {
 
     private static final Logger log = LoggerFactory.getLogger(ServerReceiver.class);
@@ -39,7 +38,7 @@ public final class ServerReceiver implements Receiver {
     private final OtlpServer server;
     private final String transportName;
 
-    /// Builds the dispatch wiring, then asks `serverFactory` for the transport server bound to it.
+    /// Builds dispatch wiring, then asks `serverFactory` for the transport server bound to it.
     /// `transportName` (e.g. `OTLP/gRPC`) is used only for log messages.
     public ServerReceiver(
             String transportName,
@@ -78,7 +77,7 @@ public final class ServerReceiver implements Receiver {
 
     @Override
     public Receiver start() {
-        // Starts the underlying transport, throwing UncheckedIOException if the bind fails.
+        // Starts the underlying transport; throws [UncheckedIOException] if bind fails.
         try {
             server.start();
         } catch (IOException e) {
@@ -95,14 +94,14 @@ public final class ServerReceiver implements Receiver {
 
     @Override
     public CompletionStage<Void> shutdown(Duration timeout) {
-        // Graceful: drain the server first, then close the tap. Closing it up front makes
-        // MulticastPublisher.publish early-return, dropping telemetry accepted during the drain.
+        // Graceful: drain server first, then close tap. Closing it up front makes
+        // [MulticastPublisher#publish] early-return, dropping telemetry accepted during drain.
         return server.shutdown(timeout).whenComplete((v, t) -> tap.close());
     }
 
     @Override
     public CompletionStage<Void> shutdownNow() {
-        // Forceful: nothing further will be accepted, so detach subscribers immediately.
+        // Forceful: nothing further is accepted, so detach subscribers immediately.
         tap.close();
         return server.shutdownNow();
     }

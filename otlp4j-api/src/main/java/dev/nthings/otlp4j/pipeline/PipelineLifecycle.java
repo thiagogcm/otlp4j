@@ -70,9 +70,8 @@ final class PipelineLifecycle {
         public CompletionStage<Void> shutdown(Duration timeout) {
             var deadlineNanos = deadlineNanos(timeout);
             var firstError = new AtomicReference<@Nullable Throwable>();
-            // Best-effort teardown: stop the source, then close every owned resource in
-            // turn even if an earlier step failed, so nothing is left running. Steps share
-            // one deadline, so total teardown stays bounded by `timeout` (not N × timeout).
+            // Best-effort teardown: stop the source, then close every owned resource even if
+            // an earlier step failed, all within a single deadline.
             var chain = settle(sourceSubscription.shutdown(remaining(deadlineNanos)), firstError);
             for (var resource : resources) {
                 chain = chain.thenCompose(
@@ -89,7 +88,7 @@ final class PipelineLifecycle {
         @Override
         public CompletionStage<Void> forceFlush(Duration timeout) {
             var deadlineNanos = deadlineNanos(timeout);
-            // Flush the source first — a buffering source would otherwise be skipped — then
+            // Flush the source first (a buffering source would otherwise be skipped), then
             // each ForceFlushable resource in turn, all sharing one deadline.
             var chained = sourceSubscription.forceFlush(remaining(deadlineNanos)).toCompletableFuture();
             for (var resource : resources) {
@@ -116,8 +115,7 @@ final class PipelineLifecycle {
             }
         }
 
-        /// Runs `stage` to completion, recording the first failure (unwrapped) without
-        /// re-propagating it, so best-effort teardown continues to the next resource.
+        /// Runs a stage to completion, recording the first failure so teardown continues.
         private static CompletableFuture<Void> settle(
                 CompletionStage<Void> stage, AtomicReference<@Nullable Throwable> firstError) {
             return stage.toCompletableFuture().handle((ignored, error) -> {

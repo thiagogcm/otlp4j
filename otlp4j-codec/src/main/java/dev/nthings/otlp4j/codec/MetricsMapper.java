@@ -26,15 +26,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.OptionalDouble;
 
-/// Maps metrics between generated proto types and [MetricsData].
+/// Maps metrics between proto and [MetricsData].
 ///
-/// Exemplars are surfaced as [Exemplar] on each number/histogram/exponential-histogram point
-/// and mapped in both directions.
+/// Exemplars are surfaced as [Exemplar] on each data point and mapped in both directions.
 public final class MetricsMapper {
 
     private MetricsMapper() {}
 
-    // --- proto -> domain ---------------------------------------------------------------------
+    // --- proto -> domain ---
 
     public static MetricsData toDomain(ExportMetricsServiceRequest request) {
         var resourceMetrics =
@@ -226,7 +225,7 @@ public final class MetricsMapper {
                 response.hasPartialSuccess(), partial.getRejectedDataPoints(), partial.getErrorMessage());
     }
 
-    // --- domain -> proto ---------------------------------------------------------------------
+    // --- domain -> proto ---
 
     public static ExportMetricsServiceRequest toProto(MetricsData metrics) {
         var request = ExportMetricsServiceRequest.newBuilder();
@@ -385,7 +384,7 @@ public final class MetricsMapper {
                 case NumberPoint.LongValue v -> builder.setAsInt(v.value());
                 case NumberPoint.DoubleValue v -> builder.setAsDouble(v.value());
                 case null -> {
-                    // invalid exemplar — value oneof left unset
+                    // invalid exemplar - value oneof left unset
                 }
             }
             result.add(builder.build());

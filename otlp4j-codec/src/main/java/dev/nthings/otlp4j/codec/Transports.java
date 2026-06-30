@@ -3,15 +3,15 @@ package dev.nthings.otlp4j.codec;
 import java.net.InetSocketAddress;
 import java.nio.file.Path;
 
-/// Small plumbing shared by the OTLP/gRPC and OTLP/HTTP transports, so the two implementations agree
-/// on bind-address resolution and client mutual-TLS validation rather than each carrying a copy.
+/// Shared plumbing for OTLP/gRPC and OTLP/HTTP transports for
+/// bind-address resolution and client mutual-TLS validation.
 public final class Transports {
 
     private Transports() {}
 
-    /// Resolves a receiver's bind host and port to a socket address. A wildcard host (empty,
-    /// `0.0.0.0`, `::`, or its long form) binds every interface via the any-local-address; any other
-    /// host binds that specific interface, so e.g. `127.0.0.1` yields a loopback-only receiver.
+    /// Resolves a receiver's bind host and port to an [InetSocketAddress]. A wildcard host
+    /// (empty, `0.0.0.0`, `::`, or its long form) binds every interface; any other host
+    /// binds that specific interface.
     public static InetSocketAddress bindAddress(String bindHost, int port) {
         return isWildcardHost(bindHost)
                 ? new InetSocketAddress(port)
@@ -25,8 +25,8 @@ public final class Transports {
                 || host.equals("0:0:0:0:0:0:0:0");
     }
 
-    /// Rejects half-specified client mutual-TLS material: a certificate and key are only meaningful
-    /// together, so a lone one is an error rather than a silent anonymous connection.
+    /// Rejects half-specified client mutual-TLS material. A certificate and key must be
+    /// supplied together.
     public static void requireCompleteClientMutualTls(Path certFile, Path keyFile) {
         if ((certFile == null) != (keyFile == null)) {
             throw new IllegalArgumentException(

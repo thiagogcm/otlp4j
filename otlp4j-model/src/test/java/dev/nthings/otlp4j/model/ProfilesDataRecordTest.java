@@ -6,8 +6,8 @@ import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/// Covers the hand-rolled `byte[]` value semantics on [ProfilesData] and [ProfilesData.Profile] —
-/// defensive copies on construction and access, and `Arrays`-based equals/hashCode — which the
+/// Covers the hand-rolled byte[] value semantics on [ProfilesData] and [ProfilesData.Profile] -
+/// defensive copies on construction and access, and Arrays-based equals/hashCode - which the
 /// record-generated versions don't provide and which are an easy locus to regress.
 @DisplayName("ProfilesData byte[] record semantics")
 class ProfilesDataRecordTest {
@@ -16,7 +16,7 @@ class ProfilesDataRecordTest {
         return new ProfilesData.Profile("0a0b", 1L, 2L, 3L, 4, 5, "pprof", raw);
     }
 
-    @DisplayName("Profile clones rawProfile on construction — caller mutation does not leak in")
+    @DisplayName("Profile clones rawProfile on construction - caller mutation does not leak in")
     @Test
     void profileClonesRawProfileOnConstruction() {
         var raw = new byte[] {1, 2, 3};
@@ -25,7 +25,7 @@ class ProfilesDataRecordTest {
         assertThat(p.rawProfile()).isEqualTo(new byte[] {1, 2, 3});
     }
 
-    @DisplayName("Profile clones rawProfile on access — returned-array mutation does not corrupt state")
+    @DisplayName("Profile clones rawProfile on access - returned-array mutation does not corrupt state")
     @Test
     void profileClonesRawProfileOnAccess() {
         var p = profile(new byte[] {1, 2, 3});

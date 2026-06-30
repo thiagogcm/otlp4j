@@ -38,7 +38,7 @@ public final class OtlpE2eDemo {
     private OtlpE2eDemo() {
     }
 
-    /// The observable outcome of one demo run — what the `backend` receiver ended
+    /// The observable outcome of one demo run - what the backend receiver ended
     /// up with.
     public record Result(
             int spansAtBackend, long derivedSpanCount, String enrichedEnvironment, String redactedEnduserId) {
@@ -81,8 +81,6 @@ public final class OtlpE2eDemo {
             backendExporter = OtlpGrpcExporter.to("localhost", backend.port());
 
             // --- Gateway: receive -> enrich -> filter -> fan out to exporter + count sink.
-            // Build -> wire -> start, so the consumer graph (and exporter ownership) attaches
-            // before any batch arrives.
             gateway = OtlpGrpcReceiver.builder().ephemeralPort().build();
 
             var spanCounter = Connectors.spanCount(backendExporter.metrics());
@@ -90,7 +88,7 @@ public final class OtlpE2eDemo {
             var subscription = Pipeline.from(gateway.traces())
                     .transform(Transforms.withTracesResourceAttribute(
                             "deployment.environment", AttributeValue.of("demo")))
-                    // Redact a sensitive span attribute via the map helper.
+                    // Redact a sensitive span attribute.
                     .transform(Transforms.mapSpans(span -> span.attributes().contains(ENDUSER_ID)
                             ? span.toBuilder()
                                     .attributes(span.attributes().with(ENDUSER_ID, REDACTED))
@@ -114,8 +112,7 @@ public final class OtlpE2eDemo {
             }
             subscription.shutdown(Duration.ofSeconds(5)).toCompletableFuture().join();
         } finally {
-            // Idempotent backstop: the subscription already drained the exporter via
-            // owns().
+            // Idempotent backstop: the subscription already drained the exporter.
             if (backendExporter != null) {
                 backendExporter.close();
             }

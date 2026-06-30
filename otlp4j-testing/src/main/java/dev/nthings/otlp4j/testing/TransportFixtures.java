@@ -18,7 +18,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.OptionalDouble;
 
-/// Rich, fully-populated telemetry payloads for the transport tests — one place to build the
+/// Rich, fully-populated telemetry payloads for the transport tests - one place to build the
 /// "every field set" domain objects the integration tests round-trip over the wire.
 ///
 /// The small/basic domain factories live in the shared [Fixtures] testkit; this class keeps
@@ -35,7 +35,7 @@ public final class TransportFixtures {
                         InstrumentationScope.EMPTY, "", List.of(profiles))))), new byte[0]);
     }
 
-    /// A trace with every span field — events, links, status, dropped counts — populated.
+    /// A trace with every span field - events, links, status, dropped counts - populated.
     public static TracesData richTraceData() {
         var span = Span.builder()
                 .traceId("0102030405060708090a0b0c0d0e0f10")
@@ -180,7 +180,7 @@ public final class TransportFixtures {
         return Fixtures.logsData(record);
     }
 
-    /// A profiles batch built from scalar metadata only (empty `rawProfile`), so it re-emits just
+    /// A profiles batch built from scalar metadata only (empty raw profile), so it re-emits just
     /// the modeled scalar fields. Lossless sample/dictionary forwarding is covered by the dedicated
     /// round-trip test that drives the proto builders directly.
     public static ProfilesData profilesData() {
@@ -197,8 +197,8 @@ public final class TransportFixtures {
 
     // --- malformed / mutated inputs for the bug-hunt tests -------------------------------------
 
-    /// A [TracesData] carrying a single span whose `traceId` is the given (possibly malformed)
-    /// hex string — used to probe `CommonMapper.bytes` input validation through `TraceMapper`.
+    /// A [TracesData] carrying a single span whose traceId is the given (possibly malformed)
+    /// hex string - used to probe CommonMapper.bytes input validation through TraceMapper.
     public static TracesData traceWithTraceId(String traceId) {
         return Fixtures.traceData(Span.builder()
                 .traceId(traceId)
@@ -208,8 +208,8 @@ public final class TransportFixtures {
                 .build());
     }
 
-    /// A [TracesData] with a single span whose `flags` is set to the given value — used to probe
-    /// the unsigned-int `(int)` cast / `& 0xFFFFFFFFL` decode round-trip.
+    /// A [TracesData] with a single span whose flags is set to the given value - used to probe
+    /// the unsigned-int (int) cast / & 0xFFFFFFFFL decode round-trip.
     public static TracesData traceWithSpanFlags(long flags) {
         return Fixtures.traceData(Span.builder()
                 .traceId("0102030405060708090a0b0c0d0e0f10")
@@ -220,7 +220,7 @@ public final class TransportFixtures {
                 .build());
     }
 
-    /// A [TracesData] with one resource holding the given number of single-span scopes — used to
+    /// A [TracesData] with one resource holding the given number of single-span scopes - used to
     /// exercise the multi-resource / multi-scope mapper loops.
     public static TracesData traceWithScopes(int scopeCount) {
         var scopes = new ArrayList<TracesData.ScopeSpans>(scopeCount);

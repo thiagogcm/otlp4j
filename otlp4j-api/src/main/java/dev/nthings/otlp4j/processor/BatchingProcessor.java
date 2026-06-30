@@ -104,9 +104,7 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, ForceFlus
                         ConsumeResult.retryableRejected("batcher shutting down"));
             }
         }
-        // Close/consume race: shutdown may have flipped `closed` and taken the final-drain
-        // snapshot after our initial check above. If so, reclaim this batch and reject it
-        // rather than leaving it stranded in the queue with no further drain to deliver it.
+        // Shutdown may have flipped closed after the initial check; reclaim the batch to avoid stranding it.
         if (closed.get() && queue.remove(batch)) {
             return CompletableFuture.completedFuture(ConsumeResult.retryableRejected("batcher closed"));
         }
@@ -158,7 +156,7 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, ForceFlus
         }
     }
 
-    /// Surfaces a flush failure — an impossible merge or a downstream rejection — from
+    /// Surfaces a flush failure - an impossible merge or a downstream rejection - from
     /// [#shutdown] and [#forceFlush].
     public static final class BatchDeliveryException extends RuntimeException {
         BatchDeliveryException(String message) {
@@ -182,9 +180,8 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, ForceFlus
         return new Builder<>(Signal.LOGS);
     }
 
-    /// Experimental profiles batching. Only safe when every merged batch shares the
-    /// same `ProfilesDictionary`; otherwise flush fails
-    /// with [BatchDeliveryException].
+    /// Profiles batching. Only safe when every merged batch shares the same [ProfilesDictionary];
+    /// otherwise flush fails with [BatchDeliveryException].
     public static Builder<ProfilesData> forProfilesUnsafe() {
         return new Builder<>(Signal.PROFILES);
     }

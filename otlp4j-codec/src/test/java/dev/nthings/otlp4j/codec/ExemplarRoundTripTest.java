@@ -16,8 +16,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /// Exemplar coverage for [MetricsMapper]: exemplars hang off number, histogram, and
-/// exponential-histogram points and must survive a `toProto`/`toDomain` round-trip — both the
-/// integer and double value variants, and the present/absent forms of `spanId`/`traceId`.
+/// exponential-histogram points and must survive a toProto/toDomain round-trip - both the
+/// integer and double value variants, and the present/absent forms of spanId/traceId.
 @DisplayName("MetricsMapper exemplar round-trips")
 class ExemplarRoundTripTest {
 

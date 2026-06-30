@@ -14,7 +14,6 @@ import dev.nthings.otlp4j.model.TracesData;
 import java.util.List;
 
 /// Shared test-data factories for otlp4j test suites.
-///
 /// Keep small reusable domain objects here; module-specific rich fixtures belong
 /// with that module's own tests.
 public final class Fixtures {

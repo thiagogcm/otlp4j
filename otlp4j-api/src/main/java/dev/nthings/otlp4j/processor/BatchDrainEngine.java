@@ -56,10 +56,8 @@ final class BatchDrainEngine<T> {
         if (closed.get()) {
             return;
         }
-        // Coalesce: keep at most one drain queued behind the in-flight one. Otherwise a
-        // stalled downstream lets every timer tick and size trigger chain another no-op
-        // drain, growing the chain without bound during an outage. The flag clears once the
-        // queued drain starts, so the next trigger can enqueue exactly one successor.
+        // Coalesce: keep at most one drain queued behind the in-flight one, preventing unbounded
+        // chain growth during outages. The flag clears once the drain starts.
         if (!drainPending.compareAndSet(false, true)) {
             return;
         }
@@ -107,8 +105,7 @@ final class BatchDrainEngine<T> {
             return downstream.consume(merged).toCompletableFuture()
                     .thenCompose(BatchDrainEngine::asDeliveryOutcome);
         } catch (RuntimeException e) {
-            // A merge that can't proceed (e.g. profiles carrying distinct dictionaries) surfaces
-            // as the dedicated flush-failure type, the same way a downstream rejection does.
+            // An impossible merge surfaces as [BatchDeliveryException], same as a downstream rejection.
             return CompletableFuture.failedFuture(new BatchingProcessor.BatchDeliveryException(
                     "failed to flush drained batch: " + e.getMessage(), e));
         }

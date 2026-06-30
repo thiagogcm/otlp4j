@@ -27,6 +27,10 @@ public final class Pipeline {
     }
 
     /// Opens a builder attached to `source`.
+    ///
+    /// @param source the signal source
+    /// @param <T>    the signal type
+    /// @return the initial stage
     public static <T> Stage<T> from(Source<T> source) {
         return new StageImpl<>(Objects.requireNonNull(source, "source"), batch -> batch, new ArrayList<>());
     }
@@ -34,29 +38,45 @@ public final class Pipeline {
     /// A pipeline stage parameterised by the signal currently flowing through it.
     public sealed interface Stage<T> permits StageImpl {
 
-        /// Adds a pure 1→1 transform. A transform that returns `null` rejects
-        /// the batch.
+        /// Adds a pure 1-to-1 transform. A transform that returns null rejects the batch.
+        ///
+        /// @param fn the transform function
+        /// @return this stage
         Stage<T> transform(Transform<T> fn);
 
         /// Drops the batch entirely if `keep` rejects it.
+        ///
+        /// @param keep the filter predicate
+        /// @return this stage
         Stage<T> filter(Predicate<? super T> keep);
 
         /// Registers a lifecycle resource that the subscription drains on shutdown and
-        /// flushes on forceFlush if it is [dev.nthings.otlp4j.core.ForceFlushable]. Required
+        /// flushes on forceFlush if it is [ForceFlushable]. Required
         /// for exporters and any resource hidden behind a lambda sink.
+        ///
+        /// @param resource the lifecycle resource
+        /// @return this stage
         Stage<T> owns(AutoCloseable resource);
 
-        /// Opens a branch — subsequent `.fanOut(...)` calls add peers, `.join()` closes
+        /// Opens a branch - subsequent [Branch#fanOut] calls add peers, [Branch#join] closes
         /// the branch and returns the active subscription.
+        ///
+        /// @return the new branch
         Branch<T> branch();
 
-        /// Terminates the pipeline by delivering to `terminal`. Returns the
-        /// subscription that owns the wiring. Register exporter owners explicitly via
-        /// [#owns(AutoCloseable)] or the two-arg overload.
+        /// Terminates the pipeline by delivering to `terminal`. Register exporters explicitly
+        /// via [#owns(AutoCloseable)] or the two-arg overload.
+        ///
+        /// @param terminal the terminal sink
+        /// @return the subscription handle
         PipelineHandle to(Sink<? super T> terminal);
 
-        /// Terminates the pipeline by delivering to `terminal`, also registering
-        /// `owner` as a lifecycle resource. Shorthand for `owns(owner).to(terminal)`.
+        /// Terminates the pipeline by delivering to `terminal`, also registering `owner`
+        /// as a lifecycle resource. Shorthand for [#owns(AutoCloseable)] then [#to(Sink)].
+        ///
+        /// @param terminal the terminal sink
+        /// @param owner    the lifecycle resource to register
+        /// @return the subscription handle
         default PipelineHandle to(Sink<? super T> terminal, AutoCloseable owner) {
             return owns(owner).to(terminal);
         }
@@ -66,10 +86,14 @@ public final class Pipeline {
     public sealed interface Branch<T> permits BranchImpl {
 
         /// Adds a peer consumer to the fan-out.
+        ///
+        /// @param peer the peer sink
+        /// @return this branch
         Branch<T> fanOut(Sink<? super T> peer);
 
-        /// Closes the branch, attaches the fan-out to the source, and returns
-        /// the subscription.
+        /// Closes the branch, attaches the fan-out to the source, and returns the subscription.
+        ///
+        /// @return the subscription handle
         PipelineHandle join();
     }
 

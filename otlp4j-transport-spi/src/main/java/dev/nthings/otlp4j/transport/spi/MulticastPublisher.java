@@ -14,8 +14,8 @@ import org.jspecify.annotations.Nullable;
 
 /// Internal multicast [Flow.Publisher].
 ///
-/// Each subscription owns a bounded queue and a virtual-thread dispatcher; a slow subscriber
-/// drains its own queue under [TapOptions] without back-pressuring the producer.
+/// Each subscription owns a bounded queue and a virtual-thread dispatcher. A slow
+/// subscriber drains its own queue under [TapOptions] without back-pressuring the producer.
 final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoCloseable {
 
     private static final Flow.Subscription NO_OP_SUBSCRIPTION = new Flow.Subscription() {
@@ -78,8 +78,8 @@ final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoCloseable {
 
     private static final class SubscriptionImpl<T> implements Flow.Subscription {
 
-        /// How long a BLOCK producer parks for capacity before re-checking cancellation, so it
-        /// can't hang forever after terminateDispatch.
+        /// How long a BLOCK producer parks for capacity before re-checking cancellation,
+        /// so it cannot hang forever after terminateDispatch.
         private static final long BLOCK_OFFER_POLL_NANOS = TimeUnit.MILLISECONDS.toNanos(100);
 
         private final Flow.Subscriber<? super T> subscriber;
@@ -221,7 +221,7 @@ final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoCloseable {
             }
         }
 
-        /// Interrupts the dispatcher and drains the queue so a producer parked in a BLOCK [#offer]
+        /// Interrupts the dispatcher and drains the queue so a BLOCK [#offer] producer
         /// gets capacity and returns instead of hanging.
         private void terminateDispatch() {
             var d = dispatcher;

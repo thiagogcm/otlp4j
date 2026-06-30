@@ -72,7 +72,7 @@ class MulticastBackpressureTest {
                 @Override public void onSubscribe(Flow.Subscription s) { s.request(Long.MAX_VALUE); }
                 @Override public void onNext(Integer item) {
                     try {
-                        // Synchronous slow consumer — BLOCK lets publish() wait for capacity.
+                        // Synchronous slow consumer - BLOCK lets publish() wait for capacity.
                         Thread.sleep(2);
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();

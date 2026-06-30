@@ -1,8 +1,8 @@
 package dev.nthings.otlp4j.pipeline;
 
-/// A pure 1→1 transformation over a signal batch.
+/// A pure 1-to-1 transformation over a signal batch.
 ///
-/// Transforms are the building block of `Pipeline.transform(...)` and the most common pipeline
+/// Transforms are the building block of [Pipeline.Stage#transform] and the most common pipeline
 /// component. They are stateless from the framework's point of view; implementations are free to
 /// hold immutable configuration but must not retain or mutate batches.
 ///
@@ -11,5 +11,8 @@ package dev.nthings.otlp4j.pipeline;
 public interface Transform<T> {
 
     /// Returns a non-null batch derived from `batch`. May return `batch` unchanged.
+    ///
+    /// @param batch the input batch
+    /// @return the transformed batch
     T apply(T batch);
 }

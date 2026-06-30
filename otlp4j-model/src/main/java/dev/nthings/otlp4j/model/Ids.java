@@ -3,9 +3,8 @@ package dev.nthings.otlp4j.model;
 import java.util.HexFormat;
 import java.util.Objects;
 
-/// Construction-time validation for OTLP id and flag fields, so a malformed value fails when the
-/// model object is built rather than later on the async export thread (via bad hex or a silent
-/// `(int)` narrowing of out-of-range flags).
+/// Construction-time validation for OTLP ID and flag fields. A malformed value fails on
+/// construction rather than on the async export thread.
 final class Ids {
 
     /// A trace id is 16 bytes (32 hex characters).

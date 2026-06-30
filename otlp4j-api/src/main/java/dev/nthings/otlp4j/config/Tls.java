@@ -11,7 +11,7 @@ import org.jspecify.annotations.Nullable;
 /// certificate and key) and rejects [SystemTrust], as a server has no certificate of its own.
 public sealed interface Tls permits Tls.Disabled, Tls.SystemTrust, Tls.Custom {
 
-    /// Plaintext transport — no TLS.
+    /// Plaintext transport (no TLS).
     static Tls disabled() {
         return Disabled.INSTANCE;
     }

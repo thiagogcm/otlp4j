@@ -13,18 +13,13 @@ import java.time.Duration;
 import java.util.concurrent.Executor;
 import org.jspecify.annotations.Nullable;
 
-/// Builds [Receiver]s that accept OTLP/HTTP requests (binary-protobuf bodies), dispatch them to
-/// per-signal sinks, and expose a telemetry tap for live observation.
+/// Builds [Receiver]s that accept OTLP/HTTP requests and dispatch to per-signal sinks.
 ///
-/// `.onTraces(...)`-style builder sugar attaches a single sink per signal; richer graphs
-/// (branches, fan-out) wire the sources via `Pipeline.from(receiver.traces()) ...`. Call
-/// [Receiver#start()] on the built receiver to bind the transport.
-///
-/// Exports are accepted by POST on the standard signal paths (`/v1/traces`, `/v1/metrics`,
-/// `/v1/logs`, and `/v1development/profiles`). The default bind is `localhost:4318` with plaintext.
+/// Call [Receiver#start()] on the built receiver to bind the transport. The default bind is
+/// `localhost:4318` with plaintext.
 public final class OtlpHttpReceiver {
 
-    /// The conventional OTLP/HTTP port, used as the builder default (gRPC uses 4317).
+    /// The conventional OTLP/HTTP port (4318); gRPC uses 4317.
     static final int DEFAULT_HTTP_PORT = 4318;
 
     private OtlpHttpReceiver() {}
@@ -55,8 +50,8 @@ public final class OtlpHttpReceiver {
 
         private Builder() {}
 
-        /// Replaces the whole transport config. The supplied config's port is used verbatim (the
-        /// 4318 HTTP default applies only to the unconfigured builder).
+        /// Replaces the whole transport config. The supplied port is used verbatim (the 4318
+        /// default applies only to the unconfigured builder).
         public Builder transport(ServerConfig config) {
             this.config = config.toBuilder();
             return this;
@@ -76,20 +71,19 @@ public final class OtlpHttpReceiver {
             return port(0);
         }
 
-        /// Selects the server TLS mode (e.g. [Tls#custom] to serve TLS). Defaults to plaintext.
+        /// Selects the server TLS mode. Defaults to plaintext.
         public Builder tls(Tls tls) {
             config.tls(tls);
             return this;
         }
 
-        /// Caps a single decoded export request; guards against memory-exhausting oversized
-        /// requests. Defaults to 4 MiB.
+        /// Caps a single decoded export request. Defaults to 4 MiB.
         public Builder maxInboundMessageSizeBytes(int bytes) {
             config.maxInboundMessageSizeBytes(bytes);
             return this;
         }
 
-        /// Bounds the transport/TLS handshake only — not a slow request body or idle connection.
+        /// Bounds the transport/TLS handshake deadline, not request body or connection idle time.
         /// Defaults to 20s.
         public Builder handshakeTimeout(Duration handshakeTimeout) {
             config.handshakeTimeout(handshakeTimeout);

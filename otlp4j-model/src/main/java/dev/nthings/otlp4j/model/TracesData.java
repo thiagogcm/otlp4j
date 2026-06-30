@@ -6,7 +6,7 @@ import java.util.function.Consumer;
 
 /// A batch of trace telemetry: the domain equivalent of an OTLP `ExportTraceServiceRequest`.
 ///
-/// The hierarchy mirrors the protocol — `TracesData → ResourceSpans → ScopeSpans → Span` —
+/// The hierarchy mirrors the protocol - `TracesData → ResourceSpans → ScopeSpans → Span` -
 /// but every type here is a plain typed record with no dependency on the generated proto classes.
 public record TracesData(List<ResourceSpans> resourceSpans) {
 

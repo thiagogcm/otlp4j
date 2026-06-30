@@ -6,7 +6,7 @@ import java.util.Objects;
 import java.util.OptionalDouble;
 
 /// A data point for a [Metric.ExponentialHistogram]: a base-2 exponential bucket
-/// distribution. Mirrors `opentelemetry.proto.metrics.v1.ExponentialHistogramDataPoint`.
+/// distribution. Mirrors the [ExponentialHistogram] proto message.
 ///
 /// Prefer [#builder()] over the positional constructor.
 public record ExponentialHistogramPoint(
@@ -34,7 +34,7 @@ public record ExponentialHistogramPoint(
         return new Builder();
     }
 
-    /// Returns a [Builder] pre-populated with this point's fields, for copy-modify transforms.
+    /// Returns a pre-populated [Builder] for copy-modify transforms.
     public Builder toBuilder() {
         Builder builder = new Builder()
                 .attributes(attributes)
@@ -65,7 +65,7 @@ public record ExponentialHistogramPoint(
         }
     }
 
-    /// Fluent builder for [ExponentialHistogramPoint]. Optional fields default to empty/zero;
+    /// Fluent builder for [ExponentialHistogramPoint]. Fields default to empty/zero;
     /// `positive`/`negative` default to [Buckets#EMPTY].
     public static final class Builder {
 

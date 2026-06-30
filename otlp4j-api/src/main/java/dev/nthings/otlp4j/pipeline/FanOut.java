@@ -30,19 +30,29 @@ public final class FanOut<T> implements Sink<T> {
         this.peers = List.copyOf(peers);
     }
 
-    /// Returns a [FanOut] over the given peers. Peers run concurrently; at least one is required.
+    /// Returns a [FanOut] over the given peers.
+    ///
+    /// @param peers the peer sinks (at least one required)
+    /// @param <T>   the signal type
+    /// @return the fan-out sink
     @SafeVarargs
     public static <T> FanOut<T> of(Sink<? super T>... peers) {
         return new FanOut<T>(List.of(peers));
     }
 
-    /// Returns a [FanOut] over the given peers. Peers run concurrently; at least one is required.
+    /// Returns a [FanOut] over the given peers.
+    ///
+    /// @param peers the peer sinks (at least one required)
+    /// @param <T>   the signal type
+    /// @return the fan-out sink
     public static <T> FanOut<T> of(List<? extends Sink<? super T>> peers) {
         Objects.requireNonNull(peers, "peers");
         return new FanOut<T>(peers);
     }
 
     /// The peers this fan-out delivers each batch to.
+    ///
+    /// @return the list of peers
     public List<Sink<? super T>> peers() {
         return peers;
     }
@@ -74,15 +84,13 @@ public final class FanOut<T> implements Sink<T> {
         });
     }
 
-    /// Retags a peer's supertype-tagged result as `ConsumeResult<T>`; sound because [ConsumeResult]
-    /// holds no `T`-typed data, so its type parameter is a phantom tag.
+    /// Retags a peer's supertype-tagged result; sound because [ConsumeResult]'s type parameter is phantom.
     @SuppressWarnings("unchecked")
     private static <T> CompletionStage<ConsumeResult<T>> retag(CompletionStage<? extends ConsumeResult<?>> stage) {
         return (CompletionStage<ConsumeResult<T>>) stage;
     }
 
-    /// Describes a throwable for diagnostics, including its class and unwrapping the common
-    /// CompletionException wrapper so the underlying cause is visible.
+    /// Describes a throwable, unwrapping [CompletionException] for visibility of the underlying cause.
     private static String describe(Throwable t) {
         var cause = t instanceof CompletionException ? t.getCause() : t;
         return Objects.requireNonNullElse(cause, t).toString();

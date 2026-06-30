@@ -44,9 +44,9 @@ import org.slf4j.LoggerFactory;
 /// The OTLP/HTTP implementation of the [OtlpClient] SPI: POSTs binary-protobuf export requests to a
 /// collector's `/v1/<signal>` endpoints over the JDK [HttpClient].
 ///
-/// Honours the full [ClientConfig]: TLS (scheme + credentials), per-request headers, gzip,
-/// the per-request deadline, and retries. Each export runs on a virtual-thread carrier (as the gRPC
-/// client does) so the blocking send and bounded retry backoff never tie up a platform thread.
+/// Honours the full [ClientConfig]: TLS, per-request headers, gzip, deadline, and retries.
+/// Each export runs on a virtual-thread carrier so blocking send and backoff never tie up a
+/// platform thread.
 ///
 /// **Internal.** Part of the transport layer; obtained via the SPI.
 public final class HttpOtlpClient implements OtlpClient {
@@ -55,7 +55,7 @@ public final class HttpOtlpClient implements OtlpClient {
 
     private static final long CLOSE_TIMEOUT_SECONDS = 5;
 
-    /// Statuses an OTLP/HTTP client may retry, per the OTLP spec (plus 408 Request Timeout).
+    /// Statuses the OTLP/HTTP client may retry, per the OTLP spec (plus 408).
     private static final Set<Integer> RETRYABLE_STATUS = Set.of(408, 429, 502, 503, 504);
 
     private final ClientConfig config;
@@ -72,7 +72,7 @@ public final class HttpOtlpClient implements OtlpClient {
         this.compress = config.compression() == Compression.GZIP;
 
         var scheme = config.tls() instanceof Tls.Disabled ? "http" : "https";
-        // config.path() is a normalized prefix ("" or /-led, no trailing slash).
+        // config.path() is a normalized prefix.
         var base = scheme + "://" + authority(config.host(), config.port()) + config.path();
         this.tracesUri = URI.create(base + OtlpHttp.TRACES_PATH);
         this.metricsUri = URI.create(base + OtlpHttp.METRICS_PATH);
@@ -93,7 +93,7 @@ public final class HttpOtlpClient implements OtlpClient {
         log.debug("created OTLP/HTTP client for {}", base);
     }
 
-    /// Wraps an IPv6 literal in brackets so it forms a valid URL authority; other hosts pass through.
+    /// Wraps an IPv6 literal in brackets to form a valid URL authority; other hosts pass through.
     private static String authority(String host, int port) {
         var h = host.indexOf(':') >= 0 && !host.startsWith("[") ? "[" + host + "]" : host;
         return h + ":" + port;
@@ -127,10 +127,9 @@ public final class HttpOtlpClient implements OtlpClient {
                 ExportProfilesServiceResponse::parseFrom, ProfilesMapper::result), executor);
     }
 
-    /// Sends `payload` to `uri`, retrying retryable statuses and IO failures within the configured
-    /// [RetryPolicy] with exponential backoff. On a 2xx the response body is parsed and mapped to a
-    /// [ConsumeResult]; any other final outcome throws (surfacing as the stage's failure), mirroring
-    /// the gRPC client where a non-OK status is an exception rather than a `ConsumeResult.Rejected`.
+    /// Sends `payload` to `uri`, retrying retryable statuses and IO errors within the [RetryPolicy]
+    /// with exponential backoff. A 2xx response is parsed and mapped to [ConsumeResult]; any other
+    /// outcome throws, mirroring the gRPC client where a non-OK status is an exception.
     private <RESP, SIG> ConsumeResult<SIG> export(
             URI uri, byte[] payload, ProtoParser<RESP> parse, Function<RESP, ConsumeResult<SIG>> toResult) {
         var retry = config.retry();
@@ -188,8 +187,7 @@ public final class HttpOtlpClient implements OtlpClient {
         return "OTLP/HTTP export to " + uri + " rejected: HTTP " + code + (text.isEmpty() ? "" : " - " + text);
     }
 
-    /// Exponential backoff for the just-failed `attempt` (1-based): `initialBackoff * 2^(attempt-1)`,
-    /// capped at `maxBackoff`.
+    /// Exponential backoff for the failed `attempt` (1-based), capped at `maxBackoff`.
     private static long backoffNanos(RetryPolicy retry, int attempt) {
         var delay = retry.initialBackoff().toNanos();
         var max = retry.maxBackoff().toNanos();
@@ -222,7 +220,7 @@ public final class HttpOtlpClient implements OtlpClient {
     }
 
     /// Interrupt-responsive teardown bounded by [#CLOSE_TIMEOUT_SECONDS]: drains the per-export
-    /// executor (so in-flight sends finish or are interrupted), then forcibly closes the client.
+    /// executor, then forcibly closes the client.
     @Override
     public void close() {
         executor.shutdown();

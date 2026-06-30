@@ -23,20 +23,17 @@ import org.slf4j.LoggerFactory;
 /// OTLP/gRPC implementation of the [OtlpServer] SPI.
 ///
 /// Serves the four OTLP collector services and routes decoded requests to the
-/// per-signal [Dispatchers] the receiver supplies. [Tls] selects the server
-/// credentials: [Tls.Disabled] is plaintext and [Tls.Custom] supplies the server
-/// certificate and key.
+/// per-signal [Dispatchers]. [Tls] selects the server credentials: [Tls.Disabled]
+/// is plaintext, [Tls.Custom] supplies the certificate and key.
 ///
-/// Built on Netty's [NettyServerBuilder] so it can bind a specific interface
-/// (e.g. loopback-only) and apply the production-hardening limits from
-/// [ServerConfig]: a decoded-request cap, an optional per-connection concurrency
-/// cap, a handshake deadline, and an optional bounded executor.
+/// Built on Netty's [NettyServerBuilder] so it can bind a specific interface and
+/// apply limits from [ServerConfig]: decoded-request cap, per-connection
+/// concurrency cap, handshake deadline, and optional bounded executor.
 public final class GrpcOtlpServer implements OtlpServer {
 
     private static final Logger log = LoggerFactory.getLogger(GrpcOtlpServer.class);
 
-    /// Runs each blocking termination wait on a virtual thread, not a
-    /// common-pool worker.
+    /// Runs each blocking termination wait on a virtual thread.
     private static final Executor SHUTDOWN_EXECUTOR = task -> Thread.ofVirtual().name("otlp-grpc-shutdown").start(task);
 
     private final ServerConfig config;

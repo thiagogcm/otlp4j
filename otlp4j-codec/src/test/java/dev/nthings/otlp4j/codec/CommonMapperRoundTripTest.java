@@ -16,8 +16,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
-/// Exhaustive mapper-unit round-trip coverage for [CommonMapper] — every `AttributeValue`
-/// variant (including nested and empty), the `Attributes` short-circuit, the id hex helpers and
+/// Exhaustive mapper-unit round-trip coverage for [CommonMapper] - every AttributeValue
+/// variant (including nested and empty), the Attributes short-circuit, the id hex helpers and
 /// the resource/scope mappers, all with no gRPC layer in the loop.
 @DisplayName("CommonMapper round-trips")
 class CommonMapperRoundTripTest {

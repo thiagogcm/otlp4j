@@ -21,20 +21,18 @@ import org.slf4j.LoggerFactory;
 
 /// OTLP/HTTP implementation of the [OtlpServer] SPI, built on the JDK [HttpServer]/[HttpsServer].
 ///
-/// Serves the four OTLP collector endpoints (`/v1/traces`, `/v1/metrics`, `/v1/logs`,
-/// `/v1development/profiles`) and routes decoded requests to the per-signal [Dispatchers] the
-/// receiver supplies. [Tls] selects the server: [Tls.Disabled] is plaintext and [Tls.Custom]
-/// supplies the certificate and key (via an [HttpsServer]); [Tls.SystemTrust] is rejected, as a
-/// server has no certificate of its own.
+/// Serves the four OTLP collector endpoints and routes decoded requests to per-signal
+/// [Dispatchers]. [Tls] selects the server: [Tls.Disabled] is plaintext, [Tls.Custom]
+/// supplies the certificate and key; [Tls.SystemTrust] is rejected as a server has no certificate.
 ///
 /// When no [ServerConfig#serverExecutor()] is configured the server uses a
-/// virtual-thread-per-request executor, so a handler blocking on its dispatcher's [CompletionStage]
-/// never starves the others.
+/// virtual-thread-per-request executor so a handler blocking on its dispatcher's
+/// [CompletionStage] never starves the others.
 public final class HttpOtlpServer implements OtlpServer {
 
     private static final Logger log = LoggerFactory.getLogger(HttpOtlpServer.class);
 
-    /// Runs each blocking stop/drain on a virtual thread, not a common-pool worker.
+    /// Runs each blocking stop/drain on a virtual thread.
     private static final Executor SHUTDOWN_EXECUTOR =
             task -> Thread.ofVirtual().name("otlp-http-shutdown").start(task);
 
@@ -89,8 +87,8 @@ public final class HttpOtlpServer implements OtlpServer {
 
     @Override
     public CompletionStage<Void> shutdown(Duration timeout) {
-        // HttpServer.stop(delay) closes the listener, then waits up to `delay` seconds for in-flight
-        // exchanges to finish before closing them — a graceful drain bounded by the caller's deadline.
+        // HttpServer.stop(delay) closes the listener, then waits up to `delay` seconds for
+        // in-flight exchanges to finish - a graceful drain bounded by the caller's deadline.
         return stop(clampSeconds(timeout));
     }
 
@@ -115,7 +113,7 @@ public final class HttpOtlpServer implements OtlpServer {
         }, SHUTDOWN_EXECUTOR);
     }
 
-    /// Clamps a drain timeout to the non-negative `int` seconds [HttpServer#stop(int)] expects,
+    /// Clamps a drain timeout to the `int` seconds [HttpServer#stop(int)] expects,
     /// guarding against overflow on a very large [Duration].
     private static int clampSeconds(Duration timeout) {
         return (int) Math.max(0, Math.min(timeout.toSeconds(), Integer.MAX_VALUE));
