@@ -1,8 +1,11 @@
 package dev.nthings.otlp4j.config;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.UnaryOperator;
@@ -58,6 +61,11 @@ public record ClientConfig(
         return new Builder();
     }
 
+    /// The default config (all builder defaults, `localhost:4317` plaintext).
+    public static ClientConfig getDefault() {
+        return builder().build();
+    }
+
     /// Returns a builder pre-populated with this config's fields.
     public Builder toBuilder() {
         var b = new Builder();
@@ -85,70 +93,115 @@ public record ClientConfig(
 
         private Builder() {}
 
-        public Builder endpoint(String host, int port) {
+        /// Sets the endpoint from a `scheme://host:port[/prefix]` URL: `https` selects system-trust
+        /// TLS, a portless URL keeps the protocol default. Call [#setTls] afterwards for mTLS.
+        public Builder setEndpoint(String url) {
+            this.tls = applyEndpointUrl(url) ? Tls.systemTrust() : Tls.disabled();
+            return this;
+        }
+
+        public Builder setEndpoint(String host, int port) {
             this.host = host;
             this.port = port;
             return this;
+        }
+
+        /// Parses an http/https endpoint URL onto host/port/path, returning whether the scheme
+        /// selects TLS. Package-private seam shared with [OtlpEnv].
+        boolean applyEndpointUrl(String url) {
+            URI uri;
+            try {
+                uri = new URI(url.strip());
+            } catch (URISyntaxException e) {
+                throw new IllegalArgumentException("endpoint is not a valid URL: " + url, e);
+            }
+            var scheme = uri.getScheme();
+            if (scheme == null) {
+                throw new IllegalArgumentException(
+                        "endpoint must be an absolute http:// or https:// URL: " + url);
+            }
+            var secure =
+                    switch (scheme.toLowerCase(Locale.ROOT)) {
+                        case "http" -> false;
+                        case "https" -> true;
+                        default -> throw new IllegalArgumentException(
+                                "endpoint scheme must be http or https: " + url);
+                    };
+            var parsedHost = uri.getHost();
+            if (parsedHost == null || parsedHost.isBlank()) {
+                throw new IllegalArgumentException("endpoint has no host: " + url);
+            }
+            // URI.getHost() wraps an IPv6 literal in brackets; the transport wants the bare address.
+            if (parsedHost.startsWith("[") && parsedHost.endsWith("]")) {
+                parsedHost = parsedHost.substring(1, parsedHost.length() - 1);
+            }
+            this.host = parsedHost;
+            // No explicit port keeps the current protocol default (4317 gRPC, 4318 HTTP).
+            if (uri.getPort() != -1) {
+                this.port = uri.getPort();
+            }
+            this.path = uri.getRawPath();
+            return secure;
         }
 
         /// Sets the OTLP/HTTP endpoint path prefix (e.g. `/otlp`); blank or `/` mean none. gRPC
         /// ignores it.
-        public Builder path(String path) {
+        public Builder setPath(String path) {
             this.path = path;
             return this;
         }
 
-        public Builder host(String host) {
+        public Builder setHost(String host) {
             this.host = host;
             return this;
         }
 
-        public Builder port(int port) {
+        public Builder setPort(int port) {
             this.port = port;
             return this;
         }
 
-        /// The port currently set on this builder. Package-private seam used by [OtlpEnv] so an
-        /// endpoint URL without an explicit port falls back to the protocol's default (4317 for
-        /// gRPC, 4318 for HTTP) rather than a single hardcoded constant.
-        int port() {
-            return port;
-        }
-
-        public Builder timeout(Duration timeout) {
+        public Builder setTimeout(Duration timeout) {
             this.timeout = timeout;
             return this;
         }
 
-        public Builder tls(Tls tls) {
+        public Builder setTls(Tls tls) {
             this.tls = tls;
             return this;
         }
 
-        public Builder header(String key, String value) {
+        /// Adds one request header (e.g. `authorization`), overwriting any existing value for the key.
+        public Builder addHeader(String key, String value) {
             this.headers.put(key, value);
             return this;
         }
 
         /// Replaces all existing headers with the supplied map.
-        public Builder headers(Map<String, String> headers) {
+        public Builder setHeaders(Map<String, String> headers) {
             this.headers.clear();
             this.headers.putAll(headers);
             return this;
         }
 
-        /// Adds all of `headers` on top of any already set; values overwrite existing ones per key.
-        public Builder addHeaders(Map<String, String> headers) {
-            this.headers.putAll(headers);
-            return this;
-        }
-
-        public Builder compression(Compression compression) {
+        public Builder setCompression(Compression compression) {
             this.compression = compression;
             return this;
         }
 
-        public Builder retry(RetryPolicy retry) {
+        /// Familiar string door: `gzip` or `none` (case-insensitive).
+        public Builder setCompression(String compression) {
+            this.compression =
+                    switch (compression.strip().toLowerCase(Locale.ROOT)) {
+                        case "gzip" -> Compression.GZIP;
+                        case "none" -> Compression.NONE;
+                        default -> throw new IllegalArgumentException(
+                                "compression must be 'gzip' or 'none': " + compression);
+                    };
+            return this;
+        }
+
+        public Builder setRetryPolicy(RetryPolicy retry) {
             this.retry = retry;
             return this;
         }

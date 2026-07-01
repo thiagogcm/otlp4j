@@ -29,7 +29,7 @@ public final class OtlpHttpExporter {
 
     /// Convenience factory: builds and returns a ready-to-use [OtlpExporter].
     public static OtlpExporter to(String host, int port) {
-        return builder().endpoint(host, port).build();
+        return builder().setEndpoint(host, port).build();
     }
 
     /// Builds from the standard `OTEL_EXPORTER_OTLP_*` variables.
@@ -42,7 +42,7 @@ public final class OtlpHttpExporter {
     public static final class Builder {
 
         private ClientConfig.Builder config =
-                ClientConfig.builder().port(DEFAULT_HTTP_PORT);
+                ClientConfig.builder().setPort(DEFAULT_HTTP_PORT);
 
         private Builder() {}
 
@@ -60,68 +60,75 @@ public final class OtlpHttpExporter {
             return this;
         }
 
-        public Builder endpoint(String host, int port) {
-            config.endpoint(host, port);
+        /// Sets the endpoint from a `scheme://host:port[/prefix]` URL; `https` selects system-trust
+        /// TLS and any path becomes the endpoint path prefix.
+        public Builder setEndpoint(String url) {
+            config.setEndpoint(url);
+            return this;
+        }
+
+        public Builder setEndpoint(String host, int port) {
+            config.setEndpoint(host, port);
             return this;
         }
 
         /// Sets an endpoint path prefix (e.g. `/otlp`) prepended to the per-signal paths; blank or
         /// `/` mean none.
-        public Builder path(String path) {
-            config.path(path);
+        public Builder setPath(String path) {
+            config.setPath(path);
             return this;
         }
 
-        public Builder host(String host) {
-            config.host(host);
+        public Builder setHost(String host) {
+            config.setHost(host);
             return this;
         }
 
-        public Builder port(int port) {
-            config.port(port);
+        public Builder setPort(int port) {
+            config.setPort(port);
             return this;
         }
 
-        public Builder timeout(Duration timeout) {
-            config.timeout(timeout);
+        public Builder setTimeout(Duration timeout) {
+            config.setTimeout(timeout);
             return this;
         }
 
         /// Selects the client TLS mode (e.g. [Tls#systemTrust()] or [Tls.Custom]); also chooses the
         /// `http` vs `https` scheme. Defaults to plaintext `http`.
-        public Builder tls(Tls tls) {
-            config.tls(tls);
+        public Builder setTls(Tls tls) {
+            config.setTls(tls);
             return this;
         }
 
         /// Adds one HTTP request header (e.g. `authorization`) sent on every export.
-        public Builder header(String key, String value) {
-            config.header(key, value);
+        public Builder addHeader(String key, String value) {
+            config.addHeader(key, value);
             return this;
         }
 
         /// Replaces any existing HTTP request headers with the supplied map.
-        public Builder headers(Map<String, String> headers) {
-            config.headers(headers);
-            return this;
-        }
-
-        /// Adds all of `headers` as HTTP request headers, on top of any already set.
-        public Builder addHeaders(Map<String, String> headers) {
-            config.addHeaders(headers);
+        public Builder setHeaders(Map<String, String> headers) {
+            config.setHeaders(headers);
             return this;
         }
 
         /// Selects request-body compression (e.g. [Compression#GZIP] sent as
         /// `Content-Encoding: gzip`). Defaults to none.
-        public Builder compression(Compression compression) {
-            config.compression(compression);
+        public Builder setCompression(Compression compression) {
+            config.setCompression(compression);
+            return this;
+        }
+
+        /// Familiar string door for compression: `gzip` or `none`.
+        public Builder setCompression(String compression) {
+            config.setCompression(compression);
             return this;
         }
 
         /// Sets the transport retry policy. Defaults to no retries.
-        public Builder retry(RetryPolicy retry) {
-            config.retry(retry);
+        public Builder setRetryPolicy(RetryPolicy retry) {
+            config.setRetryPolicy(retry);
             return this;
         }
 

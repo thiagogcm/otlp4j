@@ -187,14 +187,15 @@ public final class HttpOtlpClient implements OtlpClient {
         return "OTLP/HTTP export to " + uri + " rejected: HTTP " + code + (text.isEmpty() ? "" : " - " + text);
     }
 
-    /// Exponential backoff for the failed `attempt` (1-based), capped at `maxBackoff`.
+    /// Exponential backoff for the failed `attempt` (1-based), growing by the policy's
+    /// `backoffMultiplier` and capped at `maxBackoff`.
     private static long backoffNanos(RetryPolicy retry, int attempt) {
-        var delay = retry.initialBackoff().toNanos();
+        var delay = (double) retry.initialBackoff().toNanos();
         var max = retry.maxBackoff().toNanos();
         for (var i = 1; i < attempt; i++) {
-            delay = Math.min(max, delay * 2);
+            delay = Math.min(max, delay * retry.backoffMultiplier());
         }
-        return Math.min(delay, max);
+        return (long) Math.min(delay, max);
     }
 
     private static void sleep(long nanos) {

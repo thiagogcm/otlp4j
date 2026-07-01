@@ -27,7 +27,7 @@ class GrpcOtlpServerLifecycleTest {
             p -> CompletableFuture.completedStage(ConsumeResult.accepted()));
 
     private static ServerConfig ephemeral() {
-        return ServerConfig.builder().port(0).build();
+        return ServerConfig.builder().setPort(0).build();
     }
 
     @DisplayName("shutdown before start is a safe no-op")
@@ -70,7 +70,7 @@ class GrpcOtlpServerLifecycleTest {
     @DisplayName("a loopback-only bindHost binds successfully and reports a positive port")
     @Test
     void loopbackBindHostStarts() throws Exception {
-        var config = ServerConfig.builder().bindHost("127.0.0.1").port(0).build();
+        var config = ServerConfig.builder().setBindHost("127.0.0.1").setPort(0).build();
         var server = new GrpcOtlpServer(config, NO_OP);
         server.start();
         try {
@@ -94,7 +94,7 @@ class GrpcOtlpServerLifecycleTest {
     @Test
     void systemTrustTlsRejectedForServer() {
         var server = new GrpcOtlpServer(
-                ServerConfig.builder().port(0).tls(Tls.systemTrust()).build(), NO_OP);
+                ServerConfig.builder().setPort(0).setTls(Tls.systemTrust()).build(), NO_OP);
         assertThatThrownBy(server::start)
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("SystemTrust");
@@ -104,8 +104,8 @@ class GrpcOtlpServerLifecycleTest {
     @Test
     void incompleteCustomTlsRejectedForServer() {
         var server = new GrpcOtlpServer(
-                ServerConfig.builder().port(0)
-                        .tls(Tls.custom(Path.of("server.crt"), null, null)).build(),
+                ServerConfig.builder().setPort(0)
+                        .setTls(Tls.custom(Path.of("server.crt"), null, null)).build(),
                 NO_OP);
         assertThatThrownBy(server::start)
                 .isInstanceOf(IllegalArgumentException.class)
@@ -116,11 +116,11 @@ class GrpcOtlpServerLifecycleTest {
     @Test
     void hardeningKnobsStart() throws Exception {
         var config = ServerConfig.builder()
-                .port(0)
-                .maxInboundMessageSizeBytes(1024 * 1024)
-                .maxConcurrentCallsPerConnection(16)
-                .handshakeTimeout(Duration.ofSeconds(5))
-                .serverExecutor(Runnable::run)
+                .setPort(0)
+                .setMaxInboundMessageSizeBytes(1024 * 1024)
+                .setMaxConcurrentCallsPerConnection(16)
+                .setHandshakeTimeout(Duration.ofSeconds(5))
+                .setServerExecutor(Runnable::run)
                 .build();
         var server = new GrpcOtlpServer(config, NO_OP);
         server.start();

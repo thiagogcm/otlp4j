@@ -197,8 +197,8 @@ class OtlpEnvTest {
     @Test
     void headersMerge() {
         var merged = ClientConfig.builder()
-                .header("authorization", "Bearer keep-me")
-                .header("x-tenant", "old")
+                .addHeader("authorization", "Bearer keep-me")
+                .addHeader("x-tenant", "old")
                 .fromEnvironment(Map.of(OtlpEnv.HEADERS, "x-tenant=new,x-trace=on")::get)
                 .build();
 
@@ -262,7 +262,7 @@ class OtlpEnvTest {
     void builderWinsAfterEnv() {
         var cfg = ClientConfig.builder()
                 .fromEnvironment(Map.of(OtlpEnv.ENDPOINT, "http://collector:4317")::get)
-                .endpoint("override", 9999)
+                .setEndpoint("override", 9999)
                 .build();
 
         assertThat(cfg.host()).isEqualTo("override");
@@ -273,7 +273,7 @@ class OtlpEnvTest {
     @Test
     void envWinsOverEarlierSetters() {
         var cfg = ClientConfig.builder()
-                .endpoint("pre", 1)
+                .setEndpoint("pre", 1)
                 .fromEnvironment(Map.of(OtlpEnv.ENDPOINT, "http://collector:4317")::get)
                 .build();
 

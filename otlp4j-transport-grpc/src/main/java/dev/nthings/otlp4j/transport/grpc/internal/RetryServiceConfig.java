@@ -32,7 +32,7 @@ final class RetryServiceConfig {
         retryPolicy.put("maxAttempts", (double) policy.maxAttempts());
         retryPolicy.put("initialBackoff", seconds(policy.initialBackoff()));
         retryPolicy.put("maxBackoff", seconds(policy.maxBackoff()));
-        retryPolicy.put("backoffMultiplier", 2.0d);
+        retryPolicy.put("backoffMultiplier", policy.backoffMultiplier());
         retryPolicy.put("retryableStatusCodes", RETRYABLE_STATUS_CODES);
 
         var methodConfigs = new ArrayList<Map<String, Object>>(serviceNames.size());

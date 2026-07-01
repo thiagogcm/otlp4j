@@ -227,9 +227,9 @@ class HttpTransportTest {
             return ConsumeResult.acceptedStage();
         }));
         var exporter = OtlpHttpExporter.builder()
-                .endpoint("localhost", receiver.port())
-                .compression(Compression.GZIP)
-                .timeout(Duration.ofSeconds(5))
+                .setEndpoint("localhost", receiver.port())
+                .setCompression(Compression.GZIP)
+                .setTimeout(Duration.ofSeconds(5))
                 .build();
         closeables.add(exporter);
         var sent = TransportFixtures.richTraceData();
@@ -251,9 +251,9 @@ class HttpTransportTest {
             return ConsumeResult.acceptedStage();
         }));
         var exporter = OtlpHttpExporter.builder()
-                .endpoint("localhost", receiver.port())
-                .retry(RetryPolicy.exponential(3, Duration.ofMillis(1), Duration.ofMillis(5)))
-                .timeout(Duration.ofSeconds(5))
+                .setEndpoint("localhost", receiver.port())
+                .setRetryPolicy(RetryPolicy.builder().setMaxAttempts(3).setInitialBackoff(Duration.ofMillis(1)).setMaxBackoff(Duration.ofMillis(5)).build())
+                .setTimeout(Duration.ofSeconds(5))
                 .build();
         closeables.add(exporter);
 
@@ -326,16 +326,16 @@ class HttpTransportTest {
     void facadeBuilderConvenienceKnobsRoundTrip() {
         var received = new AtomicReference<TracesData>();
         var receiver = startReceiver(OtlpHttpReceiver.builder()
-                .maxInboundMessageSizeBytes(8 * 1024 * 1024)
+                .setMaxInboundMessageSizeBytes(8 * 1024 * 1024)
                 .onTraces(traces -> {
                     received.set(traces);
                     return ConsumeResult.acceptedStage();
                 }));
         var exporter = OtlpHttpExporter.builder()
-                .endpoint("localhost", receiver.port())
-                .compression(Compression.GZIP)
-                .retry(RetryPolicy.exponential(3, Duration.ofMillis(50), Duration.ofSeconds(1)))
-                .timeout(Duration.ofSeconds(5))
+                .setEndpoint("localhost", receiver.port())
+                .setCompression(Compression.GZIP)
+                .setRetryPolicy(RetryPolicy.builder().setMaxAttempts(3).setInitialBackoff(Duration.ofMillis(50)).setMaxBackoff(Duration.ofSeconds(1)).build())
+                .setTimeout(Duration.ofSeconds(5))
                 .build();
         closeables.add(exporter);
         var sent = TransportFixtures.richTraceData();
@@ -354,8 +354,8 @@ class HttpTransportTest {
 
     private OtlpExporter exporterTo(Receiver receiver) {
         var exporter = OtlpHttpExporter.builder()
-                .endpoint("localhost", receiver.port())
-                .timeout(Duration.ofSeconds(5))
+                .setEndpoint("localhost", receiver.port())
+                .setTimeout(Duration.ofSeconds(5))
                 .build();
         closeables.add(exporter);
         return exporter;

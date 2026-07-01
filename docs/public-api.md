@@ -20,7 +20,7 @@ When you wire several stages together, read [Lifecycle](#lifecycle) so every res
 
 ```java
 var receiver = OtlpGrpcReceiver.builder()
-        .endpoint("127.0.0.1", 4317)
+        .setEndpoint("127.0.0.1", 4317)
         .onTraces(traces -> {
             System.out.println("spans=" + traces.spanCount());
             return ConsumeResult.acceptedStage();
@@ -185,26 +185,26 @@ Use an exception or exceptionally completed stage for a transport-level failure.
 
 ## Receive
 
-`OtlpGrpcReceiver` defaults to plaintext `localhost:4317`; call `.tls(Tls.custom(cert, key, …))` on the builder to serve TLS. Port `0` selects an ephemeral port, available through `port()` after `start()`. A wildcard `bindHost` (empty, `0.0.0.0`, or `::`) binds every interface; any other host binds that specific interface, so `127.0.0.1` yields a fixed loopback-only receiver.
+`OtlpGrpcReceiver` defaults to plaintext `localhost:4317`; call `.setTls(Tls.custom(cert, key, …))` on the builder to serve TLS. Port `0` selects an ephemeral port, available through `port()` after `start()`. A wildcard `bindHost` (empty, `0.0.0.0`, or `::`) binds every interface; any other host binds that specific interface, so `127.0.0.1` yields a fixed loopback-only receiver.
 
-`OtlpHttpReceiver` is the OTLP/HTTP counterpart with the same builder, defaulting to `localhost:4318`. It serves the standard signal paths (`/v1/traces`, `/v1/metrics`, `/v1/logs`, `/v1development/profiles`), inflates gzip request bodies, and — lacking a per-connection concurrency knob — bounds concurrency through `serverExecutor(...)` (a virtual-thread-per-request executor by default).
+`OtlpHttpReceiver` is the OTLP/HTTP counterpart with the same builder, defaulting to `localhost:4318`. It serves the standard signal paths (`/v1/traces`, `/v1/metrics`, `/v1/logs`, `/v1development/profiles`), inflates gzip request bodies, and — lacking a per-connection concurrency knob — bounds concurrency through `setServerExecutor(...)` (a virtual-thread-per-request executor by default).
 
 The receiver builder exposes the receiver-hardening knobs the bundled server applies directly (or set them on a `ServerConfig` and pass it through `transport(...)`), all defaulting to gRPC's own behaviour:
 
-| Builder knob                      | Default                       | Effect                                                                                     |
-| --------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------ |
-| `maxInboundMessageSizeBytes`      | 4 MiB                         | Caps a single decoded export request; guards against memory-exhausting oversized requests. |
-| `maxConcurrentCallsPerConnection` | `0` (gRPC default, unlimited) | A positive value caps in-flight calls per connection.                                      |
-| `handshakeTimeout`                | 20s                           | Bounds the transport/TLS handshake only — not a slow request body or an idle connection.   |
-| `serverExecutor`                  | `null` (gRPC's own executor)  | Supply a bounded pool to cap admitted concurrent work.                                     |
+| Builder knob                         | Default                       | Effect                                                                                     |
+| ------------------------------------ | ----------------------------- | ------------------------------------------------------------------------------------------ |
+| `setMaxInboundMessageSizeBytes`      | 4 MiB                         | Caps a single decoded export request; guards against memory-exhausting oversized requests. |
+| `setMaxConcurrentCallsPerConnection` | `0` (gRPC default, unlimited) | A positive value caps in-flight calls per connection.                                      |
+| `setHandshakeTimeout`                | 20s                           | Bounds the transport/TLS handshake only — not a slow request body or an idle connection.   |
+| `setServerExecutor`                  | `null` (gRPC's own executor)  | Supply a bounded pool to cap admitted concurrent work.                                     |
 
 ```java
 var receiver = OtlpGrpcReceiver.builder()
-        .endpoint("0.0.0.0", 4317)
-        .tls(Tls.custom(certFile, keyFile, trustFile))
-        .maxInboundMessageSizeBytes(8 * 1024 * 1024)
-        .maxConcurrentCallsPerConnection(256)
-        .serverExecutor(Executors.newFixedThreadPool(32))
+        .setEndpoint("0.0.0.0", 4317)
+        .setTls(Tls.custom(certFile, keyFile, trustFile))
+        .setMaxInboundMessageSizeBytes(8 * 1024 * 1024)
+        .setMaxConcurrentCallsPerConnection(256)
+        .setServerExecutor(Executors.newFixedThreadPool(32))
         .onTraces(report)
         .build()
         .start();
@@ -215,10 +215,10 @@ Compression is asymmetric: the server transparently decodes gzip request bodies 
 **Production receiver checklist.** The default loopback bind is convenient locally. Before exposing a receiver in production:
 
 - **Bind host** — keep the default loopback bind or choose a specific interface unless you mean to listen on every interface with a wildcard host.
-- **TLS** — serve TLS with `.tls(Tls.custom(cert, key, trust))`; require client certs (mTLS) on untrusted networks.
-- **Inbound size cap** — set `maxInboundMessageSizeBytes` to bound a single decoded request.
-- **Concurrency cap** — set `maxConcurrentCallsPerConnection` and/or a bounded `serverExecutor` to cap admitted work.
-- **Handshake timeout** — keep `handshakeTimeout` tight to shed stalled TLS handshakes.
+- **TLS** — serve TLS with `.setTls(Tls.custom(cert, key, trust))`; require client certs (mTLS) on untrusted networks.
+- **Inbound size cap** — call `setMaxInboundMessageSizeBytes` to bound a single decoded request.
+- **Concurrency cap** — call `setMaxConcurrentCallsPerConnection` and/or a bounded `setServerExecutor` to cap admitted work.
+- **Handshake timeout** — keep `setHandshakeTimeout` tight to shed stalled TLS handshakes.
 - **Auth** — credentials travel as gRPC metadata/headers; terminate auth in front of, or inside, your consumer. otlp4j does not authenticate requests itself.
 
 ```java
@@ -340,23 +340,23 @@ Overflow behavior (the `OverflowPolicy`):
 
 ## Export
 
-`OtlpGrpcExporter` defaults to plaintext `localhost:4317` with a ten-second deadline per request. It owns one client channel and exposes a sink facet for each signal. TLS, authentication headers, gzip compression, and retries are available directly on the builder (`tls`, `header`/`headers`, `compression`, `retry`); pass a fully built `ClientConfig` through `transport(...)` only when you want to replace the whole config at once.
+`OtlpGrpcExporter` defaults to plaintext `localhost:4317` with a ten-second deadline per request. It owns one client channel and exposes a sink facet for each signal. The endpoint can be set as a single `setEndpoint(url)` URL or as `setEndpoint(host, port)`; TLS, authentication headers, gzip compression, and retries are available directly on the builder (`setTls`, `addHeader`/`setHeaders`, `setCompression`, `setRetryPolicy`); pass a fully built `ClientConfig` through `transport(...)` only when you want to replace the whole config at once.
 
-`OtlpHttpExporter` is the OTLP/HTTP counterpart with the identical builder, defaulting to `localhost:4318`. It POSTs each signal's binary protobuf to its standard path (`/v1/traces`, `/v1/metrics`, `/v1/logs`, `/v1development/profiles`) as `application/x-protobuf`; the scheme follows `tls` (`http`/`https`), `compression(GZIP)` sets `Content-Encoding: gzip`, and `retry` drives exponential-backoff retries over retryable statuses (408/429/502/503/504). An endpoint **path prefix** is applied: a collector behind `https://host/otlp` is reached at `/otlp/v1/traces`, set via the `OTEL_EXPORTER_OTLP_ENDPOINT` URL or the HTTP builder's `path(...)`. (gRPC ignores the path and uses the authority only.)
+`OtlpHttpExporter` is the OTLP/HTTP counterpart with the identical builder, defaulting to `localhost:4318`. It POSTs each signal's binary protobuf to its standard path (`/v1/traces`, `/v1/metrics`, `/v1/logs`, `/v1development/profiles`) as `application/x-protobuf`; the scheme follows `setTls` (`http`/`https`), `setCompression(GZIP)` sets `Content-Encoding: gzip`, and `setRetryPolicy` drives exponential-backoff retries over retryable statuses (408/429/502/503/504). An endpoint **path prefix** is applied: a collector behind `https://host/otlp` is reached at `/otlp/v1/traces`, set via the `setEndpoint(url)` / `OTEL_EXPORTER_OTLP_ENDPOINT` URL or the HTTP builder's `setPath(...)`. (gRPC ignores the path and uses the authority only.)
 
 By default the exporter reads no environment — construction is fully explicit and deterministic. Opt in to the standard general OTLP variables with `fromEnvironment()` on the exporter or `ClientConfig` builder, or the static `OtlpGrpcExporter.fromEnvironment()` / `OtlpHttpExporter.fromEnvironment()` shorthand. It reads each variable only when present and only on that call; precedence is "call it first, explicit setters afterwards win"; malformed values throw. Only general (non-signal-specific) variables are read:
 
 | Setting                     | Builder method                                         | Environment variable                            | otlp4j default                                          | Notes                                                                                                                                                                                                                                     |
 | --------------------------- | ------------------------------------------------------ | ----------------------------------------------- | ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Endpoint host/port/scheme   | `.endpoint(host, port)` / `.host` / `.port` / `.tls`   | `OTEL_EXPORTER_OTLP_ENDPOINT`                   | gRPC `localhost:4317`, HTTP `localhost:4318`, plaintext | A URL; `http` is plaintext, `https` selects TLS. gRPC uses the authority as-is; HTTP appends the standard `/v1/<signal>` paths to any URL path prefix. A URL without a port keeps the exporter's protocol default (4317 gRPC, 4318 HTTP). |
-| Endpoint path prefix (HTTP) | `.path(String)` (HTTP builder)                         | path component of `OTEL_EXPORTER_OTLP_ENDPOINT` | none                                                    | Prepended to `/v1/<signal>` — `https://host/otlp` → `/otlp/v1/traces`. Normalized (a bare `/` means none); gRPC ignores it.                                                                                                               |
-| Request timeout             | `.timeout(Duration)`                                   | `OTEL_EXPORTER_OTLP_TIMEOUT`                    | `10s`                                                   | Integer milliseconds; must be > 0.                                                                                                                                                                                                        |
-| Headers                     | `.header(k, v)` / `.headers(map)` / `.addHeaders(map)` | `OTEL_EXPORTER_OTLP_HEADERS`                    | none                                                    | `k=v,k2=v2`; values are percent-decoded (`+` stays literal). `.headers(map)` replaces all existing headers, while `.addHeaders(map)` and the env variable merge onto headers already set — env wins per key, unrelated keys are kept.     |
-| Compression                 | `.compression(Compression)`                            | `OTEL_EXPORTER_OTLP_COMPRESSION`                | `NONE`                                                  | `gzip` or `none`.                                                                                                                                                                                                                         |
-| Insecure (plaintext)        | `.tls(Tls.disabled())`                                 | `OTEL_EXPORTER_OTLP_INSECURE`                   | TLS off                                                 | `true`/`false`. Consulted only when no endpoint URL sets the scheme (a present endpoint's `http`/`https` wins); `true` forces plaintext, overriding the certificate variables.                                                            |
-| Server CA / trust           | `.tls(Tls.trust(path))`                                | `OTEL_EXPORTER_OTLP_CERTIFICATE`                | system trust when TLS is on                             | Used when the endpoint is `https`, or — with no endpoint set — as an independent input that turns TLS on. Ignored on an `http` endpoint.                                                                                                  |
-| Client cert (mTLS)          | `.tls(Tls.custom(cert, key, trust))`                   | `OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE`         | none                                                    | Requires the client key; honoured with an `https` endpoint or, with no endpoint, as an independent input; ignored on an `http` endpoint.                                                                                                  |
-| Client key (mTLS)           | `.tls(Tls.custom(cert, key, trust))`                   | `OTEL_EXPORTER_OTLP_CLIENT_KEY`                 | none                                                    | Requires the client certificate.                                                                                                                                                                                                          |
+| Endpoint host/port/scheme   | `.setEndpoint(url)` / `.setEndpoint(host, port)` / `.setTls` | `OTEL_EXPORTER_OTLP_ENDPOINT`              | gRPC `localhost:4317`, HTTP `localhost:4318`, plaintext | A URL; `http` is plaintext, `https` selects TLS. gRPC uses the authority as-is; HTTP appends the standard `/v1/<signal>` paths to any URL path prefix. A URL without a port keeps the exporter's protocol default (4317 gRPC, 4318 HTTP). |
+| Endpoint path prefix (HTTP) | `.setPath(String)` (HTTP builder)                      | path component of `OTEL_EXPORTER_OTLP_ENDPOINT` | none                                                    | Prepended to `/v1/<signal>` — `https://host/otlp` → `/otlp/v1/traces`. Normalized (a bare `/` means none); gRPC ignores it.                                                                                                               |
+| Request timeout             | `.setTimeout(Duration)`                                | `OTEL_EXPORTER_OTLP_TIMEOUT`                    | `10s`                                                   | Integer milliseconds; must be > 0.                                                                                                                                                                                                        |
+| Headers                     | `.addHeader(k, v)` / `.setHeaders(map)`                | `OTEL_EXPORTER_OTLP_HEADERS`                    | none                                                    | `k=v,k2=v2`; values are percent-decoded (`+` stays literal). `.setHeaders(map)` replaces all existing headers; `.addHeader(k, v)` and the env variable merge onto headers already set — env wins per key, unrelated keys are kept.        |
+| Compression                 | `.setCompression(Compression)` / `.setCompression(String)` | `OTEL_EXPORTER_OTLP_COMPRESSION`            | `NONE`                                                  | `gzip` or `none`.                                                                                                                                                                                                                         |
+| Insecure (plaintext)        | `.setTls(Tls.disabled())`                              | `OTEL_EXPORTER_OTLP_INSECURE`                   | TLS off                                                 | `true`/`false`. Consulted only when no endpoint URL sets the scheme (a present endpoint's `http`/`https` wins); `true` forces plaintext, overriding the certificate variables.                                                            |
+| Server CA / trust           | `.setTls(Tls.trust(path))`                             | `OTEL_EXPORTER_OTLP_CERTIFICATE`                | system trust when TLS is on                             | Used when the endpoint is `https`, or — with no endpoint set — as an independent input that turns TLS on. Ignored on an `http` endpoint.                                                                                                  |
+| Client cert (mTLS)          | `.setTls(Tls.custom(cert, key, trust))`               | `OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE`         | none                                                    | Requires the client key; honoured with an `https` endpoint or, with no endpoint, as an independent input; ignored on an `http` endpoint.                                                                                                  |
+| Client key (mTLS)           | `.setTls(Tls.custom(cert, key, trust))`               | `OTEL_EXPORTER_OTLP_CLIENT_KEY`                 | none                                                    | Requires the client certificate.                                                                                                                                                                                                          |
 
 Deliberately not read: `OTEL_EXPORTER_OTLP_PROTOCOL` (the protocol is chosen by which exporter class you instantiate, `OtlpGrpcExporter` vs `OtlpHttpExporter`, not by env). Signal-specific overrides such as `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` are out of scope: one exporter drives all four signals over a single connection, so a per-signal endpoint would need its own exporter — instantiate one `OtlpGrpcExporter`/`OtlpHttpExporter` per destination and route each signal to it through the pipeline. The same `fromEnvironment()` applies to `OtlpHttpExporter`, except a portless endpoint URL keeps the HTTP default port 4318.
 
@@ -364,14 +364,14 @@ Deliberately not read: `OTEL_EXPORTER_OTLP_PROTOCOL` (the protocol is chosen by 
 // Load env, then let an explicit endpoint win over OTEL_EXPORTER_OTLP_ENDPOINT.
 var exporter = OtlpGrpcExporter.builder()
         .fromEnvironment()
-        .endpoint("collector.example.com", 4317)
+        .setEndpoint("collector.example.com", 4317)
         .build();
 ```
 
 ```java
 try (var exporter = OtlpGrpcExporter.builder()
-        .endpoint("collector.example.com", 4317)
-        .timeout(Duration.ofSeconds(5))
+        .setEndpoint("collector.example.com", 4317)
+        .setTimeout(Duration.ofSeconds(5))
         .build()) {
     ConsumeResult<TracesData> result = exporter.traces()
             .consume(traces)
@@ -380,16 +380,20 @@ try (var exporter = OtlpGrpcExporter.builder()
 }
 ```
 
-A hardened exporter — system-trust TLS (or `Tls.custom(cert, key, trust)` for mTLS), a bearer header, gzip, and exponential retry:
+A hardened exporter — an `https` URL endpoint selecting system-trust TLS (or `.setTls(Tls.custom(cert, key, trust))` for mTLS), a bearer header, gzip, and exponential retry with a backoff multiplier:
 
 ```java
 var exporter = OtlpGrpcExporter.builder()
-        .endpoint("collector.example.com", 4317)
-        .tls(Tls.systemTrust())
-        .header("authorization", "Bearer " + token)
-        .compression(Compression.GZIP)
-        .retry(RetryPolicy.exponential(5, Duration.ofSeconds(1), Duration.ofSeconds(30)))
-        .timeout(Duration.ofSeconds(10))
+        .setEndpoint("https://collector.example.com:4317")
+        .addHeader("authorization", "Bearer " + token)
+        .setCompression(Compression.GZIP)
+        .setRetryPolicy(RetryPolicy.builder()
+                .setMaxAttempts(5)
+                .setInitialBackoff(Duration.ofSeconds(1))
+                .setMaxBackoff(Duration.ofSeconds(30))
+                .setBackoffMultiplier(1.5)
+                .build())
+        .setTimeout(Duration.ofSeconds(10))
         .build();
 ```
 

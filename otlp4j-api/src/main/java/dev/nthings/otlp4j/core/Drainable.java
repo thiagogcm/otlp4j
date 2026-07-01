@@ -18,6 +18,11 @@ public interface Drainable extends AutoCloseable {
     CompletionStage<Void> shutdown(Duration timeout);
 
     /// Drains with a default 10-second deadline.
+    default CompletionStage<Void> shutdown() {
+        return shutdown(Duration.ofSeconds(10));
+    }
+
+    /// Drains with a default 10-second deadline.
     @Override
     default void close() {
         shutdown(Duration.ofSeconds(10)).toCompletableFuture().join();

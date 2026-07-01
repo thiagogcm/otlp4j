@@ -17,7 +17,7 @@ class RetryServiceConfigTest {
     @Test
     void emitsOneMethodConfigPerServiceWithTheRetryableCodes() {
         var config = RetryServiceConfig.build(
-                new RetryPolicy(3, Duration.ofMillis(50), Duration.ofMillis(200)),
+                new RetryPolicy(3, Duration.ofMillis(50), Duration.ofMillis(200), 2.0),
                 List.of("svc.A", "svc.B"));
 
         var methodConfigs = (List<?>) config.get("methodConfig");
@@ -31,6 +31,17 @@ class RetryServiceConfigTest {
         @SuppressWarnings("unchecked")
         var codes = (List<String>) retry.get("retryableStatusCodes");
         assertThat(codes).contains("UNAVAILABLE", "DEADLINE_EXCEEDED");
+    }
+
+    @DisplayName("The policy's backoff multiplier flows into the service config")
+    @Test
+    void backoffMultiplierFlowsFromThePolicy() {
+        var config = RetryServiceConfig.build(
+                new RetryPolicy(4, Duration.ofMillis(10), Duration.ofSeconds(1), 1.5),
+                List.of("svc.A"));
+
+        var retry = retryPolicyOf((List<?>) config.get("methodConfig"), 0);
+        assertThat(retry.get("backoffMultiplier")).isEqualTo(1.5d);
     }
 
     private static Map<?, ?> retryPolicyOf(List<?> methodConfigs, int index) {

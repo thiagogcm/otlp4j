@@ -24,15 +24,15 @@ class GrpcEntryPointBuilderTest {
     void exporterBuilderAppliesEveryKnob() {
         try (var exporter = OtlpGrpcExporter.builder()
                 .fromEnvironment()
-                .endpoint("collector.example", 4317)
-                .host("collector.example")
-                .port(4317)
-                .timeout(Duration.ofSeconds(3))
-                .tls(Tls.systemTrust())
-                .header("authorization", "Bearer x")
-                .headers(Map.of("x-tenant", "acme"))
-                .compression(Compression.GZIP)
-                .retry(RetryPolicy.exponential(3, Duration.ofMillis(50), Duration.ofSeconds(1)))
+                .setEndpoint("collector.example", 4317)
+                .setHost("collector.example")
+                .setPort(4317)
+                .setTimeout(Duration.ofSeconds(3))
+                .setTls(Tls.systemTrust())
+                .addHeader("authorization", "Bearer x")
+                .setHeaders(Map.of("x-tenant", "acme"))
+                .setCompression(Compression.GZIP)
+                .setRetryPolicy(RetryPolicy.builder().setMaxAttempts(3).setInitialBackoff(Duration.ofMillis(50)).setMaxBackoff(Duration.ofSeconds(1)).build())
                 .build()) {
             assertThat(exporter.traces()).isNotNull();
             assertThat(exporter.metrics()).isNotNull();
@@ -44,7 +44,7 @@ class GrpcEntryPointBuilderTest {
     @DisplayName("OtlpGrpcExporter.transport(config) and to(...) build a client")
     @Test
     void exporterFromConfigAndConvenience() {
-        var config = ClientConfig.builder().endpoint("h", 4317).build();
+        var config = ClientConfig.builder().setEndpoint("h", 4317).build();
         try (var fromConfig = OtlpGrpcExporter.builder().transport(config).build()) {
             assertThat(fromConfig.traces()).isNotNull();
         }
@@ -67,14 +67,14 @@ class GrpcEntryPointBuilderTest {
         var executor = Executors.newVirtualThreadPerTaskExecutor();
         var receiver = OtlpGrpcReceiver.builder()
                 .transport(ServerConfig.builder().build())
-                .endpoint("127.0.0.1", 0)
-                .port(0)
+                .setEndpoint("127.0.0.1", 0)
+                .setPort(0)
                 .ephemeralPort()
-                .tls(Tls.disabled())
-                .maxInboundMessageSizeBytes(1024)
-                .maxConcurrentCallsPerConnection(8)
-                .handshakeTimeout(Duration.ofSeconds(5))
-                .serverExecutor(executor)
+                .setTls(Tls.disabled())
+                .setMaxInboundMessageSizeBytes(1024)
+                .setMaxConcurrentCallsPerConnection(8)
+                .setHandshakeTimeout(Duration.ofSeconds(5))
+                .setServerExecutor(executor)
                 .onTraces(t -> ConsumeResult.acceptedStage())
                 .onMetrics(m -> ConsumeResult.acceptedStage())
                 .onLogs(l -> ConsumeResult.acceptedStage())
@@ -91,12 +91,12 @@ class GrpcEntryPointBuilderTest {
         assertThat(OtlpGrpcReceiver.on("127.0.0.1", 0).port()).isZero();
     }
 
-    @DisplayName("OtlpGrpcExporter.Builder headers(map) replaces, and addHeaders(map) merges")
+    @DisplayName("OtlpGrpcExporter.Builder addHeader adds per key and setHeaders replaces all")
     @Test
-    void exporterBuilderHeadersAndAddHeaders() throws Exception {
+    void exporterBuilderHeaders() throws Exception {
         var builder = OtlpGrpcExporter.builder()
-                .header("k1", "v1")
-                .headers(Map.of("k2", "v2", "k3", "v3"));
+                .addHeader("k1", "v1")
+                .setHeaders(Map.of("k2", "v2", "k3", "v3"));
 
         var field = OtlpGrpcExporter.Builder.class.getDeclaredField("config");
         field.setAccessible(true);
@@ -105,8 +105,9 @@ class GrpcEntryPointBuilderTest {
         assertThat(c.headers()).containsExactlyInAnyOrderEntriesOf(Map.of("k2", "v2", "k3", "v3"));
 
         var builder2 = OtlpGrpcExporter.builder()
-                .header("k1", "v1")
-                .addHeaders(Map.of("k2", "v2", "k3", "v3"));
+                .addHeader("k1", "v1")
+                .addHeader("k2", "v2")
+                .addHeader("k3", "v3");
 
         var clientConfigBuilder2 = (ClientConfig.Builder) field.get(builder2);
         var c2 = clientConfigBuilder2.build();

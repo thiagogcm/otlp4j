@@ -25,9 +25,9 @@ class HttpOtlpClientPathTest {
     @Test
     void prefixApplied() throws Exception {
         var config = ClientConfig.builder()
-                .endpoint("collector", 4318)
-                .tls(Tls.systemTrust())
-                .path("/otlp")
+                .setEndpoint("collector", 4318)
+                .setTls(Tls.systemTrust())
+                .setPath("/otlp")
                 .build();
 
         assertThat(signalUri(config, "tracesUri"))
@@ -39,7 +39,7 @@ class HttpOtlpClientPathTest {
     @DisplayName("with no prefix the standard paths are used verbatim over plaintext http")
     @Test
     void noPrefix() throws Exception {
-        var config = ClientConfig.builder().endpoint("collector", 4318).build();
+        var config = ClientConfig.builder().setEndpoint("collector", 4318).build();
 
         assertThat(signalUri(config, "tracesUri"))
                 .isEqualTo(URI.create("http://collector:4318/v1/traces"));

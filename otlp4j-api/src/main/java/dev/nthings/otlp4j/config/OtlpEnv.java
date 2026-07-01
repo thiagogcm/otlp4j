@@ -1,8 +1,6 @@
 package dev.nthings.otlp4j.config;
 
 import java.io.ByteArrayOutputStream;
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -43,16 +41,16 @@ final class OtlpEnv {
         }
         var timeout = value(env, TIMEOUT);
         if (timeout != null) {
-            builder.timeout(parseTimeout(timeout));
+            builder.setTimeout(parseTimeout(timeout));
         }
         var headers = value(env, HEADERS);
         if (headers != null) {
             // Merge onto any headers already set: env wins per key but never drops unrelated keys.
-            parseHeaders(headers).forEach(builder::header);
+            parseHeaders(headers).forEach(builder::addHeader);
         }
         var compression = value(env, COMPRESSION);
         if (compression != null) {
-            builder.compression(parseCompression(compression));
+            builder.setCompression(parseCompression(compression));
         }
     }
 
@@ -65,38 +63,9 @@ final class OtlpEnv {
 
     private static void applyEndpoint(
             ClientConfig.Builder builder, String raw, UnaryOperator<String> env) {
-        URI uri;
-        try {
-            uri = new URI(raw.strip());
-        } catch (URISyntaxException e) {
-            throw new IllegalArgumentException(ENDPOINT + " is not a valid URL: " + raw, e);
-        }
-        var scheme = uri.getScheme();
-        if (scheme == null) {
-            throw new IllegalArgumentException(
-                    ENDPOINT + " must be an absolute http:// or https:// URL: " + raw);
-        }
-        var tls =
-                switch (scheme.toLowerCase(Locale.ROOT)) {
-                    case "http" -> false;
-                    case "https" -> true;
-                    default -> throw new IllegalArgumentException(
-                            ENDPOINT + " scheme must be http or https: " + raw);
-                };
-        var host = uri.getHost();
-        if (host == null || host.isBlank()) {
-            throw new IllegalArgumentException(ENDPOINT + " has no host: " + raw);
-        }
-        // URI.getHost() wraps an IPv6 literal in brackets; the transport wants the bare address.
-        if (host.startsWith("[") && host.endsWith("]")) {
-            host = host.substring(1, host.length() - 1);
-        }
-        // No explicit port → keep the builder's protocol default (4317 gRPC, 4318 HTTP). The path
-        // prefix is captured for HTTP; gRPC ignores it.
-        var port = uri.getPort() == -1 ? builder.port() : uri.getPort();
-        builder.host(host).port(port).path(uri.getRawPath());
-        // TLS material applies only under https; http is plaintext.
-        builder.tls(tls ? resolveTls(env) : Tls.disabled());
+        // The builder parses host/port/path; here we layer the env TLS material on https.
+        var secure = builder.applyEndpointUrl(raw);
+        builder.setTls(secure ? resolveTls(env) : Tls.disabled());
     }
 
     /// TLS when no endpoint dictates the scheme: `INSECURE=true` forces plaintext, else the
@@ -106,9 +75,9 @@ final class OtlpEnv {
                 || value(env, CLIENT_CERTIFICATE) != null
                 || value(env, CLIENT_KEY) != null;
         if (insecureRequested(env)) {
-            builder.tls(Tls.disabled());
+            builder.setTls(Tls.disabled());
         } else if (hasCertVars) {
-            builder.tls(resolveTls(env));
+            builder.setTls(resolveTls(env));
         }
     }
 

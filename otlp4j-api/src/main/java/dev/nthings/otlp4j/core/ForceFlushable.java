@@ -13,4 +13,9 @@ public interface ForceFlushable {
     /// @param timeout the flush deadline
     /// @return a stage that completes when flushed
     CompletionStage<Void> forceFlush(Duration timeout);
+
+    /// Flushes with a default 10-second deadline.
+    default CompletionStage<Void> forceFlush() {
+        return forceFlush(Duration.ofSeconds(10));
+    }
 }

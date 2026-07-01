@@ -52,16 +52,21 @@ public record ServerConfig(
         return new Builder();
     }
 
+    /// The default config (all builder defaults, `localhost:4317` plaintext).
+    public static ServerConfig getDefault() {
+        return builder().build();
+    }
+
     /// Returns a builder pre-populated with this config's fields.
     public Builder toBuilder() {
         return new Builder()
-                .bindHost(bindHost)
-                .port(port)
-                .tls(tls)
-                .maxInboundMessageSizeBytes(maxInboundMessageSizeBytes)
-                .maxConcurrentCallsPerConnection(maxConcurrentCallsPerConnection)
-                .handshakeTimeout(handshakeTimeout)
-                .serverExecutor(serverExecutor);
+                .setBindHost(bindHost)
+                .setPort(port)
+                .setTls(tls)
+                .setMaxInboundMessageSizeBytes(maxInboundMessageSizeBytes)
+                .setMaxConcurrentCallsPerConnection(maxConcurrentCallsPerConnection)
+                .setHandshakeTimeout(handshakeTimeout)
+                .setServerExecutor(serverExecutor);
     }
 
     public static final class Builder {
@@ -76,38 +81,38 @@ public record ServerConfig(
 
         private Builder() {}
 
-        public Builder bindHost(String host) {
+        public Builder setBindHost(String host) {
             this.bindHost = host;
             return this;
         }
 
-        public Builder port(int port) {
+        public Builder setPort(int port) {
             this.port = port;
             return this;
         }
 
-        public Builder tls(Tls tls) {
+        public Builder setTls(Tls tls) {
             this.tls = tls;
             return this;
         }
 
         /// Caps the size of a single decoded export request (default 4 MiB); guards against
         /// memory-exhausting oversized requests.
-        public Builder maxInboundMessageSizeBytes(int bytes) {
+        public Builder setMaxInboundMessageSizeBytes(int bytes) {
             this.maxInboundMessageSizeBytes = bytes;
             return this;
         }
 
         /// Caps concurrent in-flight calls per connection. `0` (the default) keeps gRPC's
         /// unlimited behaviour; a positive value is applied to the receiver.
-        public Builder maxConcurrentCallsPerConnection(int max) {
+        public Builder setMaxConcurrentCallsPerConnection(int max) {
             this.maxConcurrentCallsPerConnection = max;
             return this;
         }
 
         /// Bounds how long a new connection may take to finish its transport/TLS handshake
         /// (default 20s). Handshake-only bound, not a slow body or idle connection timeout.
-        public Builder handshakeTimeout(Duration handshakeTimeout) {
+        public Builder setHandshakeTimeout(Duration handshakeTimeout) {
             this.handshakeTimeout = handshakeTimeout;
             return this;
         }
@@ -115,7 +120,7 @@ public record ServerConfig(
         /// Supplies the executor that runs the service handlers. `null` (the default) selects the
         /// transport's default; pass a BOUNDED pool to cap the work the receiver will admit
         /// concurrently.
-        public Builder serverExecutor(@Nullable Executor serverExecutor) {
+        public Builder setServerExecutor(@Nullable Executor serverExecutor) {
             this.serverExecutor = serverExecutor;
             return this;
         }

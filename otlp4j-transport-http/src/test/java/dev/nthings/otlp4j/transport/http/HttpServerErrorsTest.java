@@ -66,7 +66,7 @@ class HttpServerErrorsTest {
     @DisplayName("A body over the size cap is rejected with 413")
     @Test
     void oversizedBodyIsRejectedWith413() throws Exception {
-        var port = startReceiver(OtlpHttpReceiver.builder().maxInboundMessageSizeBytes(16));
+        var port = startReceiver(OtlpHttpReceiver.builder().setMaxInboundMessageSizeBytes(16));
 
         var response = client.send(
                 HttpRequest.newBuilder(uri(port, "/v1/logs"))

@@ -246,18 +246,18 @@ class GrpcTransportTest {
     void facadeBuilderConvenienceKnobsRoundTrip() {
         var received = new AtomicReference<TracesData>();
         var receiver = startReceiver(OtlpGrpcReceiver.builder()
-                .maxInboundMessageSizeBytes(8 * 1024 * 1024)
-                .maxConcurrentCallsPerConnection(64)
-                .handshakeTimeout(Duration.ofSeconds(10))
+                .setMaxInboundMessageSizeBytes(8 * 1024 * 1024)
+                .setMaxConcurrentCallsPerConnection(64)
+                .setHandshakeTimeout(Duration.ofSeconds(10))
                 .onTraces(traces -> {
                     received.set(traces);
                     return ConsumeResult.acceptedStage();
                 }));
         var exporter = OtlpGrpcExporter.builder()
-                .endpoint("localhost", receiver.port())
-                .compression(Compression.GZIP)
-                .retry(RetryPolicy.exponential(3, Duration.ofMillis(50), Duration.ofSeconds(1)))
-                .timeout(Duration.ofSeconds(5))
+                .setEndpoint("localhost", receiver.port())
+                .setCompression(Compression.GZIP)
+                .setRetryPolicy(RetryPolicy.builder().setMaxAttempts(3).setInitialBackoff(Duration.ofMillis(50)).setMaxBackoff(Duration.ofSeconds(1)).build())
+                .setTimeout(Duration.ofSeconds(5))
                 .build();
         closeables.add(exporter);
         var sent = TransportFixtures.richTraceData();
@@ -276,8 +276,8 @@ class GrpcTransportTest {
 
     private OtlpExporter exporterTo(Receiver receiver) {
         var exporter = OtlpGrpcExporter.builder()
-                .endpoint("localhost", receiver.port())
-                .timeout(Duration.ofSeconds(5))
+                .setEndpoint("localhost", receiver.port())
+                .setTimeout(Duration.ofSeconds(5))
                 .build();
         closeables.add(exporter);
         return exporter;

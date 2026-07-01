@@ -65,7 +65,7 @@ class HttpTransportConfigTest {
     void postsToStandardSignalPaths() {
         var captured = new ArrayList<Captured>();
         var port = startRawServer(captured);
-        var exporter = exporter(ClientConfig.builder().endpoint("localhost", port).build());
+        var exporter = exporter(ClientConfig.builder().setEndpoint("localhost", port).build());
 
         exporter.traces().consume(TransportFixtures.richTraceData()).toCompletableFuture().join();
         exporter.metrics().consume(TransportFixtures.richMetricsData()).toCompletableFuture().join();
@@ -85,8 +85,8 @@ class HttpTransportConfigTest {
         var captured = new ArrayList<Captured>();
         var port = startRawServer(captured);
         var exporter = exporter(ClientConfig.builder()
-                .endpoint("localhost", port)
-                .header("x-otlp-api-key", "secret")
+                .setEndpoint("localhost", port)
+                .addHeader("x-otlp-api-key", "secret")
                 .build());
 
         exporter.traces().consume(traces()).toCompletableFuture().join();
@@ -101,8 +101,8 @@ class HttpTransportConfigTest {
         var captured = new ArrayList<Captured>();
         var port = startRawServer(captured);
         var exporter = exporter(ClientConfig.builder()
-                .endpoint("localhost", port)
-                .compression(Compression.GZIP)
+                .setEndpoint("localhost", port)
+                .setCompression(Compression.GZIP)
                 .build());
 
         exporter.traces().consume(TransportFixtures.richTraceData()).toCompletableFuture().join();
@@ -122,9 +122,9 @@ class HttpTransportConfigTest {
             return ConsumeResult.acceptedStage();
         }));
         var exporter = exporter(ClientConfig.builder()
-                .endpoint("localhost", receiver.port())
-                .tls(Tls.trust(resource("/tls/server.crt")))
-                .timeout(Duration.ofSeconds(5))
+                .setEndpoint("localhost", receiver.port())
+                .setTls(Tls.trust(resource("/tls/server.crt")))
+                .setTimeout(Duration.ofSeconds(5))
                 .build());
 
         var sent = traces();
@@ -140,8 +140,8 @@ class HttpTransportConfigTest {
         var receiver = startReceiver(serverTls(),
                 OtlpHttpReceiver.builder().onTraces(t -> ConsumeResult.acceptedStage()));
         var exporter = exporter(ClientConfig.builder()
-                .endpoint("localhost", receiver.port())
-                .timeout(Duration.ofSeconds(3))
+                .setEndpoint("localhost", receiver.port())
+                .setTimeout(Duration.ofSeconds(3))
                 .build());
 
         assertThatThrownBy(() -> exporter.traces().consume(traces()).toCompletableFuture().join())
@@ -153,8 +153,8 @@ class HttpTransportConfigTest {
     void buildsClientWithSystemTrustTls() {
         try (var exporter = OtlpHttpExporter.builder()
                 .transport(ClientConfig.builder()
-                        .endpoint("localhost", 4318)
-                        .tls(Tls.systemTrust())
+                        .setEndpoint("localhost", 4318)
+                        .setTls(Tls.systemTrust())
                         .build())
                 .build()) {
             assertThat(exporter).isNotNull();
@@ -164,7 +164,7 @@ class HttpTransportConfigTest {
     @DisplayName("Builds a client exporter for an IPv6 host")
     @Test
     void buildsClientForIpv6Host() {
-        try (var exporter = OtlpHttpExporter.builder().host("::1").port(4318).build()) {
+        try (var exporter = OtlpHttpExporter.builder().setHost("::1").setPort(4318).build()) {
             assertThat(exporter).isNotNull();
         }
     }
@@ -173,7 +173,7 @@ class HttpTransportConfigTest {
     @Test
     void rejectsSystemTrustForServer() {
         var receiver = OtlpHttpReceiver.builder()
-                .transport(ServerConfig.builder().port(0).tls(Tls.systemTrust()).build())
+                .transport(ServerConfig.builder().setPort(0).setTls(Tls.systemTrust()).build())
                 .onTraces(t -> ConsumeResult.acceptedStage())
                 .build();
         receivers.add(receiver);
@@ -188,8 +188,8 @@ class HttpTransportConfigTest {
     void serverCustomTlsRequiresCertAndKey() {
         var receiver = OtlpHttpReceiver.builder()
                 .transport(ServerConfig.builder()
-                        .port(0)
-                        .tls(Tls.custom(resource("/tls/server.crt"), null, null))
+                        .setPort(0)
+                        .setTls(Tls.custom(resource("/tls/server.crt"), null, null))
                         .build())
                 .onTraces(t -> ConsumeResult.acceptedStage())
                 .build();
@@ -204,8 +204,8 @@ class HttpTransportConfigTest {
     @Test
     void halfSpecifiedClientMtlsIsRejected() {
         var config = ClientConfig.builder()
-                .endpoint("localhost", 4318)
-                .tls(Tls.custom(resource("/tls/server.crt"), null, null))
+                .setEndpoint("localhost", 4318)
+                .setTls(Tls.custom(resource("/tls/server.crt"), null, null))
                 .build();
 
         assertThatThrownBy(() -> exporter(config))
@@ -217,7 +217,7 @@ class HttpTransportConfigTest {
     @Test
     void specificBindHostBindsThatInterface() {
         var receiver = OtlpHttpReceiver.builder()
-                .transport(ServerConfig.builder().bindHost("127.0.0.1").port(0).build())
+                .transport(ServerConfig.builder().setBindHost("127.0.0.1").setPort(0).build())
                 .onTraces(t -> ConsumeResult.acceptedStage())
                 .build();
         receivers.add(receiver);
@@ -235,9 +235,9 @@ class HttpTransportConfigTest {
         probe.shutdownNow().toCompletableFuture().join();
 
         var exporter = OtlpHttpExporter.builder()
-                .endpoint("localhost", deadPort)
-                .retry(dev.nthings.otlp4j.config.RetryPolicy.exponential(2, Duration.ofMillis(1), Duration.ofMillis(5)))
-                .timeout(Duration.ofSeconds(2))
+                .setEndpoint("localhost", deadPort)
+                .setRetryPolicy(dev.nthings.otlp4j.config.RetryPolicy.builder().setMaxAttempts(2).setInitialBackoff(Duration.ofMillis(1)).setMaxBackoff(Duration.ofMillis(5)).build())
+                .setTimeout(Duration.ofSeconds(2))
                 .build();
         closeables.add(exporter);
 
@@ -289,8 +289,8 @@ class HttpTransportConfigTest {
 
     private static ServerConfig serverTls() {
         return ServerConfig.builder()
-                .port(0)
-                .tls(Tls.custom(resource("/tls/server.crt"), resource("/tls/server.key"), null))
+                .setPort(0)
+                .setTls(Tls.custom(resource("/tls/server.crt"), resource("/tls/server.key"), null))
                 .build();
     }
 

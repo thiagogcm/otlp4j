@@ -86,8 +86,8 @@ class TransportConfigTest {
         var capture = new CapturingInterceptor();
         var port = startRawServer(capture);
         var exporter = exporter(ClientConfig.builder()
-                .endpoint("localhost", port)
-                .header("x-otlp-api-key", "secret")
+                .setEndpoint("localhost", port)
+                .addHeader("x-otlp-api-key", "secret")
                 .build());
 
         var result = exporter.traces().consume(traces()).toCompletableFuture().join();
@@ -102,8 +102,8 @@ class TransportConfigTest {
         var capture = new CapturingInterceptor();
         var port = startRawServer(capture);
         var exporter = exporter(ClientConfig.builder()
-                .endpoint("localhost", port)
-                .compression(Compression.GZIP)
+                .setEndpoint("localhost", port)
+                .setCompression(Compression.GZIP)
                 .build());
 
         exporter.traces().consume(traces()).toCompletableFuture().join();
@@ -116,7 +116,7 @@ class TransportConfigTest {
     void doesNotCompressByDefault() {
         var capture = new CapturingInterceptor();
         var port = startRawServer(capture);
-        var exporter = exporter(ClientConfig.builder().endpoint("localhost", port).build());
+        var exporter = exporter(ClientConfig.builder().setEndpoint("localhost", port).build());
 
         exporter.traces().consume(traces()).toCompletableFuture().join();
 
@@ -129,9 +129,9 @@ class TransportConfigTest {
         var flaky = new FlakyInterceptor(2); // first two attempts fail, third succeeds
         var port = startRawServer(flaky);
         var exporter = exporter(ClientConfig.builder()
-                .endpoint("localhost", port)
-                .timeout(Duration.ofSeconds(10))
-                .retry(new RetryPolicy(3, Duration.ofMillis(50), Duration.ofMillis(200)))
+                .setEndpoint("localhost", port)
+                .setTimeout(Duration.ofSeconds(10))
+                .setRetryPolicy(new RetryPolicy(3, Duration.ofMillis(50), Duration.ofMillis(200), 2.0))
                 .build());
 
         var result = exporter.traces().consume(traces()).toCompletableFuture().join();
@@ -146,8 +146,8 @@ class TransportConfigTest {
         var flaky = new FlakyInterceptor(1); // fails the only attempt
         var port = startRawServer(flaky);
         var exporter = exporter(ClientConfig.builder()
-                .endpoint("localhost", port)
-                .timeout(Duration.ofSeconds(5))
+                .setEndpoint("localhost", port)
+                .setTimeout(Duration.ofSeconds(5))
                 .build());
 
         assertThatThrownBy(() -> exporter.traces().consume(traces()).toCompletableFuture().join())
@@ -164,9 +164,9 @@ class TransportConfigTest {
             return ConsumeResult.acceptedStage();
         }));
         var exporter = exporter(ClientConfig.builder()
-                .endpoint("localhost", receiver.port())
-                .tls(Tls.trust(resource("/tls/server.crt")))
-                .timeout(Duration.ofSeconds(5))
+                .setEndpoint("localhost", receiver.port())
+                .setTls(Tls.trust(resource("/tls/server.crt")))
+                .setTimeout(Duration.ofSeconds(5))
                 .build());
 
         var sent = traces();
@@ -182,8 +182,8 @@ class TransportConfigTest {
         var receiver = startReceiver(serverTls(),
                 OtlpGrpcReceiver.builder().onTraces(t -> ConsumeResult.acceptedStage()));
         var exporter = exporter(ClientConfig.builder()
-                .endpoint("localhost", receiver.port())
-                .timeout(Duration.ofSeconds(3))
+                .setEndpoint("localhost", receiver.port())
+                .setTimeout(Duration.ofSeconds(3))
                 .build());
 
         assertThatThrownBy(() -> exporter.traces().consume(traces()).toCompletableFuture().join())
@@ -197,8 +197,8 @@ class TransportConfigTest {
         // (and closing) the exporter is enough to exercise the credential path.
         try (var exporter = OtlpGrpcExporter.builder()
                 .transport(ClientConfig.builder()
-                        .endpoint("localhost", 4317)
-                        .tls(Tls.systemTrust())
+                        .setEndpoint("localhost", 4317)
+                        .setTls(Tls.systemTrust())
                         .build())
                 .build()) {
             assertThat(exporter).isNotNull();
@@ -209,7 +209,7 @@ class TransportConfigTest {
     @Test
     void rejectsSystemTrustForServer() {
         var receiver = OtlpGrpcReceiver.builder()
-                .transport(ServerConfig.builder().port(0).tls(Tls.systemTrust()).build())
+                .transport(ServerConfig.builder().setPort(0).setTls(Tls.systemTrust()).build())
                 .onTraces(t -> ConsumeResult.acceptedStage())
                 .build();
         receivers.add(receiver);
@@ -229,8 +229,8 @@ class TransportConfigTest {
 
         assertThat(receiver.port()).isPositive();
         var exporter = exporter(ClientConfig.builder()
-                .endpoint("localhost", receiver.port())
-                .timeout(Duration.ofSeconds(3))
+                .setEndpoint("localhost", receiver.port())
+                .setTimeout(Duration.ofSeconds(3))
                 .build());
 
         var result = exporter.traces().consume(traces()).toCompletableFuture().join();
@@ -242,7 +242,7 @@ class TransportConfigTest {
     void builderKeepsTlsWhenPortSetAfterTransport() {
         var receiver = OtlpGrpcReceiver.builder()
                 .transport(serverTls())
-                .port(0)
+                .setPort(0)
                 .onTraces(t -> ConsumeResult.acceptedStage())
                 .build();
         receivers.add(receiver);
@@ -250,8 +250,8 @@ class TransportConfigTest {
 
         // The server is still TLS, so a plaintext client must fail to connect.
         var plaintext = exporter(ClientConfig.builder()
-                .endpoint("localhost", receiver.port())
-                .timeout(Duration.ofSeconds(3))
+                .setEndpoint("localhost", receiver.port())
+                .setTimeout(Duration.ofSeconds(3))
                 .build());
         assertThatThrownBy(() -> plaintext.traces().consume(traces()).toCompletableFuture().join())
                 .isInstanceOf(CompletionException.class);
@@ -261,7 +261,7 @@ class TransportConfigTest {
     @Test
     void specificBindHostBindsThatInterface() {
         var receiver = OtlpGrpcReceiver.builder()
-                .transport(ServerConfig.builder().bindHost("127.0.0.1").port(0).build())
+                .transport(ServerConfig.builder().setBindHost("127.0.0.1").setPort(0).build())
                 .onTraces(t -> ConsumeResult.acceptedStage())
                 .build();
         receivers.add(receiver);
@@ -274,8 +274,8 @@ class TransportConfigTest {
     @Test
     void halfSpecifiedClientMtlsIsRejected() {
         var config = ClientConfig.builder()
-                .endpoint("localhost", 4317)
-                .tls(Tls.custom(resource("/tls/server.crt"), null, null))
+                .setEndpoint("localhost", 4317)
+                .setTls(Tls.custom(resource("/tls/server.crt"), null, null))
                 .build();
 
         assertThatThrownBy(() -> exporter(config))
@@ -287,8 +287,8 @@ class TransportConfigTest {
         // Default loopback bind; a specific bind host binds that interface only (see
         // specificBindHostBindsThatInterface).
         return ServerConfig.builder()
-                .port(0)
-                .tls(Tls.custom(resource("/tls/server.crt"), resource("/tls/server.key"), null))
+                .setPort(0)
+                .setTls(Tls.custom(resource("/tls/server.crt"), resource("/tls/server.key"), null))
                 .build();
     }
 

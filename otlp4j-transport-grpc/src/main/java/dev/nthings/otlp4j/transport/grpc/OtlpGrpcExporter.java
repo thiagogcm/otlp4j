@@ -24,7 +24,7 @@ public final class OtlpGrpcExporter {
 
     /// Convenience factory: builds and returns a ready-to-use [OtlpExporter].
     public static OtlpExporter to(String host, int port) {
-        return builder().endpoint(host, port).build();
+        return builder().setEndpoint(host, port).build();
     }
 
     /// Builds from the standard `OTEL_EXPORTER_OTLP_*` variables (see [Builder#fromEnvironment()]).
@@ -53,60 +53,66 @@ public final class OtlpGrpcExporter {
             return this;
         }
 
-        public Builder endpoint(String host, int port) {
-            config.endpoint(host, port);
+        /// Sets the endpoint from a `scheme://host:port[/prefix]` URL; `https` selects system-trust TLS.
+        public Builder setEndpoint(String url) {
+            config.setEndpoint(url);
             return this;
         }
 
-        public Builder host(String host) {
-            config.host(host);
+        public Builder setEndpoint(String host, int port) {
+            config.setEndpoint(host, port);
             return this;
         }
 
-        public Builder port(int port) {
-            config.port(port);
+        public Builder setHost(String host) {
+            config.setHost(host);
             return this;
         }
 
-        public Builder timeout(Duration timeout) {
-            config.timeout(timeout);
+        public Builder setPort(int port) {
+            config.setPort(port);
             return this;
         }
 
-    /// Selects the client TLS mode (e.g. [Tls#systemTrust()] or [Tls.Custom]). Defaults to
-    /// no TLS (plaintext).
-        public Builder tls(Tls tls) {
-            config.tls(tls);
+        public Builder setTimeout(Duration timeout) {
+            config.setTimeout(timeout);
+            return this;
+        }
+
+        /// Selects the client TLS mode (e.g. [Tls#systemTrust()] or [Tls.Custom]). Defaults to
+        /// no TLS (plaintext).
+        public Builder setTls(Tls tls) {
+            config.setTls(tls);
             return this;
         }
 
         /// Adds one request metadata header (e.g. `authorization`) sent on every export.
-        public Builder header(String key, String value) {
-            config.header(key, value);
+        public Builder addHeader(String key, String value) {
+            config.addHeader(key, value);
             return this;
         }
 
         /// Replaces any existing headers with the supplied map.
-        public Builder headers(Map<String, String> headers) {
-            config.headers(headers);
-            return this;
-        }
-
-        /// Adds all of `headers` as request metadata, on top of any already set.
-        public Builder addHeaders(Map<String, String> headers) {
-            config.addHeaders(headers);
+        public Builder setHeaders(Map<String, String> headers) {
+            config.setHeaders(headers);
             return this;
         }
 
         /// Selects request-body compression (e.g. [Compression#GZIP]). Defaults to none.
-        public Builder compression(Compression compression) {
-            config.compression(compression);
+        public Builder setCompression(Compression compression) {
+            config.setCompression(compression);
             return this;
         }
 
-        /// Sets the transport retry policy (e.g. [RetryPolicy#exponential]). Defaults to no retries.
-        public Builder retry(RetryPolicy retry) {
-            config.retry(retry);
+        /// Familiar string door for compression: `gzip` or `none`.
+        public Builder setCompression(String compression) {
+            config.setCompression(compression);
+            return this;
+        }
+
+        /// Sets the transport retry policy (e.g. [RetryPolicy#builder()]). Defaults to no retries.
+        public Builder setRetryPolicy(RetryPolicy retry) {
+            config.setRetryPolicy(retry);
             return this;
         }
 

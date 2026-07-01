@@ -30,19 +30,19 @@ public final class OtlpHttpReceiver {
 
     /// Builds (but does not start) a receiver bound to `port` on the default loopback host.
     public static Receiver on(int port) {
-        return builder().port(port).build();
+        return builder().setPort(port).build();
     }
 
     /// Builds (but does not start) a receiver bound to `bindHost:port`.
     public static Receiver on(String bindHost, int port) {
-        return builder().endpoint(bindHost, port).build();
+        return builder().setEndpoint(bindHost, port).build();
     }
 
     /// Builder for an OTLP/HTTP [Receiver]. Defaults bind `localhost:4318` with plaintext transport.
     public static final class Builder {
 
         private ServerConfig.Builder config =
-                ServerConfig.builder().port(DEFAULT_HTTP_PORT);
+                ServerConfig.builder().setPort(DEFAULT_HTTP_PORT);
         private @Nullable TraceSink    traces;
         private @Nullable MetricSink   metrics;
         private @Nullable LogSink      logs;
@@ -57,42 +57,42 @@ public final class OtlpHttpReceiver {
             return this;
         }
 
-        public Builder endpoint(String bindHost, int port) {
-            config.bindHost(bindHost).port(port);
+        public Builder setEndpoint(String bindHost, int port) {
+            config.setBindHost(bindHost).setPort(port);
             return this;
         }
 
-        public Builder port(int port) {
-            config.port(port);
+        public Builder setPort(int port) {
+            config.setPort(port);
             return this;
         }
 
         public Builder ephemeralPort() {
-            return port(0);
+            return setPort(0);
         }
 
         /// Selects the server TLS mode. Defaults to plaintext.
-        public Builder tls(Tls tls) {
-            config.tls(tls);
+        public Builder setTls(Tls tls) {
+            config.setTls(tls);
             return this;
         }
 
         /// Caps a single decoded export request. Defaults to 4 MiB.
-        public Builder maxInboundMessageSizeBytes(int bytes) {
-            config.maxInboundMessageSizeBytes(bytes);
+        public Builder setMaxInboundMessageSizeBytes(int bytes) {
+            config.setMaxInboundMessageSizeBytes(bytes);
             return this;
         }
 
         /// Bounds the transport/TLS handshake deadline, not request body or connection idle time.
         /// Defaults to 20s.
-        public Builder handshakeTimeout(Duration handshakeTimeout) {
-            config.handshakeTimeout(handshakeTimeout);
+        public Builder setHandshakeTimeout(Duration handshakeTimeout) {
+            config.setHandshakeTimeout(handshakeTimeout);
             return this;
         }
 
         /// Supplies the executor that runs admitted requests; a bounded pool caps concurrent work.
-        public Builder serverExecutor(Executor serverExecutor) {
-            config.serverExecutor(serverExecutor);
+        public Builder setServerExecutor(Executor serverExecutor) {
+            config.setServerExecutor(serverExecutor);
             return this;
         }
 

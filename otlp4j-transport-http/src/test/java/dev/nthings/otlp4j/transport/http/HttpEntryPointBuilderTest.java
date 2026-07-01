@@ -24,15 +24,15 @@ class HttpEntryPointBuilderTest {
     void exporterBuilderAppliesEveryKnob() {
         try (var exporter = OtlpHttpExporter.builder()
                 .fromEnvironment()
-                .endpoint("collector.example", 4318)
-                .host("collector.example")
-                .port(4318)
-                .timeout(Duration.ofSeconds(3))
-                .tls(Tls.systemTrust())
-                .header("authorization", "Bearer x")
-                .headers(Map.of("x-tenant", "acme"))
-                .compression(Compression.GZIP)
-                .retry(RetryPolicy.exponential(3, Duration.ofMillis(50), Duration.ofSeconds(1)))
+                .setEndpoint("collector.example", 4318)
+                .setHost("collector.example")
+                .setPort(4318)
+                .setTimeout(Duration.ofSeconds(3))
+                .setTls(Tls.systemTrust())
+                .addHeader("authorization", "Bearer x")
+                .setHeaders(Map.of("x-tenant", "acme"))
+                .setCompression(Compression.GZIP)
+                .setRetryPolicy(RetryPolicy.builder().setMaxAttempts(3).setInitialBackoff(Duration.ofMillis(50)).setMaxBackoff(Duration.ofSeconds(1)).build())
                 .build()) {
             assertThat(exporter.traces()).isNotNull();
             assertThat(exporter.metrics()).isNotNull();
@@ -44,7 +44,7 @@ class HttpEntryPointBuilderTest {
     @DisplayName("OtlpHttpExporter.transport(config) and to(...) build a client")
     @Test
     void exporterFromConfigAndConvenience() {
-        var config = ClientConfig.builder().endpoint("h", 4318).build();
+        var config = ClientConfig.builder().setEndpoint("h", 4318).build();
         try (var fromConfig = OtlpHttpExporter.builder().transport(config).build()) {
             assertThat(fromConfig.traces()).isNotNull();
         }
@@ -64,7 +64,7 @@ class HttpEntryPointBuilderTest {
     @DisplayName("OtlpHttpExporter.Builder path(...) sets the endpoint path prefix on the config")
     @Test
     void exporterBuilderPath() throws Exception {
-        var builder = OtlpHttpExporter.builder().endpoint("h", 4318).path("/otlp");
+        var builder = OtlpHttpExporter.builder().setEndpoint("h", 4318).setPath("/otlp");
 
         var field = OtlpHttpExporter.Builder.class.getDeclaredField("config");
         field.setAccessible(true);
@@ -78,13 +78,13 @@ class HttpEntryPointBuilderTest {
         var executor = Executors.newVirtualThreadPerTaskExecutor();
         var receiver = OtlpHttpReceiver.builder()
                 .transport(ServerConfig.builder().build())
-                .endpoint("127.0.0.1", 0)
-                .port(0)
+                .setEndpoint("127.0.0.1", 0)
+                .setPort(0)
                 .ephemeralPort()
-                .tls(Tls.disabled())
-                .maxInboundMessageSizeBytes(1024)
-                .handshakeTimeout(Duration.ofSeconds(5))
-                .serverExecutor(executor)
+                .setTls(Tls.disabled())
+                .setMaxInboundMessageSizeBytes(1024)
+                .setHandshakeTimeout(Duration.ofSeconds(5))
+                .setServerExecutor(executor)
                 .onTraces(t -> ConsumeResult.acceptedStage())
                 .onMetrics(m -> ConsumeResult.acceptedStage())
                 .onLogs(l -> ConsumeResult.acceptedStage())
@@ -101,12 +101,12 @@ class HttpEntryPointBuilderTest {
         assertThat(OtlpHttpReceiver.on("127.0.0.1", 0).port()).isZero();
     }
 
-    @DisplayName("OtlpHttpExporter.Builder headers(map) replaces, and addHeaders(map) merges")
+    @DisplayName("OtlpHttpExporter.Builder addHeader adds per key and setHeaders replaces all")
     @Test
-    void exporterBuilderHeadersAndAddHeaders() throws Exception {
+    void exporterBuilderHeaders() throws Exception {
         var builder = OtlpHttpExporter.builder()
-                .header("k1", "v1")
-                .headers(Map.of("k2", "v2", "k3", "v3"));
+                .addHeader("k1", "v1")
+                .setHeaders(Map.of("k2", "v2", "k3", "v3"));
 
         var field = OtlpHttpExporter.Builder.class.getDeclaredField("config");
         field.setAccessible(true);
@@ -115,8 +115,9 @@ class HttpEntryPointBuilderTest {
         assertThat(c.headers()).containsExactlyInAnyOrderEntriesOf(Map.of("k2", "v2", "k3", "v3"));
 
         var builder2 = OtlpHttpExporter.builder()
-                .header("k1", "v1")
-                .addHeaders(Map.of("k2", "v2", "k3", "v3"));
+                .addHeader("k1", "v1")
+                .addHeader("k2", "v2")
+                .addHeader("k3", "v3");
 
         var clientConfigBuilder2 = (ClientConfig.Builder) field.get(builder2);
         var c2 = clientConfigBuilder2.build();
