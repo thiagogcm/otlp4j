@@ -85,12 +85,12 @@ var subscription = Pipeline.from(receiver.traces())
         .transform(Transforms.withTracesResourceAttribute(
                 "deployment.environment", AttributeValue.of("production")))
         .filter(traces -> !traces.spans().isEmpty())
-        .to(exporter.traces(), exporter);
+        .to(exporter.traces());
 ```
 
 The receiver accepts one consumer per signal source. Use `branch().fanOut(...).join()` when several consumers need the same batch.
 
-> [!IMPORTANT] Register exporter lifecycle explicitly when wiring a pipeline: `Stage.to(exporter.traces(), exporter)` or `Stage.owns(exporter)`. Signal facets are plain sinks and do not auto-close the exporter. Shut down the subscription first, then the receiver.
+> [!IMPORTANT] Exporter facets carry the exporter's lifecycle, so attaching one to a pipeline drains the exporter on shutdown — no registration needed. Use `Stage.owns(resource)` only for a resource hidden behind a lambda or a connector's downstream. Shut down the subscription first, then the receiver.
 
 ```java
 subscription.shutdown(Duration.ofSeconds(10)).toCompletableFuture().join();

@@ -1,7 +1,6 @@
 package dev.nthings.otlp4j.model;
 
 import java.util.List;
-import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import org.jspecify.annotations.Nullable;
@@ -41,10 +40,11 @@ public sealed interface ConsumeResult<T> permits ConsumeResult.Accepted, Consume
 
     /// The whole batch was rejected.
     ///
-    /// The presence of `cause` carries retry intent: a `null` cause is transient (mapped to
-    /// gRPC `UNAVAILABLE`), a non-null cause is permanent (mapped to gRPC `INTERNAL`). Prefer
-    /// [#retryableRejected(String)] and [#permanentRejected(String, Throwable)] factories.
-    record Rejected<T>(String message, @Nullable Throwable cause) implements ConsumeResult<T> {
+    /// `retryable` states retry intent: a retryable rejection maps to gRPC `UNAVAILABLE` / HTTP
+    /// `503`, a permanent one to gRPC `INTERNAL` / HTTP `500`. `cause` is optional diagnostics,
+    /// orthogonal to retryability and present or absent on either disposition. Prefer the
+    /// [#retryable(String)] / [#permanent(String)] factories.
+    record Rejected<T>(boolean retryable, String message, @Nullable Throwable cause) implements ConsumeResult<T> {
 
         public Rejected {
             message = message == null ? "" : message;
@@ -62,22 +62,27 @@ public sealed interface ConsumeResult<T> permits ConsumeResult.Accepted, Consume
     }
 
     /// A whole-batch rejection the sender SHOULD retry (transient, e.g. a full queue). Maps to gRPC
-    /// `UNAVAILABLE`.
-    static <T> ConsumeResult<T> retryableRejected(String message) {
-        return new Rejected<>(message, null);
+    /// `UNAVAILABLE` / HTTP `503`.
+    static <T> ConsumeResult<T> retryable(String message) {
+        return new Rejected<>(true, message, null);
+    }
+
+    /// A retryable rejection carrying a diagnostic `cause`, such as a briefly unreachable downstream.
+    /// `cause` may be null when none is available.
+    static <T> ConsumeResult<T> retryable(String message, @Nullable Throwable cause) {
+        return new Rejected<>(true, message, cause);
     }
 
     /// A whole-batch rejection the sender MUST NOT retry (permanent, e.g. a policy or validation
-    /// fault). The required non-null `cause` maps it to gRPC `INTERNAL` rather than `UNAVAILABLE`.
-    static <T> ConsumeResult<T> permanentRejected(String message, Throwable cause) {
-        return rejected(message, Objects.requireNonNull(cause, "cause"));
+    /// fault). Maps to gRPC `INTERNAL` / HTTP `500`.
+    static <T> ConsumeResult<T> permanent(String message) {
+        return new Rejected<>(false, message, null);
     }
 
-    /// Low-level [Rejected] factory forwarding `cause` verbatim (null retries, non-null does not).
-    /// Prefer [#retryableRejected(String)] / [#permanentRejected(String, Throwable)] when intent is
-    /// known; use this only to forward a cause decided elsewhere.
-    static <T> ConsumeResult<T> rejected(String message, @Nullable Throwable cause) {
-        return new Rejected<>(message, cause);
+    /// A permanent rejection carrying the diagnostic `cause` that decided it. `cause` may be null
+    /// when none is available.
+    static <T> ConsumeResult<T> permanent(String message, @Nullable Throwable cause) {
+        return new Rejected<>(false, message, cause);
     }
 
     /// Completed stage shorthand for [#accepted()].
@@ -88,7 +93,9 @@ public sealed interface ConsumeResult<T> permits ConsumeResult.Accepted, Consume
     /// Combines results from `peers` that all received the **same** batch in parallel
     /// (fan-out semantics):
     ///
-    ///   - Any [Rejected] wins (the batch failed for at least one peer).
+    ///   - Any [Rejected] wins (the batch failed for at least one peer). The merge is permanent if
+    ///     any rejecting peer is permanent, since retrying cannot satisfy that peer; the first
+    ///     non-null peer cause is carried as diagnostics.
     ///   - Otherwise the worst-case [Partial#rejectedItems] across peers is reported - sums would
     ///     overstate the rejection from the original sender's viewpoint, since all peers saw the
     ///     same input.
@@ -98,7 +105,8 @@ public sealed interface ConsumeResult<T> permits ConsumeResult.Accepted, Consume
             return accepted();
         }
         @Nullable Rejected<T> firstRejected = null;
-        @Nullable Throwable permanentCause = null;
+        var anyPermanent = false;
+        @Nullable Throwable cause = null;
         var maxRejected = 0L;
         @Nullable StringBuilder messages = null;
         for (var peer : peers) {
@@ -107,8 +115,11 @@ public sealed interface ConsumeResult<T> permits ConsumeResult.Accepted, Consume
                     if (firstRejected == null) {
                         firstRejected = r;
                     }
-                    if (r.cause() != null) {
-                        permanentCause = r.cause();
+                    if (!r.retryable()) {
+                        anyPermanent = true;
+                    }
+                    if (cause == null && r.cause() != null) {
+                        cause = r.cause();
                     }
                     messages = appendMessage(messages, r.message());
                 }
@@ -122,8 +133,8 @@ public sealed interface ConsumeResult<T> permits ConsumeResult.Accepted, Consume
             }
         }
         if (firstRejected != null) {
-            var cause = permanentCause != null ? permanentCause : firstRejected.cause();
-            return new Rejected<>(messages == null ? firstRejected.message() : messages.toString(), cause);
+            return new Rejected<>(
+                    !anyPermanent, messages == null ? firstRejected.message() : messages.toString(), cause);
         }
         if (maxRejected == 0) {
             return accepted();

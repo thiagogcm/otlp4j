@@ -90,7 +90,7 @@ public interface Sink<T> {
         }
         restoreInterrupt(cause);
         @Nullable String message = cause.getMessage();
-        return ConsumeResult.permanentRejected(
+        return ConsumeResult.permanent(
                 "sink action threw " + cause.getClass().getSimpleName()
                         + (message == null ? "" : ": " + message),
                 cause);

@@ -2,44 +2,44 @@ package dev.nthings.otlp4j.transport.spi;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import dev.nthings.otlp4j.core.Drainable;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.pipeline.Pipeline;
 import java.time.Duration;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/// Verifies that exporter lifecycle is registered explicitly via `to(facet,
-/// exporter)` or `owns(exporter)`, because signal facets are plain sinks
-/// without lifecycle.
+/// Verifies that exporter facets carry the exporter's lifecycle, so a pipeline drains the exporter
+/// automatically through any attached facet, with no explicit registration.
 @DisplayName("Exporter ownership")
 class ExporterOwnershipTest {
 
-    @DisplayName("to(facet, exporter) drains the exporter on shutdown")
+    @DisplayName("attaching a facet as terminal drains the exporter on shutdown")
     @Test
-    void explicitOwnerDrainsExporter() {
+    void attachedFacetDrainsExporter() {
         var client = new RecordingOtlpClient();
         var exporter = new ClientExporter(client, "test");
         var source = new SignalSource<>(TracesData.class);
 
-        var sub = Pipeline.from(source).to(exporter.traces(), exporter);
+        var sub = Pipeline.from(source).to(exporter.traces());
 
         assertThat(client.closes.get()).isZero();
         sub.shutdown(Duration.ofSeconds(2)).toCompletableFuture().join();
         assertThat(client.closes.get()).isEqualTo(1);
     }
 
-    @DisplayName("facets are plain sinks without lifecycle interfaces")
+    @DisplayName("facets are lifecycle-bearing views")
     @Test
-    void facetsArePlainSinks() {
+    void facetsAreLifecycleBearing() {
         var exporter = new ClientExporter(new RecordingOtlpClient(), "test");
         var facet = exporter.traces();
 
-        assertThat(facet).isNotInstanceOf(AutoCloseable.class);
+        assertThat(facet).isInstanceOf(Drainable.class);
     }
 
-    @DisplayName("fan-out with explicit owners drains each exporter")
+    @DisplayName("fan-out drains each exporter automatically")
     @Test
-    void fanOutWithExplicitOwnersDrainsEachExporter() {
+    void fanOutDrainsEachExporterAutomatically() {
         var clientA = new RecordingOtlpClient();
         var clientB = new RecordingOtlpClient();
         var exporterA = new ClientExporter(clientA, "test");
@@ -47,8 +47,6 @@ class ExporterOwnershipTest {
         var source = new SignalSource<>(TracesData.class);
 
         var sub = Pipeline.from(source)
-                .owns(exporterA)
-                .owns(exporterB)
                 .branch()
                 .fanOut(exporterA.traces())
                 .fanOut(exporterB.traces())

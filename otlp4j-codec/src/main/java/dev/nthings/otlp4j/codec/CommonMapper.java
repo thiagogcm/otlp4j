@@ -43,8 +43,8 @@ final class CommonMapper {
             return ConsumeResult.accepted();
         }
         if (rejectedItems == 0) {
-            // No local cause, so retryable.
-            return ConsumeResult.retryableRejected(errorMessage);
+            // Zero items rejected but a message present: a server-side issue worth retrying.
+            return ConsumeResult.retryable(errorMessage);
         }
         return ConsumeResult.partial(rejectedItems, errorMessage);
     }

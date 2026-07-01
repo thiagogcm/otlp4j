@@ -5,8 +5,7 @@ import java.util.concurrent.CompletionStage;
 
 /// A resource that can flush its buffered telemetry downstream on demand.
 ///
-/// A pipeline forceFlush reaches every owned resource that is [ForceFlushable]; see
-/// [Pipeline.Stage#owns].
+/// A pipeline forceFlush reaches every collected resource that is [ForceFlushable].
 public interface ForceFlushable {
 
     /// Flushes in-flight buffers downstream.

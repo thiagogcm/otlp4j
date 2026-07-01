@@ -79,7 +79,7 @@ final class CountConnector<I> implements Sink<I> {
         if (cause instanceof InterruptedException) {
             Thread.currentThread().interrupt();
         }
-        return ConsumeResult.permanentRejected(metricName + " downstream " + verb + ": " + cause, cause);
+        return ConsumeResult.permanent(metricName + " downstream " + verb + ": " + cause, cause);
     }
 
     /// Single-point DELTA sum over `[startEpochNanos, epochNanos)`.
@@ -105,16 +105,19 @@ final class CountConnector<I> implements Sink<I> {
             case ConsumeResult.Partial<MetricsData>(var rejected, var message) -> {
                 log.warn("{} downstream partial_success: {} rejected items, msg={}", metricName, rejected, message);
                 if (policy == FailurePolicy.FAIL) {
-                    return ConsumeResult.retryableRejected(
+                    return ConsumeResult.retryable(
                             metricName + " derived metric partially rejected: " + rejected + " points: " + message);
                 }
                 return ConsumeResult.accepted();
             }
-            case ConsumeResult.Rejected<MetricsData>(var message, var cause) -> {
+            case ConsumeResult.Rejected<MetricsData>(var retryable, var message, var cause) -> {
                 log.warn("{} downstream rejected derived metric: {}", metricName, message, cause);
                 if (policy == FailurePolicy.FAIL) {
-                    // Forward the downstream cause verbatim; it decides retry intent.
-                    return ConsumeResult.rejected(metricName + " derived metric rejected: " + message, cause);
+                    // Forward the downstream retry intent and cause onto the input.
+                    var forwarded = metricName + " derived metric rejected: " + message;
+                    return retryable
+                            ? ConsumeResult.retryable(forwarded, cause)
+                            : ConsumeResult.permanent(forwarded, cause);
                 }
                 return ConsumeResult.accepted();
             }

@@ -23,7 +23,7 @@ final class SignalSource<T> implements Source<T> {
 
     public SignalSource(Class<T> signalType) {
         this.signalType = Objects.requireNonNull(signalType, "signalType");
-        this.noConsumerResult = ConsumeResult.retryableRejected(
+        this.noConsumerResult = ConsumeResult.retryable(
                 "no consumer attached for " + signalType.getSimpleName()
                         + "; attach a sink or call discard() to accept and drop");
     }

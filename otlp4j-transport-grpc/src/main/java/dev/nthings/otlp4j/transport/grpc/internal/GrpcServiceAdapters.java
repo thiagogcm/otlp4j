@@ -5,7 +5,6 @@ import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
-import dev.nthings.otlp4j.codec.DeliveryResults;
 import dev.nthings.otlp4j.codec.LogsMapper;
 import dev.nthings.otlp4j.codec.MetricsMapper;
 import dev.nthings.otlp4j.codec.ProfilesMapper;
@@ -39,12 +38,14 @@ import org.slf4j.LoggerFactory;
 ///
 /// - [ConsumeResult.Accepted] / [ConsumeResult.Partial] -> normal OTLP
 ///   response with appropriate `partial_success`.
-/// - [ConsumeResult.Rejected] without cause -> gRPC `UNAVAILABLE` (retryable).
-///   Use for back-pressure such as a full queue.
-/// - [ConsumeResult.Rejected] with cause -> gRPC `INTERNAL` (permanent failure).
+/// - A retryable [ConsumeResult.Rejected] -> gRPC `UNAVAILABLE`. Use for
+///   back-pressure such as a full queue.
+/// - A permanent [ConsumeResult.Rejected] -> gRPC `INTERNAL`. Use for a
+///   deterministic fault such as content filtering, so the client does not
+///   waste retries on a permanently unreachable outcome.
 ///
-/// Deterministic rejections (e.g. content filtering) MUST attach a cause so the
-/// client does not waste retries on a permanently unreachable outcome.
+/// A `cause`, when present, is attached as the status cause regardless of
+/// retryability.
 final class GrpcServiceAdapters {
 
     private static final Logger log = LoggerFactory.getLogger(GrpcServiceAdapters.class);
@@ -97,10 +98,8 @@ final class GrpcServiceAdapters {
                         .asRuntimeException());
                 return;
             }
-            if (result instanceof ConsumeResult.Rejected<SIG>(var message, var cause)) {
-                var status = DeliveryResults.isRetryable((ConsumeResult.Rejected<?>) result)
-                        ? Status.UNAVAILABLE
-                        : Status.INTERNAL;
+            if (result instanceof ConsumeResult.Rejected<SIG>(var retryable, var message, var cause)) {
+                var status = retryable ? Status.UNAVAILABLE : Status.INTERNAL;
                 if (cause != null) {
                     status = status.withCause(cause);
                 }

@@ -141,15 +141,15 @@ class PipelineLifecycleTest {
         assertThat(closed.get()).isTrue();
     }
 
-    @DisplayName("to(terminal, owner) drains and flushes the owner like owns(owner).to(terminal)")
+    @DisplayName("owns(owner) flushes and drains a registered resource")
     @Test
-    void twoArgTerminalOwnsResource() {
+    void ownsFlushesAndDrainsResource() {
         var source = new ManualSource<TracesData>();
         var flushed = new AtomicInteger();
         var closed = new AtomicBoolean();
 
-        // A method-reference terminal hides no AutoCloseable; the owner is reached only because the
-        // two-arg terminal registers it. The owner is a separate resource, not the terminal itself.
+        // A method-reference terminal hides no AutoCloseable; the owner is reached only because
+        // owns() registers it. The owner is a separate resource, not the terminal itself.
         class OwnedResource implements Drainable, ForceFlushable {
             @Override public CompletionStage<Void> forceFlush(Duration timeout) {
                 flushed.incrementAndGet();
@@ -162,7 +162,7 @@ class PipelineLifecycleTest {
         }
         var owner = new OwnedResource();
         TraceSink terminal = traces -> ConsumeResult.acceptedStage();
-        var sub = Pipeline.from(source).to(terminal, owner);
+        var sub = Pipeline.from(source).owns(owner).to(terminal);
 
         sub.forceFlush(Duration.ofSeconds(1)).toCompletableFuture().join();
         assertThat(flushed.get()).isEqualTo(1);

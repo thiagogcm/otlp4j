@@ -18,7 +18,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -134,31 +133,24 @@ class PipelineTest {
         assertThat(FanOut.<TracesData>of(universalPeer).consume(batch).toCompletableFuture().join())
                 .isInstanceOf(ConsumeResult.Accepted.class);
 
-        // Stage.to, Stage.to(terminal, owner), and Branch.fanOut all accept the supertype sink.
+        // Stage.to and Branch.fanOut both accept the supertype sink.
         // One consumer slot per ManualSource, so drive each path on its own source.
         var terminalSource = new ManualSource<TracesData>();
-        var ownedSource = new ManualSource<TracesData>();
         var peerSource = new ManualSource<TracesData>();
-        var ownerClosed = new AtomicBoolean();
         var terminalSub = Pipeline.from(terminalSource).to(universalTerminal);
-        var ownedSub = Pipeline.from(ownedSource).to(universalTerminal, () -> ownerClosed.set(true));
         var branchSub = Pipeline.from(peerSource).branch().fanOut(universalPeer).join();
         try {
             assertThat(terminalSource.dispatch(batch).toCompletableFuture().join())
-                    .isInstanceOf(ConsumeResult.Accepted.class);
-            assertThat(ownedSource.dispatch(batch).toCompletableFuture().join())
                     .isInstanceOf(ConsumeResult.Accepted.class);
             assertThat(peerSource.dispatch(batch).toCompletableFuture().join())
                     .isInstanceOf(ConsumeResult.Accepted.class);
         } finally {
             terminalSub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
-            ownedSub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
             branchSub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
         }
-        // 2 FanOut peers + 1 branch peer; 2 terminals (plain + owned). Owner closed on shutdown.
-        assertThat(seenByTerminal).hasValue(2);
+        // 2 FanOut peers + 1 branch peer; 1 plain terminal.
+        assertThat(seenByTerminal).hasValue(1);
         assertThat(seenByPeer).hasValue(3);
-        assertThat(ownerClosed).isTrue();
     }
 
     @DisplayName("A synchronous terminal throw becomes a permanent rejection, not an escaped exception")

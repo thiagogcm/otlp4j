@@ -14,7 +14,7 @@ Pick the path that matches your first task, then read the reference sections it 
 | **Receive, transform, export** — filter/enrich a stream and forward it   | [§ Receive, transform, export](#receive-transform-export) → [Transform and route](#transform-and-route), [Export](#export) |
 | **Construct and export** — build batches in code and send them           | [§ Construct and export](#construct-and-export) → [Domain model](#domain-model), [Export](#export)                         |
 
-When you wire several stages together, read [Shutdown order](#shutdown-order) and the [Lifecycle cheat sheet](#lifecycle-cheat-sheet) so every resource is closed exactly once, and [Thread-safety and nullness](#thread-safety-and-nullness) for the concurrency and `null` contracts.
+When you wire several stages together, read [Lifecycle](#lifecycle) so every resource is closed exactly once, and [Thread-safety and nullness](#thread-safety-and-nullness) for the concurrency and `null` contracts.
 
 ### Receive and print
 
@@ -32,7 +32,7 @@ var receiver = OtlpGrpcReceiver.builder()
 
 ### Receive, transform, export
 
-Transforms are copy-modify: built-ins like `Transforms.withTracesResourceAttribute` return a new batch (records are immutable), so chain them and register the exporter with `to(exporter.traces(), exporter)` or `owns(exporter)`.
+Transforms are copy-modify: built-ins like `Transforms.withTracesResourceAttribute` return a new batch (records are immutable), so chain them and terminate with the exporter facet, which drains the exporter on shutdown.
 
 ```java
 var exporter = OtlpGrpcExporter.to("collector.example.com", 4317);
@@ -42,7 +42,7 @@ var subscription = Pipeline.from(receiver.traces())
         .transform(Transforms.withTracesResourceAttribute(
                 "service.namespace", AttributeValue.of("store")))
         .filter(traces -> !traces.spans().isEmpty())
-        .to(exporter.traces(), exporter);   // register exporter lifecycle explicitly
+        .to(exporter.traces());   // the facet drains the exporter on shutdown
 ```
 
 ### Construct and export
@@ -176,10 +176,10 @@ TraceSink report = traces -> {
 - `Partial<T>`: a positive item count was rejected; the rest was accepted.
 - `Rejected<T>`: the complete batch was rejected.
 
-`Accepted` and `Partial` are normal OTLP responses: `Accepted` leaves `partial_success` unset, and `Partial` carries the rejected count and message. A whole-batch `Rejected` is **not** a partial success (encoding it as `rejected_*=0` would read to the client as "all accepted"), so the bundled gRPC transport maps it to a gRPC error instead of a response message. The presence of a cause selects the retry semantics:
+`Accepted` and `Partial` are normal OTLP responses: `Accepted` leaves `partial_success` unset, and `Partial` carries the rejected count and message. A whole-batch `Rejected` is **not** a partial success (encoding it as `rejected_*=0` would read to the client as "all accepted"), so the bundled gRPC transport maps it to a gRPC error instead of a response message. `Rejected` states its retry intent explicitly; a diagnostic `cause` is optional on either disposition:
 
-- `Rejected` with **no cause** → gRPC `UNAVAILABLE` (retryable); use it for transient back-pressure such as a full queue. Build it with `ConsumeResult.retryableRejected(message)`.
-- `Rejected` with **a cause** → gRPC `INTERNAL` (non-retryable); use it for a permanent fault such as a policy or validation failure that would reject the same batch every time. Build it with `ConsumeResult.permanentRejected(message, cause)`.
+- A **retryable** `Rejected` → gRPC `UNAVAILABLE` / HTTP `503`; use it for transient back-pressure such as a full queue or a briefly unreachable downstream. Build it with `ConsumeResult.retryable(message)` or `ConsumeResult.retryable(message, cause)`.
+- A **permanent** `Rejected` → gRPC `INTERNAL` / HTTP `500`; use it for a permanent fault such as a policy or validation failure that would reject the same batch every time. Build it with `ConsumeResult.permanent(message)` or `ConsumeResult.permanent(message, cause)`.
 
 Use an exception or exceptionally completed stage for a transport-level failure.
 
@@ -259,7 +259,7 @@ var subscription = Pipeline.from(receiver.traces())
         .join();
 ```
 
-A branch fanning out to exporter facets must register each exporter explicitly — signal facets are plain sinks without lifecycle:
+A branch fanning out to exporter facets drains each exporter automatically — the facets are collected as fan-out peers:
 
 ```java
 var primary = OtlpGrpcExporter.to("collector-a", 4317);
@@ -267,8 +267,6 @@ var secondary = OtlpGrpcExporter.to("collector-b", 4317);
 
 var subscription = Pipeline.from(receiver.traces())
         .filter(traces -> !traces.spans().isEmpty())
-        .owns(primary)
-        .owns(secondary)
         .branch()
             .fanOut(primary.traces())
             .fanOut(secondary.traces())
@@ -395,7 +393,7 @@ var exporter = OtlpGrpcExporter.builder()
         .build();
 ```
 
-`OtlpGrpcExporter`/`OtlpHttpExporter` are builder entry points; `build()` (and the `to(...)`/`fromEnvironment()` shortcuts) returns an `OtlpExporter`, the multi-signal export contract (the counterpart to `Receiver` on the ingest side). The exporter itself owns the channel. Its `traces()`, `metrics()`, `logs()`, and `profiles()` facets are plain sinks that deliver to the client — they do not carry lifecycle. Register the exporter when wiring a pipeline: `Stage.to(exporter.traces(), exporter)` or `Stage.owns(exporter)`. As a `Drainable`, the exporter receives the pipeline's _remaining_ shared deadline, and its shutdown is cancellation-aware. `forceFlush` is a no-op today (the client holds no buffer). If you use a facet outside a pipeline (calling `consume` directly), close the exporter yourself. As a backstop, an exporter that is garbage-collected without a `shutdown()` or `close()` logs a warning — a missed registration surfaces in the logs instead of silently leaking the channel.
+`OtlpGrpcExporter`/`OtlpHttpExporter` are builder entry points; `build()` (and the `to(...)`/`fromEnvironment()` shortcuts) returns an `OtlpExporter`, the multi-signal export contract (the counterpart to `Receiver` on the ingest side). The exporter itself owns the channel. Its `traces()`, `metrics()`, `logs()`, and `profiles()` facets are lifecycle-bearing views that deliver to the client and share that one channel, so attaching any facet to a pipeline drains the whole exporter on shutdown with nothing to register. As a `Drainable`, the exporter receives the pipeline's _remaining_ shared deadline, and its shutdown is cancellation-aware. `forceFlush` is a no-op today (the client holds no buffer). If you use a facet outside a pipeline (calling `consume` directly), close the exporter yourself. As a backstop, an exporter that is garbage-collected without a `shutdown()` or `close()` logs a warning — a leaked channel surfaces in the logs instead of silently.
 
 Implement `Exporter<T>` for a custom typed terminal with flush and shutdown hooks. Implement the lower-level client or server SPI when replacing the wire transport.
 
@@ -411,7 +409,7 @@ var logCounter = Connectors.logRecordCount(exporter.metrics());
 var strictSpanCounter = Connectors.spanCount(exporter.metrics(), FailurePolicy.FAIL);
 ```
 
-The subscription cannot see through a count sink to its downstream `MetricSink`, so register the exporter with `Stage.owns(exporter)` (see [Shutdown order](#shutdown-order)).
+The subscription cannot see through a count sink to its downstream `MetricSink`, so register that exporter with `Stage.owns(exporter)` (see [Lifecycle](#lifecycle)).
 
 The built-ins emit `otlp4j.connector.span.count` and `otlp4j.connector.log.record.count`, each as a monotonic delta sum whose window runs from the previous flush (so the series carries a real per-series start time). A configurable `FailurePolicy` decides how a downstream metric failure maps back onto the input result; the no-policy `spanCount`/`logRecordCount` overloads default to `BEST_EFFORT`, and `spanCount(downstream, policy)` / `logRecordCount(downstream, policy)` set it explicitly:
 
@@ -477,50 +475,27 @@ For a custom *terminal* rather than a new wire protocol — somewhere telemetry 
 
 Configuration arrives through `ClientConfig` and `ServerConfig`. The bundled clients honour host, port, timeout, TLS, headers, compression, and retry; the servers honour their port, `bindHost`, TLS, and the receiver-hardening limits (inbound size cap, per-connection concurrency, handshake timeout, executor).
 
-## Shutdown order
+## Lifecycle
 
-Stop ingestion before closing downstream resources:
+Stop ingestion before closing downstream resources: shut down the pipeline subscription first — it detaches the source and drains everything it references (directly attached processors, exporter facets, and `AutoCloseable` fan-out peers) within one shared deadline — then shut down the receiver.
 
-1. Shut down the pipeline subscription to detach the source and drain every owned resource — directly attached processors, exporters registered with `Stage.owns(...)` or `Stage.to(facet, exporter)`, all within a single shared deadline.
-2. Close any resources you did not hand to the subscription: exporters used outside the pipeline, and the exporter behind a count sink (which the subscription does not auto-discover).
-3. Shut down the receiver.
-
-Use `shutdown(Duration)` when completion matters. The convenience `close()` methods drain gracefully with a fixed ten-second default across the receiver, exporter, and subscription; call `Receiver.shutdownNow()` for an immediate stop.
-
-### Lifecycle cheat sheet
-
-The subscription drains every resource it can _see_ under one shared deadline. The rule of thumb: a resource is auto-collected when the pipeline references it directly as a terminal or fan-out peer; it is hidden — and needs `Stage.owns(...)` — when it sits behind a lambda or a connector the pipeline can only see as a plain `Sink`.
-
-| Resource                                                             | Owned by the subscription? | How                                                                                                                                              |
-| -------------------------------------------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Exporter (`OtlpGrpcExporter`, …)                                     | **Explicit**               | Register with `Stage.to(exporter.traces(), exporter)` or `Stage.owns(exporter)` before the terminal/branch. Facets alone do not carry lifecycle. |
-| `BatchingProcessor` attached directly as terminal                    | **Auto**                   | A directly-attached batcher is an `AutoCloseable` terminal; the subscription stops its timer and drains it once.                                 |
-| Fan-out peers that are `AutoCloseable`                               | **Auto**                   | Each `AutoCloseable`/`Drainable` peer in a `branch()`/`FanOut` is collected and drained within the shared budget.                                |
-| Count sink's downstream (`Connectors.spanCount(exporter.metrics())`) | **Hidden**                 | The connector is just a `Sink`; register the exporter with `Stage.owns(exporter)`.                                                               |
-| A bare lambda sink that holds a resource                             | **Hidden**                 | Declare the resource with `Stage.owns(resource)` (or the `to(terminal, owner)` shorthand).                                                       |
-| Exporter used outside any pipeline (direct `consume`)                | **No**                     | Close it yourself (`try`-with-resources or `exporter.close()`).                                                                                  |
-| Receiver                                                             | **No**                     | Always shut down last, after the subscription detaches the source.                                                                               |
+The subscription drains every terminal and fan-out peer it can see. Exporter facets carry their exporter's lifecycle, so attaching one drains the whole exporter with nothing to register. Use `Stage.owns(resource)` only for a resource the pipeline _cannot_ see — one hidden behind a lambda sink or a connector's downstream, such as the separate metrics exporter behind a count sink:
 
 ```java
-var subscription = Pipeline.from(receiver.traces())
-        .owns(exporter)
-        .branch()
-            .fanOut(exporter.traces())
-            .fanOut(Connectors.spanCount(exporter.metrics()))
-        .join();
-
-// Hidden: the count sink points at a SEPARATE metrics exporter the pipeline can't see — declare it.
+// The count sink points at a SEPARATE metrics exporter the pipeline can't see — declare it.
 var metricsExporter = OtlpGrpcExporter.to("metrics-collector", 4317);
-var subscription2 = Pipeline.from(receiver.traces())
+var subscription = Pipeline.from(receiver.traces())
         .owns(metricsExporter)
-        .owns(exporter)
         .branch()
             .fanOut(exporter.traces())
             .fanOut(Connectors.spanCount(metricsExporter.metrics()))
         .join();
 ```
 
-`Stage.owns(...)` is chainable and must be declared on the linear stage _before_ `branch()`. Shutdown drains owned resources alongside the auto-collected terminals under the one deadline; see [Shutdown order](#shutdown-order). Miss a registration and the exporter is never drained — that surfaces as a warning logged when the exporter is garbage-collected, not a silent channel leak.
+`Stage.owns(...)` is chainable and must be declared on the linear stage _before_ `branch()`. A resource the pipeline never drains surfaces as a warning logged when the exporter is garbage-collected, not a silent channel leak.
+
+Use `shutdown(Duration)` when completion matters. The convenience `close()` methods drain gracefully with a fixed ten-second default across the receiver, exporter, and subscription; call `Receiver.shutdownNow()` for an immediate stop.
+
 
 ## Thread-safety and nullness
 
@@ -529,7 +504,7 @@ var subscription2 = Pipeline.from(receiver.traces())
 | Type                                          | Contract                                                                                                                                                                                                                                                           |
 | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `OtlpGrpcReceiver` / `OtlpHttpReceiver`       | Thread-safe after `start()`; dispatch incoming requests to sinks concurrently. The `…Receiver.Builder` is single-threaded — configure on one thread, then `build()`.                                                                                               |
-| `OtlpGrpcExporter` / `OtlpHttpExporter`       | Thread-safe: a single exporter owns one client/channel and may be called from many threads; each facet's `consume` is concurrency-safe. The builder is single-threaded. Register the exporter for pipeline shutdown via `owns(exporter)` or `to(facet, exporter)`. |
+| `OtlpGrpcExporter` / `OtlpHttpExporter`       | Thread-safe: a single exporter owns one client/channel and may be called from many threads; each facet's `consume` is concurrency-safe. The builder is single-threaded. Attaching a facet to a pipeline drains the exporter on shutdown. |
 | `BatchingProcessor`                           | Thread-safe: `consume`, `forceFlush`, and `shutdown` may be called concurrently (queue + counters are concurrent). `shutdown` is idempotent and then rejects new batches.                                                                                          |
 | `PipelineHandle` (from `Pipeline.from(...)`)  | `shutdown`/`forceFlush` are safe to call concurrently and idempotently. Build the pipeline on one thread.                                                                                                                                                          |
 | `TelemetryTap`                                | Thread-safe but not transactional: `setOptions` affects subscribers that attach afterward. Each `Flow.Subscriber` manages its own demand.                                                                                                                          |
@@ -540,7 +515,7 @@ var subscription2 = Pipeline.from(receiver.traces())
 - **Receiver builder signal callbacks** — `onTraces`/`onMetrics`/`onLogs`/`onProfiles` are optional; an unset signal slot is rejected retryably unless the source is explicitly attached or discarded.
 - **`serverExecutor`** (receiver builder / `ServerConfig`) — `null` keeps gRPC's own executor.
 - **`Tls.custom(cert, key, trustFile)`** — a `null` `trustFile` falls back to system trust.
-- **`ConsumeResult.Rejected.cause`** — `null` selects retryable (`UNAVAILABLE`) semantics; a present cause selects permanent (`INTERNAL`). See [Sinks and results](#sinks-and-results).
+- **`ConsumeResult.Rejected.cause`** — an optional diagnostic throwable, orthogonal to retryability; `null` when no cause is available. See [Sinks and results](#sinks-and-results).
 - **Point values** — `NumberPoint`/`Exemplar` value may be `null` for a value-unset point.
 - **`Attributes.get(key)`** (and typed `getString`, …) — returns `null` on a lookup miss.
 

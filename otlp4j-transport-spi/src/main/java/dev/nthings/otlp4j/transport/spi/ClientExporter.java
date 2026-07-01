@@ -1,10 +1,16 @@
 package dev.nthings.otlp4j.transport.spi;
 
+import dev.nthings.otlp4j.core.Drainable;
 import dev.nthings.otlp4j.core.LogSink;
 import dev.nthings.otlp4j.core.MetricSink;
 import dev.nthings.otlp4j.core.ProfileSink;
 import dev.nthings.otlp4j.core.TraceSink;
 import dev.nthings.otlp4j.exporter.OtlpExporter;
+import dev.nthings.otlp4j.model.ConsumeResult;
+import dev.nthings.otlp4j.model.LogsData;
+import dev.nthings.otlp4j.model.MetricsData;
+import dev.nthings.otlp4j.model.ProfilesData;
+import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.spi.OtlpClient;
 import java.lang.ref.Cleaner;
 import java.time.Duration;
@@ -21,6 +27,9 @@ import org.slf4j.LoggerFactory;
 
 /// Shared [OtlpExporter] implementation that fans all four signal facets to a single [OtlpClient]
 /// and manages shutdown lifecycle. Used by gRPC and HTTP entry points.
+///
+/// Each facet is a lifecycle-bearing view: draining one facet drains the whole shared channel, so a
+/// pipeline auto-collects and drains the exporter through any attached facet with no extra ceremony.
 ///
 /// An exporter garbage-collected without [ClientExporter#shutdown] logs a warning
 /// instead of silently leaking its client channel.
@@ -53,10 +62,10 @@ public final class ClientExporter implements OtlpExporter {
     /// Package-private: redirects the leak warning so a test can observe it without a logging backend.
     ClientExporter(OtlpClient client, String exporterType, Consumer<String> leakReporter) {
         this.client = client;
-        this.traces = client::exportTraces;
-        this.metrics = client::exportMetrics;
-        this.logs = client::exportLogs;
-        this.profiles = client::exportProfiles;
+        this.traces = new TracesFacet();
+        this.metrics = new MetricsFacet();
+        this.logs = new LogsFacet();
+        this.profiles = new ProfilesFacet();
         this.leakWatch = new LeakWatch(exporterType, leakReporter);
         this.cleanable = CLEANER.register(this, leakWatch);
     }
@@ -108,6 +117,43 @@ public final class ClientExporter implements OtlpExporter {
         });
     }
 
+    /// A lifecycle-bearing view of one signal: `shutdown` drains the whole exporter, since every
+    /// facet shares its channel. Each subclass adds a `consume` that hits the shared client.
+    private abstract class Facet implements Drainable {
+        @Override
+        public CompletionStage<Void> shutdown(Duration timeout) {
+            return ClientExporter.this.shutdown(timeout);
+        }
+    }
+
+    private final class TracesFacet extends Facet implements TraceSink {
+        @Override
+        public CompletionStage<ConsumeResult<TracesData>> consume(TracesData batch) {
+            return client.exportTraces(batch);
+        }
+    }
+
+    private final class MetricsFacet extends Facet implements MetricSink {
+        @Override
+        public CompletionStage<ConsumeResult<MetricsData>> consume(MetricsData batch) {
+            return client.exportMetrics(batch);
+        }
+    }
+
+    private final class LogsFacet extends Facet implements LogSink {
+        @Override
+        public CompletionStage<ConsumeResult<LogsData>> consume(LogsData batch) {
+            return client.exportLogs(batch);
+        }
+    }
+
+    private final class ProfilesFacet extends Facet implements ProfileSink {
+        @Override
+        public CompletionStage<ConsumeResult<ProfilesData>> consume(ProfilesData batch) {
+            return client.exportProfiles(batch);
+        }
+    }
+
     /// [Cleaner] action that warns when the exporter is garbage-collected without [ClientExporter#shutdown].
     /// Holds no reference back to the exporter.
     static final class LeakWatch implements Runnable {
@@ -125,9 +171,10 @@ public final class ClientExporter implements OtlpExporter {
         public void run() {
             if (!closed) {
                 reporter.accept(exporterType + " was garbage-collected before shutdown(); its OTLP "
-                        + "client channel leaked. Register it for teardown with Stage.owns(exporter) "
-                        + "or Stage.to(facet, exporter), or close it directly when a facet is used "
-                        + "outside a pipeline.");
+                        + "client channel leaked. Attach a facet to a pipeline, which drains it on "
+                        + "shutdown; register it with Stage.owns(exporter) when it is hidden behind a "
+                        + "connector or lambda; or close it directly when a facet is used outside a "
+                        + "pipeline.");
             }
         }
     }

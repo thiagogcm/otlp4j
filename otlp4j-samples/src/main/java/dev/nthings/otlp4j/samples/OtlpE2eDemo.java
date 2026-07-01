@@ -26,8 +26,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /// End-to-end demo: five spans flow through a gateway pipeline (enrich, redact,
-/// filter, fan out to the exporter and a span-count sink) to a backend. Register
-/// the exporter with `owns(exporter)` so the subscription drains it on shutdown.
+/// filter, fan out to the exporter and a span-count sink) to a backend. The
+/// exporter facet carries its lifecycle, so the subscription drains it on shutdown.
 public final class OtlpE2eDemo {
 
     private static final Logger log = LoggerFactory.getLogger(OtlpE2eDemo.class);
@@ -96,7 +96,6 @@ public final class OtlpE2eDemo {
                             : span))
                     .transform(Transforms.keepSpansWhere(span -> span.kind() == Span.Kind.SERVER))
                     .filter(traces -> traces.spanCount() != 0)
-                    .owns(backendExporter)
                     .branch()
                     .fanOut(backendExporter.traces())
                     .fanOut(spanCounter)
@@ -110,12 +109,9 @@ public final class OtlpE2eDemo {
                 client.traces().consume(sampleTraces()).toCompletableFuture().join();
                 log.info("Client exported sample trace batch to the gateway.");
             }
+            // The subscription drains backendExporter through its attached facet.
             subscription.shutdown(Duration.ofSeconds(5)).toCompletableFuture().join();
         } finally {
-            // Idempotent backstop: the subscription already drained the exporter.
-            if (backendExporter != null) {
-                backendExporter.close();
-            }
             if (gateway != null) {
                 gateway.shutdownNow().toCompletableFuture().join();
             }

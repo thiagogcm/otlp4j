@@ -61,7 +61,7 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, ForceFlus
     @Override
     public CompletionStage<ConsumeResult<T>> consume(T batch) {
         if (closed.get()) {
-            return CompletableFuture.completedFuture(ConsumeResult.retryableRejected("batcher closed"));
+            return CompletableFuture.completedFuture(ConsumeResult.retryable("batcher closed"));
         }
         var offered = queue.offer(batch);
         if (!offered) {
@@ -86,13 +86,13 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, ForceFlus
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                         return CompletableFuture.completedFuture(
-                                ConsumeResult.permanentRejected("interrupted waiting for batcher capacity", e));
+                                ConsumeResult.permanent("interrupted waiting for batcher capacity", e));
                     }
                 }
                 case FAIL -> {
                     drops.increment();
                     return CompletableFuture.completedFuture(
-                            ConsumeResult.retryableRejected("batcher queue full"));
+                            ConsumeResult.retryable("batcher queue full"));
                 }
             }
         }
@@ -101,12 +101,12 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, ForceFlus
                 drainEngine.tryScheduleDrain();
             } catch (RejectedExecutionException rex) {
                 return CompletableFuture.completedFuture(
-                        ConsumeResult.retryableRejected("batcher shutting down"));
+                        ConsumeResult.retryable("batcher shutting down"));
             }
         }
         // Shutdown may have flipped closed after the initial check; reclaim the batch to avoid stranding it.
         if (closed.get() && queue.remove(batch)) {
-            return CompletableFuture.completedFuture(ConsumeResult.retryableRejected("batcher closed"));
+            return CompletableFuture.completedFuture(ConsumeResult.retryable("batcher closed"));
         }
         return ConsumeResult.acceptedStage();
     }

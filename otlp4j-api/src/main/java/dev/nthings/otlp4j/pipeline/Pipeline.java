@@ -50,9 +50,10 @@ public final class Pipeline {
         /// @return this stage
         Stage<T> filter(Predicate<? super T> keep);
 
-        /// Registers a lifecycle resource that the subscription drains on shutdown and
-        /// flushes on forceFlush if it is [ForceFlushable]. Required
-        /// for exporters and any resource hidden behind a lambda sink.
+        /// Registers a lifecycle resource that the subscription drains on shutdown and flushes on
+        /// forceFlush if it is [ForceFlushable]. An escape hatch, needed only for a resource the
+        /// pipeline cannot see - hidden behind a lambda sink or a connector's downstream. Exporter
+        /// facets and other [AutoCloseable] terminals or fan-out peers are drained automatically.
         ///
         /// @param resource the lifecycle resource
         /// @return this stage
@@ -64,22 +65,13 @@ public final class Pipeline {
         /// @return the new branch
         Branch<T> branch();
 
-        /// Terminates the pipeline by delivering to `terminal`. Register exporters explicitly
-        /// via [#owns(AutoCloseable)] or the two-arg overload.
+        /// Terminates the pipeline by delivering to `terminal`. An [AutoCloseable] terminal (such as
+        /// an exporter facet or a batching processor) is drained automatically on shutdown; use
+        /// [#owns(AutoCloseable)] only for a resource the pipeline cannot see.
         ///
         /// @param terminal the terminal sink
         /// @return the subscription handle
         PipelineHandle to(Sink<? super T> terminal);
-
-        /// Terminates the pipeline by delivering to `terminal`, also registering `owner`
-        /// as a lifecycle resource. Shorthand for [#owns(AutoCloseable)] then [#to(Sink)].
-        ///
-        /// @param terminal the terminal sink
-        /// @param owner    the lifecycle resource to register
-        /// @return the subscription handle
-        default PipelineHandle to(Sink<? super T> terminal, AutoCloseable owner) {
-            return owns(owner).to(terminal);
-        }
     }
 
     /// A branch builder collecting peers for a fan-out.
@@ -148,7 +140,7 @@ public final class Pipeline {
                     after = stageFn.apply(batch);
                 } catch (RuntimeException e) {
                     return CompletableFuture.completedFuture(
-                            ConsumeResult.permanentRejected("pipeline stage threw: " + e.getMessage(), e));
+                            ConsumeResult.permanent("pipeline stage threw: " + e.getMessage(), e));
                 }
                 if (after == null) {
                     return ConsumeResult.acceptedStage();
@@ -205,7 +197,7 @@ public final class Pipeline {
         if (cause instanceof InterruptedException) {
             Thread.currentThread().interrupt();
         }
-        return ConsumeResult.permanentRejected(prefix + ": " + cause, cause);
+        return ConsumeResult.permanent(prefix + ": " + cause, cause);
     }
 
     @SuppressWarnings("unchecked")

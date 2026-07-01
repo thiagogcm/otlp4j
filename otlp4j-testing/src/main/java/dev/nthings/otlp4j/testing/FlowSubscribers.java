@@ -13,7 +13,7 @@ public final class FlowSubscribers {
         return new Recording<>(sink, initialDemand);
     }
 
-    /// Records with [Long.MAX_VALUE] initial demand.
+    /// Records with [Long#MAX_VALUE] initial demand.
     public static <T> Flow.Subscriber<T> recording(List<T> sink) {
         return recording(sink, Long.MAX_VALUE);
     }

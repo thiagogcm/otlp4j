@@ -61,7 +61,7 @@ An unattached source returns a retryable `Rejected` so missing or late wiring is
 
 Fan-out sends the same immutable batch reference to every peer. If any peer rejects the batch, the merged result is rejected. Otherwise, partial rejection uses the largest rejected-item count rather than a sum because all peers saw the same input.
 
-Pipeline subscriptions drain lifecycle resources registered explicitly via `Stage.owns(...)` or `Stage.to(terminal, owner)`, plus any terminal or fan-out peer that implements `AutoCloseable` (such as a directly attached `BatchingProcessor`). Exporter signal facets are plain sinks; register the exporter itself for shutdown. An exporter collected without a `shutdown()`/`close()` logs a warning, so a missed registration surfaces in the logs rather than silently leaking the client channel.
+Pipeline subscriptions drain any terminal or fan-out peer that implements `AutoCloseable` — including exporter facets (which carry their exporter's lifecycle) and a directly attached `BatchingProcessor` — plus any resource registered with `Stage.owns(...)` for the case the pipeline can't see, such as an exporter behind a count sink's downstream. All drain within one shared deadline. An exporter collected without a `shutdown()`/`close()` logs a warning, so a leaked channel surfaces in the logs rather than silently.
 
 ## Processing and routing
 

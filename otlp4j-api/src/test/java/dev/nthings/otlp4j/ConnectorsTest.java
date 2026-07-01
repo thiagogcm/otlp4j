@@ -67,7 +67,7 @@ class ConnectorsTest {
     @Test
     void bestEffortAcceptsInputDespiteDownstreamRejected() {
         MetricSink downstream = metrics ->
-                CompletableFuture.completedStage(ConsumeResult.retryableRejected("backend down"));
+                CompletableFuture.completedStage(ConsumeResult.retryable("backend down"));
         var connector = Connectors.spanCount(downstream);
         var result = connector.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
                 .toCompletableFuture().join();
@@ -78,7 +78,7 @@ class ConnectorsTest {
     @Test
     void failPropagatesDownstreamRejected() {
         MetricSink downstream = metrics ->
-                CompletableFuture.completedStage(ConsumeResult.retryableRejected("backend down"));
+                CompletableFuture.completedStage(ConsumeResult.retryable("backend down"));
         var connector = Connectors.spanCount(downstream, FailurePolicy.FAIL);
         var result = connector.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
                 .toCompletableFuture().join();
@@ -107,7 +107,8 @@ class ConnectorsTest {
                 .toCompletableFuture().join();
         assertThat(result).isInstanceOf(ConsumeResult.Rejected.class);
         var rejected = (ConsumeResult.Rejected<TracesData>) result;
-        // Non-null cause => permanent, not retryable.
+        // A downstream throw is a permanent rejection carrying the cause.
+        assertThat(rejected.retryable()).isFalse();
         assertThat(rejected.cause()).isInstanceOf(RuntimeException.class).hasMessage("sink blew up");
     }
 

@@ -6,10 +6,10 @@ import java.util.concurrent.CompletionStage;
 
 /// A handle that owns a wired-up pipeline graph.
 ///
-/// Closing a subscription detaches the consumer from its source and drains
-/// lifecycle resources registered explicitly via [Pipeline.Stage#owns] or the
-/// two-arg [Pipeline.Stage#to]. Terminals that implement [AutoCloseable] (such
-/// as a directly attached [BatchingProcessor]) are also collected automatically.
+/// Closing a subscription detaches the consumer from its source and drains its
+/// lifecycle resources: terminals and fan-out peers that implement [AutoCloseable]
+/// (such as an exporter facet or a directly attached [BatchingProcessor]) are
+/// collected automatically, along with any resource registered via [Pipeline.Stage#owns].
 ///
 /// As a [Drainable], [#close()] performs a best-effort synchronous drain with a
 /// default timeout and [#shutdown(Duration)] returns a stage that completes when

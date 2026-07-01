@@ -8,7 +8,7 @@ import java.util.concurrent.CompletionStage;
 /// [#shutdown(Duration)] drains in-flight work and releases resources, completing successfully on a
 /// clean drain and exceptionally if the deadline elapses. [PipelineHandle] and the framework's
 /// terminals (exporter, batching processor, receiver) are all [Drainable], so a pipeline can drain
-/// everything it owns within one shared budget - see [Pipeline.Stage#owns].
+/// everything it collects within one shared budget.
 public interface Drainable extends AutoCloseable {
 
     /// Drains the resource within `timeout`.

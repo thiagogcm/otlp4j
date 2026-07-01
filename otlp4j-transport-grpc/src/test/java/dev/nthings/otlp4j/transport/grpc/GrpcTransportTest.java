@@ -198,7 +198,7 @@ class GrpcTransportTest {
             var sub = Pipeline.from(gateway.traces())
                     .transform(Transforms.keepSpansWhere(span -> span.kind() == Span.Kind.SERVER))
                     .filter(t -> !t.spans().isEmpty())
-                    .to(terminalExporter.traces(), terminalExporter);
+                    .to(terminalExporter.traces());
 
             try (var gatewayClient = exporterTo(gateway)) {
                 var result = gatewayClient.traces().consume(Fixtures.traceData(

@@ -63,12 +63,12 @@ class GrpcServiceAdaptersTest {
         assertThat(observer.completed).isTrue();
     }
 
-    @DisplayName("A whole-batch Rejected without a cause maps to retryable UNAVAILABLE, not rejected_spans=0")
+    @DisplayName("A retryable whole-batch Rejected maps to UNAVAILABLE, not rejected_spans=0")
     @Test
     void traceAdapterMapsRejectedToUnavailable() {
         var observer = new RecordingObserver<ExportTraceServiceResponse>();
         new TraceServiceAdapter(traces -> CompletableFuture.completedStage(
-                ConsumeResult.retryableRejected("queue full"))).export(
+                ConsumeResult.retryable("queue full"))).export(
                         TraceMapper.toProto(TransportFixtures.richTraceData()), observer);
         observer.await();
         assertThat(observer.values).isEmpty();
@@ -78,12 +78,12 @@ class GrpcServiceAdaptersTest {
         assertThat(status.getDescription()).isEqualTo("queue full");
     }
 
-    @DisplayName("A whole-batch Rejected carrying a cause maps to INTERNAL")
+    @DisplayName("A permanent whole-batch Rejected maps to INTERNAL")
     @Test
-    void rejectedWithCauseMapsToInternal() {
+    void permanentRejectedMapsToInternal() {
         var observer = new RecordingObserver<ExportLogsServiceResponse>();
         new LogsServiceAdapter(logs -> CompletableFuture.completedStage(
-                ConsumeResult.rejected("stage threw", new IllegalStateException("boom")))).export(
+                ConsumeResult.permanent("stage threw", new IllegalStateException("boom")))).export(
                         LogsMapper.toProto(TransportFixtures.richLogsData()), observer);
         observer.await();
         assertThat(observer.values).isEmpty();
@@ -92,25 +92,25 @@ class GrpcServiceAdaptersTest {
         assertThat(status.getDescription()).isEqualTo("stage threw");
     }
 
-    /// Pins the #9d contract: the cause is the ONLY thing that distinguishes a transient rejection
-    /// (UNAVAILABLE, retried) from a permanent one (INTERNAL, not retried). A deterministic dropper
-    /// must attach a cause or its batch is retried until the client's budget is spent.
-    @DisplayName("The cause alone flips a no-cause UNAVAILABLE rejection to a non-retryable INTERNAL")
+    /// Pins the retryability contract: retry intent is stated explicitly, independent of whether a
+    /// diagnostic cause is present. A transient rejection that happens to carry a cause is still
+    /// UNAVAILABLE (retried), so a briefly-down downstream does not turn into silent data loss.
+    @DisplayName("Retryability is explicit, not decided by the presence of a cause")
     @Test
-    void rejectionCauseDecidesRetryability() {
-        var noCause = new RecordingObserver<ExportTraceServiceResponse>();
+    void retryabilityIsExplicitNotDecidedByCause() {
+        var retryableWithCause = new RecordingObserver<ExportTraceServiceResponse>();
         new TraceServiceAdapter(traces -> CompletableFuture.completedStage(
-                ConsumeResult.retryableRejected("dropped by policy"))).export(
-                        TraceMapper.toProto(TransportFixtures.richTraceData()), noCause);
-        noCause.await();
-        assertThat(Status.fromThrowable(noCause.error).getCode()).isEqualTo(Status.Code.UNAVAILABLE);
+                ConsumeResult.retryable("downstream down", new IllegalStateException("connect timed out")))).export(
+                        TraceMapper.toProto(TransportFixtures.richTraceData()), retryableWithCause);
+        retryableWithCause.await();
+        assertThat(Status.fromThrowable(retryableWithCause.error).getCode()).isEqualTo(Status.Code.UNAVAILABLE);
 
-        var withCause = new RecordingObserver<ExportTraceServiceResponse>();
+        var permanentNoCause = new RecordingObserver<ExportTraceServiceResponse>();
         new TraceServiceAdapter(traces -> CompletableFuture.completedStage(
-                ConsumeResult.rejected("dropped by policy", new IllegalStateException("disallowed")))).export(
-                        TraceMapper.toProto(TransportFixtures.richTraceData()), withCause);
-        withCause.await();
-        assertThat(Status.fromThrowable(withCause.error).getCode()).isEqualTo(Status.Code.INTERNAL);
+                ConsumeResult.permanent("dropped by policy"))).export(
+                        TraceMapper.toProto(TransportFixtures.richTraceData()), permanentNoCause);
+        permanentNoCause.await();
+        assertThat(Status.fromThrowable(permanentNoCause.error).getCode()).isEqualTo(Status.Code.INTERNAL);
     }
 
     @DisplayName("MetricsServiceAdapter encodes rejected data points as partial success")

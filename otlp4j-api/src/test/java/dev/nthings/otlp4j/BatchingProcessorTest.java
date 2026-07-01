@@ -250,7 +250,7 @@ class BatchingProcessorTest {
     @Timeout(15)
     void shutdownPropagatesDownstreamRejection() {
         TraceSink rejecting = traces -> CompletableFuture
-                .completedFuture(ConsumeResult.retryableRejected("backend unavailable"));
+                .completedFuture(ConsumeResult.retryable("backend unavailable"));
         var batcher = BatchingProcessor.forTraces()
                 .downstream(rejecting)
                 .flushThreshold(100) // no size-trigger; the queued batch drains on shutdown

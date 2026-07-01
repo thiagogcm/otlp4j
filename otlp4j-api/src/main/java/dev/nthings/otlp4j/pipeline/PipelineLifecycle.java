@@ -26,11 +26,10 @@ final class PipelineLifecycle {
         return collected;
     }
 
-    /// Auto-collects lifecycle from the terminal: [FanOut] peers and any node that
-    /// implements [AutoCloseable]. Exporter signal facets are plain sinks and are
-    /// not collected; register the exporter explicitly with
-    /// [Pipeline.Stage#owns(AutoCloseable)] or the two-arg
-    /// [Pipeline.Stage#to(Sink, AutoCloseable)].
+    /// Auto-collects lifecycle from the terminal: [FanOut] peers and any node that implements
+    /// [AutoCloseable], including exporter signal facets (which carry the exporter's lifecycle).
+    /// A resource the pipeline cannot see - hidden behind a lambda sink or a connector's downstream -
+    /// is reached only when registered with [Pipeline.Stage#owns(AutoCloseable)].
     private static void collectLifecycle(Object node, List<AutoCloseable> out) {
         if (node instanceof FanOut<?> f) {
             for (var peer : f.peers()) {

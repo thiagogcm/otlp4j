@@ -177,11 +177,11 @@ class HttpTransportTest {
                 .hasMessageContaining("async boom");
     }
 
-    @DisplayName("A whole-batch Rejected without a cause surfaces as a retryable 503 error")
+    @DisplayName("A retryable whole-batch Rejected surfaces as a 503 error")
     @Test
     void rejectedWithoutCauseSurfacesAs503() {
         var receiver = startReceiver(OtlpHttpReceiver.builder()
-                .onTraces(traces -> CompletableFuture.completedStage(ConsumeResult.retryableRejected("queue full"))));
+                .onTraces(traces -> CompletableFuture.completedStage(ConsumeResult.retryable("queue full"))));
         var exporter = exporterTo(receiver);
 
         assertThatThrownBy(() -> exporter.traces()
@@ -191,11 +191,11 @@ class HttpTransportTest {
                 .hasMessageContaining("queue full");
     }
 
-    @DisplayName("A whole-batch Rejected with a cause surfaces as a permanent 500 error")
+    @DisplayName("A permanent whole-batch Rejected surfaces as a 500 error")
     @Test
     void rejectedWithCauseSurfacesAs500() {
         var receiver = startReceiver(OtlpHttpReceiver.builder().onTraces(traces -> CompletableFuture.completedStage(
-                ConsumeResult.rejected("dropped by policy", new IllegalStateException("disallowed")))));
+                ConsumeResult.permanent("dropped by policy", new IllegalStateException("disallowed")))));
         var exporter = exporterTo(receiver);
 
         assertThatThrownBy(() -> exporter.traces()
@@ -246,7 +246,7 @@ class HttpTransportTest {
         var calls = new AtomicInteger();
         var receiver = startReceiver(OtlpHttpReceiver.builder().onTraces(traces -> {
             if (calls.incrementAndGet() < 3) {
-                return CompletableFuture.completedStage(ConsumeResult.retryableRejected("warming up"));
+                return CompletableFuture.completedStage(ConsumeResult.retryable("warming up"));
             }
             return ConsumeResult.acceptedStage();
         }));
@@ -278,7 +278,7 @@ class HttpTransportTest {
             var sub = Pipeline.from(gateway.traces())
                     .transform(Transforms.keepSpansWhere(span -> span.kind() == Span.Kind.SERVER))
                     .filter(t -> !t.spans().isEmpty())
-                    .to(terminalExporter.traces(), terminalExporter);
+                    .to(terminalExporter.traces());
 
             try (var gatewayClient = exporterTo(gateway)) {
                 var result = gatewayClient.traces().consume(Fixtures.traceData(
