@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.nthings.otlp4j.config.ClientConfig;
 import dev.nthings.otlp4j.config.Compression;
-import dev.nthings.otlp4j.config.RetryPolicy;
+import io.github.resilience4j.retry.RetryConfig;
 import dev.nthings.otlp4j.config.ServerConfig;
 import dev.nthings.otlp4j.config.Tls;
 import dev.nthings.otlp4j.model.ConsumeResult;
@@ -31,7 +31,7 @@ class GrpcEntryPointBuilderTest {
                 .setHeaders(Map.of("x-tenant", "acme"))
                 .setHeaders(() -> Map.of("x-rotating", "live"))
                 .setCompression(Compression.GZIP)
-                .setRetryPolicy(RetryPolicy.builder().setMaxAttempts(3).setInitialBackoff(Duration.ofMillis(50)).setMaxBackoff(Duration.ofSeconds(1)).build())
+                .setRetryConfig(RetryConfig.custom().maxAttempts(3).waitDuration(Duration.ofMillis(50)).build())
                 .build()) {
             assertThat(exporter.traces()).isNotNull();
             assertThat(exporter.metrics()).isNotNull();

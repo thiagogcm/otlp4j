@@ -17,12 +17,16 @@
         with no dependency on the generated proto code; the concrete OTLP/gRPC and OTLP/HTTP
         transports live in separate modules built on its SPI.</description>
 
-    <!-- The only main dependency is the pure domain model: still no proto/grpc on the compile
-         path. The compiler doclint pass and the Javadoc lint are inherited from the parent POM. -->
+    <!-- Still no proto/grpc on the compile path. The compiler doclint pass and the Javadoc lint
+         are inherited from the parent POM. -->
     <dependencies>
         <dependency>
             <groupId>dev.nthings.otlp4j</groupId>
             <artifactId>otlp4j-model</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-retry</artifactId>
         </dependency>
         <!-- Nullness contracts are part of the public API; keep them visible to consumers. -->
         <dependency>

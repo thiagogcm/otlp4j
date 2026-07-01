@@ -2,11 +2,11 @@ package dev.nthings.otlp4j.transport.http;
 
 import dev.nthings.otlp4j.config.ClientConfig;
 import dev.nthings.otlp4j.config.Compression;
-import dev.nthings.otlp4j.config.RetryPolicy;
 import dev.nthings.otlp4j.config.Tls;
 import dev.nthings.otlp4j.pipeline.OtlpExporter;
 import dev.nthings.otlp4j.transport.spi.ClientExporter;
 import dev.nthings.otlp4j.transport.http.internal.HttpOtlpClient;
+import io.github.resilience4j.retry.RetryConfig;
 import java.time.Duration;
 import java.util.Map;
 import java.util.function.Supplier;
@@ -130,10 +130,11 @@ public final class OtlpHttpExporter {
             return this;
         }
 
-        /// Sets the transport retry policy. Defaults to [RetryPolicy#getDefault()]; pass
-        /// [RetryPolicy#none()] to disable retries.
-        public Builder setRetryPolicy(RetryPolicy retry) {
-            config.setRetryPolicy(retry);
+        /// Sets the Resilience4j retry configuration. Defaults to
+        /// [ClientConfig#defaultRetryConfig()]; pass a config with `maxAttempts(1)` to disable
+        /// retries.
+        public Builder setRetryConfig(RetryConfig retry) {
+            config.setRetryConfig(retry);
             return this;
         }
 

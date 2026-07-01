@@ -15,7 +15,7 @@ import dev.nthings.otlp4j.receiver.Receiver;
 import dev.nthings.otlp4j.pipeline.Pipeline;
 import dev.nthings.otlp4j.processor.Transforms;
 import dev.nthings.otlp4j.config.Compression;
-import dev.nthings.otlp4j.config.RetryPolicy;
+import io.github.resilience4j.retry.RetryConfig;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -256,7 +256,7 @@ class GrpcTransportTest {
         var exporter = OtlpGrpcExporter.builder()
                 .setEndpoint("localhost", receiver.port())
                 .setCompression(Compression.GZIP)
-                .setRetryPolicy(RetryPolicy.builder().setMaxAttempts(3).setInitialBackoff(Duration.ofMillis(50)).setMaxBackoff(Duration.ofSeconds(1)).build())
+                .setRetryConfig(RetryConfig.custom().maxAttempts(3).waitDuration(Duration.ofMillis(50)).build())
                 .setTimeout(Duration.ofSeconds(5))
                 .build();
         closeables.add(exporter);
@@ -281,7 +281,7 @@ class GrpcTransportTest {
         var exporter = OtlpGrpcExporter.builder()
                 .setEndpoint("localhost", receiver.port())
                 .setTimeout(Duration.ofSeconds(5))
-                .setRetryPolicy(RetryPolicy.none())
+                .setRetryConfig(RetryConfig.custom().maxAttempts(1).build())
                 .build();
         closeables.add(exporter);
         return exporter;

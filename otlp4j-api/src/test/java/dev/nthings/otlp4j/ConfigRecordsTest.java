@@ -5,9 +5,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.nthings.otlp4j.config.ClientConfig;
 import dev.nthings.otlp4j.config.Compression;
-import dev.nthings.otlp4j.config.RetryPolicy;
 import dev.nthings.otlp4j.config.ServerConfig;
 import dev.nthings.otlp4j.config.Tls;
+import io.github.resilience4j.retry.RetryConfig;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.security.KeyStore;
@@ -33,8 +33,8 @@ class ConfigRecordsTest {
         assertThat(c.timeout()).isEqualTo(Duration.ofSeconds(10));
         assertThat(c.tls()).isEqualTo(Tls.disabled());
         assertThat(c.compression()).isEqualTo(Compression.NONE);
-        // Retries default on, matching otel-java (RetryPolicy.none() is the explicit opt-out).
-        assertThat(c.retry()).isEqualTo(RetryPolicy.getDefault());
+        assertThat(c.retry()).isEqualTo(ClientConfig.defaultRetryConfig());
+        assertThat(c.retry().getMaxAttempts()).isEqualTo(5);
         assertThat(c.headers()).isEmpty();
         assertThat(c.path()).isEmpty();
         assertThat(c.headerSupplier()).isNull();
@@ -187,25 +187,6 @@ class ConfigRecordsTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
-    @DisplayName("RetryPolicy rejects invalid backoffs and accepts ordered ones")
-    @Test
-    void retryPolicyValidates() {
-        assertThatThrownBy(() -> new RetryPolicy(0, Duration.ZERO, Duration.ZERO, 1.5))
-                .isInstanceOf(IllegalArgumentException.class);
-        // With retries enabled, backoffs must be positive and ordered - rejected, not clamped.
-        assertThatThrownBy(() -> new RetryPolicy(3, Duration.ZERO, Duration.ofSeconds(1), 1.5))
-                .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new RetryPolicy(3, Duration.ofMillis(200), Duration.ofMillis(50), 1.5))
-                .isInstanceOf(IllegalArgumentException.class);
-        // A multiplier below 1 would shrink the backoff - rejected when retries are enabled.
-        assertThatThrownBy(() -> new RetryPolicy(3, Duration.ofMillis(50), Duration.ofSeconds(1), 0.5))
-                .isInstanceOf(IllegalArgumentException.class);
-        // No-retry policy ignores backoffs; a well-formed retrying policy is accepted.
-        assertThat(RetryPolicy.none()).isEqualTo(new RetryPolicy(1, Duration.ZERO, Duration.ZERO, 1.5));
-        assertThat(new RetryPolicy(3, Duration.ofMillis(50), Duration.ofSeconds(1), 1.5).maxAttempts())
-                .isEqualTo(3);
-    }
-
     @DisplayName("Tls factories expose shared singletons and build custom bundles")
     @Test
     void tlsFactoriesExposeSharedSingletonsAndBuildCustomBundles() {
@@ -267,27 +248,17 @@ class ConfigRecordsTest {
         throw new IllegalStateException("no X509TrustManager available");
     }
 
-    @DisplayName("RetryPolicy.builder builds a validated retrying policy with a backoff multiplier")
+    @DisplayName("ClientConfig builder carries Resilience4j RetryConfig directly")
     @Test
-    void retryPolicyBuilderBuildsAValidatedRetryingPolicy() {
-        var policy = RetryPolicy.builder()
-                .setMaxAttempts(4)
-                .setInitialBackoff(Duration.ofMillis(100))
-                .setMaxBackoff(Duration.ofSeconds(2))
-                .setBackoffMultiplier(2.0)
+    void clientConfigBuilderCarriesResilienceRetryConfig() {
+        var retry = RetryConfig.custom()
+                .maxAttempts(4)
+                .waitDuration(Duration.ofMillis(100))
                 .build();
-        assertThat(policy.maxAttempts()).isEqualTo(4);
-        assertThat(policy.initialBackoff()).isEqualTo(Duration.ofMillis(100));
-        assertThat(policy.maxBackoff()).isEqualTo(Duration.ofSeconds(2));
-        assertThat(policy.backoffMultiplier()).isEqualTo(2.0);
-        // getDefault mirrors the SDK: 5 attempts, 1s to 5s, 1.5x.
-        assertThat(RetryPolicy.getDefault().backoffMultiplier()).isEqualTo(1.5);
-        assertThatThrownBy(() -> RetryPolicy.builder()
-                        .setMaxAttempts(3)
-                        .setInitialBackoff(Duration.ofMillis(200))
-                        .setMaxBackoff(Duration.ofMillis(50))
-                        .build())
-                .isInstanceOf(IllegalArgumentException.class);
+        var config = ClientConfig.builder().setRetryConfig(retry).build();
+
+        assertThat(config.retry()).isSameAs(retry);
+        assertThat(config.toBuilder().build().retry()).isSameAs(retry);
     }
 
     @DisplayName("ClientConfig builder addHeader adds per key and setHeaders replaces all")

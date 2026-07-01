@@ -14,6 +14,7 @@ import dev.nthings.otlp4j.config.ClientConfig;
 import dev.nthings.otlp4j.config.Compression;
 import dev.nthings.otlp4j.spi.OtlpClient;
 import dev.nthings.otlp4j.config.Tls;
+import dev.nthings.otlp4j.transport.spi.internal.ResilienceRetries;
 import io.grpc.CallOptions;
 import io.grpc.Channel;
 import io.grpc.ChannelCredentials;
@@ -25,9 +26,11 @@ import io.grpc.InsecureChannelCredentials;
 import io.grpc.ManagedChannel;
 import io.grpc.Metadata;
 import io.grpc.MethodDescriptor;
+import io.grpc.Status;
 import io.grpc.TlsChannelCredentials;
 import io.grpc.stub.AbstractStub;
 import io.grpc.stub.MetadataUtils;
+import io.github.resilience4j.retry.Retry;
 import io.opentelemetry.proto.collector.logs.v1.LogsServiceGrpc;
 import io.opentelemetry.proto.collector.metrics.v1.MetricsServiceGrpc;
 import io.opentelemetry.proto.collector.profiles.v1development.ProfilesServiceGrpc;
@@ -35,8 +38,9 @@ import io.opentelemetry.proto.collector.trace.v1.TraceServiceGrpc;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.util.List;
+import java.time.Duration;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Supplier;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -66,6 +70,7 @@ public final class GrpcOtlpClient implements OtlpClient {
     private final ClientConfig config;
     private final boolean compress;
     private final ExecutorService executor;
+    private final Retry retry;
 
     public GrpcOtlpClient(ClientConfig config) {
         this.config = config;
@@ -78,12 +83,6 @@ public final class GrpcOtlpClient implements OtlpClient {
         } else if (!config.headers().isEmpty()) {
             builder.intercept(MetadataUtils.newAttachHeadersInterceptor(toMetadata(config.headers())));
         }
-        var retry = config.retry();
-        if (retry.maxAttempts() > 1) {
-            builder.enableRetry()
-                    .maxRetryAttempts(retry.maxAttempts())
-                    .defaultServiceConfig(RetryServiceConfig.build(retry, OTLP_SERVICE_NAMES));
-        }
         this.channel = builder.build();
 
         this.traceStub = TraceServiceGrpc.newBlockingStub(channel);
@@ -91,31 +90,48 @@ public final class GrpcOtlpClient implements OtlpClient {
         this.logsStub = LogsServiceGrpc.newBlockingStub(channel);
         this.profilesStub = ProfilesServiceGrpc.newBlockingStub(channel);
         this.executor = Executors.newVirtualThreadPerTaskExecutor();
+        this.retry = ResilienceRetries.create(
+                "otlp-grpc",
+                config.retry(),
+                GrpcOtlpClient::isRetryable,
+                GrpcOtlpClient::retryAfter);
         log.debug("opened OTLP/gRPC channel to {}:{}", config.host(), config.port());
     }
 
     @Override
     public CompletionStage<ConsumeResult> exportTraces(TracesData traces) {
         return CompletableFuture.supplyAsync(
-                () -> TraceMapper.result(call(traceStub).export(TraceMapper.toProto(traces))), executor);
+                () -> ResilienceRetries.execute(
+                        retry, () -> TraceMapper.result(call(traceStub).export(TraceMapper.toProto(traces)))),
+                executor)
+                .orTimeout(config.timeout().toNanos(), TimeUnit.NANOSECONDS);
     }
 
     @Override
     public CompletionStage<ConsumeResult> exportMetrics(MetricsData metrics) {
         return CompletableFuture.supplyAsync(
-                () -> MetricsMapper.result(call(metricsStub).export(MetricsMapper.toProto(metrics))), executor);
+                () -> ResilienceRetries.execute(
+                        retry, () -> MetricsMapper.result(call(metricsStub).export(MetricsMapper.toProto(metrics)))),
+                executor)
+                .orTimeout(config.timeout().toNanos(), TimeUnit.NANOSECONDS);
     }
 
     @Override
     public CompletionStage<ConsumeResult> exportLogs(LogsData logs) {
         return CompletableFuture.supplyAsync(
-                () -> LogsMapper.result(call(logsStub).export(LogsMapper.toProto(logs))), executor);
+                () -> ResilienceRetries.execute(
+                        retry, () -> LogsMapper.result(call(logsStub).export(LogsMapper.toProto(logs)))),
+                executor)
+                .orTimeout(config.timeout().toNanos(), TimeUnit.NANOSECONDS);
     }
 
     @Override
     public CompletionStage<ConsumeResult> exportProfiles(ProfilesData profiles) {
         return CompletableFuture.supplyAsync(
-                () -> ProfilesMapper.result(call(profilesStub).export(ProfilesMapper.toProto(profiles))), executor);
+                () -> ResilienceRetries.execute(
+                        retry, () -> ProfilesMapper.result(call(profilesStub).export(ProfilesMapper.toProto(profiles)))),
+                executor)
+                .orTimeout(config.timeout().toNanos(), TimeUnit.NANOSECONDS);
     }
 
     /// Applies the per-call deadline and optional gzip compression to a stub.
@@ -158,12 +174,55 @@ public final class GrpcOtlpClient implements OtlpClient {
         }
     }
 
-    /// OTLP collector service names used to scope the retry service config.
-    private static final List<String> OTLP_SERVICE_NAMES = List.of(
-            TraceServiceGrpc.SERVICE_NAME,
-            MetricsServiceGrpc.SERVICE_NAME,
-            LogsServiceGrpc.SERVICE_NAME,
-            ProfilesServiceGrpc.SERVICE_NAME);
+    private static final Set<Status.Code> RETRYABLE_STATUS_CODES = Set.of(
+            Status.Code.CANCELLED,
+            Status.Code.DEADLINE_EXCEEDED,
+            Status.Code.RESOURCE_EXHAUSTED,
+            Status.Code.ABORTED,
+            Status.Code.OUT_OF_RANGE,
+            Status.Code.UNAVAILABLE,
+            Status.Code.DATA_LOSS);
+
+    private static final Metadata.Key<String> GRPC_RETRY_PUSHBACK_MS =
+            Metadata.Key.of("grpc-retry-pushback-ms", Metadata.ASCII_STRING_MARSHALLER);
+
+    private static boolean isRetryable(Throwable error) {
+        return !retryPushbackDisablesRetry(error)
+                && RETRYABLE_STATUS_CODES.contains(Status.fromThrowable(error).getCode());
+    }
+
+    private static Duration retryAfter(Throwable error) {
+        var trailers = Status.trailersFromThrowable(error);
+        if (trailers == null) {
+            return Duration.ZERO;
+        }
+        var pushback = trailers.get(GRPC_RETRY_PUSHBACK_MS);
+        if (pushback == null) {
+            return Duration.ZERO;
+        }
+        try {
+            var millis = Long.parseLong(pushback);
+            return millis > 0 ? Duration.ofMillis(millis) : Duration.ZERO;
+        } catch (NumberFormatException _) {
+            return Duration.ZERO;
+        }
+    }
+
+    private static boolean retryPushbackDisablesRetry(Throwable error) {
+        var trailers = Status.trailersFromThrowable(error);
+        if (trailers == null) {
+            return false;
+        }
+        var pushback = trailers.get(GRPC_RETRY_PUSHBACK_MS);
+        if (pushback == null) {
+            return false;
+        }
+        try {
+            return Long.parseLong(pushback) < 0;
+        } catch (NumberFormatException _) {
+            return false;
+        }
+    }
 
     private static ChannelCredentials channelCredentials(Tls tls) {
         return switch (tls) {

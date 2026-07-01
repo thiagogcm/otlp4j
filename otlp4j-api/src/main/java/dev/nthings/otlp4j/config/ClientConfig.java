@@ -1,5 +1,7 @@
 package dev.nthings.otlp4j.config;
 
+import io.github.resilience4j.core.IntervalFunction;
+import io.github.resilience4j.retry.RetryConfig;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.time.Duration;
@@ -15,8 +17,8 @@ import org.jspecify.annotations.Nullable;
 /// Configuration for an OTLP exporter transport.
 ///
 /// Defaults via [#builder]: `localhost:4317`, 10s deadline, TLS disabled, no headers,
-/// no compression, retries on ([RetryPolicy#getDefault()]), no path prefix. `path` is an OTLP/HTTP
-/// endpoint path prefix (e.g. `/otlp`) prepended to the per-signal paths; gRPC ignores it.
+/// no compression, Resilience4j retry on, no path prefix. `path` is an OTLP/HTTP endpoint path
+/// prefix (e.g. `/otlp`) prepended to the per-signal paths; gRPC ignores it.
 /// `headerSupplier`, when set, is evaluated per export and overlays the static `headers`.
 /// `connectTimeout`, when set, bounds connection setup on OTLP/HTTP (gRPC ignores it).
 public record ClientConfig(
@@ -27,9 +29,15 @@ public record ClientConfig(
         Tls tls,
         Map<String, String> headers,
         Compression compression,
-        RetryPolicy retry,
+        RetryConfig retry,
         @Nullable Supplier<Map<String, String>> headerSupplier,
         @Nullable Duration connectTimeout) {
+
+    private static final RetryConfig DEFAULT_RETRY = RetryConfig.custom()
+            .maxAttempts(5)
+            .intervalFunction(IntervalFunction.ofExponentialRandomBackoff(
+                    Duration.ofSeconds(1), 1.5, 0.5, Duration.ofSeconds(5)))
+            .build();
 
     public ClientConfig {
         Objects.requireNonNull(host, "host");
@@ -68,6 +76,12 @@ public record ClientConfig(
 
     public static Builder builder() {
         return new Builder();
+    }
+
+    /// Default Resilience4j retry configuration: 5 attempts, 1s initial exponential backoff, 1.5x
+    /// multiplier, 5s maximum backoff, and Resilience4j's randomized jitter factor.
+    public static RetryConfig defaultRetryConfig() {
+        return DEFAULT_RETRY;
     }
 
     /// The default config (all builder defaults, `localhost:4317` plaintext).
@@ -143,7 +157,7 @@ public record ClientConfig(
         private Tls tls = Tls.disabled();
         private final Map<String, String> headers = new LinkedHashMap<>();
         private Compression compression = Compression.NONE;
-        private RetryPolicy retry = RetryPolicy.getDefault();
+        private RetryConfig retry = DEFAULT_RETRY;
         private String path = "";
         private @Nullable Supplier<Map<String, String>> headerSupplier = null;
         private @Nullable Duration connectTimeout = null;
@@ -270,7 +284,7 @@ public record ClientConfig(
             return this;
         }
 
-        public Builder setRetryPolicy(RetryPolicy retry) {
+        public Builder setRetryConfig(RetryConfig retry) {
             this.retry = retry;
             return this;
         }

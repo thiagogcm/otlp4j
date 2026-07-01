@@ -14,8 +14,8 @@ import dev.nthings.otlp4j.codec.Transports;
 import dev.nthings.otlp4j.config.ClientConfig;
 import dev.nthings.otlp4j.config.Compression;
 import dev.nthings.otlp4j.spi.OtlpClient;
-import dev.nthings.otlp4j.config.RetryPolicy;
 import dev.nthings.otlp4j.config.Tls;
+import dev.nthings.otlp4j.transport.spi.internal.ResilienceRetries;
 import io.opentelemetry.proto.collector.logs.v1.ExportLogsServiceResponse;
 import io.opentelemetry.proto.collector.metrics.v1.ExportMetricsServiceResponse;
 import io.opentelemetry.proto.collector.profiles.v1development.ExportProfilesServiceResponse;
@@ -29,6 +29,10 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
@@ -38,6 +42,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.zip.GZIPOutputStream;
+import io.github.resilience4j.retry.Retry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -66,6 +71,7 @@ public final class HttpOtlpClient implements OtlpClient {
     private final URI logsUri;
     private final URI profilesUri;
     private final ExecutorService executor;
+    private final Retry retry;
 
     public HttpOtlpClient(ClientConfig config) {
         this.config = config;
@@ -98,6 +104,11 @@ public final class HttpOtlpClient implements OtlpClient {
         }
         this.http = builder.build();
         this.executor = Executors.newVirtualThreadPerTaskExecutor();
+        this.retry = ResilienceRetries.create(
+                "otlp-http",
+                config.retry(),
+                HttpOtlpClient::isRetryable,
+                HttpOtlpClient::retryAfter);
         log.debug("created OTLP/HTTP client for {}", base);
     }
 
@@ -111,64 +122,61 @@ public final class HttpOtlpClient implements OtlpClient {
     public CompletionStage<ConsumeResult> exportTraces(TracesData traces) {
         return CompletableFuture.supplyAsync(() -> export(
                 tracesUri, TraceMapper.toProto(traces).toByteArray(),
-                ExportTraceServiceResponse::parseFrom, TraceMapper::result), executor);
+                ExportTraceServiceResponse::parseFrom, TraceMapper::result), executor)
+                .orTimeout(config.timeout().toNanos(), TimeUnit.NANOSECONDS);
     }
 
     @Override
     public CompletionStage<ConsumeResult> exportMetrics(MetricsData metrics) {
         return CompletableFuture.supplyAsync(() -> export(
                 metricsUri, MetricsMapper.toProto(metrics).toByteArray(),
-                ExportMetricsServiceResponse::parseFrom, MetricsMapper::result), executor);
+                ExportMetricsServiceResponse::parseFrom, MetricsMapper::result), executor)
+                .orTimeout(config.timeout().toNanos(), TimeUnit.NANOSECONDS);
     }
 
     @Override
     public CompletionStage<ConsumeResult> exportLogs(LogsData logs) {
         return CompletableFuture.supplyAsync(() -> export(
                 logsUri, LogsMapper.toProto(logs).toByteArray(),
-                ExportLogsServiceResponse::parseFrom, LogsMapper::result), executor);
+                ExportLogsServiceResponse::parseFrom, LogsMapper::result), executor)
+                .orTimeout(config.timeout().toNanos(), TimeUnit.NANOSECONDS);
     }
 
     @Override
     public CompletionStage<ConsumeResult> exportProfiles(ProfilesData profiles) {
         return CompletableFuture.supplyAsync(() -> export(
                 profilesUri, ProfilesMapper.toProto(profiles).toByteArray(),
-                ExportProfilesServiceResponse::parseFrom, ProfilesMapper::result), executor);
+                ExportProfilesServiceResponse::parseFrom, ProfilesMapper::result), executor)
+                .orTimeout(config.timeout().toNanos(), TimeUnit.NANOSECONDS);
     }
 
-    /// Sends `payload` to `uri`, retrying retryable statuses and IO errors within the [RetryPolicy]
-    /// with exponential backoff. A 2xx response is parsed and mapped to [ConsumeResult]; any other
-    /// outcome throws, mirroring the gRPC client where a non-OK status is an exception.
+    /// Sends `payload` to `uri` through Resilience4j retry. A 2xx response is parsed and mapped to
+    /// [ConsumeResult]; any other outcome throws, mirroring the gRPC client where a non-OK status is
+    /// an exception.
     private <RESP, SIG> ConsumeResult export(
             URI uri, byte[] payload, ProtoParser<RESP> parse, Function<RESP, ConsumeResult> toResult) {
-        var retry = config.retry();
-        var maxAttempts = Math.max(1, retry.maxAttempts());
         var body = compress ? gzip(payload) : payload;
         var httpRequest = request(uri, body);
-        for (var attempt = 1; ; attempt++) {
-            HttpResponse<byte[]> response;
-            try {
-                response = http.send(httpRequest, HttpResponse.BodyHandlers.ofByteArray());
-            } catch (IOException e) {
-                if (attempt >= maxAttempts) {
-                    throw new UncheckedIOException("OTLP/HTTP export to " + uri + " failed", e);
-                }
-                sleep(backoffNanos(retry, attempt));
-                continue;
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new CancellationException("interrupted during OTLP/HTTP export to " + uri);
-            }
+        return ResilienceRetries.execute(retry, () -> sendOnce(uri, httpRequest, parse, toResult));
+    }
 
-            var code = response.statusCode();
-            if (code >= 200 && code < 300) {
-                return toResult.apply(parseResponse(parse, response.body()));
-            }
-            if (RETRYABLE_STATUS.contains(code) && attempt < maxAttempts) {
-                sleep(backoffNanos(retry, attempt));
-                continue;
-            }
-            throw new OtlpHttpException(rejection(uri, code, response.body()));
+    private <RESP> ConsumeResult sendOnce(
+            URI uri, HttpRequest httpRequest, ProtoParser<RESP> parse, Function<RESP, ConsumeResult> toResult) {
+        HttpResponse<byte[]> response;
+        try {
+            response = http.send(httpRequest, HttpResponse.BodyHandlers.ofByteArray());
+        } catch (IOException e) {
+            throw new UncheckedIOException("OTLP/HTTP export to " + uri + " failed", e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new CancellationException("interrupted during OTLP/HTTP export to " + uri);
         }
+
+        var code = response.statusCode();
+        if (code >= 200 && code < 300) {
+            return toResult.apply(parseResponse(parse, response.body()));
+        }
+        throw rejection(uri, response);
     }
 
     private HttpRequest request(URI uri, byte[] body) {
@@ -190,31 +198,46 @@ public final class HttpOtlpClient implements OtlpClient {
         }
     }
 
-    private static String rejection(URI uri, int code, byte[] body) {
+    private static OtlpHttpException rejection(URI uri, HttpResponse<byte[]> response) {
+        var code = response.statusCode();
+        var body = response.body();
         var text = new String(body, StandardCharsets.UTF_8).strip();
-        return "OTLP/HTTP export to " + uri + " rejected: HTTP " + code + (text.isEmpty() ? "" : " - " + text);
+        var message =
+                "OTLP/HTTP export to " + uri + " rejected: HTTP " + code + (text.isEmpty() ? "" : " - " + text);
+        return new OtlpHttpException(message, code, retryAfter(response));
     }
 
-    /// Exponential backoff for the failed `attempt` (1-based), growing by the policy's
-    /// `backoffMultiplier` and capped at `maxBackoff`.
-    private static long backoffNanos(RetryPolicy retry, int attempt) {
-        var delay = (double) retry.initialBackoff().toNanos();
-        var max = retry.maxBackoff().toNanos();
-        for (var i = 1; i < attempt; i++) {
-            delay = Math.min(max, delay * retry.backoffMultiplier());
-        }
-        return (long) Math.min(delay, max);
+    private static boolean isRetryable(Throwable error) {
+        return error instanceof UncheckedIOException
+                || error instanceof OtlpHttpException e && RETRYABLE_STATUS.contains(e.statusCode());
     }
 
-    private static void sleep(long nanos) {
-        if (nanos <= 0) {
-            return;
-        }
+    private static Duration retryAfter(Throwable error) {
+        return error instanceof OtlpHttpException e && e.retryAfter() != null
+                ? e.retryAfter()
+                : Duration.ZERO;
+    }
+
+    private static Duration retryAfter(HttpResponse<?> response) {
+        return response.headers()
+                .firstValue("Retry-After")
+                .map(HttpOtlpClient::parseRetryAfter)
+                .orElse(Duration.ZERO);
+    }
+
+    private static Duration parseRetryAfter(String value) {
+        var text = value.strip();
         try {
-            Thread.sleep(Duration.ofNanos(nanos));
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new CancellationException("interrupted during OTLP/HTTP retry backoff");
+            var delay = Duration.ofSeconds(Long.parseLong(text));
+            return delay.isNegative() ? Duration.ZERO : delay;
+        } catch (NumberFormatException _) {
+            try {
+                var delay = Duration.between(
+                        Instant.now(), ZonedDateTime.parse(text, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant());
+                return delay.isNegative() ? Duration.ZERO : delay;
+            } catch (DateTimeParseException _) {
+                return Duration.ZERO;
+            }
         }
     }
 

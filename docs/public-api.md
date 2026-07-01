@@ -8,11 +8,11 @@ otlp4j is an OTLP gateway/pipeline library: receive, process, observe, route, an
 
 Pick the path that matches your first task, then read the reference sections it links:
 
-| Task                                                                     | Path                                                                                                                       |
-| ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
-| **Receive and print** — stand up a receiver and observe incoming batches | [§ Receive and print](#receive-and-print) → [Receive](#receive)                                                            |
-| **Receive, transform, export** — filter/enrich a stream and forward it   | [§ Receive, transform, export](#receive-transform-export) → [Transform and route](#transform-and-route), [Export](#export) |
-| **Construct and export** — build batches in code and send them           | [§ Construct and export](#construct-and-export) → [Domain model](#domain-model), [Export](#export)                         |
+| Task | Path |
+| --- | --- |
+| **Receive and print** — stand up a receiver and observe incoming batches | [§ Receive and print](#receive-and-print) → [Receive](#receive) |
+| **Receive, transform, export** — filter/enrich a stream and forward it | [§ Receive, transform, export](#receive-transform-export) → [Transform and route](#transform-and-route), [Export](#export) |
+| **Construct and export** — build batches in code and send them | [§ Construct and export](#construct-and-export) → [Domain model](#domain-model), [Export](#export) |
 
 When you wire several stages together, read [Lifecycle](#lifecycle) so every resource is closed exactly once, and [Thread-safety and nullness](#thread-safety-and-nullness) for the concurrency and `null` contracts.
 
@@ -63,31 +63,32 @@ try (var exporter = OtlpGrpcExporter.to("collector.example.com", 4317)) {
 
 Everything lives under the `dev.nthings.otlp4j` root. The types you import most often:
 
-| Type(s)                                                                                                                                                                            | Package                             |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
-| `OtlpGrpcExporter`, `OtlpGrpcReceiver`                                                                                                                                             | `dev.nthings.otlp4j.transport.grpc` |
-| `OtlpHttpExporter`, `OtlpHttpReceiver`                                                                                                                                             | `dev.nthings.otlp4j.transport.http` |
-| `Pipeline`, `Sink` (+ `TracesSink`, `MetricsSink`, `LogsSink`, `ProfilesSink` aliases), `Source`, `Transform`, `FanOut`, `OtlpExporter`, `PipelineHandle`, `Lifecycle`             | `dev.nthings.otlp4j.pipeline`       |
-| `Receiver`, `TelemetryTap`, `TapOptions`                                                                                                                                           | `dev.nthings.otlp4j.receiver`       |
-| `Transforms`, `BatchingProcessor`, `OverflowPolicy`, `Connectors`, `FailurePolicy`                                                                                                 | `dev.nthings.otlp4j.processor`      |
-| Configuration: `ClientConfig`, `ServerConfig`, `Tls`, `Compression`, `RetryPolicy`                                                                                                 | `dev.nthings.otlp4j.config`         |
-| Transport SPI: `OtlpClient`, `OtlpServer`, `Dispatchers`                                                                                                                           | `dev.nthings.otlp4j.spi`            |
-| Domain records: `TracesData`, `MetricsData`, `LogsData`, `ProfilesData`, `Resource`, `Attributes`, `AttributeValue`, `Span`, `Metric`, `LogRecord`, `Exemplar`, `ConsumeResult`, … | `dev.nthings.otlp4j.model`          |
+| Type(s) | Package |
+| --- | --- |
+| `OtlpGrpcExporter`, `OtlpGrpcReceiver` | `dev.nthings.otlp4j.transport.grpc` |
+| `OtlpHttpExporter`, `OtlpHttpReceiver` | `dev.nthings.otlp4j.transport.http` |
+| `Pipeline`, `Sink` (+ `TracesSink`, `MetricsSink`, `LogsSink`, `ProfilesSink` aliases), `Source`, `Transform`, `FanOut`, `OtlpExporter`, `PipelineHandle`, `Lifecycle` | `dev.nthings.otlp4j.pipeline` |
+| `Receiver`, `TelemetryTap`, `TapOptions` | `dev.nthings.otlp4j.receiver` |
+| `Transforms`, `BatchingProcessor`, `OverflowPolicy`, `Connectors`, `FailurePolicy` | `dev.nthings.otlp4j.processor` |
+| Configuration: `ClientConfig`, `ServerConfig`, `Tls`, `Compression` | `dev.nthings.otlp4j.config` |
+| Retry configuration: `RetryConfig` | `io.github.resilience4j.retry` |
+| Transport SPI: `OtlpClient`, `OtlpServer`, `Dispatchers` | `dev.nthings.otlp4j.spi` |
+| Domain records: `TracesData`, `MetricsData`, `LogsData`, `ProfilesData`, `Resource`, `Attributes`, `AttributeValue`, `Span`, `Metric`, `LogRecord`, `Exemplar`, `ConsumeResult`, … | `dev.nthings.otlp4j.model` |
 
 ## If you know OpenTelemetry Go
 
 `otlp4j` sits closer to a small Collector-style gateway than a single SDK exporter, so concepts map across rather than one-to-one:
 
-| OpenTelemetry Go                                                                      | otlp4j                                                                                                                   |
-| ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `otlptracegrpc` / `otlpmetricgrpc` / `otlploggrpc` (one package per signal+transport) | One `OtlpGrpcExporter`; pick a signal facet — `exporter.traces()`, `.metrics()`, `.logs()`, `.profiles()`.               |
-| `go.opentelemetry.io/proto/otlp/...` generated protobuf                               | Proto-free immutable records in `dev.nthings.otlp4j.model` (`TracesData`, `MetricsData`, `LogsData`, `ProfilesData`, …). |
-| Collector `consumer` (`ConsumeTraces(ctx, td) error`)                                 | `TracesSink` (a `Sink<TracesData>`) returning `CompletionStage<ConsumeResult>`.                                          |
-| Collector `component` lifecycle (`Start`/`Shutdown(ctx)`)                             | `OtlpGrpcReceiver.start()`, `PipelineHandle.shutdown(Duration)`, `Lifecycle`.                                            |
-| Collector OTLP receiver                                                               | `OtlpGrpcReceiver` plus its per-signal `Source`s.                                                                        |
-| `exporterhelper` queue + retry + timeout                                              | `BatchingProcessor` (queue), `RetryPolicy` (transport retry), per-request `setTimeout(...)`.                             |
-| Functional options (`WithEndpoint`, `WithTimeout`, `WithInsecure`)                    | Builder methods (`setEndpoint(...)`, `setTimeout(...)`); the endpoint scheme decides plaintext vs TLS.                   |
-| `consumer.Capabilities{MutatesData}`                                                  | Not needed — model records are immutable, so fan-out shares them without copying.                                        |
+| OpenTelemetry Go | otlp4j |
+| --- | --- |
+| `otlptracegrpc` / `otlpmetricgrpc` / `otlploggrpc` (one package per signal+transport) | One `OtlpGrpcExporter`; pick a signal facet — `exporter.traces()`, `.metrics()`, `.logs()`, `.profiles()`. |
+| `go.opentelemetry.io/proto/otlp/...` generated protobuf | Proto-free immutable records in `dev.nthings.otlp4j.model` (`TracesData`, `MetricsData`, `LogsData`, `ProfilesData`, …). |
+| Collector `consumer` (`ConsumeTraces(ctx, td) error`) | `TracesSink` (a `Sink<TracesData>`) returning `CompletionStage<ConsumeResult>`. |
+| Collector `component` lifecycle (`Start`/`Shutdown(ctx)`) | `OtlpGrpcReceiver.start()`, `PipelineHandle.shutdown(Duration)`, `Lifecycle`. |
+| Collector OTLP receiver | `OtlpGrpcReceiver` plus its per-signal `Source`s. |
+| `exporterhelper` queue + retry + timeout | `BatchingProcessor` (queue), Resilience4j `RetryConfig` (transport retry), `setTimeout(...)`. |
+| Functional options (`WithEndpoint`, `WithTimeout`, `WithInsecure`) | Builder methods (`setEndpoint(...)`, `setTimeout(...)`); the endpoint scheme decides plaintext vs TLS. |
+| `consumer.Capabilities{MutatesData}` | Not needed — model records are immutable, so fan-out shares them without copying. |
 
 Two deliberate differences: delivery is asynchronous (`CompletionStage<ConsumeResult>`) with no per-call `context.Context`, and OTLP is carried over gRPC or HTTP with binary protobuf only (no `http/json`). Pick the transport by class — `OtlpGrpcExporter`/`OtlpGrpcReceiver` (port 4317) or `OtlpHttpExporter`/`OtlpHttpReceiver` (port 4318); the builders and pipeline wiring are identical. See [Sinks and results](#sinks-and-results) for the partial-success/retry mapping.
 
@@ -95,16 +96,16 @@ Two deliberate differences: delivery is asynchronous (`CompletionStage<ConsumeRe
 
 Each signal preserves OTLP's resource and instrumentation-scope grouping while providing a flattened accessor plus allocation-free traversal and count helpers:
 
-| Batch          | Grouping                                         | Flattened accessor | `forEach` helper             | Count helper       |
-| -------------- | ------------------------------------------------ | ------------------ | ---------------------------- | ------------------ |
-| `TracesData`   | `ResourceSpans` → `ScopeSpans` → `Span`          | `spans()`          | `forEachSpan(Consumer)`      | `spanCount()`      |
-| `MetricsData`  | `ResourceMetrics` → `ScopeMetrics` → `Metric`    | `metrics()`        | `forEachMetric(Consumer)`    | `dataPointCount()` |
-| `LogsData`     | `ResourceLogs` → `ScopeLogs` → `LogRecord`       | `logRecords()`     | `forEachLogRecord(Consumer)` | `logRecordCount()` |
-| `ProfilesData` | `ResourceProfiles` → `ScopeProfiles` → `Profile` | `profiles()`       | `forEachProfile(Consumer)`   | `profileCount()`   |
+| Batch | Grouping | Flattened accessor | `forEach` helper | Count helper |
+| --- | --- | --- | --- | --- |
+| `TracesData` | `ResourceSpans` → `ScopeSpans` → `Span` | `spans()` | `forEachSpan(Consumer)` | `spanCount()` |
+| `MetricsData` | `ResourceMetrics` → `ScopeMetrics` → `Metric` | `metrics()` | `forEachMetric(Consumer)` | `dataPointCount()` |
+| `LogsData` | `ResourceLogs` → `ScopeLogs` → `LogRecord` | `logRecords()` | `forEachLogRecord(Consumer)` | `logRecordCount()` |
+| `ProfilesData` | `ResourceProfiles` → `ScopeProfiles` → `Profile` | `profiles()` | `forEachProfile(Consumer)` | `profileCount()` |
 
 Each flattened accessor (`spans()`, `metrics()`, `logRecords()`, `profiles()`) walks the resource/scope grouping and allocates a fresh list on every call, so bind it to a local rather than re-calling it in a loop or on a hot path. On hot paths prefer the `forEach…` helper to visit items in the same order without the intermediate list, or the count helper to size a batch without flattening it — these are what batching and the count connectors use. (`MetricsData`'s count helper, `dataPointCount()`, counts nested data points — the meaningful OTLP item count for metrics — rather than the number of `Metric` objects.)
 
-Records copy incoming lists and are safe to share between fan-out peers. `Attributes` and the sealed `AttributeValue` hierarchy represent OTLP values. Builders are available for `Attributes`, `Span`, `Metric`, and `LogRecord`, plus the metric data points (`NumberPoint`, `HistogramPoint`, `ExponentialHistogramPoint`) and `Exemplar`; `NumberPoint`, `Exemplar`, and `SummaryPoint` also offer `of(...)` factories for the common case. These builders are batch/model-construction helpers for OTLP payloads in the pipeline, not application instrumentation APIs. Builder method naming follows one rule: model and pipeline-component builders (these and `BatchingProcessor.Builder`) use no-prefix fluent setters (`name(...)`, `flushThreshold(...)`), matching the immutable records and the JDK's own builders; the configuration and transport builders (`ClientConfig`, `ServerConfig`, `RetryPolicy`, and the `OtlpGrpc…`/`OtlpHttp…` entry points) use `set*` to mirror OpenTelemetry Java. The remaining records use canonical constructors. To avoid hand-nesting the resource/scope wrappers, each signal type has an `of(resource, scope, items)` factory, and `Resource.of(...)` / `InstrumentationScope.of(...)` cover the common cases:
+Records copy incoming lists and are safe to share between fan-out peers. `Attributes` and the sealed `AttributeValue` hierarchy represent OTLP values. Builders are available for `Attributes`, `Span`, `Metric`, and `LogRecord`, plus the metric data points (`NumberPoint`, `HistogramPoint`, `ExponentialHistogramPoint`) and `Exemplar`; `NumberPoint`, `Exemplar`, and `SummaryPoint` also offer `of(...)` factories for the common case. These builders are batch/model-construction helpers for OTLP payloads in the pipeline, not application instrumentation APIs. Builder method naming follows one rule: model and pipeline-component builders (these and `BatchingProcessor.Builder`) use no-prefix fluent setters (`name(...)`, `flushThreshold(...)`), matching the immutable records and the JDK's own builders; the configuration and transport builders (`ClientConfig`, `ServerConfig`, and the `OtlpGrpc…`/`OtlpHttp…` entry points) use `set*` to mirror OpenTelemetry Java. The remaining records use canonical constructors. To avoid hand-nesting the resource/scope wrappers, each signal type has an `of(resource, scope, items)` factory, and `Resource.of(...)` / `InstrumentationScope.of(...)` cover the common cases:
 
 ```java
 var batch = TracesData.of(Resource.of(attributes), InstrumentationScope.of("my.lib", "1.0"), spans);
@@ -188,12 +189,12 @@ Use an exception or exceptionally completed stage for a transport-level failure.
 
 The receiver builder exposes the receiver-hardening knobs the bundled server applies directly (or set them on a `ServerConfig` and pass it through `setConfig(...)`), all defaulting to gRPC's own behaviour:
 
-| Builder knob                         | Default                       | Effect                                                                                     |
-| ------------------------------------ | ----------------------------- | ------------------------------------------------------------------------------------------ |
-| `setMaxInboundMessageSizeBytes`      | 4 MiB                         | Caps a single decoded export request; guards against memory-exhausting oversized requests. |
-| `setMaxConcurrentCallsPerConnection` | `0` (gRPC default, unlimited) | A positive value caps in-flight calls per connection.                                      |
-| `setHandshakeTimeout`                | 20s                           | Bounds the transport/TLS handshake only — not a slow request body or an idle connection.   |
-| `setServerExecutor`                  | `null` (gRPC's own executor)  | Supply a bounded pool to cap admitted concurrent work.                                     |
+| Builder knob | Default | Effect |
+| --- | --- | --- |
+| `setMaxInboundMessageSizeBytes` | 4 MiB | Caps a single decoded export request; guards against memory-exhausting oversized requests. |
+| `setMaxConcurrentCallsPerConnection` | `0` (gRPC default, unlimited) | A positive value caps in-flight calls per connection. |
+| `setHandshakeTimeout` | 20s | Bounds the transport/TLS handshake only — not a slow request body or an idle connection. |
+| `setServerExecutor` | `null` (gRPC's own executor) | Supply a bounded pool to cap admitted concurrent work. |
 
 ```java
 var receiver = OtlpGrpcReceiver.builder()
@@ -287,12 +288,12 @@ To observe batches in-path, add an observing `Sink` as a fan-out peer: it runs c
 
 The routing concepts, contrasted:
 
-| Concept                          | Cardinality            | Changes signal? | Owns downstream lifecycle?                 |
-| -------------------------------- | ---------------------- | --------------- | ------------------------------------------ |
-| `Transform` (via `Transforms`)   | 1 → 1                  | no              | no                                         |
-| Count sinks (via `Connectors`)   | 1 → 1                  | yes             | yes — cascades to its downstream           |
-| `BatchingProcessor`              | N → 1 (buffered)       | no              | no — front its downstream with `owns(...)` |
-| `TelemetryTap` (on the receiver) | observe (demand-aware) | no              | n/a                                        |
+| Concept | Cardinality | Changes signal? | Owns downstream lifecycle? |
+| --- | --- | --- | --- |
+| `Transform` (via `Transforms`) | 1 → 1 | no | no |
+| Count sinks (via `Connectors`) | 1 → 1 | yes | yes — cascades to its downstream |
+| `BatchingProcessor` | N → 1 (buffered) | no | no — front its downstream with `owns(...)` |
+| `TelemetryTap` (on the receiver) | observe (demand-aware) | no | n/a |
 
 ## Batch
 
@@ -313,12 +314,12 @@ Both knobs count **batches**, not telemetry items: `flushThreshold` is the queue
 
 Overflow behavior (the `OverflowPolicy`):
 
-| Policy        | Result                                                                            |
-| ------------- | --------------------------------------------------------------------------------- |
-| `DROP_OLDEST` | Evict the oldest queued batch and accept the new batch                            |
+| Policy | Result |
+| --- | --- |
+| `DROP_OLDEST` | Evict the oldest queued batch and accept the new batch |
 | `DROP_NEWEST` | Drop the new batch and return `Partial` with its item count (`Accepted` if empty) |
-| `BLOCK`       | Block until queue space is available                                              |
-| `FAIL`        | Drop the new batch and return `Rejected`                                          |
+| `BLOCK` | Block until queue space is available |
+| `FAIL` | Drop the new batch and return `Rejected` |
 
 `forceFlush` drains the current queue. `shutdown` stops the timer and drains once; the processor then rejects new batches. A pipeline subscription closes a directly attached batcher.
 
@@ -328,23 +329,23 @@ Overflow behavior (the `OverflowPolicy`):
 
 ## Export
 
-`OtlpGrpcExporter` defaults to plaintext `localhost:4317` with a ten-second deadline per request. It owns one client channel and exposes a sink facet for each signal. The endpoint can be set as a single `setEndpoint(url)` URL or as `setEndpoint(host, port)`; TLS, authentication headers, gzip compression, and retries are available directly on the builder (`setTls`, `addHeader`/`setHeaders`, `setCompression`, `setRetryPolicy`). Retries are **on by default** (`RetryPolicy.getDefault()` — five attempts, 1s→5s, 1.5×); pass `RetryPolicy.none()` to opt out. `setHeaders(Supplier<Map<String,String>>)` supplies headers evaluated per export (for a rotating bearer token), overlaid on the static headers (the supplier wins per key). `setTls` accepts PEM file paths, in-memory PEM bytes (`Tls.custom(byte[]…)` / `Tls.trust(byte[])`), or a caller-built `SSLContext` (`Tls.sslContext(context, trustManager)`). Pass a fully built `ClientConfig` through `setConfig(...)` only when you want to replace the whole config at once.
+`OtlpGrpcExporter` defaults to plaintext `localhost:4317` with a ten-second export deadline. It owns one client channel and exposes a sink facet for each signal. The endpoint can be set as a single `setEndpoint(url)` URL or as `setEndpoint(host, port)`; TLS, authentication headers, gzip compression, and retries are available directly on the builder (`setTls`, `addHeader`/`setHeaders`, `setCompression`, `setRetryConfig`). Retries are **on by default** through `ClientConfig.defaultRetryConfig()` — five attempts, exponential randomized backoff from 1s to 5s with a 1.5x multiplier; pass `RetryConfig.custom().maxAttempts(1).build()` to opt out. `setHeaders(Supplier<Map<String,String>>)` supplies headers evaluated per export (for a rotating bearer token), overlaid on the static headers (the supplier wins per key). `setTls` accepts PEM file paths, in-memory PEM bytes (`Tls.custom(byte[]…)` / `Tls.trust(byte[])`), or a caller-built `SSLContext` (`Tls.sslContext(context, trustManager)`). Pass a fully built `ClientConfig` through `setConfig(...)` only when you want to replace the whole config at once.
 
-`OtlpHttpExporter` is the OTLP/HTTP counterpart with the identical builder, defaulting to `localhost:4318`. It POSTs each signal's binary protobuf to its standard path (`/v1/traces`, `/v1/metrics`, `/v1/logs`, `/v1development/profiles`) as `application/x-protobuf`; the scheme follows `setTls` (`http`/`https`), `setCompression(GZIP)` sets `Content-Encoding: gzip`, and `setRetryPolicy` drives exponential-backoff retries over retryable statuses (408/429/502/503/504). An endpoint **path prefix** is applied: a collector behind `https://host/otlp` is reached at `/otlp/v1/traces`, set via the `setEndpoint(url)` / `OTEL_EXPORTER_OTLP_ENDPOINT` URL or the HTTP builder's `setPath(...)`. (gRPC ignores the path and uses the authority only.) `setConnectTimeout(Duration)` bounds connection setup, falling back to the request timeout when unset; it applies to OTLP/HTTP only (gRPC has no separate connect timeout and ignores it).
+`OtlpHttpExporter` is the OTLP/HTTP counterpart with the identical builder, defaulting to `localhost:4318`. It POSTs each signal's binary protobuf to its standard path (`/v1/traces`, `/v1/metrics`, `/v1/logs`, `/v1development/profiles`) as `application/x-protobuf`; the scheme follows `setTls` (`http`/`https`), `setCompression(GZIP)` sets `Content-Encoding: gzip`, and `setRetryConfig` uses the same Resilience4j retry path as gRPC over retryable statuses (408/429/502/503/504) and I/O failures. HTTP `Retry-After` and gRPC `grpc-retry-pushback-ms` are folded into the Resilience4j interval function. The configured timeout bounds the export stage across attempts. An endpoint **path prefix** is applied: a collector behind `https://host/otlp` is reached at `/otlp/v1/traces`, set via the `setEndpoint(url)` / `OTEL_EXPORTER_OTLP_ENDPOINT` URL or the HTTP builder's `setPath(...)`. (gRPC ignores the path and uses the authority only.) `setConnectTimeout(Duration)` bounds connection setup, falling back to the request timeout when unset; it applies to OTLP/HTTP only (gRPC has no separate connect timeout and ignores it).
 
 By default the exporter reads no environment — construction is fully explicit and deterministic. Opt in to the standard general OTLP variables with `fromEnvironment()` on the exporter or `ClientConfig` builder, or the static `OtlpGrpcExporter.fromEnvironment()` / `OtlpHttpExporter.fromEnvironment()` shorthand. It reads each variable only when present; environment values are **lowest precedence and order-independent** — applied at `build()` only where you did not set the field explicitly, so call order does not matter. Malformed values throw. Only general (non-signal-specific) variables are read:
 
-| Setting                     | Builder method                                         | Environment variable                            | otlp4j default                                          | Notes                                                                                                                                                                                                                                     |
-| --------------------------- | ------------------------------------------------------ | ----------------------------------------------- | ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Endpoint host/port/scheme   | `.setEndpoint(url)` / `.setEndpoint(host, port)` / `.setTls` | `OTEL_EXPORTER_OTLP_ENDPOINT`              | gRPC `localhost:4317`, HTTP `localhost:4318`, plaintext | A URL; `http` is plaintext, `https` selects TLS. gRPC uses the authority as-is; HTTP appends the standard `/v1/<signal>` paths to any URL path prefix. A URL without a port keeps the exporter's protocol default (4317 gRPC, 4318 HTTP). |
-| Endpoint path prefix (HTTP) | `.setPath(String)` (HTTP builder)                      | path component of `OTEL_EXPORTER_OTLP_ENDPOINT` | none                                                    | Prepended to `/v1/<signal>` — `https://host/otlp` → `/otlp/v1/traces`. Normalized (a bare `/` means none); gRPC ignores it.                                                                                                               |
-| Request timeout             | `.setTimeout(Duration)`                                | `OTEL_EXPORTER_OTLP_TIMEOUT`                    | `10s`                                                   | Integer milliseconds; must be > 0.                                                                                                                                                                                                        |
-| Headers                     | `.addHeader(k, v)` / `.setHeaders(map)`                | `OTEL_EXPORTER_OTLP_HEADERS`                    | none                                                    | `k=v,k2=v2`; values are percent-decoded (`+` stays literal). `.setHeaders(map)` replaces all static headers; explicit `.addHeader(k, v)`/`.setHeaders(map)` keys win, and the env variable fills only keys you did not set. `setHeaders(Supplier<Map>)` (no env form) supplies headers per export, overlaid on the static headers. |
-| Compression                 | `.setCompression(Compression)` / `.setCompression(String)` | `OTEL_EXPORTER_OTLP_COMPRESSION`            | `NONE`                                                  | `gzip` or `none`.                                                                                                                                                                                                                         |
-| Insecure (plaintext)        | `.setTls(Tls.disabled())`                              | `OTEL_EXPORTER_OTLP_INSECURE`                   | TLS off                                                 | `true`/`false`. Consulted only when no endpoint URL sets the scheme (a present endpoint's `http`/`https` wins); `true` forces plaintext, overriding the certificate variables.                                                            |
-| Server CA / trust           | `.setTls(Tls.trust(path))`                             | `OTEL_EXPORTER_OTLP_CERTIFICATE`                | system trust when TLS is on                             | Used when the endpoint is `https`, or — with no endpoint set — as an independent input that turns TLS on. Ignored on an `http` endpoint.                                                                                                  |
-| Client cert (mTLS)          | `.setTls(Tls.custom(cert, key, trust))`               | `OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE`         | none                                                    | Requires the client key; honoured with an `https` endpoint or, with no endpoint, as an independent input; ignored on an `http` endpoint.                                                                                                  |
-| Client key (mTLS)           | `.setTls(Tls.custom(cert, key, trust))`               | `OTEL_EXPORTER_OTLP_CLIENT_KEY`                 | none                                                    | Requires the client certificate.                                                                                                                                                                                                          |
+| Setting | Builder method | Environment variable | otlp4j default | Notes |
+| --- | --- | --- | --- | --- |
+| Endpoint host/port/scheme | `.setEndpoint(url)` / `.setEndpoint(host, port)` / `.setTls` | `OTEL_EXPORTER_OTLP_ENDPOINT` | gRPC `localhost:4317`, HTTP `localhost:4318`, plaintext | A URL; `http` is plaintext, `https` selects TLS. gRPC uses the authority as-is; HTTP appends the standard `/v1/<signal>` paths to any URL path prefix. A URL without a port keeps the exporter's protocol default (4317 gRPC, 4318 HTTP). |
+| Endpoint path prefix (HTTP) | `.setPath(String)` (HTTP builder) | path component of `OTEL_EXPORTER_OTLP_ENDPOINT` | none | Prepended to `/v1/<signal>` — `https://host/otlp` → `/otlp/v1/traces`. Normalized (a bare `/` means none); gRPC ignores it. |
+| Request timeout | `.setTimeout(Duration)` | `OTEL_EXPORTER_OTLP_TIMEOUT` | `10s` | Integer milliseconds; must be > 0. |
+| Headers | `.addHeader(k, v)` / `.setHeaders(map)` | `OTEL_EXPORTER_OTLP_HEADERS` | none | `k=v,k2=v2`; values are percent-decoded (`+` stays literal). `.setHeaders(map)` replaces all static headers; explicit `.addHeader(k, v)`/`.setHeaders(map)` keys win, and the env variable fills only keys you did not set. `setHeaders(Supplier<Map>)` (no env form) supplies headers per export, overlaid on the static headers. |
+| Compression | `.setCompression(Compression)` / `.setCompression(String)` | `OTEL_EXPORTER_OTLP_COMPRESSION` | `NONE` | `gzip` or `none`. |
+| Insecure (plaintext) | `.setTls(Tls.disabled())` | `OTEL_EXPORTER_OTLP_INSECURE` | TLS off | `true`/`false`. Consulted only when no endpoint URL sets the scheme (a present endpoint's `http`/`https` wins); `true` forces plaintext, overriding the certificate variables. |
+| Server CA / trust | `.setTls(Tls.trust(path))` | `OTEL_EXPORTER_OTLP_CERTIFICATE` | system trust when TLS is on | Used when the endpoint is `https`, or — with no endpoint set — as an independent input that turns TLS on. Ignored on an `http` endpoint. |
+| Client cert (mTLS) | `.setTls(Tls.custom(cert, key, trust))` | `OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE` | none | Requires the client key; honoured with an `https` endpoint or, with no endpoint, as an independent input; ignored on an `http` endpoint. |
+| Client key (mTLS) | `.setTls(Tls.custom(cert, key, trust))` | `OTEL_EXPORTER_OTLP_CLIENT_KEY` | none | Requires the client certificate. |
 
 Deliberately not read: `OTEL_EXPORTER_OTLP_PROTOCOL` (the protocol is chosen by which exporter class you instantiate, `OtlpGrpcExporter` vs `OtlpHttpExporter`, not by env). Signal-specific overrides such as `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` are out of scope: one exporter drives all four signals over a single connection, so a per-signal endpoint would need its own exporter — instantiate one `OtlpGrpcExporter`/`OtlpHttpExporter` per destination and route each signal to it through the pipeline. The same `fromEnvironment()` applies to `OtlpHttpExporter`, except a portless endpoint URL keeps the HTTP default port 4318.
 
@@ -369,18 +370,17 @@ try (var exporter = OtlpGrpcExporter.builder()
 }
 ```
 
-A hardened exporter — an `https` URL endpoint selecting system-trust TLS (or `.setTls(Tls.custom(cert, key, trust))` for mTLS), a bearer header, gzip, and exponential retry with a backoff multiplier:
+A hardened exporter — an `https` URL endpoint selecting system-trust TLS (or `.setTls(Tls.custom(cert, key, trust))` for mTLS), a bearer header, gzip, and Resilience4j exponential retry with jitter:
 
 ```java
 var exporter = OtlpGrpcExporter.builder()
         .setEndpoint("https://collector.example.com:4317")
         .addHeader("authorization", "Bearer " + token)
         .setCompression(Compression.GZIP)
-        .setRetryPolicy(RetryPolicy.builder()
-                .setMaxAttempts(5)
-                .setInitialBackoff(Duration.ofSeconds(1))
-                .setMaxBackoff(Duration.ofSeconds(30))
-                .setBackoffMultiplier(1.5)
+        .setRetryConfig(RetryConfig.custom()
+                .maxAttempts(5)
+                .intervalFunction(IntervalFunction.ofExponentialRandomBackoff(
+                        Duration.ofSeconds(1), 1.5, 0.5, Duration.ofSeconds(30)))
                 .build())
         .setTimeout(Duration.ofSeconds(10))
         .build();
@@ -406,10 +406,10 @@ A count sink cascades its lifecycle to the downstream `MetricsSink` it wraps, so
 
 The built-ins emit `otlp4j.connector.span.count` and `otlp4j.connector.log.record.count`, each as a monotonic delta sum whose window runs from the previous flush (so the series carries a real per-series start time). A configurable `FailurePolicy` decides how a downstream metric failure maps back onto the input result; the no-policy `spanCount`/`logRecordCount` overloads default to `BEST_EFFORT`, and `spanCount(downstream, policy)` / `logRecordCount(downstream, policy)` set it explicitly:
 
-| Policy                  | Downstream `Partial`/`Rejected` | Input result                                                          |
-| ----------------------- | ------------------------------- | --------------------------------------------------------------------- |
-| `BEST_EFFORT` (default) | logged                          | `Accepted` — derived telemetry never fails the originating request    |
-| `FAIL`                  | logged                          | `Rejected`, so the caller learns the derived metric was not delivered |
+| Policy | Downstream `Partial`/`Rejected` | Input result |
+| --- | --- | --- |
+| `BEST_EFFORT` (default) | logged | `Accepted` — derived telemetry never fails the originating request |
+| `FAIL` | logged | `Rejected`, so the caller learns the derived metric was not delivered |
 
 An exceptionally completed downstream stage still propagates either way (a metric rejection cannot be relabeled as a trace or log rejection).
 
@@ -462,7 +462,7 @@ There is no provider-discovery or `ServiceLoader` indirection: an application se
 - `OtlpClient` (export) exposes `exportTraces`/`exportMetrics`/`exportLogs`/`exportProfiles`, each returning `CompletionStage<ConsumeResult>`. Wrap your client in an exporter that publishes the per-signal `Sink` facets (`traces()`, `metrics()`, …) and a `shutdown`/`forceFlush` lifecycle.
 - `OtlpServer` (receive) is constructed with a `ServerConfig` and a `Dispatchers` record — the per-signal functions the server invokes as it decodes requests. Build the `Dispatchers`, hand them to your server, and expose one `Source` per signal plus a `TelemetryTap`.
 
-For a custom *terminal* rather than a new wire protocol — somewhere telemetry lands that isn't OTLP at all — implement `Sink<T>` plus `Lifecycle` (see [Export](#export)) instead of the transport SPI.
+For a custom _terminal_ rather than a new wire protocol — somewhere telemetry lands that isn't OTLP at all — implement `Sink<T>` plus `Lifecycle` (see [Export](#export)) instead of the transport SPI.
 
 Configuration arrives through `ClientConfig` and `ServerConfig`. The bundled clients honour host, port, timeout, TLS, headers, compression, and retry; the servers honour their port, `bindHost`, TLS, and the receiver-hardening limits (inbound size cap, per-connection concurrency, handshake timeout, executor).
 
@@ -484,19 +484,18 @@ var subscription = Pipeline.from(receiver.traces())
 
 Use `shutdown(Duration)` when completion matters. The convenience `close()` methods drain gracefully within a fixed ten-second grace period (`Lifecycle.DEFAULT_GRACE_PERIOD`), applied uniformly by every `Lifecycle` — receiver, exporter, batching processor, and subscription; call `Receiver.shutdownNow()` for an immediate stop.
 
-
 ## Thread-safety and nullness
 
 **Thread-safety.** The runtime types are safe to share across threads; the _builders_ are not.
 
-| Type                                          | Contract                                                                                                                                                                                                                                                           |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `OtlpGrpcReceiver` / `OtlpHttpReceiver`       | Thread-safe after `start()`; dispatch incoming requests to sinks concurrently. The `…Receiver.Builder` is single-threaded — configure on one thread, then `build()`.                                                                                               |
-| `OtlpGrpcExporter` / `OtlpHttpExporter`       | Thread-safe: a single exporter owns one client/channel and may be called from many threads; each facet's `consume` is concurrency-safe. The builder is single-threaded. Attaching a facet to a pipeline drains the exporter on shutdown. |
-| `BatchingProcessor`                           | Thread-safe: `consume`, `forceFlush`, and `shutdown` may be called concurrently (queue + counters are concurrent). `shutdown` is idempotent and then rejects new batches.                                                                                          |
-| `PipelineHandle` (from `Pipeline.from(...)`)  | `shutdown`/`forceFlush` are safe to call concurrently and idempotently. Build the pipeline on one thread.                                                                                                                                                          |
-| `TelemetryTap`                                | Thread-safe: each publisher multicasts independently and `TapOptions` bind to a subscription when it attaches. Each `Flow.Subscriber` manages its own demand.                                                                                                       |
-| Model records (`TracesData`, `Attributes`, …) | Immutable and freely shareable; fan-out peers share them without copying. Their builders are single-threaded.                                                                                                                                                      |
+| Type | Contract |
+| --- | --- |
+| `OtlpGrpcReceiver` / `OtlpHttpReceiver` | Thread-safe after `start()`; dispatch incoming requests to sinks concurrently. The `…Receiver.Builder` is single-threaded — configure on one thread, then `build()`. |
+| `OtlpGrpcExporter` / `OtlpHttpExporter` | Thread-safe: a single exporter owns one client/channel and may be called from many threads; each facet's `consume` is concurrency-safe. The builder is single-threaded. Attaching a facet to a pipeline drains the exporter on shutdown. |
+| `BatchingProcessor` | Thread-safe: `consume`, `forceFlush`, and `shutdown` may be called concurrently (queue + counters are concurrent). `shutdown` is idempotent and then rejects new batches. |
+| `PipelineHandle` (from `Pipeline.from(...)`) | `shutdown`/`forceFlush` are safe to call concurrently and idempotently. Build the pipeline on one thread. |
+| `TelemetryTap` | Thread-safe: each publisher multicasts independently and `TapOptions` bind to a subscription when it attaches. Each `Flow.Subscriber` manages its own demand. |
+| Model records (`TracesData`, `Attributes`, …) | Immutable and freely shareable; fan-out peers share them without copying. Their builders are single-threaded. |
 
 `close()` blocks on the drain — it calls `shutdown(...).join()` — so do not call it from a pipeline or completion thread the drain itself needs; that thread can stall until the deadline. From inside async code, call `shutdown(Duration)` and compose the returned stage instead.
 

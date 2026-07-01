@@ -15,6 +15,7 @@ import dev.nthings.otlp4j.config.Compression;
 import dev.nthings.otlp4j.config.ServerConfig;
 import dev.nthings.otlp4j.config.Tls;
 import dev.nthings.otlp4j.testing.Fixtures;
+import io.github.resilience4j.retry.RetryConfig;
 import java.io.InputStream;
 import java.net.InetSocketAddress;
 import java.nio.file.Files;
@@ -284,13 +285,64 @@ class HttpTransportConfigTest {
 
         var exporter = OtlpHttpExporter.builder()
                 .setEndpoint("localhost", deadPort)
-                .setRetryPolicy(dev.nthings.otlp4j.config.RetryPolicy.builder().setMaxAttempts(2).setInitialBackoff(Duration.ofMillis(1)).setMaxBackoff(Duration.ofMillis(5)).build())
+                .setRetryConfig(RetryConfig.custom().maxAttempts(2).waitDuration(Duration.ofMillis(1)).build())
                 .setTimeout(Duration.ofSeconds(2))
                 .build();
         closeables.add(exporter);
 
         assertThatThrownBy(() -> exporter.traces().consume(traces()).toCompletableFuture().join())
                 .isInstanceOf(CompletionException.class);
+    }
+
+    @DisplayName("Honours Retry-After seconds on retryable responses")
+    @Test
+    void honoursRetryAfterSeconds() {
+        var calls = new AtomicInteger();
+        var port = startRetryAfterServer(calls, "0");
+        var exporter = exporter(ClientConfig.builder()
+                .setEndpoint("localhost", port)
+                .setRetryConfig(RetryConfig.custom().maxAttempts(2).waitDuration(Duration.ofMillis(1)).build())
+                .setTimeout(Duration.ofSeconds(5))
+                .build());
+
+        var result = exporter.traces().consume(traces()).toCompletableFuture().join();
+
+        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(calls.get()).isEqualTo(2);
+    }
+
+    @DisplayName("Ignores negative Retry-After seconds")
+    @Test
+    void ignoresNegativeRetryAfterSeconds() {
+        var calls = new AtomicInteger();
+        var port = startRetryAfterServer(calls, "-1");
+        var exporter = exporter(ClientConfig.builder()
+                .setEndpoint("localhost", port)
+                .setRetryConfig(RetryConfig.custom().maxAttempts(2).waitDuration(Duration.ofMillis(1)).build())
+                .setTimeout(Duration.ofSeconds(5))
+                .build());
+
+        var result = exporter.traces().consume(traces()).toCompletableFuture().join();
+
+        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(calls.get()).isEqualTo(2);
+    }
+
+    @DisplayName("Ignores malformed Retry-After values")
+    @Test
+    void ignoresMalformedRetryAfter() {
+        var calls = new AtomicInteger();
+        var port = startRetryAfterServer(calls, "not-a-date");
+        var exporter = exporter(ClientConfig.builder()
+                .setEndpoint("localhost", port)
+                .setRetryConfig(RetryConfig.custom().maxAttempts(2).waitDuration(Duration.ofMillis(1)).build())
+                .setTimeout(Duration.ofSeconds(5))
+                .build());
+
+        var result = exporter.traces().consume(traces()).toCompletableFuture().join();
+
+        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(calls.get()).isEqualTo(2);
     }
 
     @DisplayName("Round-trips TracesData over in-memory (byte[]) TLS")
@@ -408,6 +460,31 @@ class HttpTransportConfigTest {
                         headers.getFirst("x-otlp-api-key"),
                         body.length));
                 exchange.sendResponseHeaders(200, -1);
+                exchange.close();
+            });
+            rawServer.start();
+            return rawServer.getAddress().getPort();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /// Starts a bare HTTP server that fails once with Retry-After, then acks with an empty OTLP
+    /// response body.
+    private int startRetryAfterServer(AtomicInteger calls, String retryAfter) {
+        try {
+            rawServer = HttpServer.create(new InetSocketAddress(0), 0);
+            rawServer.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
+            rawServer.createContext("/", exchange -> {
+                exchange.getRequestBody().readAllBytes();
+                if (calls.incrementAndGet() == 1) {
+                    exchange.getResponseHeaders().add("Retry-After", retryAfter);
+                    var body = "warming up".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                    exchange.sendResponseHeaders(503, body.length);
+                    exchange.getResponseBody().write(body);
+                } else {
+                    exchange.sendResponseHeaders(200, -1);
+                }
                 exchange.close();
             });
             rawServer.start();

@@ -10,7 +10,7 @@ import dev.nthings.otlp4j.pipeline.OtlpExporter;
 import dev.nthings.otlp4j.receiver.Receiver;
 import dev.nthings.otlp4j.config.ClientConfig;
 import dev.nthings.otlp4j.config.Compression;
-import dev.nthings.otlp4j.config.RetryPolicy;
+import io.github.resilience4j.retry.RetryConfig;
 import dev.nthings.otlp4j.config.ServerConfig;
 import dev.nthings.otlp4j.config.Tls;
 import dev.nthings.otlp4j.testing.Fixtures;
@@ -63,6 +63,8 @@ class TransportConfigTest {
             Metadata.Key.of("x-otlp-api-key", Metadata.ASCII_STRING_MARSHALLER);
     private static final Metadata.Key<String> GRPC_ENCODING =
             Metadata.Key.of("grpc-encoding", Metadata.ASCII_STRING_MARSHALLER);
+    private static final Metadata.Key<String> GRPC_RETRY_PUSHBACK_MS =
+            Metadata.Key.of("grpc-retry-pushback-ms", Metadata.ASCII_STRING_MARSHALLER);
 
     private final List<AutoCloseable> closeables = new ArrayList<>();
     private final List<Receiver> receivers = new ArrayList<>();
@@ -141,7 +143,7 @@ class TransportConfigTest {
         var exporter = exporter(ClientConfig.builder()
                 .setEndpoint("localhost", port)
                 .setTimeout(Duration.ofSeconds(10))
-                .setRetryPolicy(new RetryPolicy(3, Duration.ofMillis(50), Duration.ofMillis(200), 2.0))
+                .setRetryConfig(RetryConfig.custom().maxAttempts(3).waitDuration(Duration.ofMillis(50)).build())
                 .build());
 
         var result = exporter.traces().consume(traces()).toCompletableFuture().join();
@@ -150,7 +152,7 @@ class TransportConfigTest {
         assertThat(flaky.calls.get()).isEqualTo(3);
     }
 
-    @DisplayName("Retries by default (RetryPolicy.getDefault) when no policy is set")
+    @DisplayName("Retries by default when no retry config is set")
     @Test
     void retriesByDefault() {
         var flaky = new FlakyInterceptor(1); // first attempt fails, the default retry succeeds
@@ -166,7 +168,40 @@ class TransportConfigTest {
         assertThat(flaky.calls.get()).isEqualTo(2);
     }
 
-    @DisplayName("Does not retry when RetryPolicy.none() is set")
+    @DisplayName("Honours positive gRPC retry pushback")
+    @Test
+    void honoursPositiveGrpcRetryPushback() {
+        var flaky = new PushbackInterceptor(1, "25");
+        var port = startRawServer(flaky);
+        var exporter = exporter(ClientConfig.builder()
+                .setEndpoint("localhost", port)
+                .setTimeout(Duration.ofSeconds(10))
+                .setRetryConfig(RetryConfig.custom().maxAttempts(2).waitDuration(Duration.ofMillis(1)).build())
+                .build());
+
+        var result = exporter.traces().consume(traces()).toCompletableFuture().join();
+
+        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(flaky.calls.get()).isEqualTo(2);
+    }
+
+    @DisplayName("Negative gRPC retry pushback disables retry")
+    @Test
+    void negativeGrpcRetryPushbackDisablesRetry() {
+        var flaky = new PushbackInterceptor(1, "-1");
+        var port = startRawServer(flaky);
+        var exporter = exporter(ClientConfig.builder()
+                .setEndpoint("localhost", port)
+                .setTimeout(Duration.ofSeconds(5))
+                .setRetryConfig(RetryConfig.custom().maxAttempts(2).waitDuration(Duration.ofMillis(1)).build())
+                .build());
+
+        assertThatThrownBy(() -> exporter.traces().consume(traces()).toCompletableFuture().join())
+                .isInstanceOf(CompletionException.class);
+        assertThat(flaky.calls.get()).isEqualTo(1);
+    }
+
+    @DisplayName("Does not retry when RetryConfig.custom().maxAttempts(1).build() is set")
     @Test
     void doesNotRetryWhenPolicyNone() {
         var flaky = new FlakyInterceptor(1); // fails the only attempt
@@ -174,7 +209,7 @@ class TransportConfigTest {
         var exporter = exporter(ClientConfig.builder()
                 .setEndpoint("localhost", port)
                 .setTimeout(Duration.ofSeconds(5))
-                .setRetryPolicy(RetryPolicy.none())
+                .setRetryConfig(RetryConfig.custom().maxAttempts(1).build())
                 .build());
 
         assertThatThrownBy(() -> exporter.traces().consume(traces()).toCompletableFuture().join())
@@ -545,6 +580,30 @@ class TransportConfigTest {
                 ServerCall<Req, Resp> call, Metadata headers, ServerCallHandler<Req, Resp> next) {
             if (calls.incrementAndGet() <= failFirst) {
                 call.close(Status.UNAVAILABLE.withDescription("flaky"), new Metadata());
+                return new ServerCall.Listener<>() {};
+            }
+            return next.startCall(call, headers);
+        }
+    }
+
+    /// Fails with `grpc-retry-pushback-ms` in trailers before serving normally.
+    private static final class PushbackInterceptor implements ServerInterceptor {
+        final AtomicInteger calls = new AtomicInteger();
+        private final int failFirst;
+        private final String pushbackMillis;
+
+        PushbackInterceptor(int failFirst, String pushbackMillis) {
+            this.failFirst = failFirst;
+            this.pushbackMillis = pushbackMillis;
+        }
+
+        @Override
+        public <Req, Resp> ServerCall.Listener<Req> interceptCall(
+                ServerCall<Req, Resp> call, Metadata headers, ServerCallHandler<Req, Resp> next) {
+            if (calls.incrementAndGet() <= failFirst) {
+                var trailers = new Metadata();
+                trailers.put(GRPC_RETRY_PUSHBACK_MS, pushbackMillis);
+                call.close(Status.UNAVAILABLE.withDescription("pushback"), trailers);
                 return new ServerCall.Listener<>() {};
             }
             return next.startCall(call, headers);

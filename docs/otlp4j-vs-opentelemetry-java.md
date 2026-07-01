@@ -42,22 +42,22 @@ flowchart TD
     tx -- "OTLP gRPC/HTTP" --> backend[Observability Backend / Collector]
 ```
 
-| Dimension                  | OTLP4J                                                                                         | OpenTelemetry Java SDK                                                             |
-| -------------------------- | ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| **Primary role**           | OTLP data-plane gateway: receive, process, route, forward telemetry batches                    | Application instrumentation: generate telemetry via tracer/meter/logger APIs       |
-| **Directionality**         | Bidirectional (receiver + exporter)                                                            | Unidirectional (export only)                                                       |
-| **Input model**            | External OTLP/gRPC or OTLP/HTTP requests                                                       | `Tracer`, `Meter`, logger bridge, profile SDK data                                 |
-| **Output model**           | OTLP exporters for traces, metrics, logs, profiles                                             | Exporters for SDK `SpanData`, `MetricData`, `LogRecordData`, alpha `ProfileData`   |
-| **Receiver support**       | Yes — gRPC and HTTP OTLP receivers                                                             | No OTLP receiver/server abstraction                                                |
-| **Processing model**       | Batch pipeline: transform, filter, fan-out, tap, batch, count connectors                       | Span processors, log processors, metric readers, views, samplers                   |
-| **Data model**             | Immutable OTLP-oriented records preserving resource/scope grouping                             | SDK snapshot data optimized around instrumentation lifecycle                       |
-| **Protobuf exposure**      | Proto types encapsulated in `otlp4j-proto`, qualified-exported only to codec/transport modules | Proto types visible at the exporter layer                                          |
-| **JPMS modularity**        | Full JPMS for shipped library modules, qualified exports, no split packages                    | No JPMS module descriptors                                                         |
-| **Transport architecture** | Public SPI (`OtlpClient`/`OtlpServer`); HTTP uses JDK built-ins; gRPC uses gRPC + Netty        | Internal sender abstraction; HTTP depends on OkHttp by default (JDK sender opt-in) |
-| **Protocol focus**         | OTLP-first (traces, metrics, logs, profiles)                                                   | Agnostic core with plugin exporters (OTLP, Prometheus, Zipkin, logging)            |
-| **Configuration**          | Small OTLP exporter/env config surface (`fromEnvironment()` on exporters)                      | Mature autoconfigure, SPI, env/sysprop config, resource providers                  |
-| **Profiles**               | Experimental OTLP profile receive/process/export with opaque passthrough                       | Alpha profiles SDK/exporter artifacts                                              |
-| **Ecosystem**              | Focused JVM OTLP data-plane library (`0.1.0-SNAPSHOT`, experimental)                           | Official SDK, Java agent, Spring starter, contrib exporters/processors             |
+| Dimension | OTLP4J | OpenTelemetry Java SDK |
+| --- | --- | --- |
+| **Primary role** | OTLP data-plane gateway: receive, process, route, forward telemetry batches | Application instrumentation: generate telemetry via tracer/meter/logger APIs |
+| **Directionality** | Bidirectional (receiver + exporter) | Unidirectional (export only) |
+| **Input model** | External OTLP/gRPC or OTLP/HTTP requests | `Tracer`, `Meter`, logger bridge, profile SDK data |
+| **Output model** | OTLP exporters for traces, metrics, logs, profiles | Exporters for SDK `SpanData`, `MetricData`, `LogRecordData`, alpha `ProfileData` |
+| **Receiver support** | Yes — gRPC and HTTP OTLP receivers | No OTLP receiver/server abstraction |
+| **Processing model** | Batch pipeline: transform, filter, fan-out, tap, batch, count connectors | Span processors, log processors, metric readers, views, samplers |
+| **Data model** | Immutable OTLP-oriented records preserving resource/scope grouping | SDK snapshot data optimized around instrumentation lifecycle |
+| **Protobuf exposure** | Proto types encapsulated in `otlp4j-proto`, qualified-exported only to codec/transport modules | Proto types visible at the exporter layer |
+| **JPMS modularity** | Full JPMS for shipped library modules, qualified exports, no split packages | No JPMS module descriptors |
+| **Transport architecture** | Public SPI (`OtlpClient`/`OtlpServer`); HTTP uses JDK built-ins; gRPC uses gRPC + Netty | Internal sender abstraction; HTTP depends on OkHttp by default (JDK sender opt-in) |
+| **Protocol focus** | OTLP-first (traces, metrics, logs, profiles) | Agnostic core with plugin exporters (OTLP, Prometheus, Zipkin, logging) |
+| **Configuration** | Small OTLP exporter/env config surface (`fromEnvironment()` on exporters) | Mature autoconfigure, SPI, env/sysprop config, resource providers |
+| **Profiles** | Experimental OTLP profile receive/process/export with opaque passthrough | Alpha profiles SDK/exporter artifacts |
+| **Ecosystem** | Focused JVM OTLP data-plane library (`0.1.0-SNAPSHOT`, experimental) | Official SDK, Java agent, Spring starter, contrib exporters/processors |
 
 ### Convergence
 
@@ -116,7 +116,7 @@ Application code never touches protobuf types. Domain records are pure Java reco
 
 ### Dual Transports with Consistent Contract
 
-gRPC and HTTP transports share codec mappers and map `ConsumeResult` to OTLP responses through the same encoding layer (`SignalResponses`). Underlying stacks differ (gRPC status codes vs HTTP status codes, Netty vs JDK server, gRPC-native retry vs HTTP backoff loop), but the application contract is consistent.
+gRPC and HTTP transports share codec mappers and map `ConsumeResult` to OTLP responses through the same encoding layer (`SignalResponses`). Underlying stacks differ (gRPC status codes vs HTTP status codes, Netty vs JDK server), but retry is configured through Resilience4j `RetryConfig` and executed through the same shared adapter.
 
 ### Graceful Lifecycle Management
 
