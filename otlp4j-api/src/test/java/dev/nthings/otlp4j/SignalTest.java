@@ -37,7 +37,7 @@ class SignalTest {
     @Test
     void tracesEnvelope() {
         var batch = new TracesData(List.of());
-        assertThat(Signal.TRACES.envelope(batch)).isInstanceOf(dev.nthings.otlp4j.core.Telemetry.Traces.class);
+        assertThat(Signal.TRACES.envelope(batch)).isInstanceOf(dev.nthings.otlp4j.receiver.Telemetry.Traces.class);
     }
 
     @DisplayName("profiles unsafe merge rejects distinct dictionaries")

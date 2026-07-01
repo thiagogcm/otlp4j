@@ -1,10 +1,9 @@
-package dev.nthings.otlp4j.core;
+package dev.nthings.otlp4j.receiver;
 
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.TracesData;
-import dev.nthings.otlp4j.receiver.TelemetryTap;
 
 /// A sealed envelope around the four OTLP signals.
 ///

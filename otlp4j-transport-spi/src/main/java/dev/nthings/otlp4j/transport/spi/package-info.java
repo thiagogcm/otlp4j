@@ -3,8 +3,8 @@
 /// package-private dispatch and tap plumbing. Most callers use the `OtlpGrpc*` /
 /// `OtlpHttp*` entry points instead.
 ///
-/// [ClientExporter] adapts any [OtlpClient] into an [OtlpExporter]; [ServerReceiver]
-/// adapts any [OtlpServer] into a [Receiver], so custom wire transports can reuse
+/// [ClientExporter] adapts any `OtlpClient` into an `OtlpExporter`; [ServerReceiver]
+/// adapts any `OtlpServer` into a `Receiver`, so custom wire transports can reuse
 /// either instead of reimplementing the lifecycle and dispatch wiring.
 @NullMarked
 package dev.nthings.otlp4j.transport.spi;

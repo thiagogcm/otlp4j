@@ -8,7 +8,7 @@ import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
-import dev.nthings.otlp4j.core.Telemetry;
+import dev.nthings.otlp4j.receiver.Telemetry;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;

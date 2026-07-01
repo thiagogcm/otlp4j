@@ -3,7 +3,7 @@ package dev.nthings.otlp4j.transport.spi;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
-import dev.nthings.otlp4j.core.OverflowPolicy;
+import dev.nthings.otlp4j.processor.OverflowPolicy;
 import dev.nthings.otlp4j.receiver.TapOptions;
 import dev.nthings.otlp4j.testing.FlowSubscribers;
 import java.time.Duration;

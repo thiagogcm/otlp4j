@@ -2,7 +2,8 @@ package dev.nthings.otlp4j.transport.spi;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import dev.nthings.otlp4j.core.Drainable;
+import dev.nthings.otlp4j.pipeline.FanOut;
+import dev.nthings.otlp4j.pipeline.Lifecycle;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.pipeline.Pipeline;
 import java.time.Duration;
@@ -34,7 +35,7 @@ class ExporterOwnershipTest {
         var exporter = new ClientExporter(new RecordingOtlpClient(), "test");
         var facet = exporter.traces();
 
-        assertThat(facet).isInstanceOf(Drainable.class);
+        assertThat(facet).isInstanceOf(Lifecycle.class);
     }
 
     @DisplayName("fan-out drains each exporter automatically")
@@ -47,10 +48,7 @@ class ExporterOwnershipTest {
         var source = new SignalSource<>(TracesData.class);
 
         var sub = Pipeline.from(source)
-                .branch()
-                .fanOut(exporterA.traces())
-                .fanOut(exporterB.traces())
-                .join();
+                .to(FanOut.of(exporterA.traces(), exporterB.traces()));
 
         sub.shutdown(Duration.ofSeconds(2)).toCompletableFuture().join();
         assertThat(clientA.closes.get()).isEqualTo(1);

@@ -1,4 +1,4 @@
-package dev.nthings.otlp4j.core;
+package dev.nthings.otlp4j.processor;
 
 /// Policy for an item that arrives while a bounded buffer is full - the batching processor's queue
 /// or a telemetry tap subscription's buffer.

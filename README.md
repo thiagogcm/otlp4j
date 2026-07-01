@@ -88,7 +88,7 @@ var subscription = Pipeline.from(receiver.traces())
         .to(exporter.traces());
 ```
 
-The receiver accepts one consumer per signal source. Use `branch().fanOut(...).join()` when several consumers need the same batch.
+The receiver accepts one consumer per signal source. Terminate at `FanOut.of(...)` (`.to(FanOut.of(a, b))`) when several consumers need the same batch.
 
 > [!IMPORTANT] Exporter facets carry the exporter's lifecycle, so attaching one to a pipeline drains the exporter on shutdown — no registration needed. Use `Stage.owns(resource)` only for a resource hidden behind a lambda or a connector's downstream. Shut down the subscription first, then the receiver.
 

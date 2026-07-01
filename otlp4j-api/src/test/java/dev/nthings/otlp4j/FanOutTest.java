@@ -6,7 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.pipeline.FanOut;
-import dev.nthings.otlp4j.core.TraceSink;
+import dev.nthings.otlp4j.pipeline.TraceSink;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;

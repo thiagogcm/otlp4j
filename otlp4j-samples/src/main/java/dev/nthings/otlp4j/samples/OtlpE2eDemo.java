@@ -1,18 +1,18 @@
 package dev.nthings.otlp4j.samples;
 
 import dev.nthings.otlp4j.connector.Connectors;
-import dev.nthings.otlp4j.core.MetricSink;
-import dev.nthings.otlp4j.core.TraceSink;
 import dev.nthings.otlp4j.exporter.OtlpExporter;
 import dev.nthings.otlp4j.receiver.Receiver;
 import dev.nthings.otlp4j.model.AttributeValue;
 import dev.nthings.otlp4j.model.Attributes;
+import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.model.InstrumentationScope;
 import dev.nthings.otlp4j.model.Metric;
 import dev.nthings.otlp4j.model.NumberPoint;
 import dev.nthings.otlp4j.model.Resource;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
+import dev.nthings.otlp4j.pipeline.FanOut;
 import dev.nthings.otlp4j.pipeline.Pipeline;
 import dev.nthings.otlp4j.processor.Transforms;
 import dev.nthings.otlp4j.transport.grpc.OtlpGrpcExporter;
@@ -73,8 +73,14 @@ public final class OtlpE2eDemo {
             // --- Backend: the final destination, capturing whatever survives the pipeline.
             backend = OtlpGrpcReceiver.builder()
                     .ephemeralPort()
-                    .onTraces(TraceSink.accepting(backendTraces::set))
-                    .onMetrics(MetricSink.accepting(metrics -> backendMetrics.addAll(metrics.metrics())))
+                    .onTraces(traces -> {
+                        backendTraces.set(traces);
+                        return ConsumeResult.acceptedStage();
+                    })
+                    .onMetrics(metrics -> {
+                        backendMetrics.addAll(metrics.metrics());
+                        return ConsumeResult.acceptedStage();
+                    })
                     .build()
                     .start();
             log.info("Backend receiver started on port {}.", backend.port());
@@ -96,10 +102,7 @@ public final class OtlpE2eDemo {
                             : span))
                     .transform(Transforms.keepSpansWhere(span -> span.kind() == Span.Kind.SERVER))
                     .filter(traces -> traces.spanCount() != 0)
-                    .branch()
-                    .fanOut(backendExporter.traces())
-                    .fanOut(spanCounter)
-                    .join();
+                    .to(FanOut.of(backendExporter.traces(), spanCounter));
 
             gateway.start();
             log.info("Gateway receiver started on port {}.", gateway.port());

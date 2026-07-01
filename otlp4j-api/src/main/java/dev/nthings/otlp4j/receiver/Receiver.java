@@ -4,8 +4,8 @@ import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.TracesData;
-import dev.nthings.otlp4j.core.Drainable;
-import dev.nthings.otlp4j.core.Source;
+import dev.nthings.otlp4j.pipeline.Lifecycle;
+import dev.nthings.otlp4j.pipeline.Source;
 import java.time.Duration;
 import java.util.concurrent.CompletionStage;
 
@@ -14,7 +14,7 @@ import java.util.concurrent.CompletionStage;
 /// A receiver exposes one [Source] per signal (the typed attachment points the pipeline DSL
 /// consumes) plus a [TelemetryTap] for side-channel live streaming. Build one with
 /// `OtlpGrpcReceiver` / `OtlpHttpReceiver`.
-public interface Receiver extends Drainable {
+public interface Receiver extends Lifecycle {
 
     /// The trace ingest source.
     Source<TracesData> traces();

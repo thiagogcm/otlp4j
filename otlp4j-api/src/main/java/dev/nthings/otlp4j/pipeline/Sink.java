@@ -1,4 +1,4 @@
-package dev.nthings.otlp4j.core;
+package dev.nthings.otlp4j.pipeline;
 
 import dev.nthings.otlp4j.model.ConsumeResult;
 import java.util.Objects;
@@ -17,8 +17,7 @@ import org.jspecify.annotations.Nullable;
 /// When a handler only needs success/failure semantics rather than the full
 /// [ConsumeResult] vocabulary, the [#accepting(ThrowingConsumer)] and [#fromStage(Function)]
 /// factories build a sink from a plain consumer or a [CompletionStage]-returning function,
-/// so callers do not have to return [ConsumeResult#acceptedStage()] by hand. The per-signal SAMs
-/// carry the same factories narrowed to their type, e.g. [TraceSink#accepting(ThrowingConsumer)].
+/// so callers do not have to return [ConsumeResult#acceptedStage()] by hand.
 /// To report item-level partial success ([ConsumeResult.Partial]) rather than just accept/reject,
 /// implement the sink directly and return the [ConsumeResult] yourself.
 ///

@@ -9,7 +9,6 @@ module dev.nthings.otlp4j.api {
     // Logging facade; not transitive - consumers bring their own backend.
     requires org.slf4j;
 
-    exports dev.nthings.otlp4j.core;
     exports dev.nthings.otlp4j.pipeline;
     exports dev.nthings.otlp4j.receiver;
     exports dev.nthings.otlp4j.exporter;

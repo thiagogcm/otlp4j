@@ -1,9 +1,5 @@
 package dev.nthings.otlp4j.pipeline;
 
-import dev.nthings.otlp4j.core.Drainable;
-import dev.nthings.otlp4j.core.ForceFlushable;
-import dev.nthings.otlp4j.core.Sink;
-import dev.nthings.otlp4j.core.PipelineHandle;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -88,10 +84,10 @@ final class PipelineLifecycle {
         public CompletionStage<Void> forceFlush(Duration timeout) {
             var deadlineNanos = deadlineNanos(timeout);
             // Flush the source first (a buffering source would otherwise be skipped), then
-            // each ForceFlushable resource in turn, all sharing one deadline.
+            // each Lifecycle resource in turn, all sharing one deadline.
             var chained = sourceSubscription.forceFlush(remaining(deadlineNanos)).toCompletableFuture();
             for (var resource : resources) {
-                if (resource instanceof ForceFlushable f) {
+                if (resource instanceof Lifecycle f) {
                     chained = chained.thenCompose(v -> f.forceFlush(remaining(deadlineNanos)).toCompletableFuture());
                 }
             }
@@ -132,7 +128,7 @@ final class PipelineLifecycle {
         }
 
         private static CompletionStage<Void> closeResource(AutoCloseable resource, Duration timeout) {
-            if (resource instanceof Drainable d) {
+            if (resource instanceof Lifecycle d) {
                 return d.shutdown(timeout);
             }
             try {

@@ -1,9 +1,7 @@
 package dev.nthings.otlp4j.processor;
 
-import dev.nthings.otlp4j.core.Drainable;
-import dev.nthings.otlp4j.core.ForceFlushable;
-import dev.nthings.otlp4j.core.OverflowPolicy;
-import dev.nthings.otlp4j.core.Sink;
+import dev.nthings.otlp4j.pipeline.Lifecycle;
+import dev.nthings.otlp4j.pipeline.Sink;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
@@ -29,7 +27,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /// An asynchronous, queue-backed, timer-triggered batching processor.
-public final class BatchingProcessor<T> implements Sink<T>, Drainable, ForceFlushable {
+public final class BatchingProcessor<T> implements Sink<T>, Lifecycle {
 
     private static final Logger log = LoggerFactory.getLogger(BatchingProcessor.class);
 
@@ -180,7 +178,7 @@ public final class BatchingProcessor<T> implements Sink<T>, Drainable, ForceFlus
         return new Builder<>(Signal.LOGS);
     }
 
-    /// Profiles batching. Only safe when every merged batch shares the same [ProfilesDictionary];
+    /// Profiles batching. Only safe when every merged batch shares the same `ProfilesDictionary`;
     /// otherwise flush fails with [BatchDeliveryException].
     public static Builder<ProfilesData> forProfilesUnsafe() {
         return new Builder<>(Signal.PROFILES);

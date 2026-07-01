@@ -6,8 +6,8 @@ import static org.awaitility.Awaitility.await;
 
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
-import dev.nthings.otlp4j.core.OverflowPolicy;
-import dev.nthings.otlp4j.core.Telemetry;
+import dev.nthings.otlp4j.processor.OverflowPolicy;
+import dev.nthings.otlp4j.receiver.Telemetry;
 import dev.nthings.otlp4j.receiver.TapOptions;
 import dev.nthings.otlp4j.testing.Fixtures;
 import dev.nthings.otlp4j.testing.FlowSubscribers;

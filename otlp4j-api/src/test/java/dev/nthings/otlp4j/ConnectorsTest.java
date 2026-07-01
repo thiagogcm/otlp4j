@@ -12,7 +12,7 @@ import dev.nthings.otlp4j.model.NumberPoint;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
-import dev.nthings.otlp4j.core.MetricSink;
+import dev.nthings.otlp4j.pipeline.MetricSink;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.util.ArrayList;
 import java.util.concurrent.CompletableFuture;

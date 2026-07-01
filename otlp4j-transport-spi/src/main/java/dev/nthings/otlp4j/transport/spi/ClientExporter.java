@@ -1,10 +1,10 @@
 package dev.nthings.otlp4j.transport.spi;
 
-import dev.nthings.otlp4j.core.Drainable;
-import dev.nthings.otlp4j.core.LogSink;
-import dev.nthings.otlp4j.core.MetricSink;
-import dev.nthings.otlp4j.core.ProfileSink;
-import dev.nthings.otlp4j.core.TraceSink;
+import dev.nthings.otlp4j.pipeline.Lifecycle;
+import dev.nthings.otlp4j.pipeline.LogSink;
+import dev.nthings.otlp4j.pipeline.MetricSink;
+import dev.nthings.otlp4j.pipeline.ProfileSink;
+import dev.nthings.otlp4j.pipeline.TraceSink;
 import dev.nthings.otlp4j.exporter.OtlpExporter;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.model.LogsData;
@@ -119,7 +119,7 @@ public final class ClientExporter implements OtlpExporter {
 
     /// A lifecycle-bearing view of one signal: `shutdown` drains the whole exporter, since every
     /// facet shares its channel. Each subclass adds a `consume` that hits the shared client.
-    private abstract class Facet implements Drainable {
+    private abstract class Facet implements Lifecycle {
         @Override
         public CompletionStage<Void> shutdown(Duration timeout) {
             return ClientExporter.this.shutdown(timeout);

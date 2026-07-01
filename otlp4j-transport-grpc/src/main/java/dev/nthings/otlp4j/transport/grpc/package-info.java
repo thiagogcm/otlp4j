@@ -1,7 +1,7 @@
 /// OTLP/gRPC transport: [OtlpGrpcExporter] and [OtlpGrpcReceiver].
 ///
 /// Built on gRPC + Netty; the only module that pulls in Netty so an HTTP-only deployment carries
-/// no Netty dependency. Configure via [ClientConfig] (exporter) or [ServerConfig] (receiver).
+/// no Netty dependency. Configure via `ClientConfig` (exporter) or `ServerConfig` (receiver).
 @NullMarked
 package dev.nthings.otlp4j.transport.grpc;
 

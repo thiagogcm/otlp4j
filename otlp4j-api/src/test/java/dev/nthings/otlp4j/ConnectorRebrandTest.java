@@ -6,7 +6,7 @@ import dev.nthings.otlp4j.connector.Connectors;
 import dev.nthings.otlp4j.model.LogRecord;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.ConsumeResult;
-import dev.nthings.otlp4j.core.MetricSink;
+import dev.nthings.otlp4j.pipeline.MetricSink;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.DisplayName;

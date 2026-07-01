@@ -1,7 +1,7 @@
 package dev.nthings.otlp4j.processor;
 
 import dev.nthings.otlp4j.model.ConsumeResult;
-import dev.nthings.otlp4j.core.Sink;
+import dev.nthings.otlp4j.pipeline.Sink;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;

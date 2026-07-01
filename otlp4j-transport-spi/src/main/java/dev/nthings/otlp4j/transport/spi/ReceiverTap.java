@@ -4,7 +4,7 @@ import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.TracesData;
-import dev.nthings.otlp4j.core.Telemetry;
+import dev.nthings.otlp4j.receiver.Telemetry;
 import dev.nthings.otlp4j.receiver.TapOptions;
 import dev.nthings.otlp4j.receiver.TelemetryTap;
 import java.util.concurrent.Flow;

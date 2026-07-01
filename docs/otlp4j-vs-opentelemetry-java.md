@@ -85,10 +85,7 @@ OTLP4J provides a fluent pipeline for transforming, filtering, and branching dat
 Pipeline.from(receiver.traces())
     .transform(Transforms.keepSpansWhere(s -> s.kind() == Span.Kind.SERVER))
     .filter(t -> !t.spans().isEmpty())
-    .branch()
-        .fanOut(exporterA.traces())
-        .fanOut(exporterB.traces())
-    .join();
+    .to(FanOut.of(exporterA.traces(), exporterB.traces()));
 ```
 
 **Use cases:** multi-destination routing, data redaction/scrubbing, tenant routing, and dynamic telemetry splitting.

@@ -5,7 +5,7 @@ import java.util.List;
 import java.util.Objects;
 
 /// A data point for a [Metric.Summary]: a set of quantile values. Mirrors
-/// the [Summary] proto message.
+/// the `Summary` proto message.
 public record SummaryPoint(
         Attributes attributes,
         long startEpochNanos,

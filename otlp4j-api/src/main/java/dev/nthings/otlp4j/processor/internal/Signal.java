@@ -1,6 +1,6 @@
 package dev.nthings.otlp4j.processor.internal;
 
-import dev.nthings.otlp4j.core.Telemetry;
+import dev.nthings.otlp4j.receiver.Telemetry;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;

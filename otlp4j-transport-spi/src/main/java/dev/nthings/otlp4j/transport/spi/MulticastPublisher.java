@@ -1,6 +1,6 @@
 package dev.nthings.otlp4j.transport.spi;
 
-import dev.nthings.otlp4j.core.OverflowPolicy;
+import dev.nthings.otlp4j.processor.OverflowPolicy;
 import dev.nthings.otlp4j.receiver.TapOptions;
 import java.util.Objects;
 import java.util.concurrent.ArrayBlockingQueue;

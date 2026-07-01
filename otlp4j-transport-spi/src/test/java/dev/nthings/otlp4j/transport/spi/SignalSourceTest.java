@@ -3,7 +3,7 @@ package dev.nthings.otlp4j.transport.spi;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import dev.nthings.otlp4j.core.TraceSink;
+import dev.nthings.otlp4j.pipeline.TraceSink;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;

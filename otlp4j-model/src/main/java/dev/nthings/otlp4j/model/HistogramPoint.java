@@ -6,7 +6,7 @@ import java.util.Objects;
 import java.util.OptionalDouble;
 
 /// A data point for a [Metric.Histogram]: an explicit-bounds bucket distribution. Mirrors
-/// the [Histogram] proto message.
+/// the `Histogram` proto message.
 ///
 /// `bucketCounts` has exactly one more element than `explicitBounds` (or both are
 /// empty when only `count`/`sum` are known); this invariant is enforced at construction.

@@ -1,4 +1,4 @@
-package dev.nthings.otlp4j.core;
+package dev.nthings.otlp4j.pipeline;
 
 import dev.nthings.otlp4j.model.ConsumeResult;
 

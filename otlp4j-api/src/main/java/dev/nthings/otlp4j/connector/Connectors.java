@@ -1,9 +1,9 @@
 package dev.nthings.otlp4j.connector;
 
-import dev.nthings.otlp4j.core.LogSink;
-import dev.nthings.otlp4j.core.MetricSink;
-import dev.nthings.otlp4j.core.Sink;
-import dev.nthings.otlp4j.core.TraceSink;
+import dev.nthings.otlp4j.pipeline.LogSink;
+import dev.nthings.otlp4j.pipeline.MetricSink;
+import dev.nthings.otlp4j.pipeline.Sink;
+import dev.nthings.otlp4j.pipeline.TraceSink;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.TracesData;
 

@@ -1,4 +1,4 @@
-/// The OTLP/HTTP transport: [OtlpHttpExporter] and [OtlpHttpReceiver], built on `java.net.http` and
+/// The OTLP/HTTP transport: `OtlpHttpExporter` and `OtlpHttpReceiver`, built on `java.net.http` and
 /// `jdk.httpserver`. No gRPC or Netty dependency.
 module dev.nthings.otlp4j.transport.http {
     requires dev.nthings.otlp4j.model;

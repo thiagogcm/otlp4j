@@ -6,7 +6,7 @@ import java.util.Objects;
 import java.util.OptionalDouble;
 
 /// A data point for a [Metric.ExponentialHistogram]: a base-2 exponential bucket
-/// distribution. Mirrors the [ExponentialHistogram] proto message.
+/// distribution. Mirrors the `ExponentialHistogram` proto message.
 ///
 /// Prefer [#builder()] over the positional constructor.
 public record ExponentialHistogramPoint(

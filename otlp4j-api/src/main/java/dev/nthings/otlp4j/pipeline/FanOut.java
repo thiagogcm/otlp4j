@@ -1,6 +1,5 @@
 package dev.nthings.otlp4j.pipeline;
 
-import dev.nthings.otlp4j.core.Sink;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import java.util.ArrayList;
 import java.util.List;

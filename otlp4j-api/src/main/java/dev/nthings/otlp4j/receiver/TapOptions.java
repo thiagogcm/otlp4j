@@ -1,6 +1,6 @@
 package dev.nthings.otlp4j.receiver;
 
-import dev.nthings.otlp4j.core.OverflowPolicy;
+import dev.nthings.otlp4j.processor.OverflowPolicy;
 import java.util.Objects;
 
 /// Subscription options for a [TelemetryTap].

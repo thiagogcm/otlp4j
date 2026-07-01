@@ -9,8 +9,8 @@ import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.pipeline.FanOut;
 import dev.nthings.otlp4j.pipeline.Pipeline;
-import dev.nthings.otlp4j.core.Sink;
-import dev.nthings.otlp4j.core.TraceSink;
+import dev.nthings.otlp4j.pipeline.Sink;
+import dev.nthings.otlp4j.pipeline.TraceSink;
 import dev.nthings.otlp4j.processor.Transforms;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.time.Duration;
@@ -54,9 +54,9 @@ class PipelineTest {
                 .isInstanceOf(AttributeValue.StringValue.class);
     }
 
-    @DisplayName("branch() fans out each item to every peer consumer")
+    @DisplayName("FanOut.of fans out each item to every peer consumer")
     @Test
-    void branchFansOutToEveryPeer() {
+    void fanOutToEveryPeer() {
         var source = new ManualSource<TracesData>();
         var a = new AtomicInteger();
         var b = new AtomicInteger();
@@ -68,10 +68,7 @@ class PipelineTest {
             b.incrementAndGet();
             return ConsumeResult.acceptedStage();
         };
-        var sub = Pipeline.from(source).branch()
-                .fanOut(peerA)
-                .fanOut(peerB)
-                .join();
+        var sub = Pipeline.from(source).to(FanOut.of(peerA, peerB));
         try {
             source.dispatch(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER))).toCompletableFuture().join();
         } finally {
@@ -133,12 +130,12 @@ class PipelineTest {
         assertThat(FanOut.<TracesData>of(universalPeer).consume(batch).toCompletableFuture().join())
                 .isInstanceOf(ConsumeResult.Accepted.class);
 
-        // Stage.to and Branch.fanOut both accept the supertype sink.
+        // Stage.to accepts the supertype sink directly and via FanOut.of.
         // One consumer slot per ManualSource, so drive each path on its own source.
         var terminalSource = new ManualSource<TracesData>();
         var peerSource = new ManualSource<TracesData>();
         var terminalSub = Pipeline.from(terminalSource).to(universalTerminal);
-        var branchSub = Pipeline.from(peerSource).branch().fanOut(universalPeer).join();
+        var branchSub = Pipeline.from(peerSource).to(FanOut.of(universalPeer));
         try {
             assertThat(terminalSource.dispatch(batch).toCompletableFuture().join())
                     .isInstanceOf(ConsumeResult.Accepted.class);

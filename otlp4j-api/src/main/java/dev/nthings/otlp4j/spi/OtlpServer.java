@@ -1,6 +1,6 @@
 package dev.nthings.otlp4j.spi;
 
-import dev.nthings.otlp4j.core.Drainable;
+import dev.nthings.otlp4j.pipeline.Lifecycle;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.concurrent.CompletionStage;
@@ -10,7 +10,7 @@ import java.util.concurrent.CompletionStage;
 /// A receiver constructs one (passing a `ServerConfig` and the [Dispatchers] to invoke) and exposes
 /// it through `Receiver`/`OtlpGrpcReceiver`. Lifecycle methods return [CompletionStage] so the
 /// receiver can participate in pipeline shutdown without spawning threads.
-public interface OtlpServer extends Drainable {
+public interface OtlpServer extends Lifecycle {
 
     /// Starts listening on the host/port given in the `ServerConfig` the server was built with. Use
     /// port `0` for an ephemeral port; read it back with [#port()].

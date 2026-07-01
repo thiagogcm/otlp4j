@@ -1,11 +1,10 @@
 package dev.nthings.otlp4j.exporter;
 
-import dev.nthings.otlp4j.core.Drainable;
-import dev.nthings.otlp4j.core.ForceFlushable;
-import dev.nthings.otlp4j.core.LogSink;
-import dev.nthings.otlp4j.core.MetricSink;
-import dev.nthings.otlp4j.core.ProfileSink;
-import dev.nthings.otlp4j.core.TraceSink;
+import dev.nthings.otlp4j.pipeline.Lifecycle;
+import dev.nthings.otlp4j.pipeline.LogSink;
+import dev.nthings.otlp4j.pipeline.MetricSink;
+import dev.nthings.otlp4j.pipeline.ProfileSink;
+import dev.nthings.otlp4j.pipeline.TraceSink;
 
 /// A multi-signal OTLP exporter: one instance delivers all four signals to a single endpoint through
 /// typed facets.
@@ -17,8 +16,8 @@ import dev.nthings.otlp4j.core.TraceSink;
 /// ([#shutdown]/[#forceFlush]) also lives on the exporter itself; [#close()] it directly when a facet
 /// is used outside a pipeline. Build one with `OtlpGrpcExporter` / `OtlpHttpExporter`.
 ///
-/// [Exporter] is the single-signal terminal for a custom destination.
-public interface OtlpExporter extends Drainable, ForceFlushable {
+/// For a custom single-signal destination, implement `Sink` plus [Lifecycle] directly.
+public interface OtlpExporter extends Lifecycle {
 
     /// The trace export facet.
     TraceSink traces();

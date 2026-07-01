@@ -56,8 +56,7 @@ An unattached source returns a retryable `Rejected` so missing or late wiring is
 - `transform` rewrites one batch without changing its signal type.
 - `filter` acknowledges a batch as accepted without forwarding it when the predicate returns false.
 - `owns` registers an `AutoCloseable` (e.g. the exporter behind a count sink's downstream, or any resource reachable only behind a lambda) for the subscription to drain on shutdown and flush on `forceFlush`.
-- `branch` builds a concurrent `FanOut`; `join` attaches it.
-- `to` attaches one terminal consumer.
+- `to` attaches one terminal consumer; pass `FanOut.of(...)` to send the same batch to several peers concurrently.
 
 Fan-out sends the same immutable batch reference to every peer. If any peer rejects the batch, the merged result is rejected. Otherwise, partial rejection uses the largest rejected-item count rather than a sum because all peers saw the same input.
 

@@ -2,10 +2,10 @@ package dev.nthings.otlp4j.transport.http;
 
 import dev.nthings.otlp4j.config.ServerConfig;
 import dev.nthings.otlp4j.config.Tls;
-import dev.nthings.otlp4j.core.LogSink;
-import dev.nthings.otlp4j.core.MetricSink;
-import dev.nthings.otlp4j.core.ProfileSink;
-import dev.nthings.otlp4j.core.TraceSink;
+import dev.nthings.otlp4j.pipeline.LogSink;
+import dev.nthings.otlp4j.pipeline.MetricSink;
+import dev.nthings.otlp4j.pipeline.ProfileSink;
+import dev.nthings.otlp4j.pipeline.TraceSink;
 import dev.nthings.otlp4j.receiver.Receiver;
 import dev.nthings.otlp4j.transport.spi.ServerReceiver;
 import dev.nthings.otlp4j.transport.http.internal.HttpOtlpServer;

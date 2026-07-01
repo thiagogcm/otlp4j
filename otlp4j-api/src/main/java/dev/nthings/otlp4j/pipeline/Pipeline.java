@@ -1,8 +1,5 @@
 package dev.nthings.otlp4j.pipeline;
 
-import dev.nthings.otlp4j.core.Sink;
-import dev.nthings.otlp4j.core.Source;
-import dev.nthings.otlp4j.core.PipelineHandle;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import java.util.ArrayList;
 import java.util.List;
@@ -16,11 +13,11 @@ import org.jspecify.annotations.Nullable;
 
 /// Fluent builder for a per-signal consumer chain.
 ///
-/// `Pipeline.from(source)` opens a [Stage] that transforms or filters the batch,
-/// optionally fans it out, and is terminated by `.to(consumer)` or `.join()`
-/// (when a branch is already in play). The returned [PipelineHandle] owns the
-/// wiring: closing it detaches every leaf and releases any lifecycle resources
-/// attached along the way.
+/// `Pipeline.from(source)` opens a [Stage] that transforms or filters the batch and
+/// is terminated by `.to(consumer)`. To fan out to several peers, terminate with a
+/// [FanOut]: `.to(FanOut.of(a, b))`. The returned [PipelineHandle] owns the wiring:
+/// closing it detaches every leaf and releases any lifecycle resources attached
+/// along the way.
 public final class Pipeline {
 
     private Pipeline() {
@@ -51,42 +48,22 @@ public final class Pipeline {
         Stage<T> filter(Predicate<? super T> keep);
 
         /// Registers a lifecycle resource that the subscription drains on shutdown and flushes on
-        /// forceFlush if it is [ForceFlushable]. An escape hatch, needed only for a resource the
-        /// pipeline cannot see - hidden behind a lambda sink or a connector's downstream. Exporter
-        /// facets and other [AutoCloseable] terminals or fan-out peers are drained automatically.
+        /// forceFlush. An escape hatch, needed only for a resource the pipeline cannot see - hidden
+        /// behind a lambda sink or a connector's downstream. Exporter facets and other [AutoCloseable]
+        /// terminals or fan-out peers are drained automatically.
         ///
         /// @param resource the lifecycle resource
         /// @return this stage
         Stage<T> owns(AutoCloseable resource);
 
-        /// Opens a branch - subsequent [Branch#fanOut] calls add peers, [Branch#join] closes
-        /// the branch and returns the active subscription.
-        ///
-        /// @return the new branch
-        Branch<T> branch();
-
         /// Terminates the pipeline by delivering to `terminal`. An [AutoCloseable] terminal (such as
         /// an exporter facet or a batching processor) is drained automatically on shutdown; use
-        /// [#owns(AutoCloseable)] only for a resource the pipeline cannot see.
+        /// [#owns(AutoCloseable)] only for a resource the pipeline cannot see. To fan out, pass a
+        /// [FanOut]: `.to(FanOut.of(a, b))`.
         ///
         /// @param terminal the terminal sink
         /// @return the subscription handle
         PipelineHandle to(Sink<? super T> terminal);
-    }
-
-    /// A branch builder collecting peers for a fan-out.
-    public sealed interface Branch<T> permits BranchImpl {
-
-        /// Adds a peer consumer to the fan-out.
-        ///
-        /// @param peer the peer sink
-        /// @return this branch
-        Branch<T> fanOut(Sink<? super T> peer);
-
-        /// Closes the branch, attaches the fan-out to the source, and returns the subscription.
-        ///
-        /// @return the subscription handle
-        PipelineHandle join();
     }
 
     private static final class StageImpl<T> implements Stage<T> {
@@ -126,11 +103,6 @@ public final class Pipeline {
         }
 
         @Override
-        public Branch<T> branch() {
-            return new BranchImpl<>(this);
-        }
-
-        @Override
         public PipelineHandle to(Sink<? super T> terminal) {
             Objects.requireNonNull(terminal, "terminal");
             Sink<T> chain = batch -> {
@@ -150,30 +122,6 @@ public final class Pipeline {
             var leafResources = PipelineLifecycle.leafResources(terminal);
             return PipelineLifecycle.subscription(
                     source.subscribe(chain), PipelineLifecycle.combine(resources, leafResources));
-        }
-    }
-
-    private static final class BranchImpl<T> implements Branch<T> {
-
-        private final StageImpl<T> stage;
-        private final List<Sink<? super T>> peers = new ArrayList<>();
-
-        BranchImpl(StageImpl<T> stage) {
-            this.stage = stage;
-        }
-
-        @Override
-        public Branch<T> fanOut(Sink<? super T> peer) {
-            peers.add(Objects.requireNonNull(peer, "peer"));
-            return this;
-        }
-
-        @Override
-        public PipelineHandle join() {
-            if (peers.isEmpty()) {
-                throw new IllegalStateException("branch has no fanOut peers");
-            }
-            return stage.to(FanOut.of(peers));
         }
     }
 

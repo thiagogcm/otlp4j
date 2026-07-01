@@ -3,12 +3,15 @@ package dev.nthings.otlp4j;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import dev.nthings.otlp4j.core.LogSink;
-import dev.nthings.otlp4j.core.MetricSink;
-import dev.nthings.otlp4j.core.ProfileSink;
-import dev.nthings.otlp4j.core.Sink;
-import dev.nthings.otlp4j.core.TraceSink;
+import dev.nthings.otlp4j.pipeline.LogSink;
+import dev.nthings.otlp4j.pipeline.MetricSink;
+import dev.nthings.otlp4j.pipeline.ProfileSink;
+import dev.nthings.otlp4j.pipeline.Sink;
+import dev.nthings.otlp4j.pipeline.TraceSink;
 import dev.nthings.otlp4j.model.ConsumeResult;
+import dev.nthings.otlp4j.model.LogsData;
+import dev.nthings.otlp4j.model.MetricsData;
+import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.testing.Fixtures;
@@ -311,32 +314,20 @@ class SinkAdaptersTest {
                 rejected -> assertThat(rejected.cause()).isInstanceOf(NullPointerException.class));
     }
 
-    @DisplayName("per-signal factories narrow the return type to their SAM")
+    @DisplayName("a Sink adapts to the per-signal SAM the onTraces/... builders require via ::consume")
     @Test
-    void perSignalFactoriesNarrowToSam() {
-        // Compiles only because the factories return the SAM type the onTraces/... builders require.
-        TraceSink trace = TraceSink.accepting(batch -> {});
-        MetricSink metric = MetricSink.fromStage(batch -> CompletableFuture.completedFuture(null));
-        LogSink logs = LogSink.accepting(batch -> {});
-        ProfileSink profiles = ProfileSink.fromStage(batch -> CompletableFuture.completedFuture(null));
+    void sinkAdaptsToPerSignalSam() {
+        // Sink.accepting/fromStage return Sink<T>; a ::consume method reference narrows to the SAM type.
+        TraceSink trace = Sink.<TracesData>accepting(batch -> {})::consume;
+        MetricSink metric = Sink.<MetricsData>fromStage(batch -> CompletableFuture.completedFuture(null))::consume;
+        LogSink logs = Sink.<LogsData>accepting(batch -> {})::consume;
+        ProfileSink profiles = Sink.<ProfilesData>fromStage(batch -> CompletableFuture.completedFuture(null))::consume;
 
         assertThat(trace).isInstanceOf(TraceSink.class);
         assertThat(metric).isInstanceOf(MetricSink.class);
         assertThat(logs).isInstanceOf(LogSink.class);
         assertThat(profiles).isInstanceOf(ProfileSink.class);
         assertThat(consume(trace, BATCH)).isInstanceOf(ConsumeResult.Accepted.class);
-    }
-
-    @DisplayName("TraceSink.accepting carries the same throw-to-rejection mapping")
-    @Test
-    void traceSinkAcceptingMapsThrow() {
-        TraceSink sink = TraceSink.accepting(batch -> {
-            throw new IOException("nope");
-        });
-
-        CompletionStage<ConsumeResult<TracesData>> stage = sink.consume(BATCH);
-
-        assertThat(stage.toCompletableFuture().join()).isInstanceOf(ConsumeResult.Rejected.class);
     }
 
     private static <T> T sneakyThrow(Throwable failure) {
