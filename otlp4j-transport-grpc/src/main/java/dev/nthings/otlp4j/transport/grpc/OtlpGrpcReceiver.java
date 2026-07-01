@@ -2,10 +2,11 @@ package dev.nthings.otlp4j.transport.grpc;
 
 import dev.nthings.otlp4j.config.ServerConfig;
 import dev.nthings.otlp4j.config.Tls;
-import dev.nthings.otlp4j.pipeline.LogsSink;
-import dev.nthings.otlp4j.pipeline.MetricsSink;
-import dev.nthings.otlp4j.pipeline.ProfilesSink;
-import dev.nthings.otlp4j.pipeline.TracesSink;
+import dev.nthings.otlp4j.model.LogsData;
+import dev.nthings.otlp4j.model.MetricsData;
+import dev.nthings.otlp4j.model.ProfilesData;
+import dev.nthings.otlp4j.model.TracesData;
+import dev.nthings.otlp4j.pipeline.Sink;
 import dev.nthings.otlp4j.receiver.Receiver;
 import dev.nthings.otlp4j.transport.spi.ServerReceiver;
 import dev.nthings.otlp4j.transport.grpc.internal.GrpcOtlpServer;
@@ -29,10 +30,10 @@ public final class OtlpGrpcReceiver {
     public static final class Builder {
 
         private ServerConfig.Builder config = ServerConfig.builder();
-        private @Nullable TracesSink    traces;
-        private @Nullable MetricsSink   metrics;
-        private @Nullable LogsSink      logs;
-        private @Nullable ProfilesSink  profiles;
+        private @Nullable Sink<? super TracesData>   traces;
+        private @Nullable Sink<? super MetricsData>  metrics;
+        private @Nullable Sink<? super LogsData>     logs;
+        private @Nullable Sink<? super ProfilesData> profiles;
 
         private Builder() {}
 
@@ -88,22 +89,22 @@ public final class OtlpGrpcReceiver {
             return this;
         }
 
-        public Builder onTraces(TracesSink sink) {
+        public Builder onTraces(Sink<? super TracesData> sink) {
             this.traces = sink;
             return this;
         }
 
-        public Builder onMetrics(MetricsSink sink) {
+        public Builder onMetrics(Sink<? super MetricsData> sink) {
             this.metrics = sink;
             return this;
         }
 
-        public Builder onLogs(LogsSink sink) {
+        public Builder onLogs(Sink<? super LogsData> sink) {
             this.logs = sink;
             return this;
         }
 
-        public Builder onProfiles(ProfilesSink sink) {
+        public Builder onProfiles(Sink<? super ProfilesData> sink) {
             this.profiles = sink;
             return this;
         }

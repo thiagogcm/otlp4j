@@ -62,8 +62,8 @@ final class HttpExchangeHandlers {
     private static <REQ, SIG> HttpHandler handler(
             ProtoParser<REQ> parse,
             Function<REQ, SIG> toDomain,
-            Function<SIG, CompletionStage<ConsumeResult<SIG>>> dispatcher,
-            Function<ConsumeResult<SIG>, ? extends MessageLite> asResponse,
+            Function<SIG, CompletionStage<ConsumeResult>> dispatcher,
+            Function<ConsumeResult, ? extends MessageLite> asResponse,
             int maxBytes) {
         return exchange -> handle(exchange, parse, toDomain, dispatcher, asResponse, maxBytes);
     }
@@ -72,8 +72,8 @@ final class HttpExchangeHandlers {
             HttpExchange exchange,
             ProtoParser<REQ> parse,
             Function<REQ, SIG> toDomain,
-            Function<SIG, CompletionStage<ConsumeResult<SIG>>> dispatcher,
-            Function<ConsumeResult<SIG>, ? extends MessageLite> asResponse,
+            Function<SIG, CompletionStage<ConsumeResult>> dispatcher,
+            Function<ConsumeResult, ? extends MessageLite> asResponse,
             int maxBytes) throws IOException {
         try {
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
@@ -100,7 +100,7 @@ final class HttpExchangeHandlers {
                 return;
             }
 
-            ConsumeResult<SIG> result;
+            ConsumeResult result;
             try {
                 result = dispatcher.apply(toDomain.apply(request)).toCompletableFuture().join();
             } catch (CompletionException e) {
@@ -114,7 +114,7 @@ final class HttpExchangeHandlers {
                 return;
             }
 
-            if (result instanceof ConsumeResult.Rejected<SIG> rejected) {
+            if (result instanceof ConsumeResult.Rejected rejected) {
                 var status = DeliveryResults.httpStatus(rejected);
                 log.warn("OTLP/HTTP dispatcher rejected the whole batch; responding {}: {}",
                         status, rejected.message());

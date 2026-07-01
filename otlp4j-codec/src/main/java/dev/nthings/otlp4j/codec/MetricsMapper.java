@@ -219,7 +219,7 @@ public final class MetricsMapper {
     }
 
     /// Interprets an OTLP metrics export response as a [ConsumeResult].
-    public static ConsumeResult<MetricsData> result(ExportMetricsServiceResponse response) {
+    public static ConsumeResult result(ExportMetricsServiceResponse response) {
         var partial = response.getPartialSuccess();
         return CommonMapper.result(
                 response.hasPartialSuccess(), partial.getRejectedDataPoints(), partial.getErrorMessage());

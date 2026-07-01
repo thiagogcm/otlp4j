@@ -111,13 +111,13 @@ final class BatchDrainEngine<T> {
         }
     }
 
-    static CompletableFuture<Void> asDeliveryOutcome(ConsumeResult<?> result) {
+    static CompletableFuture<Void> asDeliveryOutcome(ConsumeResult result) {
         return switch (result) {
-            case ConsumeResult.Accepted<?> _ -> CompletableFuture.completedFuture(null);
-            case ConsumeResult.Partial<?> p ->
+            case ConsumeResult.Accepted _ -> CompletableFuture.completedFuture(null);
+            case ConsumeResult.Partial p ->
                 CompletableFuture.failedFuture(new BatchingProcessor.BatchDeliveryException(
                         "downstream partially rejected " + p.rejectedItems() + " item(s): " + p.message()));
-            case ConsumeResult.Rejected<?> r -> CompletableFuture.failedFuture(
+            case ConsumeResult.Rejected r -> CompletableFuture.failedFuture(
                     new BatchingProcessor.BatchDeliveryException("downstream rejected batch: " + r.message(),
                             r.cause()));
         };

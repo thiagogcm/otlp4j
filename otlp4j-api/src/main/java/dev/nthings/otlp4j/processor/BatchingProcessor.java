@@ -57,7 +57,7 @@ public final class BatchingProcessor<T> implements Sink<T>, Lifecycle {
     }
 
     @Override
-    public CompletionStage<ConsumeResult<T>> consume(T batch) {
+    public CompletionStage<ConsumeResult> consume(T batch) {
         if (closed.get()) {
             return CompletableFuture.completedFuture(ConsumeResult.retryable("batcher closed"));
         }

@@ -61,7 +61,7 @@ public final class LogsMapper {
     }
 
     /// Interprets an OTLP logs export response as a [ConsumeResult].
-    public static ConsumeResult<LogsData> result(ExportLogsServiceResponse response) {
+    public static ConsumeResult result(ExportLogsServiceResponse response) {
         var partial = response.getPartialSuccess();
         return CommonMapper.result(
                 response.hasPartialSuccess(), partial.getRejectedLogRecords(), partial.getErrorMessage());

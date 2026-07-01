@@ -93,7 +93,7 @@ public final class TraceMapper {
     }
 
     /// Interprets an OTLP trace export response as a [ConsumeResult].
-    public static ConsumeResult<TracesData> result(ExportTraceServiceResponse response) {
+    public static ConsumeResult result(ExportTraceServiceResponse response) {
         var partial = response.getPartialSuccess();
         return CommonMapper.result(
                 response.hasPartialSuccess(), partial.getRejectedSpans(), partial.getErrorMessage());

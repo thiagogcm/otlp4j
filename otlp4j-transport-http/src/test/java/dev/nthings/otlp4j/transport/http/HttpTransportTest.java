@@ -10,7 +10,7 @@ import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
-import dev.nthings.otlp4j.exporter.OtlpExporter;
+import dev.nthings.otlp4j.pipeline.OtlpExporter;
 import dev.nthings.otlp4j.receiver.Receiver;
 import dev.nthings.otlp4j.pipeline.Pipeline;
 import dev.nthings.otlp4j.processor.Transforms;
@@ -143,11 +143,11 @@ class HttpTransportTest {
                 .consume(new LogsData(List.of())).toCompletableFuture().join();
 
         assertThat(traceResult).isInstanceOf(ConsumeResult.Partial.class);
-        assertThat(((ConsumeResult.Partial<TracesData>) traceResult).rejectedItems()).isEqualTo(2L);
+        assertThat(((ConsumeResult.Partial) traceResult).rejectedItems()).isEqualTo(2L);
         assertThat(metricResult).isInstanceOf(ConsumeResult.Partial.class);
-        assertThat(((ConsumeResult.Partial<MetricsData>) metricResult).rejectedItems()).isEqualTo(5L);
+        assertThat(((ConsumeResult.Partial) metricResult).rejectedItems()).isEqualTo(5L);
         assertThat(logResult).isInstanceOf(ConsumeResult.Partial.class);
-        assertThat(((ConsumeResult.Partial<LogsData>) logResult).rejectedItems()).isEqualTo(3L);
+        assertThat(((ConsumeResult.Partial) logResult).rejectedItems()).isEqualTo(3L);
     }
 
     @DisplayName("A synchronously throwing dispatcher becomes a transport error (HTTP 500)")

@@ -89,6 +89,6 @@ class FanOutTest {
         var fan = FanOut.<TracesData>of(p1, p2);
         var result = fan.consume(new TracesData(List.of())).toCompletableFuture().join();
         assertThat(result).isInstanceOf(ConsumeResult.Partial.class);
-        assertThat(((ConsumeResult.Partial<TracesData>) result).rejectedItems()).isEqualTo(7L);
+        assertThat(((ConsumeResult.Partial) result).rejectedItems()).isEqualTo(7L);
     }
 }

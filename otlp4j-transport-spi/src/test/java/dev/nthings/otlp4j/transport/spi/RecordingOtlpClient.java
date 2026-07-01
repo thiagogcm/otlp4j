@@ -16,22 +16,22 @@ final class RecordingOtlpClient implements OtlpClient {
     final AtomicInteger closes = new AtomicInteger();
 
     @Override
-    public CompletionStage<ConsumeResult<TracesData>> exportTraces(TracesData t) {
+    public CompletionStage<ConsumeResult> exportTraces(TracesData t) {
         return ConsumeResult.acceptedStage();
     }
 
     @Override
-    public CompletionStage<ConsumeResult<MetricsData>> exportMetrics(MetricsData m) {
+    public CompletionStage<ConsumeResult> exportMetrics(MetricsData m) {
         return ConsumeResult.acceptedStage();
     }
 
     @Override
-    public CompletionStage<ConsumeResult<LogsData>> exportLogs(LogsData l) {
+    public CompletionStage<ConsumeResult> exportLogs(LogsData l) {
         return ConsumeResult.acceptedStage();
     }
 
     @Override
-    public CompletionStage<ConsumeResult<ProfilesData>> exportProfiles(ProfilesData p) {
+    public CompletionStage<ConsumeResult> exportProfiles(ProfilesData p) {
         return ConsumeResult.acceptedStage();
     }
 

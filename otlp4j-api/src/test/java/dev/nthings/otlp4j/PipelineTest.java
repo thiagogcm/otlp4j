@@ -162,7 +162,7 @@ class PipelineTest {
             var result = source.dispatch(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
                     .toCompletableFuture().join();
             assertThat(result).isInstanceOf(ConsumeResult.Rejected.class);
-            var rejected = (ConsumeResult.Rejected<TracesData>) result;
+            var rejected = (ConsumeResult.Rejected) result;
             // Non-null cause => permanent, not retryable.
             assertThat(rejected.cause()).isInstanceOf(RuntimeException.class).hasMessage("terminal exploded");
             assertThat(rejected.message()).contains("pipeline terminal threw");
@@ -182,7 +182,7 @@ class PipelineTest {
             var result = source.dispatch(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
                     .toCompletableFuture().join();
             assertThat(result).isInstanceOf(ConsumeResult.Rejected.class);
-            var rejected = (ConsumeResult.Rejected<TracesData>) result;
+            var rejected = (ConsumeResult.Rejected) result;
             assertThat(rejected.cause()).isInstanceOf(IllegalStateException.class).hasMessage("async boom");
             assertThat(rejected.message()).contains("pipeline terminal failed");
         } finally {

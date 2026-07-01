@@ -5,25 +5,23 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import org.jspecify.annotations.Nullable;
 
-/// The outcome of feeding one batch of signal `T` to a sink.
+/// The outcome of feeding one batch to a sink.
 ///
 /// Three variants map directly to OTLP partial-success semantics: [Accepted] for full success,
 /// [Partial] with an item-level rejection count and message, and [Rejected] for whole-batch
-/// failure. The `<T>` parameter prevents accidentally merging rejection counts across signals.
-///
-/// @param <T> the OTLP signal this result describes
-public sealed interface ConsumeResult<T> permits ConsumeResult.Accepted, ConsumeResult.Partial, ConsumeResult.Rejected {
+/// failure. Input safety is carried by `Sink<T>`; the result itself is signal-agnostic.
+public sealed interface ConsumeResult permits ConsumeResult.Accepted, ConsumeResult.Partial, ConsumeResult.Rejected {
 
     /// The downstream accepted every item.
-    record Accepted<T>() implements ConsumeResult<T> {
+    record Accepted() implements ConsumeResult {
 
-        private static final Accepted<?> INSTANCE = new Accepted<>();
+        private static final Accepted INSTANCE = new Accepted();
     }
 
     /// The downstream rejected `rejectedItems` items; `message` explains why.
     ///
     /// `rejectedItems` is always strictly positive - a zero-rejection partial is just [Accepted].
-    record Partial<T>(long rejectedItems, String message) implements ConsumeResult<T> {
+    record Partial(long rejectedItems, String message) implements ConsumeResult {
 
         public Partial {
             if (rejectedItems < 1) {
@@ -39,7 +37,7 @@ public sealed interface ConsumeResult<T> permits ConsumeResult.Accepted, Consume
     /// `503`, a permanent one to gRPC `INTERNAL` / HTTP `500`. `cause` is optional diagnostics,
     /// orthogonal to retryability and present or absent on either disposition. Prefer the
     /// [#retryable(String)] / [#permanent(String)] factories.
-    record Rejected<T>(boolean retryable, String message, @Nullable Throwable cause) implements ConsumeResult<T> {
+    record Rejected(boolean retryable, String message, @Nullable Throwable cause) implements ConsumeResult {
 
         public Rejected {
             message = message == null ? "" : message;
@@ -47,42 +45,41 @@ public sealed interface ConsumeResult<T> permits ConsumeResult.Accepted, Consume
     }
 
     /// Returns a shared [Accepted] result.
-    @SuppressWarnings("unchecked")
-    static <T> ConsumeResult<T> accepted() {
-        return (Accepted<T>) Accepted.INSTANCE;
+    static ConsumeResult accepted() {
+        return Accepted.INSTANCE;
     }
 
     /// Returns a [Partial] result with the given rejection count and message.
-    static <T> ConsumeResult<T> partial(long rejected, String message) {
-        return new Partial<>(rejected, message);
+    static ConsumeResult partial(long rejected, String message) {
+        return new Partial(rejected, message);
     }
 
     /// A whole-batch rejection the sender SHOULD retry (transient, e.g. a full queue). Maps to gRPC
     /// `UNAVAILABLE` / HTTP `503`.
-    static <T> ConsumeResult<T> retryable(String message) {
-        return new Rejected<>(true, message, null);
+    static ConsumeResult retryable(String message) {
+        return new Rejected(true, message, null);
     }
 
     /// A retryable rejection carrying a diagnostic `cause`, such as a briefly unreachable downstream.
     /// `cause` may be null when none is available.
-    static <T> ConsumeResult<T> retryable(String message, @Nullable Throwable cause) {
-        return new Rejected<>(true, message, cause);
+    static ConsumeResult retryable(String message, @Nullable Throwable cause) {
+        return new Rejected(true, message, cause);
     }
 
     /// A whole-batch rejection the sender MUST NOT retry (permanent, e.g. a policy or validation
     /// fault). Maps to gRPC `INTERNAL` / HTTP `500`.
-    static <T> ConsumeResult<T> permanent(String message) {
-        return new Rejected<>(false, message, null);
+    static ConsumeResult permanent(String message) {
+        return new Rejected(false, message, null);
     }
 
     /// A permanent rejection carrying the diagnostic `cause` that decided it. `cause` may be null
     /// when none is available.
-    static <T> ConsumeResult<T> permanent(String message, @Nullable Throwable cause) {
-        return new Rejected<>(false, message, cause);
+    static ConsumeResult permanent(String message, @Nullable Throwable cause) {
+        return new Rejected(false, message, cause);
     }
 
     /// Completed stage shorthand for [#accepted()].
-    static <T> CompletionStage<ConsumeResult<T>> acceptedStage() {
+    static CompletionStage<ConsumeResult> acceptedStage() {
         return CompletableFuture.completedFuture(accepted());
     }
 
@@ -96,18 +93,18 @@ public sealed interface ConsumeResult<T> permits ConsumeResult.Accepted, Consume
     ///     overstate the rejection from the original sender's viewpoint, since all peers saw the
     ///     same input.
     ///   - Non-empty messages are concatenated with `"; "` for diagnostics.
-    static <T> ConsumeResult<T> fanOutMerge(List<ConsumeResult<T>> peers) {
+    static ConsumeResult fanOutMerge(List<ConsumeResult> peers) {
         if (peers.isEmpty()) {
             return accepted();
         }
-        @Nullable Rejected<T> firstRejected = null;
+        @Nullable Rejected firstRejected = null;
         var anyPermanent = false;
         @Nullable Throwable cause = null;
         var maxRejected = 0L;
         @Nullable StringBuilder messages = null;
         for (var peer : peers) {
             switch (peer) {
-                case Rejected<T> r -> {
+                case Rejected r -> {
                     if (firstRejected == null) {
                         firstRejected = r;
                     }
@@ -119,23 +116,23 @@ public sealed interface ConsumeResult<T> permits ConsumeResult.Accepted, Consume
                     }
                     messages = appendMessage(messages, r.message());
                 }
-                case Partial<T>(var rejectedItems, var message) -> {
+                case Partial(var rejectedItems, var message) -> {
                     if (rejectedItems > maxRejected) {
                         maxRejected = rejectedItems;
                     }
                     messages = appendMessage(messages, message);
                 }
-                case Accepted<T> _ -> {}
+                case Accepted _ -> {}
             }
         }
         if (firstRejected != null) {
-            return new Rejected<>(
+            return new Rejected(
                     !anyPermanent, messages == null ? firstRejected.message() : messages.toString(), cause);
         }
         if (maxRejected == 0) {
             return accepted();
         }
-        return new Partial<>(maxRejected, messages == null ? "" : messages.toString());
+        return new Partial(maxRejected, messages == null ? "" : messages.toString());
     }
 
     private static @Nullable StringBuilder appendMessage(@Nullable StringBuilder buf, @Nullable String msg) {

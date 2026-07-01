@@ -13,13 +13,13 @@ import java.util.concurrent.CompletionStage;
 /// normally uses `OtlpGrpcExporter` rather than this SPI directly.
 public interface OtlpClient extends AutoCloseable {
 
-    CompletionStage<ConsumeResult<TracesData>>    exportTraces(TracesData traces);
+    CompletionStage<ConsumeResult>    exportTraces(TracesData traces);
 
-    CompletionStage<ConsumeResult<MetricsData>>  exportMetrics(MetricsData metrics);
+    CompletionStage<ConsumeResult>  exportMetrics(MetricsData metrics);
 
-    CompletionStage<ConsumeResult<LogsData>>     exportLogs(LogsData logs);
+    CompletionStage<ConsumeResult>     exportLogs(LogsData logs);
 
-    CompletionStage<ConsumeResult<ProfilesData>> exportProfiles(ProfilesData profiles);
+    CompletionStage<ConsumeResult> exportProfiles(ProfilesData profiles);
 
     /// Releases the client's transport resources.
     @Override

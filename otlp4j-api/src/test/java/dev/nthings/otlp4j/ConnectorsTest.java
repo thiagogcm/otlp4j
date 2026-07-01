@@ -3,8 +3,8 @@ package dev.nthings.otlp4j;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import dev.nthings.otlp4j.connector.Connectors;
-import dev.nthings.otlp4j.connector.FailurePolicy;
+import dev.nthings.otlp4j.processor.Connectors;
+import dev.nthings.otlp4j.processor.FailurePolicy;
 import dev.nthings.otlp4j.model.LogRecord;
 import dev.nthings.otlp4j.model.Metric;
 import dev.nthings.otlp4j.model.MetricsData;
@@ -106,7 +106,7 @@ class ConnectorsTest {
         var result = connector.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
                 .toCompletableFuture().join();
         assertThat(result).isInstanceOf(ConsumeResult.Rejected.class);
-        var rejected = (ConsumeResult.Rejected<TracesData>) result;
+        var rejected = (ConsumeResult.Rejected) result;
         // A downstream throw is a permanent rejection carrying the cause.
         assertThat(rejected.retryable()).isFalse();
         assertThat(rejected.cause()).isInstanceOf(RuntimeException.class).hasMessage("sink blew up");
@@ -133,7 +133,7 @@ class ConnectorsTest {
         var result = connector.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
                 .toCompletableFuture().join();
         assertThat(result).isInstanceOf(ConsumeResult.Rejected.class);
-        var rejected = (ConsumeResult.Rejected<TracesData>) result;
+        var rejected = (ConsumeResult.Rejected) result;
         assertThat(rejected.cause()).isInstanceOf(IllegalStateException.class).hasMessage("backend exploded");
     }
 

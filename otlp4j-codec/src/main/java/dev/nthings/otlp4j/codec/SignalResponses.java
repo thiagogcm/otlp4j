@@ -25,54 +25,54 @@ public final class SignalResponses {
 
     private SignalResponses() {}
 
-    public static ExportTraceServiceResponse traces(ConsumeResult<TracesData> result) {
+    public static ExportTraceServiceResponse traces(ConsumeResult result) {
         var resp = ExportTraceServiceResponse.newBuilder();
         switch (result) {
-            case ConsumeResult.Accepted<TracesData> _ -> { }
-            case ConsumeResult.Partial<TracesData>(var rejected, var message) ->
+            case ConsumeResult.Accepted _ -> { }
+            case ConsumeResult.Partial(var rejected, var message) ->
                     resp.setPartialSuccess(ExportTracePartialSuccess.newBuilder()
                             .setRejectedSpans(rejected)
                             .setErrorMessage(message));
-            case ConsumeResult.Rejected<TracesData> _ -> throw rejectedNotMapped();
+            case ConsumeResult.Rejected _ -> throw rejectedNotMapped();
         }
         return resp.build();
     }
 
-    public static ExportMetricsServiceResponse metrics(ConsumeResult<MetricsData> result) {
+    public static ExportMetricsServiceResponse metrics(ConsumeResult result) {
         var resp = ExportMetricsServiceResponse.newBuilder();
         switch (result) {
-            case ConsumeResult.Accepted<MetricsData> _ -> { }
-            case ConsumeResult.Partial<MetricsData>(var rejected, var message) ->
+            case ConsumeResult.Accepted _ -> { }
+            case ConsumeResult.Partial(var rejected, var message) ->
                     resp.setPartialSuccess(ExportMetricsPartialSuccess.newBuilder()
                             .setRejectedDataPoints(rejected)
                             .setErrorMessage(message));
-            case ConsumeResult.Rejected<MetricsData> _ -> throw rejectedNotMapped();
+            case ConsumeResult.Rejected _ -> throw rejectedNotMapped();
         }
         return resp.build();
     }
 
-    public static ExportLogsServiceResponse logs(ConsumeResult<LogsData> result) {
+    public static ExportLogsServiceResponse logs(ConsumeResult result) {
         var resp = ExportLogsServiceResponse.newBuilder();
         switch (result) {
-            case ConsumeResult.Accepted<LogsData> _ -> { }
-            case ConsumeResult.Partial<LogsData>(var rejected, var message) ->
+            case ConsumeResult.Accepted _ -> { }
+            case ConsumeResult.Partial(var rejected, var message) ->
                     resp.setPartialSuccess(ExportLogsPartialSuccess.newBuilder()
                             .setRejectedLogRecords(rejected)
                             .setErrorMessage(message));
-            case ConsumeResult.Rejected<LogsData> _ -> throw rejectedNotMapped();
+            case ConsumeResult.Rejected _ -> throw rejectedNotMapped();
         }
         return resp.build();
     }
 
-    public static ExportProfilesServiceResponse profiles(ConsumeResult<ProfilesData> result) {
+    public static ExportProfilesServiceResponse profiles(ConsumeResult result) {
         var resp = ExportProfilesServiceResponse.newBuilder();
         switch (result) {
-            case ConsumeResult.Accepted<ProfilesData> _ -> { }
-            case ConsumeResult.Partial<ProfilesData>(var rejected, var message) ->
+            case ConsumeResult.Accepted _ -> { }
+            case ConsumeResult.Partial(var rejected, var message) ->
                     resp.setPartialSuccess(ExportProfilesPartialSuccess.newBuilder()
                             .setRejectedProfiles(rejected)
                             .setErrorMessage(message));
-            case ConsumeResult.Rejected<ProfilesData> _ -> throw rejectedNotMapped();
+            case ConsumeResult.Rejected _ -> throw rejectedNotMapped();
         }
         return resp.build();
     }

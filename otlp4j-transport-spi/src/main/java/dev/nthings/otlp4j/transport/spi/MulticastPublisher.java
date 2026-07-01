@@ -25,20 +25,10 @@ final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoCloseable {
 
     private final CopyOnWriteArrayList<SubscriptionImpl<T>> subscriptions = new CopyOnWriteArrayList<>();
     private final LongAdder drops;
-    private volatile TapOptions options = TapOptions.defaults();
     private volatile boolean closed;
 
     public MulticastPublisher(LongAdder drops) {
         this.drops = Objects.requireNonNull(drops, "drops");
-    }
-
-    public void setOptions(TapOptions options) {
-        this.options = Objects.requireNonNull(options, "options");
-    }
-
-    /// True when at least one subscriber is currently attached.
-    public boolean hasSubscribers() {
-        return !subscriptions.isEmpty();
     }
 
     public void publish(T item) {
@@ -52,7 +42,14 @@ final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoCloseable {
 
     @Override
     public void subscribe(Flow.Subscriber<? super T> subscriber) {
+        subscribe(subscriber, TapOptions.defaults());
+    }
+
+    /// Subscribes with `options` bound to this subscription's buffer and overflow policy, so
+    /// configuration travels with the subscription instead of shared mutable tap state.
+    public void subscribe(Flow.Subscriber<? super T> subscriber, TapOptions options) {
         Objects.requireNonNull(subscriber, "subscriber");
+        Objects.requireNonNull(options, "options");
         if (closed) {
             subscriber.onSubscribe(NO_OP_SUBSCRIPTION);
             subscriber.onComplete();

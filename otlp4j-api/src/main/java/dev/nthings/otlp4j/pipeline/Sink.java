@@ -22,13 +22,14 @@ import org.jspecify.annotations.Nullable;
 /// implement the sink directly and return the [ConsumeResult] yourself.
 ///
 /// @param <T> the OTLP signal carried by this sink
+@FunctionalInterface
 public interface Sink<T> {
 
     /// Accepts one batch and returns a stage that completes when the batch has been processed.
     ///
     /// @param batch the signal batch
     /// @return a stage that completes when processed
-    CompletionStage<ConsumeResult<T>> consume(T batch);
+    CompletionStage<ConsumeResult> consume(T batch);
 
     /// Builds a sink from a synchronous action: normal return accepts the batch; a thrown exception
     /// becomes a permanent [ConsumeResult.Rejected] with that exception as its cause, unwrapped from
@@ -68,7 +69,7 @@ public interface Sink<T> {
             }
             return stage.handle((@Nullable Void ignored, @Nullable Throwable failure) -> {
                 if (failure == null) {
-                    return ConsumeResult.<T>accepted();
+                    return ConsumeResult.accepted();
                 }
                 return rejected(failure);
             });
@@ -82,7 +83,7 @@ public interface Sink<T> {
     }
 
     /// Maps a failure to a permanent rejection, rethrowing [Error].
-    private static <T> ConsumeResult<T> rejected(Throwable failure) {
+    private static ConsumeResult rejected(Throwable failure) {
         var cause = unwrap(failure);
         if (cause instanceof Error error) {
             throw error;
@@ -101,5 +102,17 @@ public interface Sink<T> {
             return failure.getCause();
         }
         return failure;
+    }
+
+    /// A side-effecting consumer of one signal batch that is allowed to throw.
+    ///
+    /// The lambda shape for [Sink#accepting(ThrowingConsumer)]: a normal return accepts the batch, a
+    /// thrown exception maps to a rejected [ConsumeResult].
+    ///
+    /// @param <T> the OTLP signal carried by this consumer
+    @FunctionalInterface
+    interface ThrowingConsumer<T> {
+
+        void accept(T batch) throws Exception;
     }
 }

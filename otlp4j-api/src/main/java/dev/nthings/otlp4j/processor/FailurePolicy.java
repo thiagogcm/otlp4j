@@ -1,4 +1,4 @@
-package dev.nthings.otlp4j.connector;
+package dev.nthings.otlp4j.processor;
 
 /// Whether a downstream failure of derived telemetry fails the input batch.
 public enum FailurePolicy {

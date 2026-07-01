@@ -12,7 +12,7 @@ import java.util.function.Function;
 /// Each returns a [CompletionStage] so the transport can hold the request open until the pipeline
 /// acknowledges (or partial-succeeds).
 public record Dispatchers(
-        Function<TracesData,    CompletionStage<ConsumeResult<TracesData>>>    traces,
-        Function<MetricsData,  CompletionStage<ConsumeResult<MetricsData>>>  metrics,
-        Function<LogsData,     CompletionStage<ConsumeResult<LogsData>>>     logs,
-        Function<ProfilesData, CompletionStage<ConsumeResult<ProfilesData>>> profiles) {}
+        Function<TracesData,    CompletionStage<ConsumeResult>>    traces,
+        Function<MetricsData,  CompletionStage<ConsumeResult>>  metrics,
+        Function<LogsData,     CompletionStage<ConsumeResult>>     logs,
+        Function<ProfilesData, CompletionStage<ConsumeResult>> profiles) {}

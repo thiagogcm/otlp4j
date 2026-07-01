@@ -108,28 +108,28 @@ public final class HttpOtlpClient implements OtlpClient {
     }
 
     @Override
-    public CompletionStage<ConsumeResult<TracesData>> exportTraces(TracesData traces) {
+    public CompletionStage<ConsumeResult> exportTraces(TracesData traces) {
         return CompletableFuture.supplyAsync(() -> export(
                 tracesUri, TraceMapper.toProto(traces).toByteArray(),
                 ExportTraceServiceResponse::parseFrom, TraceMapper::result), executor);
     }
 
     @Override
-    public CompletionStage<ConsumeResult<MetricsData>> exportMetrics(MetricsData metrics) {
+    public CompletionStage<ConsumeResult> exportMetrics(MetricsData metrics) {
         return CompletableFuture.supplyAsync(() -> export(
                 metricsUri, MetricsMapper.toProto(metrics).toByteArray(),
                 ExportMetricsServiceResponse::parseFrom, MetricsMapper::result), executor);
     }
 
     @Override
-    public CompletionStage<ConsumeResult<LogsData>> exportLogs(LogsData logs) {
+    public CompletionStage<ConsumeResult> exportLogs(LogsData logs) {
         return CompletableFuture.supplyAsync(() -> export(
                 logsUri, LogsMapper.toProto(logs).toByteArray(),
                 ExportLogsServiceResponse::parseFrom, LogsMapper::result), executor);
     }
 
     @Override
-    public CompletionStage<ConsumeResult<ProfilesData>> exportProfiles(ProfilesData profiles) {
+    public CompletionStage<ConsumeResult> exportProfiles(ProfilesData profiles) {
         return CompletableFuture.supplyAsync(() -> export(
                 profilesUri, ProfilesMapper.toProto(profiles).toByteArray(),
                 ExportProfilesServiceResponse::parseFrom, ProfilesMapper::result), executor);
@@ -138,8 +138,8 @@ public final class HttpOtlpClient implements OtlpClient {
     /// Sends `payload` to `uri`, retrying retryable statuses and IO errors within the [RetryPolicy]
     /// with exponential backoff. A 2xx response is parsed and mapped to [ConsumeResult]; any other
     /// outcome throws, mirroring the gRPC client where a non-OK status is an exception.
-    private <RESP, SIG> ConsumeResult<SIG> export(
-            URI uri, byte[] payload, ProtoParser<RESP> parse, Function<RESP, ConsumeResult<SIG>> toResult) {
+    private <RESP, SIG> ConsumeResult export(
+            URI uri, byte[] payload, ProtoParser<RESP> parse, Function<RESP, ConsumeResult> toResult) {
         var retry = config.retry();
         var maxAttempts = Math.max(1, retry.maxAttempts());
         var body = compress ? gzip(payload) : payload;

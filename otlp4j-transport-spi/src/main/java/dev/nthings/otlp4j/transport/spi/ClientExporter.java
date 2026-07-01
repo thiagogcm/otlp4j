@@ -5,7 +5,7 @@ import dev.nthings.otlp4j.pipeline.MetricsSink;
 import dev.nthings.otlp4j.pipeline.ProfilesSink;
 import dev.nthings.otlp4j.pipeline.TracesSink;
 import dev.nthings.otlp4j.pipeline.internal.SharedLifecycle;
-import dev.nthings.otlp4j.exporter.OtlpExporter;
+import dev.nthings.otlp4j.pipeline.OtlpExporter;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
@@ -159,28 +159,28 @@ public final class ClientExporter implements OtlpExporter, SharedLifecycle {
 
     private final class TracesFacet extends Facet implements TracesSink {
         @Override
-        public CompletionStage<ConsumeResult<TracesData>> consume(TracesData batch) {
+        public CompletionStage<ConsumeResult> consume(TracesData batch) {
             return client.exportTraces(batch);
         }
     }
 
     private final class MetricsFacet extends Facet implements MetricsSink {
         @Override
-        public CompletionStage<ConsumeResult<MetricsData>> consume(MetricsData batch) {
+        public CompletionStage<ConsumeResult> consume(MetricsData batch) {
             return client.exportMetrics(batch);
         }
     }
 
     private final class LogsFacet extends Facet implements LogsSink {
         @Override
-        public CompletionStage<ConsumeResult<LogsData>> consume(LogsData batch) {
+        public CompletionStage<ConsumeResult> consume(LogsData batch) {
             return client.exportLogs(batch);
         }
     }
 
     private final class ProfilesFacet extends Facet implements ProfilesSink {
         @Override
-        public CompletionStage<ConsumeResult<ProfilesData>> consume(ProfilesData batch) {
+        public CompletionStage<ConsumeResult> consume(ProfilesData batch) {
             return client.exportProfiles(batch);
         }
     }

@@ -6,7 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
-import dev.nthings.otlp4j.exporter.OtlpExporter;
+import dev.nthings.otlp4j.pipeline.OtlpExporter;
 import dev.nthings.otlp4j.receiver.Receiver;
 import dev.nthings.otlp4j.config.ClientConfig;
 import dev.nthings.otlp4j.config.Compression;

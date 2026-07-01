@@ -68,7 +68,7 @@ public final class ProfilesMapper {
     }
 
     /// Interprets an OTLP profiles export response as a [ConsumeResult].
-    public static ConsumeResult<ProfilesData> result(ExportProfilesServiceResponse response) {
+    public static ConsumeResult result(ExportProfilesServiceResponse response) {
         var partial = response.getPartialSuccess();
         return CommonMapper.result(
                 response.hasPartialSuccess(), partial.getRejectedProfiles(), partial.getErrorMessage());

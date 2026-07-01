@@ -5,6 +5,6 @@ import dev.nthings.otlp4j.model.TracesData;
 /// A [Sink] specialised for trace batches.
 ///
 /// Build one from a lambda, or from a plain consumer or stage-returning function via
-/// [Sink#accepting(ThrowingConsumer)] and [Sink#fromStage(java.util.function.Function)].
+/// [Sink#accepting(Sink.ThrowingConsumer)] and [Sink#fromStage(java.util.function.Function)].
 @FunctionalInterface
 public interface TracesSink extends Sink<TracesData> {}

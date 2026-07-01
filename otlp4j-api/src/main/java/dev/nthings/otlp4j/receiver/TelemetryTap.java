@@ -8,31 +8,36 @@ import java.util.concurrent.Flow;
 
 /// A live, non-blocking side-channel that emits a copy of every batch a receiver accepts.
 ///
-/// Tap subscribers are independent of the in-pipeline path: a tap subscriber that lags never
-/// affects the OTLP acknowledgement sent back to senders. Each `Flow.Publisher` returned by
-/// this interface multicasts to its subscribers with per-subscription back-pressure controlled
-/// by the [TapOptions] passed at subscription time.
+/// Tap subscribers are independent of the in-pipeline path: a lagging tap subscriber never affects
+/// the OTLP acknowledgement sent back to senders. Each `Flow.Publisher` multicasts with
+/// per-subscription back-pressure. The no-arg publishers use [TapOptions#defaults()]; the
+/// [TapOptions] overloads bind buffer size and overflow policy to that publisher's next
+/// subscription, so options travel with the subscription instead of shared tap state.
 public interface TelemetryTap {
 
-    /// Live trace batches.
-    Flow.Publisher<TracesData>    traces();
+    /// Live trace batches under [TapOptions#defaults()].
+    Flow.Publisher<TracesData> traces();
 
-    /// Live metric batches.
-    Flow.Publisher<MetricsData>  metrics();
+    /// Live trace batches; `options` bind to the next subscription.
+    Flow.Publisher<TracesData> traces(TapOptions options);
 
-    /// Live log batches.
-    Flow.Publisher<LogsData>     logs();
+    /// Live metric batches under [TapOptions#defaults()].
+    Flow.Publisher<MetricsData> metrics();
 
-    /// Live profile batches.
+    /// Live metric batches; `options` bind to the next subscription.
+    Flow.Publisher<MetricsData> metrics(TapOptions options);
+
+    /// Live log batches under [TapOptions#defaults()].
+    Flow.Publisher<LogsData> logs();
+
+    /// Live log batches; `options` bind to the next subscription.
+    Flow.Publisher<LogsData> logs(TapOptions options);
+
+    /// Live profile batches under [TapOptions#defaults()].
     Flow.Publisher<ProfilesData> profiles();
 
-    /// All four signals through a single sealed envelope.
-    Flow.Publisher<Telemetry>    all();
-
-    /// Tap subscription options used by the next `subscribe(...)` call on any publisher returned
-    /// from this tap. Calls are thread-safe but not transactional; setting a value affects only
-    /// subscriptions registered after the call.
-    void setOptions(TapOptions options);
+    /// Live profile batches; `options` bind to the next subscription.
+    Flow.Publisher<ProfilesData> profiles(TapOptions options);
 
     /// Total number of batches dropped across every tap publisher since the receiver started.
     long droppedCount();

@@ -95,25 +95,25 @@ public final class GrpcOtlpClient implements OtlpClient {
     }
 
     @Override
-    public CompletionStage<ConsumeResult<TracesData>> exportTraces(TracesData traces) {
+    public CompletionStage<ConsumeResult> exportTraces(TracesData traces) {
         return CompletableFuture.supplyAsync(
                 () -> TraceMapper.result(call(traceStub).export(TraceMapper.toProto(traces))), executor);
     }
 
     @Override
-    public CompletionStage<ConsumeResult<MetricsData>> exportMetrics(MetricsData metrics) {
+    public CompletionStage<ConsumeResult> exportMetrics(MetricsData metrics) {
         return CompletableFuture.supplyAsync(
                 () -> MetricsMapper.result(call(metricsStub).export(MetricsMapper.toProto(metrics))), executor);
     }
 
     @Override
-    public CompletionStage<ConsumeResult<LogsData>> exportLogs(LogsData logs) {
+    public CompletionStage<ConsumeResult> exportLogs(LogsData logs) {
         return CompletableFuture.supplyAsync(
                 () -> LogsMapper.result(call(logsStub).export(LogsMapper.toProto(logs))), executor);
     }
 
     @Override
-    public CompletionStage<ConsumeResult<ProfilesData>> exportProfiles(ProfilesData profiles) {
+    public CompletionStage<ConsumeResult> exportProfiles(ProfilesData profiles) {
         return CompletableFuture.supplyAsync(
                 () -> ProfilesMapper.result(call(profilesStub).export(ProfilesMapper.toProto(profiles))), executor);
     }

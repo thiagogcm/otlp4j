@@ -1,10 +1,7 @@
 package dev.nthings.otlp4j.transport.spi;
 
-import dev.nthings.otlp4j.pipeline.LogsSink;
-import dev.nthings.otlp4j.pipeline.MetricsSink;
-import dev.nthings.otlp4j.pipeline.ProfilesSink;
+import dev.nthings.otlp4j.pipeline.Sink;
 import dev.nthings.otlp4j.pipeline.Source;
-import dev.nthings.otlp4j.pipeline.TracesSink;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
@@ -43,10 +40,10 @@ public final class ServerReceiver implements Receiver {
     public ServerReceiver(
             String transportName,
             Function<Dispatchers, OtlpServer> serverFactory,
-            @Nullable TracesSink onTraces,
-            @Nullable MetricsSink onMetrics,
-            @Nullable LogsSink onLogs,
-            @Nullable ProfilesSink onProfiles) {
+            @Nullable Sink<? super TracesData> onTraces,
+            @Nullable Sink<? super MetricsData> onMetrics,
+            @Nullable Sink<? super LogsData> onLogs,
+            @Nullable Sink<? super ProfilesData> onProfiles) {
         this.transportName = transportName;
         var dispatchers = new Dispatchers(
                 this::dispatchTraces,
@@ -106,22 +103,22 @@ public final class ServerReceiver implements Receiver {
         return server.shutdownNow();
     }
 
-    private CompletionStage<ConsumeResult<TracesData>> dispatchTraces(TracesData batch) {
+    private CompletionStage<ConsumeResult> dispatchTraces(TracesData batch) {
         tap.publishTraces(batch);
         return traces.dispatch(batch);
     }
 
-    private CompletionStage<ConsumeResult<MetricsData>> dispatchMetrics(MetricsData batch) {
+    private CompletionStage<ConsumeResult> dispatchMetrics(MetricsData batch) {
         tap.publishMetrics(batch);
         return metrics.dispatch(batch);
     }
 
-    private CompletionStage<ConsumeResult<LogsData>> dispatchLogs(LogsData batch) {
+    private CompletionStage<ConsumeResult> dispatchLogs(LogsData batch) {
         tap.publishLogs(batch);
         return logs.dispatch(batch);
     }
 
-    private CompletionStage<ConsumeResult<ProfilesData>> dispatchProfiles(ProfilesData batch) {
+    private CompletionStage<ConsumeResult> dispatchProfiles(ProfilesData batch) {
         tap.publishProfiles(batch);
         return profiles.dispatch(batch);
     }

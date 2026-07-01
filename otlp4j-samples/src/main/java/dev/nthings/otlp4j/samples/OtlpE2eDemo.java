@@ -1,7 +1,7 @@
 package dev.nthings.otlp4j.samples;
 
-import dev.nthings.otlp4j.connector.Connectors;
-import dev.nthings.otlp4j.exporter.OtlpExporter;
+import dev.nthings.otlp4j.processor.Connectors;
+import dev.nthings.otlp4j.pipeline.OtlpExporter;
 import dev.nthings.otlp4j.receiver.Receiver;
 import dev.nthings.otlp4j.model.AttributeValue;
 import dev.nthings.otlp4j.model.Attributes;

@@ -1,6 +1,5 @@
 package dev.nthings.otlp4j.processor.internal;
 
-import dev.nthings.otlp4j.receiver.Telemetry;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
@@ -44,16 +43,6 @@ public enum Signal {
     @SuppressWarnings("unchecked")
     public <T> long itemCount(T batch) {
         return ((ToLongFunction<T>) itemCounter).applyAsLong(batch);
-    }
-
-    /// Wraps a batch in the matching [Telemetry] envelope.
-    public Telemetry envelope(Object batch) {
-        return switch (this) {
-            case TRACES -> new Telemetry.Traces((TracesData) batch);
-            case METRICS -> new Telemetry.Metrics((MetricsData) batch);
-            case LOGS -> new Telemetry.Logs((LogsData) batch);
-            case PROFILES -> new Telemetry.Profiles((ProfilesData) batch);
-        };
     }
 
     @FunctionalInterface

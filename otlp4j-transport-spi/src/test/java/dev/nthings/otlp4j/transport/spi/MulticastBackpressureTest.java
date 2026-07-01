@@ -24,9 +24,8 @@ class MulticastBackpressureTest {
     void dropOldestEvictsOlderItems() {
         var drops = new LongAdder();
         var pub = new MulticastPublisher<Integer>(drops);
-        pub.setOptions(new TapOptions(OverflowPolicy.DROP_OLDEST, 2));
         try {
-            pub.subscribe(FlowSubscribers.noOp());
+            pub.subscribe(FlowSubscribers.noOp(), new TapOptions(OverflowPolicy.DROP_OLDEST, 2));
             for (var i = 0; i < 10; i++) {
                 pub.publish(i);
             }
@@ -41,7 +40,6 @@ class MulticastBackpressureTest {
     void errorStrategySignalsViaOnError() {
         var drops = new LongAdder();
         var pub = new MulticastPublisher<Integer>(drops);
-        pub.setOptions(new TapOptions(OverflowPolicy.FAIL, 1));
         try {
             var error = new AtomicReference<Throwable>();
             pub.subscribe(new Flow.Subscriber<>() {
@@ -49,7 +47,7 @@ class MulticastBackpressureTest {
                 @Override public void onNext(Integer item) {}
                 @Override public void onError(Throwable t) { error.set(t); }
                 @Override public void onComplete() {}
-            });
+            }, new TapOptions(OverflowPolicy.FAIL, 1));
             for (var i = 0; i < 10; i++) {
                 pub.publish(i);
             }
@@ -65,7 +63,6 @@ class MulticastBackpressureTest {
     void blockStrategyEventuallyDelivers() {
         var drops = new LongAdder();
         var pub = new MulticastPublisher<Integer>(drops);
-        pub.setOptions(new TapOptions(OverflowPolicy.BLOCK, 2));
         try {
             var sink = new CopyOnWriteArrayList<Integer>();
             pub.subscribe(new Flow.Subscriber<>() {
@@ -81,7 +78,7 @@ class MulticastBackpressureTest {
                 }
                 @Override public void onError(Throwable t) {}
                 @Override public void onComplete() {}
-            });
+            }, new TapOptions(OverflowPolicy.BLOCK, 2));
             for (var i = 0; i < 6; i++) {
                 pub.publish(i);
             }
@@ -98,17 +95,16 @@ class MulticastBackpressureTest {
     void blockHonoursBoundedDemand() {
         var drops = new LongAdder();
         var pub = new MulticastPublisher<Integer>(drops);
-        // Buffer > publish count so only demand can gate delivery; the old BLOCK bypass delivered all.
-        pub.setOptions(new TapOptions(OverflowPolicy.BLOCK, 16));
         try {
             var sink = new CopyOnWriteArrayList<Integer>();
             var subRef = new AtomicReference<Flow.Subscription>();
+            // Buffer > publish count so only demand can gate delivery; the old BLOCK bypass delivered all.
             pub.subscribe(new Flow.Subscriber<>() {
                 @Override public void onSubscribe(Flow.Subscription s) { subRef.set(s); s.request(2); }
                 @Override public void onNext(Integer item) { sink.add(item); }
                 @Override public void onError(Throwable t) {}
                 @Override public void onComplete() {}
-            });
+            }, new TapOptions(OverflowPolicy.BLOCK, 16));
             for (var i = 0; i < 5; i++) {
                 pub.publish(i);
             }
@@ -136,7 +132,6 @@ class MulticastBackpressureTest {
     void cancelReleasesBlockedBlockProducer() throws InterruptedException {
         var drops = new LongAdder();
         var pub = new MulticastPublisher<Integer>(drops);
-        pub.setOptions(new TapOptions(OverflowPolicy.BLOCK, 1));
         var subRef = new AtomicReference<Flow.Subscription>();
         // Subscriber never requests, so the demand-gated dispatcher never drains the queue.
         pub.subscribe(new Flow.Subscriber<>() {
@@ -144,7 +139,7 @@ class MulticastBackpressureTest {
             @Override public void onNext(Integer item) {}
             @Override public void onError(Throwable t) {}
             @Override public void onComplete() {}
-        });
+        }, new TapOptions(OverflowPolicy.BLOCK, 1));
         await().atMost(Duration.ofSeconds(2)).until(() -> subRef.get() != null);
 
         var producerReturned = new AtomicBoolean();

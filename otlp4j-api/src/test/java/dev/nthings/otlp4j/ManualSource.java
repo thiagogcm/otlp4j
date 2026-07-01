@@ -27,7 +27,7 @@ final class ManualSource<T> implements Source<T> {
     }
 
     /// Feeds a batch to the attached consumer, or completes with [ConsumeResult#acceptedStage()] when unattached.
-    CompletionStage<ConsumeResult<T>> dispatch(T batch) {
+    CompletionStage<ConsumeResult> dispatch(T batch) {
         var c = attached.get();
         if (c == null) {
             return ConsumeResult.acceptedStage();

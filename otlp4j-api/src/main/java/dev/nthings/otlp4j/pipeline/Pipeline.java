@@ -125,17 +125,17 @@ public final class Pipeline {
         }
     }
 
-    private static <T> CompletionStage<ConsumeResult<T>> deliver(Sink<? super T> terminal, T batch) {
-        CompletionStage<? extends ConsumeResult<?>> stage;
+    private static <T> CompletionStage<ConsumeResult> deliver(Sink<? super T> terminal, T batch) {
+        CompletionStage<ConsumeResult> stage;
         try {
             stage = Objects.requireNonNull(terminal.consume(batch), "terminal returned a null stage");
         } catch (Throwable e) {
             return CompletableFuture.completedFuture(rejectedTerminal("pipeline terminal threw", e));
         }
-        return Pipeline.<T>retag(stage).exceptionally(t -> rejectedTerminal("pipeline terminal failed", t));
+        return stage.exceptionally(t -> rejectedTerminal("pipeline terminal failed", t));
     }
 
-    private static <T> ConsumeResult<T> rejectedTerminal(String prefix, Throwable failure) {
+    private static ConsumeResult rejectedTerminal(String prefix, Throwable failure) {
         var cause = failure instanceof CompletionException && failure.getCause() != null
                 ? failure.getCause()
                 : failure;
@@ -146,10 +146,5 @@ public final class Pipeline {
             Thread.currentThread().interrupt();
         }
         return ConsumeResult.permanent(prefix + ": " + cause, cause);
-    }
-
-    @SuppressWarnings("unchecked")
-    private static <T> CompletionStage<ConsumeResult<T>> retag(CompletionStage<? extends ConsumeResult<?>> stage) {
-        return (CompletionStage<ConsumeResult<T>>) stage;
     }
 }

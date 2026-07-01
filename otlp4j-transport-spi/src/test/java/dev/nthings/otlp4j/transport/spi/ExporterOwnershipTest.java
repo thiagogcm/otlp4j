@@ -2,7 +2,7 @@ package dev.nthings.otlp4j.transport.spi;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import dev.nthings.otlp4j.connector.Connectors;
+import dev.nthings.otlp4j.processor.Connectors;
 import dev.nthings.otlp4j.pipeline.FanOut;
 import dev.nthings.otlp4j.pipeline.Lifecycle;
 import dev.nthings.otlp4j.model.MetricsData;

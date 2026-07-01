@@ -102,7 +102,7 @@ class MapperEdgeCaseTest {
         var result = TraceMapper.result(response);
 
         assertThat(result).isInstanceOf(ConsumeResult.Partial.class);
-        var p = (ConsumeResult.Partial<?>) result;
+        var p = (ConsumeResult.Partial) result;
         assertThat(p.rejectedItems()).isEqualTo(2);
         assertThat(p.message()).isEqualTo("2 spans malformed");
     }
@@ -133,7 +133,7 @@ class MapperEdgeCaseTest {
                         .setErrorMessage("3 records rejected"))
                 .build());
         assertThat(withCount).isInstanceOf(ConsumeResult.Partial.class);
-        var p = (ConsumeResult.Partial<?>) withCount;
+        var p = (ConsumeResult.Partial) withCount;
         assertThat(p.rejectedItems()).isEqualTo(3);
         assertThat(p.message()).isEqualTo("3 records rejected");
 
@@ -142,7 +142,7 @@ class MapperEdgeCaseTest {
                         .setErrorMessage("log warning"))
                 .build());
         assertThat(messageOnly).isInstanceOf(ConsumeResult.Rejected.class);
-        var r = (ConsumeResult.Rejected<?>) messageOnly;
+        var r = (ConsumeResult.Rejected) messageOnly;
         assertThat(r.message()).isEqualTo("log warning");
     }
 
@@ -165,7 +165,7 @@ class MapperEdgeCaseTest {
 
         var result = TraceMapper.result(response);
         assertThat(result).isInstanceOf(ConsumeResult.Rejected.class);
-        assertThat(((ConsumeResult.Rejected<?>) result).message()).isEqualTo("warning: clock skew detected");
+        assertThat(((ConsumeResult.Rejected) result).message()).isEqualTo("warning: clock skew detected");
     }
 
     @DisplayName("MetricsMapper.result maps partial_success to Accepted, Partial, or Rejected")
@@ -185,7 +185,7 @@ class MapperEdgeCaseTest {
                         .setErrorMessage("7 points rejected"))
                 .build());
         assertThat(withCount).isInstanceOf(ConsumeResult.Partial.class);
-        var p = (ConsumeResult.Partial<?>) withCount;
+        var p = (ConsumeResult.Partial) withCount;
         assertThat(p.rejectedItems()).isEqualTo(7);
         assertThat(p.message()).isEqualTo("7 points rejected");
 
@@ -213,7 +213,7 @@ class MapperEdgeCaseTest {
                         .setErrorMessage("4 profiles rejected"))
                 .build());
         assertThat(withCount).isInstanceOf(ConsumeResult.Partial.class);
-        var p = (ConsumeResult.Partial<?>) withCount;
+        var p = (ConsumeResult.Partial) withCount;
         assertThat(p.rejectedItems()).isEqualTo(4);
 
         var messageOnly = ProfilesMapper.result(ExportProfilesServiceResponse.newBuilder()

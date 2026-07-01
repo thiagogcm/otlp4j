@@ -70,9 +70,9 @@ final class GrpcServiceAdapters {
             REQ request,
             StreamObserver<RESP> observer,
             Function<REQ, SIG> toDomain,
-            Function<SIG, CompletionStage<ConsumeResult<SIG>>> dispatcher,
-            Function<ConsumeResult<SIG>, RESP> asResponse) {
-        CompletionStage<ConsumeResult<SIG>> stage;
+            Function<SIG, CompletionStage<ConsumeResult>> dispatcher,
+            Function<ConsumeResult, RESP> asResponse) {
+        CompletionStage<ConsumeResult> stage;
         try {
             stage = dispatcher.apply(toDomain.apply(request));
         } catch (RuntimeException e) {
@@ -87,8 +87,8 @@ final class GrpcServiceAdapters {
     /// response or to an INTERNAL error.
     static <SIG, RESP> void respond(
             StreamObserver<RESP> observer,
-            CompletionStage<ConsumeResult<SIG>> stage,
-            Function<ConsumeResult<SIG>, RESP> mapResult) {
+            CompletionStage<ConsumeResult> stage,
+            Function<ConsumeResult, RESP> mapResult) {
         stage.whenComplete((result, error) -> {
             if (error != null) {
                 log.warn("dispatcher failed; responding with gRPC INTERNAL", error);
@@ -98,7 +98,7 @@ final class GrpcServiceAdapters {
                         .asRuntimeException());
                 return;
             }
-            if (result instanceof ConsumeResult.Rejected<SIG>(var retryable, var message, var cause)) {
+            if (result instanceof ConsumeResult.Rejected(var retryable, var message, var cause)) {
                 var status = retryable ? Status.UNAVAILABLE : Status.INTERNAL;
                 if (cause != null) {
                     status = status.withCause(cause);
@@ -123,9 +123,9 @@ final class GrpcServiceAdapters {
 
 final class TraceServiceAdapter extends TraceServiceGrpc.TraceServiceImplBase {
 
-    private final Function<TracesData, CompletionStage<ConsumeResult<TracesData>>> dispatcher;
+    private final Function<TracesData, CompletionStage<ConsumeResult>> dispatcher;
 
-    TraceServiceAdapter(Function<TracesData, CompletionStage<ConsumeResult<TracesData>>> dispatcher) {
+    TraceServiceAdapter(Function<TracesData, CompletionStage<ConsumeResult>> dispatcher) {
         this.dispatcher = dispatcher;
     }
 
@@ -140,9 +140,9 @@ final class TraceServiceAdapter extends TraceServiceGrpc.TraceServiceImplBase {
 
 final class MetricsServiceAdapter extends MetricsServiceGrpc.MetricsServiceImplBase {
 
-    private final Function<MetricsData, CompletionStage<ConsumeResult<MetricsData>>> dispatcher;
+    private final Function<MetricsData, CompletionStage<ConsumeResult>> dispatcher;
 
-    MetricsServiceAdapter(Function<MetricsData, CompletionStage<ConsumeResult<MetricsData>>> dispatcher) {
+    MetricsServiceAdapter(Function<MetricsData, CompletionStage<ConsumeResult>> dispatcher) {
         this.dispatcher = dispatcher;
     }
 
@@ -157,9 +157,9 @@ final class MetricsServiceAdapter extends MetricsServiceGrpc.MetricsServiceImplB
 
 final class LogsServiceAdapter extends LogsServiceGrpc.LogsServiceImplBase {
 
-    private final Function<LogsData, CompletionStage<ConsumeResult<LogsData>>> dispatcher;
+    private final Function<LogsData, CompletionStage<ConsumeResult>> dispatcher;
 
-    LogsServiceAdapter(Function<LogsData, CompletionStage<ConsumeResult<LogsData>>> dispatcher) {
+    LogsServiceAdapter(Function<LogsData, CompletionStage<ConsumeResult>> dispatcher) {
         this.dispatcher = dispatcher;
     }
 
@@ -174,9 +174,9 @@ final class LogsServiceAdapter extends LogsServiceGrpc.LogsServiceImplBase {
 
 final class ProfilesServiceAdapter extends ProfilesServiceGrpc.ProfilesServiceImplBase {
 
-    private final Function<ProfilesData, CompletionStage<ConsumeResult<ProfilesData>>> dispatcher;
+    private final Function<ProfilesData, CompletionStage<ConsumeResult>> dispatcher;
 
-    ProfilesServiceAdapter(Function<ProfilesData, CompletionStage<ConsumeResult<ProfilesData>>> dispatcher) {
+    ProfilesServiceAdapter(Function<ProfilesData, CompletionStage<ConsumeResult>> dispatcher) {
         this.dispatcher = dispatcher;
     }
 

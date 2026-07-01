@@ -16,9 +16,7 @@ module dev.nthings.otlp4j.api {
     // Shared-lifecycle wiring the bundled transports' ClientExporter hooks into; not public surface.
     exports dev.nthings.otlp4j.pipeline.internal to dev.nthings.otlp4j.transport.spi;
     exports dev.nthings.otlp4j.receiver;
-    exports dev.nthings.otlp4j.exporter;
     exports dev.nthings.otlp4j.processor;
-    exports dev.nthings.otlp4j.connector;
     exports dev.nthings.otlp4j.config;
     exports dev.nthings.otlp4j.spi;
 }

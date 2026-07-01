@@ -37,7 +37,7 @@ final class CommonMapper {
     ///
     /// Zero rejected count with non-empty message is [ConsumeResult.Rejected]; positive
     /// count is [ConsumeResult.Partial]; anything else is accepted.
-    public static <T> ConsumeResult<T> result(
+    public static <T> ConsumeResult result(
             boolean hasPartialSuccess, long rejectedItems, String errorMessage) {
         if (!hasPartialSuccess || (rejectedItems == 0 && errorMessage.isEmpty())) {
             return ConsumeResult.accepted();

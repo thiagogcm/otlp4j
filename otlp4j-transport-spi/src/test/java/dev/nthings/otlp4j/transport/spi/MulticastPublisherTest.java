@@ -37,8 +37,7 @@ class MulticastPublisherTest {
     void droppingSubscriberDoesNotBlockProducer() {
         var drops = new LongAdder();
         var pub = new MulticastPublisher<Integer>(drops);
-        pub.setOptions(new TapOptions(OverflowPolicy.DROP_NEWEST, 2));
-        pub.subscribe(FlowSubscribers.noOp());
+        pub.subscribe(FlowSubscribers.noOp(), new TapOptions(OverflowPolicy.DROP_NEWEST, 2));
         for (var i = 0; i < 50; i++) {
             pub.publish(i);
         }

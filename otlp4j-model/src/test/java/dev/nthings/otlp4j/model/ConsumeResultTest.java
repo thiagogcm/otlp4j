@@ -31,16 +31,16 @@ class ConsumeResultTest {
     @DisplayName("partial() normalises a null message to empty")
     @Test
     void partialNormalisesNullMessage() {
-        var result = ConsumeResult.<TracesData>partial(2L, null);
-        var r = (ConsumeResult.Partial<TracesData>) result;
+        var result = ConsumeResult.partial(2L, null);
+        var r = (ConsumeResult.Partial) result;
         assertThat(r.message()).isEmpty();
     }
 
     @DisplayName("retryable() normalises null message, leaves cause null, and is retryable")
     @Test
     void retryableNormalisesNullMessage() {
-        var result = ConsumeResult.<TracesData>retryable(null);
-        var r = (ConsumeResult.Rejected<TracesData>) result;
+        var result = ConsumeResult.retryable(null);
+        var r = (ConsumeResult.Rejected) result;
         assertThat(r.message()).isEmpty();
         assertThat(r.cause()).isNull();
         assertThat(r.retryable()).isTrue();
@@ -49,9 +49,9 @@ class ConsumeResultTest {
     @DisplayName("retryable() yields a retryable Rejected with no cause")
     @Test
     void retryableHasNoCause() {
-        var result = ConsumeResult.<TracesData>retryable("queue full");
+        var result = ConsumeResult.retryable("queue full");
         assertThat(result).isInstanceOf(ConsumeResult.Rejected.class);
-        var r = (ConsumeResult.Rejected<TracesData>) result;
+        var r = (ConsumeResult.Rejected) result;
         assertThat(r.message()).isEqualTo("queue full");
         assertThat(r.cause()).isNull();
         assertThat(r.retryable()).isTrue();
@@ -61,8 +61,8 @@ class ConsumeResultTest {
     @Test
     void retryableCarriesCauseAndStaysRetryable() {
         var cause = new IOException("downstream briefly down");
-        var result = ConsumeResult.<TracesData>retryable("downstream down", cause);
-        var r = (ConsumeResult.Rejected<TracesData>) result;
+        var result = ConsumeResult.retryable("downstream down", cause);
+        var r = (ConsumeResult.Rejected) result;
         assertThat(r.retryable()).isTrue();
         assertThat(r.cause()).isSameAs(cause);
     }
@@ -71,9 +71,9 @@ class ConsumeResultTest {
     @Test
     void permanentCarriesCause() {
         var cause = new IllegalArgumentException("invalid tenant");
-        var result = ConsumeResult.<TracesData>permanent("rejected by policy", cause);
+        var result = ConsumeResult.permanent("rejected by policy", cause);
         assertThat(result).isInstanceOf(ConsumeResult.Rejected.class);
-        var r = (ConsumeResult.Rejected<TracesData>) result;
+        var r = (ConsumeResult.Rejected) result;
         assertThat(r.message()).isEqualTo("rejected by policy");
         assertThat(r.cause()).isSameAs(cause);
         assertThat(r.retryable()).isFalse();
@@ -82,8 +82,8 @@ class ConsumeResultTest {
     @DisplayName("permanent() needs no cause to express a permanent rejection")
     @Test
     void permanentWithoutCause() {
-        var result = ConsumeResult.<TracesData>permanent("policy rejected batch");
-        var r = (ConsumeResult.Rejected<TracesData>) result;
+        var result = ConsumeResult.permanent("policy rejected batch");
+        var r = (ConsumeResult.Rejected) result;
         assertThat(r.retryable()).isFalse();
         assertThat(r.cause()).isNull();
     }
@@ -91,7 +91,7 @@ class ConsumeResultTest {
     @DisplayName("fanOutMerge of all Accepted yields Accepted")
     @Test
     void fanOutMergeOfAllAcceptedIsAccepted() {
-        var result = ConsumeResult.<TracesData>fanOutMerge(List.of(
+        var result = ConsumeResult.fanOutMerge(List.of(
                 ConsumeResult.accepted(),
                 ConsumeResult.accepted(),
                 ConsumeResult.accepted()));
@@ -101,12 +101,12 @@ class ConsumeResultTest {
     @DisplayName("fanOutMerge takes the max rejected count, not the sum")
     @Test
     void fanOutMergeUsesMaxRejection() {
-        var result = ConsumeResult.<TracesData>fanOutMerge(List.of(
+        var result = ConsumeResult.fanOutMerge(List.of(
                 ConsumeResult.accepted(),
                 ConsumeResult.partial(10L, "a"),
                 ConsumeResult.partial(7L, "b")));
         assertThat(result).isInstanceOf(ConsumeResult.Partial.class);
-        var p = (ConsumeResult.Partial<TracesData>) result;
+        var p = (ConsumeResult.Partial) result;
         assertThat(p.rejectedItems()).isEqualTo(10L); // MAX not sum
         assertThat(p.message()).contains("a").contains("b");
     }
@@ -114,8 +114,8 @@ class ConsumeResultTest {
     @DisplayName("fanOutMerge lets Rejected dominate Partial and Accepted")
     @Test
     void fanOutMergeRejectionDominatesPartial() {
-        var rejected = ConsumeResult.<TracesData>retryable("boom");
-        var result = ConsumeResult.<TracesData>fanOutMerge(List.of(
+        var rejected = ConsumeResult.retryable("boom");
+        var result = ConsumeResult.fanOutMerge(List.of(
                 ConsumeResult.accepted(),
                 ConsumeResult.partial(5L, "p"),
                 rejected));
@@ -125,10 +125,10 @@ class ConsumeResultTest {
     @DisplayName("fanOutMerge is permanent if any rejecting peer is permanent")
     @Test
     void fanOutMergePermanentDominatesRetryable() {
-        var result = ConsumeResult.<TracesData>fanOutMerge(List.of(
+        var result = ConsumeResult.fanOutMerge(List.of(
                 ConsumeResult.retryable("transient"),
                 ConsumeResult.permanent("policy")));
-        var r = (ConsumeResult.Rejected<TracesData>) result;
+        var r = (ConsumeResult.Rejected) result;
         assertThat(r.retryable()).isFalse();
     }
 
@@ -136,10 +136,10 @@ class ConsumeResultTest {
     @Test
     void fanOutMergeAllRetryableStaysRetryable() {
         var cause = new IOException("down");
-        var result = ConsumeResult.<TracesData>fanOutMerge(List.of(
+        var result = ConsumeResult.fanOutMerge(List.of(
                 ConsumeResult.retryable("a"),
                 ConsumeResult.retryable("b", cause)));
-        var r = (ConsumeResult.Rejected<TracesData>) result;
+        var r = (ConsumeResult.Rejected) result;
         assertThat(r.retryable()).isTrue();
         assertThat(r.cause()).isSameAs(cause);
     }
@@ -147,27 +147,27 @@ class ConsumeResultTest {
     @DisplayName("fanOutMerge of an empty list yields Accepted")
     @Test
     void fanOutMergeEmptyIsAccepted() {
-        var result = ConsumeResult.<TracesData>fanOutMerge(List.of());
+        var result = ConsumeResult.fanOutMerge(List.of());
         assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
     }
 
     @DisplayName("fanOutMerge of empty-message rejections keeps message empty")
     @Test
     void fanOutMergeKeepsFirstRejectionAndOmitsEmptyMessages() {
-        var result = ConsumeResult.<TracesData>fanOutMerge(List.of(
+        var result = ConsumeResult.fanOutMerge(List.of(
                 ConsumeResult.retryable(""),
                 ConsumeResult.retryable("")));
         assertThat(result).isInstanceOf(ConsumeResult.Rejected.class);
-        assertThat(((ConsumeResult.Rejected<TracesData>) result).message()).isEmpty();
+        assertThat(((ConsumeResult.Rejected) result).message()).isEmpty();
     }
 
     @DisplayName("fanOutMerge keeps Partial count with an empty message")
     @Test
     void fanOutMergePartialWithoutMessageReportsCountOnly() {
-        var result = ConsumeResult.<TracesData>fanOutMerge(List.of(
+        var result = ConsumeResult.fanOutMerge(List.of(
                 ConsumeResult.accepted(),
                 ConsumeResult.partial(4L, "")));
-        var p = (ConsumeResult.Partial<TracesData>) result;
+        var p = (ConsumeResult.Partial) result;
         assertThat(p.rejectedItems()).isEqualTo(4L);
         assertThat(p.message()).isEmpty();
     }

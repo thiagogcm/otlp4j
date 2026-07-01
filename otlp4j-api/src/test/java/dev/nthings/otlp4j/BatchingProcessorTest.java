@@ -185,7 +185,7 @@ class BatchingProcessorTest {
     /// Fills a capacity-1 DROP_NEWEST batcher (downstream never completes, so
     /// nothing drains), then offers `dropped` into the full queue and returns the
     /// overflow result.
-    private static <T> ConsumeResult<T> dropNewestOverflow(
+    private static <T> ConsumeResult dropNewestOverflow(
             BatchingProcessor.Builder<T> builder, T warmup, T dropped) {
         try (var batcher = builder
                 .flushThreshold(100)

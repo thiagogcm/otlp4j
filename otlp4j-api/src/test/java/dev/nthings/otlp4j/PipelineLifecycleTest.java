@@ -44,7 +44,7 @@ class PipelineLifecycleTest {
         var closed = new AtomicBoolean();
 
         class FlushableTerminal implements TracesSink, Lifecycle {
-            @Override public CompletionStage<ConsumeResult<TracesData>> consume(TracesData batch) {
+            @Override public CompletionStage<ConsumeResult> consume(TracesData batch) {
                 return ConsumeResult.acceptedStage();
             }
             @Override public CompletionStage<Void> forceFlush(Duration timeout) {
@@ -70,7 +70,7 @@ class PipelineLifecycleTest {
     void shutdownPropagatesAutoCloseableExceptions() {
         var source = new ManualSource<TracesData>();
         class FailingTerminal implements TracesSink, AutoCloseable {
-            @Override public CompletionStage<ConsumeResult<TracesData>> consume(TracesData batch) {
+            @Override public CompletionStage<ConsumeResult> consume(TracesData batch) {
                 return ConsumeResult.acceptedStage();
             }
             @Override public void close() throws Exception {
@@ -111,7 +111,7 @@ class PipelineLifecycleTest {
         try {
             var r = source.dispatch(new TracesData(List.of())).toCompletableFuture().join();
             assertThat(r).isInstanceOf(ConsumeResult.Rejected.class);
-            assertThat(((ConsumeResult.Rejected<?>) r).message())
+            assertThat(((ConsumeResult.Rejected) r).message())
                     .contains("pipeline transform returned null");
         } finally {
             sub.close();

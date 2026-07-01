@@ -3,7 +3,6 @@ package dev.nthings.otlp4j;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.processor.internal.BatchMergers;
 import dev.nthings.otlp4j.processor.internal.Signal;
 import dev.nthings.otlp4j.testing.Fixtures;
@@ -31,13 +30,6 @@ class SignalTest {
                 Fixtures.span("a", dev.nthings.otlp4j.model.Span.Kind.SERVER),
                 Fixtures.span("b", dev.nthings.otlp4j.model.Span.Kind.SERVER));
         assertThat(Signal.TRACES.itemCount(batch)).isEqualTo(2L);
-    }
-
-    @DisplayName("Signal.TRACES wraps Telemetry envelope")
-    @Test
-    void tracesEnvelope() {
-        var batch = new TracesData(List.of());
-        assertThat(Signal.TRACES.envelope(batch)).isInstanceOf(dev.nthings.otlp4j.receiver.Telemetry.Traces.class);
     }
 
     @DisplayName("profiles unsafe merge rejects distinct dictionaries")

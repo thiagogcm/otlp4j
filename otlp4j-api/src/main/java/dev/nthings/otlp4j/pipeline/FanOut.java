@@ -57,36 +57,30 @@ public final class FanOut<T> implements Sink<T> {
     }
 
     @Override
-    public CompletionStage<ConsumeResult<T>> consume(T batch) {
+    public CompletionStage<ConsumeResult> consume(T batch) {
         @SuppressWarnings("unchecked")
-        CompletableFuture<ConsumeResult<T>>[] futures = new CompletableFuture[peers.size()];
+        CompletableFuture<ConsumeResult>[] futures = new CompletableFuture[peers.size()];
         for (var i = 0; i < peers.size(); i++) {
             final var idx = i;
-            CompletionStage<ConsumeResult<T>> peerStage;
+            CompletionStage<ConsumeResult> peerStage;
             try {
-                peerStage = retag(peers.get(i).consume(batch));
+                peerStage = peers.get(i).consume(batch);
             } catch (Throwable t) {
                 peerStage = CompletableFuture.completedFuture(ConsumeResult.permanent(
                         "peer[" + idx + "] threw: " + describe(t), t));
             }
             futures[i] = peerStage
-                    .exceptionally(t -> ConsumeResult.<T>permanent(
+                    .exceptionally(t -> ConsumeResult.permanent(
                             "peer[" + idx + "] failed: " + describe(t), t))
                     .toCompletableFuture();
         }
         return CompletableFuture.allOf(futures).thenApply(v -> {
-            var results = new ArrayList<ConsumeResult<T>>(futures.length);
+            var results = new ArrayList<ConsumeResult>(futures.length);
             for (var f : futures) {
                 results.add(f.join());
             }
             return ConsumeResult.fanOutMerge(results);
         });
-    }
-
-    /// Retags a peer's supertype-tagged result; sound because [ConsumeResult]'s type parameter is phantom.
-    @SuppressWarnings("unchecked")
-    private static <T> CompletionStage<ConsumeResult<T>> retag(CompletionStage<? extends ConsumeResult<?>> stage) {
-        return (CompletionStage<ConsumeResult<T>>) stage;
     }
 
     /// Describes a throwable, unwrapping [CompletionException] for visibility of the underlying cause.

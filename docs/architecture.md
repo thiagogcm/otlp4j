@@ -40,7 +40,7 @@ sequenceDiagram
     Server--)Tap: Publish copy of reference
     Server->>Source: Domain batch
     Source->>Sink: consume(batch)
-    Sink-->>Source: CompletionStage<ConsumeResult<T>>
+    Sink-->>Source: CompletionStage<ConsumeResult>
     Source-->>Server: Accepted, Partial, or Rejected
     Server-->>Sender: OTLP response
 ```
@@ -72,7 +72,7 @@ Built-in stateless transforms filter spans or log records and add resource attri
 
 ## Receiver tap
 
-`TelemetryTap` exposes one JDK `Flow.Publisher` per signal and an `all()` publisher of sealed `Telemetry` envelopes. Every subscriber has its own bounded queue and virtual-thread dispatcher. New subscriptions use the tap options active when they subscribe; changing options does not resize existing subscription buffers.
+`TelemetryTap` exposes one JDK `Flow.Publisher` per signal. Every subscriber has its own bounded queue and virtual-thread dispatcher. Each publisher has a no-arg form using `TapOptions.defaults()` and a `TapOptions`-taking overload that binds the buffer size and overflow policy to that publisher's next subscription, so options travel with the subscription instead of shared mutable tap state.
 
 The default buffer holds 256 batches and drops the oldest on overflow. Other strategies drop the newest, block the publishing request thread, or terminate the overflowing subscription with an error. `droppedCount()` is shared across the receiver's tap publishers.
 

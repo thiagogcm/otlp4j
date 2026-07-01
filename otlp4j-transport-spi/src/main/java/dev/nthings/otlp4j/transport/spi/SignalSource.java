@@ -18,7 +18,7 @@ import org.jspecify.annotations.Nullable;
 final class SignalSource<T> implements Source<T> {
 
     private final Class<T> signalType;
-    private final ConsumeResult<T> noConsumerResult;
+    private final ConsumeResult noConsumerResult;
     private final AtomicReference<@Nullable Sink<? super T>> attached = new AtomicReference<>();
 
     public SignalSource(Class<T> signalType) {
@@ -47,7 +47,7 @@ final class SignalSource<T> implements Source<T> {
     /// Forwards the batch verbatim. A direct subscriber's throw or failed stage is NOT
     /// normalized into [ConsumeResult.Rejected] - it propagates so the transport renders
     /// gRPC `INTERNAL` / HTTP `500`. Pipeline/[FanOut]/[Sink] adapters normalize first.
-    public CompletionStage<ConsumeResult<T>> dispatch(T batch) {
+    public CompletionStage<ConsumeResult> dispatch(T batch) {
         @Nullable Sink<? super T> sink = attached.get();
         if (sink == null) {
             return CompletableFuture.completedFuture(noConsumerResult);

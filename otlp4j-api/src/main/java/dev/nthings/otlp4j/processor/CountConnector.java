@@ -1,4 +1,4 @@
-package dev.nthings.otlp4j.connector;
+package dev.nthings.otlp4j.processor;
 
 import dev.nthings.otlp4j.model.Attributes;
 import dev.nthings.otlp4j.model.InstrumentationScope;
@@ -9,7 +9,6 @@ import dev.nthings.otlp4j.model.Resource;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.pipeline.Lifecycle;
 import dev.nthings.otlp4j.pipeline.Sink;
-import dev.nthings.otlp4j.pipeline.MetricsSink;
 import dev.nthings.otlp4j.pipeline.internal.SharedLifecycle;
 import java.time.Duration;
 import java.time.Instant;
@@ -38,7 +37,7 @@ sealed class CountConnector<I> implements Sink<I>, SharedLifecycle
             InstrumentationScope.of("otlp4j-count-connector", "0.1.0");
     private static final Logger log = LoggerFactory.getLogger(CountConnector.class);
 
-    private final MetricsSink downstream;
+    private final Sink<? super MetricsData> downstream;
     private final FailurePolicy policy;
     private final String metricName;
     private final String description;
@@ -46,7 +45,7 @@ sealed class CountConnector<I> implements Sink<I>, SharedLifecycle
     private final AtomicLong previousFlushNanos = new AtomicLong(nowEpochNanos());
 
     CountConnector(
-            MetricsSink downstream,
+            Sink<? super MetricsData> downstream,
             FailurePolicy policy,
             String metricName,
             String description,
@@ -59,12 +58,12 @@ sealed class CountConnector<I> implements Sink<I>, SharedLifecycle
     }
 
     @Override
-    public CompletionStage<ConsumeResult<I>> consume(I batch) {
+    public CompletionStage<ConsumeResult> consume(I batch) {
         var now = nowEpochNanos();
         var start = previousFlushNanos.getAndAccumulate(now, Math::max);
         var metric = deltaSum(counter.applyAsLong(batch), start, Math.max(start, now));
         // Normalize a throw or failed stage so applyPolicy governs the input.
-        CompletionStage<ConsumeResult<MetricsData>> downstreamStage;
+        CompletionStage<ConsumeResult> downstreamStage;
         try {
             downstreamStage = Objects.requireNonNull(downstream.consume(metric), "downstream returned a null stage");
         } catch (Throwable e) {
@@ -96,7 +95,7 @@ sealed class CountConnector<I> implements Sink<I>, SharedLifecycle
     /// Permanent rejection from a downstream failure, unwrapping [CompletionException] to the cause.
     /// An [Error] is rethrown (not swallowed past `applyPolicy`); an [InterruptedException] restores
     /// the interrupt flag.
-    private ConsumeResult<MetricsData> rejectedDownstream(String verb, Throwable failure) {
+    private ConsumeResult rejectedDownstream(String verb, Throwable failure) {
         var cause = failure instanceof CompletionException && failure.getCause() != null
                 ? failure.getCause()
                 : failure;
@@ -124,12 +123,12 @@ sealed class CountConnector<I> implements Sink<I>, SharedLifecycle
 
     /// Maps the downstream metric result onto the input result; logs failures, and under
     /// [FailurePolicy#FAIL] propagates them as a `Rejected` on the input.
-    private ConsumeResult<I> applyPolicy(ConsumeResult<MetricsData> downstreamResult) {
+    private ConsumeResult applyPolicy(ConsumeResult downstreamResult) {
         switch (downstreamResult) {
-            case ConsumeResult.Accepted<MetricsData> _ -> {
+            case ConsumeResult.Accepted _ -> {
                 return ConsumeResult.accepted();
             }
-            case ConsumeResult.Partial<MetricsData>(var rejected, var message) -> {
+            case ConsumeResult.Partial(var rejected, var message) -> {
                 log.warn("{} downstream partial_success: {} rejected items, msg={}", metricName, rejected, message);
                 if (policy == FailurePolicy.FAIL) {
                     return ConsumeResult.retryable(
@@ -137,7 +136,7 @@ sealed class CountConnector<I> implements Sink<I>, SharedLifecycle
                 }
                 return ConsumeResult.accepted();
             }
-            case ConsumeResult.Rejected<MetricsData>(var retryable, var message, var cause) -> {
+            case ConsumeResult.Rejected(var retryable, var message, var cause) -> {
                 log.warn("{} downstream rejected derived metric: {}", metricName, message, cause);
                 if (policy == FailurePolicy.FAIL) {
                     // Forward the downstream retry intent and cause onto the input.

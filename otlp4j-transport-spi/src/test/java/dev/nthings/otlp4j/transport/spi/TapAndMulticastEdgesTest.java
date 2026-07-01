@@ -7,7 +7,6 @@ import static org.awaitility.Awaitility.await;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.processor.OverflowPolicy;
-import dev.nthings.otlp4j.receiver.Telemetry;
 import dev.nthings.otlp4j.receiver.TapOptions;
 import dev.nthings.otlp4j.testing.Fixtures;
 import dev.nthings.otlp4j.testing.FlowSubscribers;
@@ -23,20 +22,19 @@ import org.junit.jupiter.api.Test;
 @DisplayName("ReceiverTap and MulticastPublisher edge cases")
 class TapAndMulticastEdgesTest {
 
-    @DisplayName("ReceiverTap fans out to typed and unified channels")
+    @DisplayName("A typed channel multicasts to every subscriber")
     @Test
-    void receiverTapPublishesToTypedAndUnifiedChannels() {
+    void receiverTapMulticastsToEverySubscriber() {
         var tap = new ReceiverTap();
         try {
-            var traces = new CopyOnWriteArrayList<TracesData>();
-            var all = new CopyOnWriteArrayList<Telemetry>();
-            tap.traces().subscribe(FlowSubscribers.recording(traces));
-            tap.all().subscribe(FlowSubscribers.recording(all));
+            var first = new CopyOnWriteArrayList<TracesData>();
+            var second = new CopyOnWriteArrayList<TracesData>();
+            tap.traces().subscribe(FlowSubscribers.recording(first));
+            tap.traces().subscribe(FlowSubscribers.recording(second));
             tap.publishTraces(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)));
-            await().atMost(Duration.ofSeconds(2)).until(() -> traces.size() >= 1 && all.size() >= 1);
-            assertThat(traces).hasSize(1);
-            assertThat(all).hasSize(1);
-            assertThat(all.getFirst()).isInstanceOf(Telemetry.Traces.class);
+            await().atMost(Duration.ofSeconds(2)).until(() -> first.size() >= 1 && second.size() >= 1);
+            assertThat(first).hasSize(1);
+            assertThat(second).hasSize(1);
         } finally {
             tap.close();
         }
@@ -46,9 +44,8 @@ class TapAndMulticastEdgesTest {
     @Test
     void droppedCountIncrementsWhenSubscriberStalls() {
         var tap = new ReceiverTap();
-        tap.setOptions(new TapOptions(OverflowPolicy.DROP_NEWEST, 1));
         try {
-            tap.traces().subscribe(FlowSubscribers.noOp());
+            tap.traces(new TapOptions(OverflowPolicy.DROP_NEWEST, 1)).subscribe(FlowSubscribers.noOp());
             for (var i = 0; i < 50; i++) {
                 tap.publishTraces(Fixtures.traceData(Fixtures.span("s" + i, Span.Kind.SERVER)));
             }

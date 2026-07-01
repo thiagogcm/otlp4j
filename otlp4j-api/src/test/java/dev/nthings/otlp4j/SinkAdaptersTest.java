@@ -28,7 +28,7 @@ class SinkAdaptersTest {
 
     private static final TracesData BATCH = Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER));
 
-    private static <T> ConsumeResult<T> consume(Sink<T> sink, T batch) {
+    private static <T> ConsumeResult consume(Sink<T> sink, T batch) {
         return sink.consume(batch).toCompletableFuture().join();
     }
 
