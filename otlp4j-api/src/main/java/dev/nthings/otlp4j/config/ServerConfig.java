@@ -53,7 +53,7 @@ public record ServerConfig(
     }
 
     /// The default config (all builder defaults, `localhost:4317` plaintext).
-    public static ServerConfig getDefault() {
+    public static ServerConfig defaults() {
         return builder().build();
     }
 

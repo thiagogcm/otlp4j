@@ -62,9 +62,9 @@ public sealed interface AttributeValue {
     }
 
     /// The "empty" value: an attribute value with none of its variants set.
-    record Empty() implements AttributeValue {}
-
-    Empty EMPTY = new Empty();
+    record Empty() implements AttributeValue {
+        private static final Empty INSTANCE = new Empty();
+    }
 
     static AttributeValue of(String value) {
         return new StringValue(value);
@@ -96,6 +96,6 @@ public sealed interface AttributeValue {
     }
 
     static AttributeValue empty() {
-        return EMPTY;
+        return Empty.INSTANCE;
     }
 }

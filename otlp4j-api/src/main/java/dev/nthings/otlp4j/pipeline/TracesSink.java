@@ -1,10 +1,10 @@
 package dev.nthings.otlp4j.pipeline;
 
-import dev.nthings.otlp4j.model.ProfilesData;
+import dev.nthings.otlp4j.model.TracesData;
 
-/// A [Sink] specialised for profile batches.
+/// A [Sink] specialised for trace batches.
 ///
 /// Build one from a lambda, or from a plain consumer or stage-returning function via
 /// [Sink#accepting(ThrowingConsumer)] and [Sink#fromStage(java.util.function.Function)].
 @FunctionalInterface
-public interface ProfileSink extends Sink<ProfilesData> {}
+public interface TracesSink extends Sink<TracesData> {}

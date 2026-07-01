@@ -10,8 +10,8 @@ import org.jspecify.annotations.Nullable;
 
 /// A typed, asynchronous sink for one OTLP signal.
 ///
-/// The four signals expose their own SAMs - [TraceSink], [MetricSink], [LogSink],
-/// [ProfileSink] - which is what user code plugs lambdas into. Extending [Sink] directly
+/// The four signals expose their own SAMs - [TracesSink], [MetricsSink], [LogsSink],
+/// [ProfilesSink] - which is what user code plugs lambdas into. Extending [Sink] directly
 /// is useful only when a single type parameter is genuinely needed.
 ///
 /// When a handler only needs success/failure semantics rather than the full

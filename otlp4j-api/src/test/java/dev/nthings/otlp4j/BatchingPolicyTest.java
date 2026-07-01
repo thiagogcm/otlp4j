@@ -7,7 +7,7 @@ import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.processor.OverflowPolicy;
-import dev.nthings.otlp4j.pipeline.TraceSink;
+import dev.nthings.otlp4j.pipeline.TracesSink;
 import dev.nthings.otlp4j.processor.BatchingProcessor;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.time.Duration;
@@ -22,7 +22,7 @@ class BatchingPolicyTest {
     @DisplayName("DROP_OLDEST evicts oldest entries when the queue is full")
     @Test
     void dropOldestEvictsAndKeepsLatest() {
-        TraceSink stuck = traces -> new CompletableFuture<>();
+        TracesSink stuck = traces -> new CompletableFuture<>();
         try (var batcher = BatchingProcessor.forTraces()
                 .downstream(stuck)
                 .flushThreshold(100)
@@ -40,7 +40,7 @@ class BatchingPolicyTest {
     @DisplayName("FAIL policy reports Rejected when the queue is full")
     @Test
     void failPolicyReportsRejected() {
-        TraceSink stuck = traces -> new CompletableFuture<>();
+        TracesSink stuck = traces -> new CompletableFuture<>();
         try (var batcher = BatchingProcessor.forTraces()
                 .downstream(stuck)
                 .flushThreshold(100)
@@ -58,7 +58,7 @@ class BatchingPolicyTest {
     @Test
     void forceFlushDelegatesToFlushNow() {
         var captured = new AtomicReference<TracesData>();
-        TraceSink downstream = traces -> {
+        TracesSink downstream = traces -> {
             captured.set(traces);
             return ConsumeResult.acceptedStage();
         };
@@ -92,7 +92,7 @@ class BatchingPolicyTest {
     @DisplayName("consume after shutdown returns Rejected")
     @Test
     void consumeAfterCloseReturnsRejected() {
-        TraceSink downstream = traces -> ConsumeResult.acceptedStage();
+        TracesSink downstream = traces -> ConsumeResult.acceptedStage();
         var batcher = BatchingProcessor.forTraces()
                 .downstream(downstream)
                 .flushThreshold(10)

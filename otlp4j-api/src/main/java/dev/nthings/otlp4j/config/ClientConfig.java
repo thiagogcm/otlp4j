@@ -71,7 +71,7 @@ public record ClientConfig(
     }
 
     /// The default config (all builder defaults, `localhost:4317` plaintext).
-    public static ClientConfig getDefault() {
+    public static ClientConfig defaults() {
         return builder().build();
     }
 

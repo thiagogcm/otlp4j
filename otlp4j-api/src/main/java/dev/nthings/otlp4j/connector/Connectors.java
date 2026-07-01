@@ -1,8 +1,8 @@
 package dev.nthings.otlp4j.connector;
 
-import dev.nthings.otlp4j.pipeline.LogSink;
-import dev.nthings.otlp4j.pipeline.MetricSink;
-import dev.nthings.otlp4j.pipeline.TraceSink;
+import dev.nthings.otlp4j.pipeline.LogsSink;
+import dev.nthings.otlp4j.pipeline.MetricsSink;
+import dev.nthings.otlp4j.pipeline.TracesSink;
 
 /// Factories for built-in count sinks; overloads default to [FailurePolicy#BEST_EFFORT].
 ///
@@ -14,22 +14,22 @@ public final class Connectors {
     private Connectors() {}
 
     /// Trace count sink emitting `otlp4j.connector.span.count` into `downstream`, best-effort.
-    public static TraceSink spanCount(MetricSink downstream) {
+    public static TracesSink spanCount(MetricsSink downstream) {
         return spanCount(downstream, FailurePolicy.BEST_EFFORT);
     }
 
     /// Trace count sink emitting `otlp4j.connector.span.count` into `downstream` under `policy`.
-    public static TraceSink spanCount(MetricSink downstream, FailurePolicy policy) {
+    public static TracesSink spanCount(MetricsSink downstream, FailurePolicy policy) {
         return new SpanCountConnector(downstream, policy);
     }
 
     /// Log count sink emitting `otlp4j.connector.log.record.count` into `downstream`, best-effort.
-    public static LogSink logRecordCount(MetricSink downstream) {
+    public static LogsSink logRecordCount(MetricsSink downstream) {
         return logRecordCount(downstream, FailurePolicy.BEST_EFFORT);
     }
 
     /// Log count sink emitting `otlp4j.connector.log.record.count` into `downstream` under `policy`.
-    public static LogSink logRecordCount(MetricSink downstream, FailurePolicy policy) {
+    public static LogsSink logRecordCount(MetricsSink downstream, FailurePolicy policy) {
         return new LogRecordCountConnector(downstream, policy);
     }
 }

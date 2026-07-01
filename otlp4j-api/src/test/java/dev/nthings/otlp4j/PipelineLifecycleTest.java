@@ -11,7 +11,7 @@ import dev.nthings.otlp4j.pipeline.Pipeline;
 import dev.nthings.otlp4j.pipeline.Sink;
 import dev.nthings.otlp4j.pipeline.Source;
 import dev.nthings.otlp4j.pipeline.PipelineHandle;
-import dev.nthings.otlp4j.pipeline.TraceSink;
+import dev.nthings.otlp4j.pipeline.TracesSink;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -29,7 +29,7 @@ class PipelineLifecycleTest {
     @Test
     void closeCallsShutdown() {
         var source = new ManualSource<TracesData>();
-        TraceSink terminal = traces -> ConsumeResult.acceptedStage();
+        TracesSink terminal = traces -> ConsumeResult.acceptedStage();
         var sub = Pipeline.from(source).to(terminal);
         sub.close();
         // no exception
@@ -43,7 +43,7 @@ class PipelineLifecycleTest {
         var forceFlushed = new AtomicInteger();
         var closed = new AtomicBoolean();
 
-        class FlushableTerminal implements TraceSink, Lifecycle {
+        class FlushableTerminal implements TracesSink, Lifecycle {
             @Override public CompletionStage<ConsumeResult<TracesData>> consume(TracesData batch) {
                 return ConsumeResult.acceptedStage();
             }
@@ -69,7 +69,7 @@ class PipelineLifecycleTest {
     @Test
     void shutdownPropagatesAutoCloseableExceptions() {
         var source = new ManualSource<TracesData>();
-        class FailingTerminal implements TraceSink, AutoCloseable {
+        class FailingTerminal implements TracesSink, AutoCloseable {
             @Override public CompletionStage<ConsumeResult<TracesData>> consume(TracesData batch) {
                 return ConsumeResult.acceptedStage();
             }
@@ -88,7 +88,7 @@ class PipelineLifecycleTest {
     @Test
     void pipelineStageThrowingProducesRejected() {
         var source = new ManualSource<TracesData>();
-        TraceSink terminal = traces -> ConsumeResult.acceptedStage();
+        TracesSink terminal = traces -> ConsumeResult.acceptedStage();
         var sub = Pipeline.from(source)
                 .transform(batch -> { throw new RuntimeException("transform exploded"); })
                 .to(terminal);
@@ -104,7 +104,7 @@ class PipelineLifecycleTest {
     @Test
     void nullTransformResultProducesRejected() {
         var source = new ManualSource<TracesData>();
-        TraceSink terminal = traces -> ConsumeResult.acceptedStage();
+        TracesSink terminal = traces -> ConsumeResult.acceptedStage();
         var sub = Pipeline.from(source)
                 .transform(batch -> null)
                 .to(terminal);
@@ -125,7 +125,7 @@ class PipelineLifecycleTest {
         var closed = new AtomicBoolean();
         AutoCloseable resource = () -> closed.set(true);
         // The method-reference terminal hides no AutoCloseable, so only owns() can register the drain.
-        TraceSink terminal = traces -> ConsumeResult.acceptedStage();
+        TracesSink terminal = traces -> ConsumeResult.acceptedStage();
         var sub = Pipeline.from(source).owns(resource).to(terminal);
 
         assertThat(closed.get()).isFalse();
@@ -153,7 +153,7 @@ class PipelineLifecycleTest {
             }
         }
         var owner = new OwnedResource();
-        TraceSink terminal = traces -> ConsumeResult.acceptedStage();
+        TracesSink terminal = traces -> ConsumeResult.acceptedStage();
         var sub = Pipeline.from(source).owns(owner).to(terminal);
 
         sub.forceFlush(Duration.ofSeconds(1)).toCompletableFuture().join();
@@ -185,7 +185,7 @@ class PipelineLifecycleTest {
         }
         var first = new RecordingResource();
         var second = new RecordingResource();
-        TraceSink terminal = traces -> ConsumeResult.acceptedStage();
+        TracesSink terminal = traces -> ConsumeResult.acceptedStage();
         var sub = Pipeline.from(source).owns(first).owns(second).to(terminal);
 
         sub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
@@ -217,7 +217,7 @@ class PipelineLifecycleTest {
             }
         }
         var resource = new DrainableResource();
-        TraceSink terminal = traces -> ConsumeResult.acceptedStage();
+        TracesSink terminal = traces -> ConsumeResult.acceptedStage();
         var sub = Pipeline.from(source).owns(resource).to(terminal);
 
         sub.shutdown(Duration.ofSeconds(5)).toCompletableFuture().join();
@@ -250,7 +250,7 @@ class PipelineLifecycleTest {
         }
         var first = new RecordingFlushable();
         var second = new RecordingFlushable();
-        TraceSink terminal = traces -> ConsumeResult.acceptedStage();
+        TracesSink terminal = traces -> ConsumeResult.acceptedStage();
         var sub = Pipeline.from(source).owns(first).owns(second).to(terminal);
 
         sub.forceFlush(Duration.ofSeconds(1)).toCompletableFuture().join();
@@ -270,7 +270,7 @@ class PipelineLifecycleTest {
             throw new IllegalStateException("boom");
         };
         AutoCloseable second = () -> secondClosed.set(true);
-        TraceSink terminal = traces -> ConsumeResult.acceptedStage();
+        TracesSink terminal = traces -> ConsumeResult.acceptedStage();
         var sub = Pipeline.from(source).owns(failing).owns(second).to(terminal);
 
         var stage = sub.shutdown(Duration.ofSeconds(1)).toCompletableFuture();
@@ -299,7 +299,7 @@ class PipelineLifecycleTest {
                 };
             }
         }
-        TraceSink terminal = traces -> ConsumeResult.acceptedStage();
+        TracesSink terminal = traces -> ConsumeResult.acceptedStage();
         var sub = Pipeline.from(new FlushingSource()).to(terminal);
 
         sub.forceFlush(Duration.ofSeconds(1)).toCompletableFuture().join();
@@ -322,7 +322,7 @@ class PipelineLifecycleTest {
             }
         }
         var resource = new FlushableResource();
-        TraceSink terminal = traces -> ConsumeResult.acceptedStage();
+        TracesSink terminal = traces -> ConsumeResult.acceptedStage();
         var sub = Pipeline.from(source).owns(resource).to(terminal);
 
         sub.forceFlush(Duration.ofSeconds(1)).toCompletableFuture().join();

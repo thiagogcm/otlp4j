@@ -49,7 +49,7 @@ public final class OtlpHttpExporter {
 
         /// Replaces the whole transport config. The supplied port is used verbatim (the 4318
         /// default applies only to the unconfigured builder).
-        public Builder transport(ClientConfig config) {
+        public Builder setConfig(ClientConfig config) {
             this.config = config.toBuilder();
             return this;
         }
@@ -77,16 +77,6 @@ public final class OtlpHttpExporter {
         /// `/` mean none.
         public Builder setPath(String path) {
             config.setPath(path);
-            return this;
-        }
-
-        public Builder setHost(String host) {
-            config.setHost(host);
-            return this;
-        }
-
-        public Builder setPort(int port) {
-            config.setPort(port);
             return this;
         }
 

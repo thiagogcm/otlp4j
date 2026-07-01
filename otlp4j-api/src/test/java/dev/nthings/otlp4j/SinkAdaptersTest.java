@@ -3,11 +3,11 @@ package dev.nthings.otlp4j;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import dev.nthings.otlp4j.pipeline.LogSink;
-import dev.nthings.otlp4j.pipeline.MetricSink;
-import dev.nthings.otlp4j.pipeline.ProfileSink;
+import dev.nthings.otlp4j.pipeline.LogsSink;
+import dev.nthings.otlp4j.pipeline.MetricsSink;
+import dev.nthings.otlp4j.pipeline.ProfilesSink;
 import dev.nthings.otlp4j.pipeline.Sink;
-import dev.nthings.otlp4j.pipeline.TraceSink;
+import dev.nthings.otlp4j.pipeline.TracesSink;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
@@ -318,15 +318,15 @@ class SinkAdaptersTest {
     @Test
     void sinkAdaptsToPerSignalSam() {
         // Sink.accepting/fromStage return Sink<T>; a ::consume method reference narrows to the SAM type.
-        TraceSink trace = Sink.<TracesData>accepting(batch -> {})::consume;
-        MetricSink metric = Sink.<MetricsData>fromStage(batch -> CompletableFuture.completedFuture(null))::consume;
-        LogSink logs = Sink.<LogsData>accepting(batch -> {})::consume;
-        ProfileSink profiles = Sink.<ProfilesData>fromStage(batch -> CompletableFuture.completedFuture(null))::consume;
+        TracesSink trace = Sink.<TracesData>accepting(batch -> {})::consume;
+        MetricsSink metric = Sink.<MetricsData>fromStage(batch -> CompletableFuture.completedFuture(null))::consume;
+        LogsSink logs = Sink.<LogsData>accepting(batch -> {})::consume;
+        ProfilesSink profiles = Sink.<ProfilesData>fromStage(batch -> CompletableFuture.completedFuture(null))::consume;
 
-        assertThat(trace).isInstanceOf(TraceSink.class);
-        assertThat(metric).isInstanceOf(MetricSink.class);
-        assertThat(logs).isInstanceOf(LogSink.class);
-        assertThat(profiles).isInstanceOf(ProfileSink.class);
+        assertThat(trace).isInstanceOf(TracesSink.class);
+        assertThat(metric).isInstanceOf(MetricsSink.class);
+        assertThat(logs).isInstanceOf(LogsSink.class);
+        assertThat(profiles).isInstanceOf(ProfilesSink.class);
         assertThat(consume(trace, BATCH)).isInstanceOf(ConsumeResult.Accepted.class);
     }
 

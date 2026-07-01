@@ -25,8 +25,6 @@ class HttpEntryPointBuilderTest {
         try (var exporter = OtlpHttpExporter.builder()
                 .fromEnvironment()
                 .setEndpoint("collector.example", 4318)
-                .setHost("collector.example")
-                .setPort(4318)
                 .setTimeout(Duration.ofSeconds(3))
                 .setConnectTimeout(Duration.ofSeconds(2))
                 .setTls(Tls.systemTrust())
@@ -43,11 +41,11 @@ class HttpEntryPointBuilderTest {
         }
     }
 
-    @DisplayName("OtlpHttpExporter.transport(config) and to(...) build a client")
+    @DisplayName("OtlpHttpExporter.setConfig(config) and to(...) build a client")
     @Test
     void exporterFromConfigAndConvenience() {
         var config = ClientConfig.builder().setEndpoint("h", 4318).build();
-        try (var fromConfig = OtlpHttpExporter.builder().transport(config).build()) {
+        try (var fromConfig = OtlpHttpExporter.builder().setConfig(config).build()) {
             assertThat(fromConfig.traces()).isNotNull();
         }
         try (var convenience = OtlpHttpExporter.to("h", 4318)) {
@@ -79,7 +77,7 @@ class HttpEntryPointBuilderTest {
     void receiverBuilderAppliesEveryKnob() {
         var executor = Executors.newVirtualThreadPerTaskExecutor();
         var receiver = OtlpHttpReceiver.builder()
-                .transport(ServerConfig.builder().build())
+                .setConfig(ServerConfig.builder().build())
                 .setEndpoint("127.0.0.1", 0)
                 .setPort(0)
                 .ephemeralPort()
@@ -96,11 +94,11 @@ class HttpEntryPointBuilderTest {
         executor.shutdown();
     }
 
-    @DisplayName("OtlpHttpReceiver.on(...) convenience builds a receiver")
+    @DisplayName("OtlpHttpReceiver builder binds an ephemeral or a specific host:port")
     @Test
-    void receiverConvenienceFactories() {
-        assertThat(OtlpHttpReceiver.on(0).port()).isZero();
-        assertThat(OtlpHttpReceiver.on("127.0.0.1", 0).port()).isZero();
+    void receiverBuilderBindsPort() {
+        assertThat(OtlpHttpReceiver.builder().ephemeralPort().build().port()).isZero();
+        assertThat(OtlpHttpReceiver.builder().setEndpoint("127.0.0.1", 0).build().port()).isZero();
     }
 
     @DisplayName("OtlpHttpExporter.Builder addHeader adds per key and setHeaders replaces all")

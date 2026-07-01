@@ -9,7 +9,7 @@ import dev.nthings.otlp4j.model.Resource;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.pipeline.Lifecycle;
 import dev.nthings.otlp4j.pipeline.Sink;
-import dev.nthings.otlp4j.pipeline.MetricSink;
+import dev.nthings.otlp4j.pipeline.MetricsSink;
 import dev.nthings.otlp4j.pipeline.internal.SharedLifecycle;
 import java.time.Duration;
 import java.time.Instant;
@@ -38,7 +38,7 @@ sealed class CountConnector<I> implements Sink<I>, SharedLifecycle
             InstrumentationScope.of("otlp4j-count-connector", "0.1.0");
     private static final Logger log = LoggerFactory.getLogger(CountConnector.class);
 
-    private final MetricSink downstream;
+    private final MetricsSink downstream;
     private final FailurePolicy policy;
     private final String metricName;
     private final String description;
@@ -46,7 +46,7 @@ sealed class CountConnector<I> implements Sink<I>, SharedLifecycle
     private final AtomicLong previousFlushNanos = new AtomicLong(nowEpochNanos());
 
     CountConnector(
-            MetricSink downstream,
+            MetricsSink downstream,
             FailurePolicy policy,
             String metricName,
             String description,

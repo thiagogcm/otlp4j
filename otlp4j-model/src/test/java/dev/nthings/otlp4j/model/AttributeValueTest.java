@@ -88,7 +88,7 @@ class AttributeValueTest {
         assertThat(new BoolValue(true).value()).isTrue();
         assertThat(new LongValue(42L).value()).isEqualTo(42L);
         assertThat(new DoubleValue(3.5).value()).isEqualTo(3.5);
-        assertThat(new Empty()).isEqualTo(AttributeValue.EMPTY);
+        assertThat(new Empty()).isEqualTo(AttributeValue.empty());
     }
 
     @DisplayName("ArrayValue and KeyValueListValue expose their collections")
@@ -113,11 +113,11 @@ class AttributeValueTest {
         assertThat(AttributeValue.of(new byte[] {9})).isEqualTo(new BytesValue(new byte[] {9}));
     }
 
-    @DisplayName("empty() and EMPTY return the shared Empty singleton")
+    @DisplayName("empty() returns the shared Empty singleton")
     @Test
-    void emptyAndEMPTYReturnTheSharedEmptySingleton() {
-        assertThat(AttributeValue.empty()).isSameAs(AttributeValue.EMPTY);
-        assertThat(AttributeValue.EMPTY).isInstanceOf(Empty.class);
+    void emptyReturnsTheSharedEmptySingleton() {
+        assertThat(AttributeValue.empty()).isSameAs(AttributeValue.empty());
+        assertThat(AttributeValue.empty()).isInstanceOf(Empty.class);
     }
 
     @DisplayName("of(List) copies its input so later mutation does not leak in")

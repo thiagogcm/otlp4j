@@ -27,7 +27,7 @@ class MetricTest {
         var metric = Metric.builder().name("m").build();
 
         assertThat(metric.hasData()).isFalse();
-        assertThat(metric.data()).isEqualTo(Metric.NoData.INSTANCE);
+        assertThat(metric.data()).isEqualTo(Metric.noData());
         assertThatThrownBy(metric::dataOrThrow)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("m")

@@ -67,7 +67,7 @@ Everything lives under the `dev.nthings.otlp4j` root. The types you import most 
 | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
 | `OtlpGrpcExporter`, `OtlpGrpcReceiver`                                                                                                                                             | `dev.nthings.otlp4j.transport.grpc` |
 | `OtlpHttpExporter`, `OtlpHttpReceiver`                                                                                                                                             | `dev.nthings.otlp4j.transport.http` |
-| `Pipeline`, `Sink` (+ `TraceSink`, `MetricSink`, `LogSink`, `ProfileSink` aliases), `Source`, `Transform`, `FanOut`, `PipelineHandle`, `Lifecycle`                                  | `dev.nthings.otlp4j.pipeline`       |
+| `Pipeline`, `Sink` (+ `TracesSink`, `MetricsSink`, `LogsSink`, `ProfilesSink` aliases), `Source`, `Transform`, `FanOut`, `PipelineHandle`, `Lifecycle`                              | `dev.nthings.otlp4j.pipeline`       |
 | `Receiver`, `TelemetryTap`, `TapOptions`, `Telemetry`                                                                                                                              | `dev.nthings.otlp4j.receiver`       |
 | `OtlpExporter`                                                                                                                                                                     | `dev.nthings.otlp4j.exporter`       |
 | `Transforms`, `BatchingProcessor`, `OverflowPolicy`                                                                                                                                | `dev.nthings.otlp4j.processor`      |
@@ -84,11 +84,11 @@ Everything lives under the `dev.nthings.otlp4j` root. The types you import most 
 | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `otlptracegrpc` / `otlpmetricgrpc` / `otlploggrpc` (one package per signal+transport) | One `OtlpGrpcExporter`; pick a signal facet — `exporter.traces()`, `.metrics()`, `.logs()`, `.profiles()`.               |
 | `go.opentelemetry.io/proto/otlp/...` generated protobuf                               | Proto-free immutable records in `dev.nthings.otlp4j.model` (`TracesData`, `MetricsData`, `LogsData`, `ProfilesData`, …). |
-| Collector `consumer` (`ConsumeTraces(ctx, td) error`)                                 | `TraceSink` (a `Sink<TracesData>`) returning `CompletionStage<ConsumeResult<TracesData>>`.                               |
+| Collector `consumer` (`ConsumeTraces(ctx, td) error`)                                 | `TracesSink` (a `Sink<TracesData>`) returning `CompletionStage<ConsumeResult<TracesData>>`.                              |
 | Collector `component` lifecycle (`Start`/`Shutdown(ctx)`)                             | `OtlpGrpcReceiver.start()`, `PipelineHandle.shutdown(Duration)`, `Lifecycle`.                                            |
 | Collector OTLP receiver                                                               | `OtlpGrpcReceiver` plus its per-signal `Source`s.                                                                        |
-| `exporterhelper` queue + retry + timeout                                              | `BatchingProcessor` (queue), `RetryPolicy` (transport retry), per-request `timeout(...)`.                                |
-| Functional options (`WithEndpoint`, `WithTimeout`, `WithInsecure`)                    | Builder methods (`endpoint(...)`, `timeout(...)`); the endpoint scheme decides plaintext vs TLS.                         |
+| `exporterhelper` queue + retry + timeout                                              | `BatchingProcessor` (queue), `RetryPolicy` (transport retry), per-request `setTimeout(...)`.                             |
+| Functional options (`WithEndpoint`, `WithTimeout`, `WithInsecure`)                    | Builder methods (`setEndpoint(...)`, `setTimeout(...)`); the endpoint scheme decides plaintext vs TLS.                   |
 | `consumer.Capabilities{MutatesData}`                                                  | Not needed — model records are immutable, so fan-out shares them without copying.                                        |
 
 Two deliberate differences: delivery is asynchronous (`CompletionStage<ConsumeResult<T>>`) with no per-call `context.Context`, and OTLP is carried over gRPC or HTTP with binary protobuf only (no `http/json`). Pick the transport by class — `OtlpGrpcExporter`/`OtlpGrpcReceiver` (port 4317) or `OtlpHttpExporter`/`OtlpHttpReceiver` (port 4318); the builders and pipeline wiring are identical. See [Sinks and results](#sinks-and-results) for the partial-success/retry mapping.
@@ -106,7 +106,7 @@ Each signal preserves OTLP's resource and instrumentation-scope grouping while p
 
 Each flattened accessor (`spans()`, `metrics()`, `logRecords()`, `profiles()`) walks the resource/scope grouping and allocates a fresh list on every call, so bind it to a local rather than re-calling it in a loop or on a hot path. On hot paths prefer the `forEach…` helper to visit items in the same order without the intermediate list, or the count helper to size a batch without flattening it — these are what batching and the count connectors use. (`MetricsData`'s count helper, `dataPointCount()`, counts nested data points — the meaningful OTLP item count for metrics — rather than the number of `Metric` objects.)
 
-Records copy incoming lists and are safe to share between fan-out peers. `Attributes` and the sealed `AttributeValue` hierarchy represent OTLP values. Builders are available for `Attributes`, `Span`, `Metric`, and `LogRecord`, plus the metric data points (`NumberPoint`, `HistogramPoint`, `ExponentialHistogramPoint`) and `Exemplar`; `NumberPoint`, `Exemplar`, and `SummaryPoint` also offer `of(...)` factories for the common case. These builders are batch/model-construction helpers for OTLP payloads in the pipeline, not application instrumentation APIs. The remaining records use canonical constructors. To avoid hand-nesting the resource/scope wrappers, each signal type has an `of(resource, scope, items)` factory, and `Resource.of(...)` / `InstrumentationScope.of(...)` cover the common cases:
+Records copy incoming lists and are safe to share between fan-out peers. `Attributes` and the sealed `AttributeValue` hierarchy represent OTLP values. Builders are available for `Attributes`, `Span`, `Metric`, and `LogRecord`, plus the metric data points (`NumberPoint`, `HistogramPoint`, `ExponentialHistogramPoint`) and `Exemplar`; `NumberPoint`, `Exemplar`, and `SummaryPoint` also offer `of(...)` factories for the common case. These builders are batch/model-construction helpers for OTLP payloads in the pipeline, not application instrumentation APIs. Builder method naming follows one rule: model and pipeline-component builders (these and `BatchingProcessor.Builder`) use no-prefix fluent setters (`name(...)`, `flushThreshold(...)`), matching the immutable records and the JDK's own builders; the configuration and transport builders (`ClientConfig`, `ServerConfig`, `RetryPolicy`, and the `OtlpGrpc…`/`OtlpHttp…` entry points) use `set*` to mirror OpenTelemetry Java. The remaining records use canonical constructors. To avoid hand-nesting the resource/scope wrappers, each signal type has an `of(resource, scope, items)` factory, and `Resource.of(...)` / `InstrumentationScope.of(...)` cover the common cases:
 
 ```java
 var batch = TracesData.of(Resource.of(attributes), InstrumentationScope.of("my.lib", "1.0"), spans);
@@ -114,7 +114,7 @@ var batch = TracesData.of(Resource.of(attributes), InstrumentationScope.of("my.l
 
 `Attributes.toBuilder()` plus `Builder.putAll(...)` make "copy and add a key" a one-liner instead of a manual map walk.
 
-`Metric.Data` covers gauge, sum, histogram, exponential histogram, summary, and the empty `Metric.NoData` form. `Metric.data()` is never null: a metric whose wire form set no data (`DATA_NOT_SET`) carries `Metric.NoData` (build it with `Metric.noData()` / `Metric.NoData.INSTANCE`, or use `hasData()` / `dataOrThrow()` to skip the empty form). Switch over `data()` to handle every kind exhaustively. Number, histogram, and exponential-histogram points each carry a `List<Exemplar>` (`filteredAttributes`, `epochNanos`, `value`, `spanId`, `traceId`) mapped in both directions; the list is empty when no exemplars were recorded.
+`Metric.Data` covers gauge, sum, histogram, exponential histogram, summary, and the empty `Metric.NoData` form. `Metric.data()` is never null: a metric whose wire form set no data (`DATA_NOT_SET`) carries `Metric.NoData` (build it with `Metric.noData()`, or use `hasData()` / `dataOrThrow()` to skip the empty form). Switch over `data()` to handle every kind exhaustively. Number, histogram, and exponential-histogram points each carry a `List<Exemplar>` (`filteredAttributes`, `epochNanos`, `value`, `spanId`, `traceId`) mapped in both directions; the list is empty when no exemplars were recorded.
 
 The `Metric.gauge/sum/histogram/exponentialHistogram/summary` factories build the sealed `Data` variants, and the point builders keep realistic construction terse and safe:
 
@@ -160,10 +160,10 @@ var exemplar = Exemplar.builder()
 CompletionStage<ConsumeResult<T>> consume(T batch);
 ```
 
-Prefer the signal aliases `TraceSink`, `MetricSink`, `LogSink`, and `ProfileSink` in declarations and extension APIs.
+Prefer the signal aliases `TracesSink`, `MetricsSink`, `LogsSink`, and `ProfilesSink` in declarations and extension APIs.
 
 ```java
-TraceSink report = traces -> {
+TracesSink report = traces -> {
     System.out.println("spans=" + traces.spans().size());
     return ConsumeResult.acceptedStage();
 };
@@ -188,7 +188,7 @@ Use an exception or exceptionally completed stage for a transport-level failure.
 
 `OtlpHttpReceiver` is the OTLP/HTTP counterpart with the same builder, defaulting to `localhost:4318`. It serves the standard signal paths (`/v1/traces`, `/v1/metrics`, `/v1/logs`, `/v1development/profiles`), inflates gzip request bodies, and — lacking a per-connection concurrency knob — bounds concurrency through `setServerExecutor(...)` (a virtual-thread-per-request executor by default).
 
-The receiver builder exposes the receiver-hardening knobs the bundled server applies directly (or set them on a `ServerConfig` and pass it through `transport(...)`), all defaulting to gRPC's own behaviour:
+The receiver builder exposes the receiver-hardening knobs the bundled server applies directly (or set them on a `ServerConfig` and pass it through `setConfig(...)`), all defaulting to gRPC's own behaviour:
 
 | Builder knob                         | Default                       | Effect                                                                                     |
 | ------------------------------------ | ----------------------------- | ------------------------------------------------------------------------------------------ |
@@ -330,7 +330,7 @@ Overflow behavior (the `OverflowPolicy`):
 
 ## Export
 
-`OtlpGrpcExporter` defaults to plaintext `localhost:4317` with a ten-second deadline per request. It owns one client channel and exposes a sink facet for each signal. The endpoint can be set as a single `setEndpoint(url)` URL or as `setEndpoint(host, port)`; TLS, authentication headers, gzip compression, and retries are available directly on the builder (`setTls`, `addHeader`/`setHeaders`, `setCompression`, `setRetryPolicy`). Retries are **on by default** (`RetryPolicy.getDefault()` — five attempts, 1s→5s, 1.5×); pass `RetryPolicy.none()` to opt out. `setHeaders(Supplier<Map<String,String>>)` supplies headers evaluated per export (for a rotating bearer token), overlaid on the static headers (the supplier wins per key). `setTls` accepts PEM file paths, in-memory PEM bytes (`Tls.custom(byte[]…)` / `Tls.trust(byte[])`), or a caller-built `SSLContext` (`Tls.sslContext(context, trustManager)`). Pass a fully built `ClientConfig` through `transport(...)` only when you want to replace the whole config at once.
+`OtlpGrpcExporter` defaults to plaintext `localhost:4317` with a ten-second deadline per request. It owns one client channel and exposes a sink facet for each signal. The endpoint can be set as a single `setEndpoint(url)` URL or as `setEndpoint(host, port)`; TLS, authentication headers, gzip compression, and retries are available directly on the builder (`setTls`, `addHeader`/`setHeaders`, `setCompression`, `setRetryPolicy`). Retries are **on by default** (`RetryPolicy.getDefault()` — five attempts, 1s→5s, 1.5×); pass `RetryPolicy.none()` to opt out. `setHeaders(Supplier<Map<String,String>>)` supplies headers evaluated per export (for a rotating bearer token), overlaid on the static headers (the supplier wins per key). `setTls` accepts PEM file paths, in-memory PEM bytes (`Tls.custom(byte[]…)` / `Tls.trust(byte[])`), or a caller-built `SSLContext` (`Tls.sslContext(context, trustManager)`). Pass a fully built `ClientConfig` through `setConfig(...)` only when you want to replace the whole config at once.
 
 `OtlpHttpExporter` is the OTLP/HTTP counterpart with the identical builder, defaulting to `localhost:4318`. It POSTs each signal's binary protobuf to its standard path (`/v1/traces`, `/v1/metrics`, `/v1/logs`, `/v1development/profiles`) as `application/x-protobuf`; the scheme follows `setTls` (`http`/`https`), `setCompression(GZIP)` sets `Content-Encoding: gzip`, and `setRetryPolicy` drives exponential-backoff retries over retryable statuses (408/429/502/503/504). An endpoint **path prefix** is applied: a collector behind `https://host/otlp` is reached at `/otlp/v1/traces`, set via the `setEndpoint(url)` / `OTEL_EXPORTER_OTLP_ENDPOINT` URL or the HTTP builder's `setPath(...)`. (gRPC ignores the path and uses the authority only.) `setConnectTimeout(Duration)` bounds connection setup, falling back to the request timeout when unset; it applies to OTLP/HTTP only (gRPC has no separate connect timeout and ignores it).
 
@@ -394,7 +394,7 @@ Implement `Sink<T>` plus `Lifecycle` for a custom typed terminal with flush and 
 
 ## Connect signals
 
-The bundled count sinks consume one signal and emit a derived metric to a configured downstream `MetricSink`. `Connectors.spanCount` returns a `TraceSink`; `Connectors.logRecordCount` returns a `LogSink`. Wire them in like any other sink — as a terminal or a fan-out peer:
+The bundled count sinks consume one signal and emit a derived metric to a configured downstream `MetricsSink`. `Connectors.spanCount` returns a `TracesSink`; `Connectors.logRecordCount` returns a `LogsSink`. Wire them in like any other sink — as a terminal or a fan-out peer:
 
 ```java
 var spanCounter = Connectors.spanCount(exporter.metrics());
@@ -404,7 +404,7 @@ var logCounter = Connectors.logRecordCount(exporter.metrics());
 var strictSpanCounter = Connectors.spanCount(exporter.metrics(), FailurePolicy.FAIL);
 ```
 
-A count sink cascades its lifecycle to the downstream `MetricSink` it wraps, so attaching the connector as a terminal or fan-out peer drains that downstream exporter automatically — no `Stage.owns(...)` needed (see [Lifecycle](#lifecycle)).
+A count sink cascades its lifecycle to the downstream `MetricsSink` it wraps, so attaching the connector as a terminal or fan-out peer drains that downstream exporter automatically — no `Stage.owns(...)` needed (see [Lifecycle](#lifecycle)).
 
 The built-ins emit `otlp4j.connector.span.count` and `otlp4j.connector.log.record.count`, each as a monotonic delta sum whose window runs from the previous flush (so the series carries a real per-series start time). A configurable `FailurePolicy` decides how a downstream metric failure maps back onto the input result; the no-policy `spanCount`/`logRecordCount` overloads default to `BEST_EFFORT`, and `spanCount(downstream, policy)` / `logRecordCount(downstream, policy)` set it explicitly:
 

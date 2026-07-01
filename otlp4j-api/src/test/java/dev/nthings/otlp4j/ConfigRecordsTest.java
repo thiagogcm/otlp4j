@@ -126,8 +126,8 @@ class ConfigRecordsTest {
     @DisplayName("getDefault returns the all-defaults config")
     @Test
     void configGetDefault() {
-        assertThat(ClientConfig.getDefault()).isEqualTo(ClientConfig.builder().build());
-        assertThat(ServerConfig.getDefault()).isEqualTo(ServerConfig.builder().build());
+        assertThat(ClientConfig.defaults()).isEqualTo(ClientConfig.builder().build());
+        assertThat(ServerConfig.defaults()).isEqualTo(ServerConfig.builder().build());
     }
 
     @DisplayName("ServerConfig builder applies sensible defaults")

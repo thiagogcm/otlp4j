@@ -12,7 +12,7 @@ import dev.nthings.otlp4j.model.NumberPoint;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
-import dev.nthings.otlp4j.pipeline.MetricSink;
+import dev.nthings.otlp4j.pipeline.MetricsSink;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.util.ArrayList;
 import java.util.concurrent.CompletableFuture;
@@ -27,7 +27,7 @@ class ConnectorsTest {
     @Test
     void spanCountConnectorEmitsCountMetric() {
         var captured = new ArrayList<MetricsData>();
-        MetricSink downstream = metrics -> {
+        MetricsSink downstream = metrics -> {
             captured.add(metrics);
             return ConsumeResult.acceptedStage();
         };
@@ -48,7 +48,7 @@ class ConnectorsTest {
     @Test
     void logRecordCountConnectorEmitsCountMetric() {
         var captured = new ArrayList<MetricsData>();
-        MetricSink downstream = metrics -> {
+        MetricsSink downstream = metrics -> {
             captured.add(metrics);
             return ConsumeResult.acceptedStage();
         };
@@ -66,7 +66,7 @@ class ConnectorsTest {
     @DisplayName("BEST_EFFORT (default) accepts input despite downstream Rejected")
     @Test
     void bestEffortAcceptsInputDespiteDownstreamRejected() {
-        MetricSink downstream = metrics ->
+        MetricsSink downstream = metrics ->
                 CompletableFuture.completedStage(ConsumeResult.retryable("backend down"));
         var connector = Connectors.spanCount(downstream);
         var result = connector.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
@@ -77,7 +77,7 @@ class ConnectorsTest {
     @DisplayName("FAIL propagates a downstream Rejected onto the input result")
     @Test
     void failPropagatesDownstreamRejected() {
-        MetricSink downstream = metrics ->
+        MetricsSink downstream = metrics ->
                 CompletableFuture.completedStage(ConsumeResult.retryable("backend down"));
         var connector = Connectors.spanCount(downstream, FailurePolicy.FAIL);
         var result = connector.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
@@ -88,7 +88,7 @@ class ConnectorsTest {
     @DisplayName("FAIL propagates a downstream Partial onto the input result")
     @Test
     void failPropagatesDownstreamPartial() {
-        MetricSink downstream = metrics ->
+        MetricsSink downstream = metrics ->
                 CompletableFuture.completedStage(ConsumeResult.partial(1L, "metric pushback"));
         var connector = Connectors.logRecordCount(downstream, FailurePolicy.FAIL);
         var result = connector.consume(Fixtures.logsData(Fixtures.logRecord("hi", LogRecord.Severity.INFO)))
@@ -99,7 +99,7 @@ class ConnectorsTest {
     @DisplayName("FAIL propagates a synchronous downstream throw as a permanent Rejected")
     @Test
     void failPropagatesSynchronousDownstreamThrow() {
-        MetricSink downstream = metrics -> {
+        MetricsSink downstream = metrics -> {
             throw new RuntimeException("sink blew up");
         };
         var connector = Connectors.spanCount(downstream, FailurePolicy.FAIL);
@@ -115,7 +115,7 @@ class ConnectorsTest {
     @DisplayName("BEST_EFFORT (default) accepts input despite a synchronous downstream throw")
     @Test
     void bestEffortAcceptsInputDespiteSynchronousDownstreamThrow() {
-        MetricSink downstream = metrics -> {
+        MetricsSink downstream = metrics -> {
             throw new RuntimeException("sink blew up");
         };
         var connector = Connectors.spanCount(downstream);
@@ -127,7 +127,7 @@ class ConnectorsTest {
     @DisplayName("FAIL propagates a failed downstream stage as a permanent Rejected")
     @Test
     void failPropagatesFailedDownstreamStage() {
-        MetricSink downstream = metrics ->
+        MetricsSink downstream = metrics ->
                 CompletableFuture.failedStage(new IllegalStateException("backend exploded"));
         var connector = Connectors.spanCount(downstream, FailurePolicy.FAIL);
         var result = connector.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
@@ -140,7 +140,7 @@ class ConnectorsTest {
     @DisplayName("BEST_EFFORT (default) accepts input despite a failed downstream stage")
     @Test
     void bestEffortAcceptsInputDespiteFailedDownstreamStage() {
-        MetricSink downstream = metrics ->
+        MetricsSink downstream = metrics ->
                 CompletableFuture.failedStage(new IllegalStateException("backend exploded"));
         var connector = Connectors.spanCount(downstream);
         var result = connector.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
@@ -152,7 +152,7 @@ class ConnectorsTest {
     @Test
     void downstreamStageErrorPropagatesEvenUnderBestEffort() {
         var overflow = new StackOverflowError("downstream error");
-        MetricSink downstream = metrics -> CompletableFuture.failedStage(overflow);
+        MetricsSink downstream = metrics -> CompletableFuture.failedStage(overflow);
         // BEST_EFFORT would normally turn a downstream rejection into Accepted; an Error must escape it.
         var connector = Connectors.spanCount(downstream);
         assertThatThrownBy(() -> connector.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
@@ -167,7 +167,7 @@ class ConnectorsTest {
         Thread.interrupted();
         var interrupted = new InterruptedException("downstream interrupted");
         // consume() declares no checked exceptions; a blocking metric sink can still sneaky-throw one.
-        MetricSink downstream = metrics -> sneakyThrow(interrupted);
+        MetricsSink downstream = metrics -> sneakyThrow(interrupted);
         var connector = Connectors.spanCount(downstream, FailurePolicy.FAIL);
         try {
             var result = connector.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
@@ -184,7 +184,7 @@ class ConnectorsTest {
     @Test
     void failNormalizesDownstreamBareThrowable() {
         var raw = new Throwable("bare throwable");
-        MetricSink downstream = metrics -> sneakyThrow(raw);
+        MetricsSink downstream = metrics -> sneakyThrow(raw);
         var connector = Connectors.spanCount(downstream, FailurePolicy.FAIL);
         var result = connector.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
                 .toCompletableFuture().join();
@@ -195,7 +195,7 @@ class ConnectorsTest {
     @DisplayName("FAIL normalizes a downstream sink that returns a null stage")
     @Test
     void failNormalizesNullDownstreamStage() {
-        MetricSink downstream = metrics -> null;
+        MetricsSink downstream = metrics -> null;
         var connector = Connectors.spanCount(downstream, FailurePolicy.FAIL);
         var result = connector.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
                 .toCompletableFuture().join();
@@ -207,7 +207,7 @@ class ConnectorsTest {
     @Test
     void deltaWindowIsContiguousAcrossFlushes() {
         var captured = new ArrayList<MetricsData>();
-        MetricSink downstream = metrics -> {
+        MetricsSink downstream = metrics -> {
             captured.add(metrics);
             return ConsumeResult.acceptedStage();
         };

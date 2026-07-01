@@ -86,7 +86,7 @@ class MapperEdgeCaseTest {
         var roundTripped = MetricsMapper.toDomain(MetricsMapper.toProto(sent)).metrics().getFirst();
 
         assertThat(roundTripped.name()).isEqualTo("placeholder.metric");
-        assertThat(roundTripped.data()).isEqualTo(Metric.NoData.INSTANCE);
+        assertThat(roundTripped.data()).isEqualTo(Metric.noData());
         assertThat(roundTripped.hasData()).isFalse();
     }
 

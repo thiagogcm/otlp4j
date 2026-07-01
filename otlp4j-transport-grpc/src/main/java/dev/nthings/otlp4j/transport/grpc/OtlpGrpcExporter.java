@@ -41,7 +41,8 @@ public final class OtlpGrpcExporter {
 
         private Builder() {}
 
-        public Builder transport(ClientConfig config) {
+        /// Replaces the whole client config at once; later setters override individual fields.
+        public Builder setConfig(ClientConfig config) {
             this.config = config.toBuilder();
             return this;
         }
@@ -62,16 +63,6 @@ public final class OtlpGrpcExporter {
 
         public Builder setEndpoint(String host, int port) {
             config.setEndpoint(host, port);
-            return this;
-        }
-
-        public Builder setHost(String host) {
-            config.setHost(host);
-            return this;
-        }
-
-        public Builder setPort(int port) {
-            config.setPort(port);
             return this;
         }
 

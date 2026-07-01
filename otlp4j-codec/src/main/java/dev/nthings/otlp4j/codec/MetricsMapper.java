@@ -101,7 +101,7 @@ public final class MetricsMapper {
             case SUMMARY ->
                 new Metric.Summary(summaryPointsToDomain(metric.getSummary().getDataPointsList()));
             // No data on the wire → the empty NoData form (faithful round-trip).
-            case DATA_NOT_SET -> Metric.NoData.INSTANCE;
+            case DATA_NOT_SET -> Metric.noData();
         };
     }
 

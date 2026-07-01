@@ -2,10 +2,10 @@ package dev.nthings.otlp4j.transport.http;
 
 import dev.nthings.otlp4j.config.ServerConfig;
 import dev.nthings.otlp4j.config.Tls;
-import dev.nthings.otlp4j.pipeline.LogSink;
-import dev.nthings.otlp4j.pipeline.MetricSink;
-import dev.nthings.otlp4j.pipeline.ProfileSink;
-import dev.nthings.otlp4j.pipeline.TraceSink;
+import dev.nthings.otlp4j.pipeline.LogsSink;
+import dev.nthings.otlp4j.pipeline.MetricsSink;
+import dev.nthings.otlp4j.pipeline.ProfilesSink;
+import dev.nthings.otlp4j.pipeline.TracesSink;
 import dev.nthings.otlp4j.receiver.Receiver;
 import dev.nthings.otlp4j.transport.spi.ServerReceiver;
 import dev.nthings.otlp4j.transport.http.internal.HttpOtlpServer;
@@ -28,31 +28,21 @@ public final class OtlpHttpReceiver {
         return new Builder();
     }
 
-    /// Builds (but does not start) a receiver bound to `port` on the default loopback host.
-    public static Receiver on(int port) {
-        return builder().setPort(port).build();
-    }
-
-    /// Builds (but does not start) a receiver bound to `bindHost:port`.
-    public static Receiver on(String bindHost, int port) {
-        return builder().setEndpoint(bindHost, port).build();
-    }
-
     /// Builder for an OTLP/HTTP [Receiver]. Defaults bind `localhost:4318` with plaintext transport.
     public static final class Builder {
 
         private ServerConfig.Builder config =
                 ServerConfig.builder().setPort(DEFAULT_HTTP_PORT);
-        private @Nullable TraceSink    traces;
-        private @Nullable MetricSink   metrics;
-        private @Nullable LogSink      logs;
-        private @Nullable ProfileSink  profiles;
+        private @Nullable TracesSink    traces;
+        private @Nullable MetricsSink   metrics;
+        private @Nullable LogsSink      logs;
+        private @Nullable ProfilesSink  profiles;
 
         private Builder() {}
 
         /// Replaces the whole transport config. The supplied port is used verbatim (the 4318
         /// default applies only to the unconfigured builder).
-        public Builder transport(ServerConfig config) {
+        public Builder setConfig(ServerConfig config) {
             this.config = config.toBuilder();
             return this;
         }
@@ -96,22 +86,22 @@ public final class OtlpHttpReceiver {
             return this;
         }
 
-        public Builder onTraces(TraceSink sink) {
+        public Builder onTraces(TracesSink sink) {
             this.traces = sink;
             return this;
         }
 
-        public Builder onMetrics(MetricSink sink) {
+        public Builder onMetrics(MetricsSink sink) {
             this.metrics = sink;
             return this;
         }
 
-        public Builder onLogs(LogSink sink) {
+        public Builder onLogs(LogsSink sink) {
             this.logs = sink;
             return this;
         }
 
-        public Builder onProfiles(ProfileSink sink) {
+        public Builder onProfiles(ProfilesSink sink) {
             this.profiles = sink;
             return this;
         }

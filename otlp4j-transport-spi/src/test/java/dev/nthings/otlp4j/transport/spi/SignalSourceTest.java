@@ -3,7 +3,7 @@ package dev.nthings.otlp4j.transport.spi;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import dev.nthings.otlp4j.pipeline.TraceSink;
+import dev.nthings.otlp4j.pipeline.TracesSink;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
@@ -51,7 +51,7 @@ class SignalSourceTest {
     void dispatchInvokesAttachedSink() {
         var source = new SignalSource<>(TracesData.class);
         var hits = new AtomicInteger();
-        TraceSink c = traces -> {
+        TracesSink c = traces -> {
             hits.incrementAndGet();
             return ConsumeResult.acceptedStage();
         };
@@ -82,7 +82,7 @@ class SignalSourceTest {
     @Test
     void dispatchPropagatesSinkException() {
         var source = new SignalSource<>(TracesData.class);
-        TraceSink c = traces -> { throw new RuntimeException("boom"); };
+        TracesSink c = traces -> { throw new RuntimeException("boom"); };
         var sub = source.subscribe(c);
         try {
             assertThatThrownBy(() ->
@@ -98,7 +98,7 @@ class SignalSourceTest {
     @Test
     void dispatchPropagatesAsyncSinkFailure() {
         var source = new SignalSource<>(TracesData.class);
-        TraceSink c = traces -> CompletableFuture.failedFuture(new IllegalStateException("async boom"));
+        TracesSink c = traces -> CompletableFuture.failedFuture(new IllegalStateException("async boom"));
         var sub = source.subscribe(c);
         try {
             var stage = source.dispatch(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)));

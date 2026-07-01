@@ -25,8 +25,6 @@ class GrpcEntryPointBuilderTest {
         try (var exporter = OtlpGrpcExporter.builder()
                 .fromEnvironment()
                 .setEndpoint("collector.example", 4317)
-                .setHost("collector.example")
-                .setPort(4317)
                 .setTimeout(Duration.ofSeconds(3))
                 .setTls(Tls.systemTrust())
                 .addHeader("authorization", "Bearer x")
@@ -42,11 +40,11 @@ class GrpcEntryPointBuilderTest {
         }
     }
 
-    @DisplayName("OtlpGrpcExporter.transport(config) and to(...) build a client")
+    @DisplayName("OtlpGrpcExporter.setConfig(config) and to(...) build a client")
     @Test
     void exporterFromConfigAndConvenience() {
         var config = ClientConfig.builder().setEndpoint("h", 4317).build();
-        try (var fromConfig = OtlpGrpcExporter.builder().transport(config).build()) {
+        try (var fromConfig = OtlpGrpcExporter.builder().setConfig(config).build()) {
             assertThat(fromConfig.traces()).isNotNull();
         }
         try (var convenience = OtlpGrpcExporter.to("h", 4317)) {
@@ -67,7 +65,7 @@ class GrpcEntryPointBuilderTest {
     void receiverBuilderAppliesEveryKnob() {
         var executor = Executors.newVirtualThreadPerTaskExecutor();
         var receiver = OtlpGrpcReceiver.builder()
-                .transport(ServerConfig.builder().build())
+                .setConfig(ServerConfig.builder().build())
                 .setEndpoint("127.0.0.1", 0)
                 .setPort(0)
                 .ephemeralPort()
@@ -85,11 +83,11 @@ class GrpcEntryPointBuilderTest {
         executor.shutdown();
     }
 
-    @DisplayName("OtlpGrpcReceiver.on(...) convenience builds a receiver")
+    @DisplayName("OtlpGrpcReceiver builder binds an ephemeral or a specific host:port")
     @Test
-    void receiverConvenienceFactories() {
-        assertThat(OtlpGrpcReceiver.on(0).port()).isZero();
-        assertThat(OtlpGrpcReceiver.on("127.0.0.1", 0).port()).isZero();
+    void receiverBuilderBindsPort() {
+        assertThat(OtlpGrpcReceiver.builder().ephemeralPort().build().port()).isZero();
+        assertThat(OtlpGrpcReceiver.builder().setEndpoint("127.0.0.1", 0).build().port()).isZero();
     }
 
     @DisplayName("OtlpGrpcExporter.Builder addHeader adds per key and setHeaders replaces all")

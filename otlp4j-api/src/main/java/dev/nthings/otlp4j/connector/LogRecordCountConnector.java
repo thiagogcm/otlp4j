@@ -1,14 +1,14 @@
 package dev.nthings.otlp4j.connector;
 
 import dev.nthings.otlp4j.model.LogsData;
-import dev.nthings.otlp4j.pipeline.LogSink;
-import dev.nthings.otlp4j.pipeline.MetricSink;
+import dev.nthings.otlp4j.pipeline.LogsSink;
+import dev.nthings.otlp4j.pipeline.MetricsSink;
 
-/// The log-record-count connector as a [LogSink]: counts log records per batch and emits
+/// The log-record-count connector as a [LogsSink]: counts log records per batch and emits
 /// `otlp4j.connector.log.record.count` to its downstream metric sink, whose lifecycle it cascades.
-final class LogRecordCountConnector extends CountConnector<LogsData> implements LogSink {
+final class LogRecordCountConnector extends CountConnector<LogsData> implements LogsSink {
 
-    LogRecordCountConnector(MetricSink downstream, FailurePolicy policy) {
+    LogRecordCountConnector(MetricsSink downstream, FailurePolicy policy) {
         super(
                 downstream,
                 policy,

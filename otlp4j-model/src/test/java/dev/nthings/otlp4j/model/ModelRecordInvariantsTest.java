@@ -209,7 +209,7 @@ class ModelRecordInvariantsTest {
         assertThat(ExponentialHistogramPoint.Buckets.EMPTY.offset()).isZero();
         assertThat(ExponentialHistogramPoint.Buckets.EMPTY.bucketCounts()).isEmpty();
 
-        assertThat(AttributeValue.EMPTY).isInstanceOf(AttributeValue.Empty.class);
+        assertThat(AttributeValue.empty()).isInstanceOf(AttributeValue.Empty.class);
     }
 
     @DisplayName("Exemplar validates required fields while preserving unset values")

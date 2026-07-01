@@ -1,10 +1,10 @@
 package dev.nthings.otlp4j.transport.spi;
 
-import dev.nthings.otlp4j.pipeline.LogSink;
-import dev.nthings.otlp4j.pipeline.MetricSink;
-import dev.nthings.otlp4j.pipeline.ProfileSink;
+import dev.nthings.otlp4j.pipeline.LogsSink;
+import dev.nthings.otlp4j.pipeline.MetricsSink;
+import dev.nthings.otlp4j.pipeline.ProfilesSink;
 import dev.nthings.otlp4j.pipeline.Source;
-import dev.nthings.otlp4j.pipeline.TraceSink;
+import dev.nthings.otlp4j.pipeline.TracesSink;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
@@ -43,10 +43,10 @@ public final class ServerReceiver implements Receiver {
     public ServerReceiver(
             String transportName,
             Function<Dispatchers, OtlpServer> serverFactory,
-            @Nullable TraceSink onTraces,
-            @Nullable MetricSink onMetrics,
-            @Nullable LogSink onLogs,
-            @Nullable ProfileSink onProfiles) {
+            @Nullable TracesSink onTraces,
+            @Nullable MetricsSink onMetrics,
+            @Nullable LogsSink onLogs,
+            @Nullable ProfilesSink onProfiles) {
         this.transportName = transportName;
         var dispatchers = new Dispatchers(
                 this::dispatchTraces,

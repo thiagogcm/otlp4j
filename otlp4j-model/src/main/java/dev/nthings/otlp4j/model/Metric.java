@@ -118,7 +118,7 @@ public record Metric(String name, String description, String unit, Data data, At
 
     /// The empty payload, mirroring the wire `DATA_NOT_SET` form.
     public record NoData() implements Data {
-        public static final NoData INSTANCE = new NoData();
+        private static final NoData INSTANCE = new NoData();
     }
 
     /// How a metric aggregator reports values relative to time.

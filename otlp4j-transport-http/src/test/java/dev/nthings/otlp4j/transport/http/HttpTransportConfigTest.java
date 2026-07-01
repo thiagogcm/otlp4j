@@ -163,7 +163,7 @@ class HttpTransportConfigTest {
     @Test
     void buildsClientWithSystemTrustTls() {
         try (var exporter = OtlpHttpExporter.builder()
-                .transport(ClientConfig.builder()
+                .setConfig(ClientConfig.builder()
                         .setEndpoint("localhost", 4318)
                         .setTls(Tls.systemTrust())
                         .build())
@@ -175,7 +175,7 @@ class HttpTransportConfigTest {
     @DisplayName("Builds a client exporter for an IPv6 host")
     @Test
     void buildsClientForIpv6Host() {
-        try (var exporter = OtlpHttpExporter.builder().setHost("::1").setPort(4318).build()) {
+        try (var exporter = OtlpHttpExporter.builder().setEndpoint("::1", 4318).build()) {
             assertThat(exporter).isNotNull();
         }
     }
@@ -184,7 +184,7 @@ class HttpTransportConfigTest {
     @Test
     void rejectsSystemTrustForServer() {
         var receiver = OtlpHttpReceiver.builder()
-                .transport(ServerConfig.builder().setPort(0).setTls(Tls.systemTrust()).build())
+                .setConfig(ServerConfig.builder().setPort(0).setTls(Tls.systemTrust()).build())
                 .onTraces(t -> ConsumeResult.acceptedStage())
                 .build();
         receivers.add(receiver);
@@ -198,7 +198,7 @@ class HttpTransportConfigTest {
     @Test
     void serverCustomTlsRequiresCertAndKey() {
         var receiver = OtlpHttpReceiver.builder()
-                .transport(ServerConfig.builder()
+                .setConfig(ServerConfig.builder()
                         .setPort(0)
                         .setTls(Tls.custom(resource("/tls/server.crt"), null, null))
                         .build())
@@ -218,7 +218,7 @@ class HttpTransportConfigTest {
         var sslContext = SSLContext.getInstance("TLS");
         sslContext.init(null, new TrustManager[] {trustManager}, null);
         var receiver = OtlpHttpReceiver.builder()
-                .transport(ServerConfig.builder()
+                .setConfig(ServerConfig.builder()
                         .setPort(0)
                         .setTls(Tls.sslContext(sslContext, trustManager))
                         .build())
@@ -235,7 +235,7 @@ class HttpTransportConfigTest {
     @Test
     void serverInMemoryTrustOnlyRejected() throws Exception {
         var receiver = OtlpHttpReceiver.builder()
-                .transport(ServerConfig.builder()
+                .setConfig(ServerConfig.builder()
                         .setPort(0)
                         .setTls(Tls.trust(bytes("/tls/server.crt")))
                         .build())
@@ -265,7 +265,7 @@ class HttpTransportConfigTest {
     @Test
     void specificBindHostBindsThatInterface() {
         var receiver = OtlpHttpReceiver.builder()
-                .transport(ServerConfig.builder().setBindHost("127.0.0.1").setPort(0).build())
+                .setConfig(ServerConfig.builder().setBindHost("127.0.0.1").setPort(0).build())
                 .onTraces(t -> ConsumeResult.acceptedStage())
                 .build();
         receivers.add(receiver);
@@ -278,7 +278,7 @@ class HttpTransportConfigTest {
     @Test
     void retriesIoFailureThenSurfacesIt() {
         // Grab a port, then free it, so connections are refused.
-        var probe = OtlpHttpReceiver.on(0).start();
+        var probe = OtlpHttpReceiver.builder().ephemeralPort().build().start();
         var deadPort = probe.port();
         probe.shutdownNow().toCompletableFuture().join();
 
@@ -376,13 +376,13 @@ class HttpTransportConfigTest {
     }
 
     private Receiver startReceiver(ServerConfig config, OtlpHttpReceiver.Builder builder) {
-        var receiver = builder.transport(config).build();
+        var receiver = builder.setConfig(config).build();
         receivers.add(receiver);
         return receiver.start();
     }
 
     private OtlpExporter exporter(ClientConfig config) {
-        var exporter = OtlpHttpExporter.builder().transport(config).build();
+        var exporter = OtlpHttpExporter.builder().setConfig(config).build();
         closeables.add(exporter);
         return exporter;
     }

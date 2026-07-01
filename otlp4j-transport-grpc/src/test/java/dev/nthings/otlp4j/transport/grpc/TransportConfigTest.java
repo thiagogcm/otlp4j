@@ -223,7 +223,7 @@ class TransportConfigTest {
         // SystemTrust uses the JVM default trust store; the channel connects lazily, so building
         // (and closing) the exporter is enough to exercise the credential path.
         try (var exporter = OtlpGrpcExporter.builder()
-                .transport(ClientConfig.builder()
+                .setConfig(ClientConfig.builder()
                         .setEndpoint("localhost", 4317)
                         .setTls(Tls.systemTrust())
                         .build())
@@ -236,7 +236,7 @@ class TransportConfigTest {
     @Test
     void rejectsSystemTrustForServer() {
         var receiver = OtlpGrpcReceiver.builder()
-                .transport(ServerConfig.builder().setPort(0).setTls(Tls.systemTrust()).build())
+                .setConfig(ServerConfig.builder().setPort(0).setTls(Tls.systemTrust()).build())
                 .onTraces(t -> ConsumeResult.acceptedStage())
                 .build();
         receivers.add(receiver);
@@ -253,7 +253,7 @@ class TransportConfigTest {
         var sslContext = SSLContext.getInstance("TLS");
         sslContext.init(null, new TrustManager[] {trustManager}, null);
         var receiver = OtlpGrpcReceiver.builder()
-                .transport(ServerConfig.builder()
+                .setConfig(ServerConfig.builder()
                         .setPort(0)
                         .setTls(Tls.sslContext(sslContext, trustManager))
                         .build())
@@ -270,7 +270,7 @@ class TransportConfigTest {
     @Test
     void serverInMemoryTrustOnlyRejected() throws Exception {
         var receiver = OtlpGrpcReceiver.builder()
-                .transport(ServerConfig.builder()
+                .setConfig(ServerConfig.builder()
                         .setPort(0)
                         .setTls(Tls.trust(bytes("/tls/server.crt")))
                         .build())
@@ -283,10 +283,10 @@ class TransportConfigTest {
                 .hasMessageContaining("certificate and a key");
     }
 
-    @DisplayName("OtlpGrpcReceiver.on(port) builds a startable plaintext receiver")
+    @DisplayName("OtlpGrpcReceiver builder builds a startable plaintext receiver")
     @Test
-    void onPortBuildsStartablePlaintextReceiver() {
-        var receiver = OtlpGrpcReceiver.on(0);
+    void builderBuildsStartablePlaintextReceiver() {
+        var receiver = OtlpGrpcReceiver.builder().ephemeralPort().build();
         receivers.add(receiver);
         receiver.start();
         closeables.add(receiver.traces().discard());
@@ -305,7 +305,7 @@ class TransportConfigTest {
     @Test
     void builderKeepsTlsWhenPortSetAfterTransport() {
         var receiver = OtlpGrpcReceiver.builder()
-                .transport(serverTls())
+                .setConfig(serverTls())
                 .setPort(0)
                 .onTraces(t -> ConsumeResult.acceptedStage())
                 .build();
@@ -325,7 +325,7 @@ class TransportConfigTest {
     @Test
     void specificBindHostBindsThatInterface() {
         var receiver = OtlpGrpcReceiver.builder()
-                .transport(ServerConfig.builder().setBindHost("127.0.0.1").setPort(0).build())
+                .setConfig(ServerConfig.builder().setBindHost("127.0.0.1").setPort(0).build())
                 .onTraces(t -> ConsumeResult.acceptedStage())
                 .build();
         receivers.add(receiver);
@@ -447,13 +447,13 @@ class TransportConfigTest {
     }
 
     private Receiver startReceiver(ServerConfig config, OtlpGrpcReceiver.Builder builder) {
-        var receiver = builder.transport(config).build();
+        var receiver = builder.setConfig(config).build();
         receivers.add(receiver);
         return receiver.start();
     }
 
     private OtlpExporter exporter(ClientConfig config) {
-        var exporter = OtlpGrpcExporter.builder().transport(config).build();
+        var exporter = OtlpGrpcExporter.builder().setConfig(config).build();
         closeables.add(exporter);
         return exporter;
     }

@@ -7,4 +7,4 @@ import dev.nthings.otlp4j.model.MetricsData;
 /// Build one from a lambda, or from a plain consumer or stage-returning function via
 /// [Sink#accepting(ThrowingConsumer)] and [Sink#fromStage(java.util.function.Function)].
 @FunctionalInterface
-public interface MetricSink extends Sink<MetricsData> {}
+public interface MetricsSink extends Sink<MetricsData> {}

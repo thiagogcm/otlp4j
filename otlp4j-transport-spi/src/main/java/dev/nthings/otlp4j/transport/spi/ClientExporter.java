@@ -1,9 +1,9 @@
 package dev.nthings.otlp4j.transport.spi;
 
-import dev.nthings.otlp4j.pipeline.LogSink;
-import dev.nthings.otlp4j.pipeline.MetricSink;
-import dev.nthings.otlp4j.pipeline.ProfileSink;
-import dev.nthings.otlp4j.pipeline.TraceSink;
+import dev.nthings.otlp4j.pipeline.LogsSink;
+import dev.nthings.otlp4j.pipeline.MetricsSink;
+import dev.nthings.otlp4j.pipeline.ProfilesSink;
+import dev.nthings.otlp4j.pipeline.TracesSink;
 import dev.nthings.otlp4j.pipeline.internal.SharedLifecycle;
 import dev.nthings.otlp4j.exporter.OtlpExporter;
 import dev.nthings.otlp4j.model.ConsumeResult;
@@ -49,10 +49,10 @@ public final class ClientExporter implements OtlpExporter, SharedLifecycle {
     private static final Consumer<String> DEFAULT_REPORTER = log::warn;
 
     private final OtlpClient client;
-    private final TraceSink traces;
-    private final MetricSink metrics;
-    private final LogSink logs;
-    private final ProfileSink profiles;
+    private final TracesSink traces;
+    private final MetricsSink metrics;
+    private final LogsSink logs;
+    private final ProfilesSink profiles;
 
     /// Number of pipeline subscriptions currently sharing this exporter; the channel closes on the
     /// release that brings it back to zero.
@@ -84,22 +84,22 @@ public final class ClientExporter implements OtlpExporter, SharedLifecycle {
     }
 
     @Override
-    public TraceSink traces() {
+    public TracesSink traces() {
         return traces;
     }
 
     @Override
-    public MetricSink metrics() {
+    public MetricsSink metrics() {
         return metrics;
     }
 
     @Override
-    public LogSink logs() {
+    public LogsSink logs() {
         return logs;
     }
 
     @Override
-    public ProfileSink profiles() {
+    public ProfilesSink profiles() {
         return profiles;
     }
 
@@ -157,28 +157,28 @@ public final class ClientExporter implements OtlpExporter, SharedLifecycle {
         }
     }
 
-    private final class TracesFacet extends Facet implements TraceSink {
+    private final class TracesFacet extends Facet implements TracesSink {
         @Override
         public CompletionStage<ConsumeResult<TracesData>> consume(TracesData batch) {
             return client.exportTraces(batch);
         }
     }
 
-    private final class MetricsFacet extends Facet implements MetricSink {
+    private final class MetricsFacet extends Facet implements MetricsSink {
         @Override
         public CompletionStage<ConsumeResult<MetricsData>> consume(MetricsData batch) {
             return client.exportMetrics(batch);
         }
     }
 
-    private final class LogsFacet extends Facet implements LogSink {
+    private final class LogsFacet extends Facet implements LogsSink {
         @Override
         public CompletionStage<ConsumeResult<LogsData>> consume(LogsData batch) {
             return client.exportLogs(batch);
         }
     }
 
-    private final class ProfilesFacet extends Facet implements ProfileSink {
+    private final class ProfilesFacet extends Facet implements ProfilesSink {
         @Override
         public CompletionStage<ConsumeResult<ProfilesData>> consume(ProfilesData batch) {
             return client.exportProfiles(batch);

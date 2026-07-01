@@ -4,7 +4,7 @@
 /// fans out via [FanOut], and terminates at a [Sink] that returns a `ConsumeResult`
 /// (Accepted/Partial/Rejected). The returned [PipelineHandle] owns the wiring - closing it
 /// detaches the source and drains attached lifecycle resources. Prefer the per-signal consumer
-/// aliases [TraceSink], [MetricSink], [LogSink], [ProfileSink].
+/// aliases [TracesSink], [MetricsSink], [LogsSink], [ProfilesSink].
 @NullMarked
 package dev.nthings.otlp4j.pipeline;
 

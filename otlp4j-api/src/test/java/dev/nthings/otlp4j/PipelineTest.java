@@ -10,7 +10,7 @@ import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.pipeline.FanOut;
 import dev.nthings.otlp4j.pipeline.Pipeline;
 import dev.nthings.otlp4j.pipeline.Sink;
-import dev.nthings.otlp4j.pipeline.TraceSink;
+import dev.nthings.otlp4j.pipeline.TracesSink;
 import dev.nthings.otlp4j.processor.Transforms;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.time.Duration;
@@ -30,7 +30,7 @@ class PipelineTest {
     void transformAndFilterApplyInOrder() {
         var source = new ManualSource<TracesData>();
         var captured = new ArrayList<TracesData>();
-        TraceSink terminal = traces -> {
+        TracesSink terminal = traces -> {
             captured.add(traces);
             return ConsumeResult.acceptedStage();
         };
@@ -60,11 +60,11 @@ class PipelineTest {
         var source = new ManualSource<TracesData>();
         var a = new AtomicInteger();
         var b = new AtomicInteger();
-        TraceSink peerA = traces -> {
+        TracesSink peerA = traces -> {
             a.incrementAndGet();
             return ConsumeResult.acceptedStage();
         };
-        TraceSink peerB = traces -> {
+        TracesSink peerB = traces -> {
             b.incrementAndGet();
             return ConsumeResult.acceptedStage();
         };
@@ -84,7 +84,7 @@ class PipelineTest {
         var source = new ManualSource<TracesData>();
         var observedByTransform = new AtomicInteger();
         var delivered = new ArrayList<TracesData>();
-        TraceSink terminal = traces -> {
+        TracesSink terminal = traces -> {
             delivered.add(traces);
             return ConsumeResult.acceptedStage();
         };
@@ -154,7 +154,7 @@ class PipelineTest {
     @Test
     void synchronousTerminalThrowBecomesPermanentRejection() {
         var source = new ManualSource<TracesData>();
-        TraceSink terminal = traces -> {
+        TracesSink terminal = traces -> {
             throw new RuntimeException("terminal exploded");
         };
         var sub = Pipeline.from(source).to(terminal);
@@ -175,7 +175,7 @@ class PipelineTest {
     @Test
     void asynchronousTerminalFailureBecomesPermanentRejection() {
         var source = new ManualSource<TracesData>();
-        TraceSink terminal = traces ->
+        TracesSink terminal = traces ->
                 CompletableFuture.failedFuture(new IllegalStateException("async boom"));
         var sub = Pipeline.from(source).to(terminal);
         try {
@@ -195,7 +195,7 @@ class PipelineTest {
     void asynchronousTerminalErrorPropagates() {
         var source = new ManualSource<TracesData>();
         var overflow = new StackOverflowError("terminal error");
-        TraceSink terminal = traces -> CompletableFuture.failedFuture(overflow);
+        TracesSink terminal = traces -> CompletableFuture.failedFuture(overflow);
         var sub = Pipeline.from(source).to(terminal);
         try {
             assertThatThrownBy(() -> source.dispatch(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
@@ -214,7 +214,7 @@ class PipelineTest {
         var source = new ManualSource<TracesData>();
         var interrupted = new InterruptedException("terminal interrupted");
         // consume() declares no checked exceptions; sneaky-throw one as a blocking sink might.
-        TraceSink terminal = traces -> sneakyThrow(interrupted);
+        TracesSink terminal = traces -> sneakyThrow(interrupted);
         var sub = Pipeline.from(source).to(terminal);
         try {
             var result = source.dispatch(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
@@ -233,7 +233,7 @@ class PipelineTest {
     void synchronousTerminalBareThrowableIsNormalized() {
         var source = new ManualSource<TracesData>();
         var raw = new Throwable("bare throwable");
-        TraceSink terminal = traces -> sneakyThrow(raw);
+        TracesSink terminal = traces -> sneakyThrow(raw);
         var sub = Pipeline.from(source).to(terminal);
         try {
             var result = source.dispatch(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
@@ -249,7 +249,7 @@ class PipelineTest {
     @Test
     void terminalReturningNullStageIsNormalized() {
         var source = new ManualSource<TracesData>();
-        TraceSink terminal = traces -> null;
+        TracesSink terminal = traces -> null;
         var sub = Pipeline.from(source).to(terminal);
         try {
             var result = source.dispatch(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
@@ -266,7 +266,7 @@ class PipelineTest {
     void closingSubscriptionDetachesSink() {
         var source = new ManualSource<TracesData>();
         var captured = new ArrayList<TracesData>();
-        TraceSink terminal = traces -> {
+        TracesSink terminal = traces -> {
             captured.add(traces);
             return ConsumeResult.acceptedStage();
         };

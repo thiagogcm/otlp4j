@@ -18,11 +18,6 @@ public sealed interface ConsumeResult<T> permits ConsumeResult.Accepted, Consume
     record Accepted<T>() implements ConsumeResult<T> {
 
         private static final Accepted<?> INSTANCE = new Accepted<>();
-
-        @SuppressWarnings("unchecked")
-        public static <T> Accepted<T> instance() {
-            return (Accepted<T>) INSTANCE;
-        }
     }
 
     /// The downstream rejected `rejectedItems` items; `message` explains why.
@@ -52,8 +47,9 @@ public sealed interface ConsumeResult<T> permits ConsumeResult.Accepted, Consume
     }
 
     /// Returns a shared [Accepted] result.
+    @SuppressWarnings("unchecked")
     static <T> ConsumeResult<T> accepted() {
-        return Accepted.instance();
+        return (Accepted<T>) Accepted.INSTANCE;
     }
 
     /// Returns a [Partial] result with the given rejection count and message.
