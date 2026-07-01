@@ -26,13 +26,11 @@ public interface OtlpServer extends Lifecycle {
     /// Initiates a forceful shutdown.
     CompletionStage<Void> shutdownNow();
 
-    /// The default grace period applied by [#close()] when none is supplied.
-    Duration DEFAULT_CLOSE_TIMEOUT = Duration.ofSeconds(30);
-
-    /// Closes the server gracefully, like the rest of the API (`Receiver`/`Exporter`/`PipelineHandle`).
-    /// Use [#shutdownNow()] to force-kill in-flight requests instead of draining them.
+    /// Closes the server gracefully within the shared [Lifecycle#DEFAULT_GRACE_PERIOD], like the rest
+    /// of the API (`Receiver`/`Exporter`/`PipelineHandle`). Use [#shutdownNow()] to force-kill
+    /// in-flight requests instead of draining them.
     @Override
     default void close() {
-        shutdown(DEFAULT_CLOSE_TIMEOUT).toCompletableFuture().join();
+        shutdown(Lifecycle.DEFAULT_GRACE_PERIOD).toCompletableFuture().join();
     }
 }

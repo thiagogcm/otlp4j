@@ -292,8 +292,8 @@ The routing concepts, contrasted:
 | Concept                          | Cardinality            | Changes signal? | Owns downstream lifecycle?                 |
 | -------------------------------- | ---------------------- | --------------- | ------------------------------------------ |
 | `Transform` (via `Transforms`)   | 1 → 1                  | no              | no                                         |
-| Count sinks (via `Connectors`)   | 1 → 1                  | yes             | no — register the downstream like any sink |
-| `BatchingProcessor`              | N → 1 (buffered)       | no              | yes (when attached as terminal)            |
+| Count sinks (via `Connectors`)   | 1 → 1                  | yes             | yes — cascades to its downstream           |
+| `BatchingProcessor`              | N → 1 (buffered)       | no              | no — front its downstream with `owns(...)` |
 | `TelemetryTap` (on the receiver) | observe (demand-aware) | no              | n/a                                        |
 
 ## Batch
@@ -403,7 +403,7 @@ var logCounter = Connectors.logRecordCount(exporter.metrics());
 var strictSpanCounter = Connectors.spanCount(exporter.metrics(), FailurePolicy.FAIL);
 ```
 
-The subscription cannot see through a count sink to its downstream `MetricSink`, so register that exporter with `Stage.owns(exporter)` (see [Lifecycle](#lifecycle)).
+A count sink cascades its lifecycle to the downstream `MetricSink` it wraps, so attaching the connector as a terminal or fan-out peer drains that downstream exporter automatically — no `Stage.owns(...)` needed (see [Lifecycle](#lifecycle)).
 
 The built-ins emit `otlp4j.connector.span.count` and `otlp4j.connector.log.record.count`, each as a monotonic delta sum whose window runs from the previous flush (so the series carries a real per-series start time). A configurable `FailurePolicy` decides how a downstream metric failure maps back onto the input result; the no-policy `spanCount`/`logRecordCount` overloads default to `BEST_EFFORT`, and `spanCount(downstream, policy)` / `logRecordCount(downstream, policy)` set it explicitly:
 
@@ -471,21 +471,21 @@ Configuration arrives through `ClientConfig` and `ServerConfig`. The bundled cli
 
 ## Lifecycle
 
-Stop ingestion before closing downstream resources: shut down the pipeline subscription first — it detaches the source and drains everything it references (directly attached processors, exporter facets, and `AutoCloseable` fan-out peers) within one shared deadline — then shut down the receiver.
+Shut the receiver down first, then the subscription. `receiver.shutdown(timeout)` stops the receiver accepting new requests and drains the in-flight ones through the still-live pipeline and exporter; closing the subscription afterward detaches the source instantly and drains everything it references (directly attached processors, exporter facets, and `AutoCloseable` fan-out peers) within one shared deadline. Draining the receiver first keeps live senders reaching a working exporter for the whole window — the topological order the Collector uses, stopping receivers before the exporters they feed.
 
-The subscription drains every terminal and fan-out peer it can see. Exporter facets carry their exporter's lifecycle, so attaching one drains the whole exporter with nothing to register. Use `Stage.owns(resource)` only for a resource the pipeline _cannot_ see — one hidden behind a lambda sink or a connector's downstream, such as the separate metrics exporter behind a count sink:
+The subscription drains every terminal and fan-out peer it can see. Exporter facets carry their exporter's lifecycle, so attaching one drains the whole exporter with nothing to register; a count connector likewise cascades its shutdown to the downstream metric sink it wraps, so attaching it drains that downstream too. When two subscriptions attach facets of the _same_ exporter, its channel closes only once both have shut down. Use `Stage.owns(resource)` only for a resource the pipeline _cannot_ see — one hidden behind a bare lambda terminal, or an exporter fronted by a `BatchingProcessor` (which drains its own queue but does not close its downstream):
 
 ```java
-// The count sink points at a SEPARATE metrics exporter the pipeline can't see — declare it.
-var metricsExporter = OtlpGrpcExporter.to("metrics-collector", 4317);
+// A bare-lambda terminal hides the exporter it delegates to — declare it so the subscription drains it.
+var sideExporter = OtlpGrpcExporter.to("side-collector", 4317);
 var subscription = Pipeline.from(receiver.traces())
-        .owns(metricsExporter)
-        .to(FanOut.of(exporter.traces(), Connectors.spanCount(metricsExporter.metrics())));
+        .owns(sideExporter)
+        .to(traces -> sideExporter.traces().consume(traces));
 ```
 
 `Stage.owns(...)` is chainable and must be declared on the stage _before_ `.to(...)`. A resource the pipeline never drains surfaces as a warning logged when the exporter is garbage-collected, not a silent channel leak.
 
-Use `shutdown(Duration)` when completion matters. The convenience `close()` methods drain gracefully with a fixed ten-second default across the receiver, exporter, and subscription; call `Receiver.shutdownNow()` for an immediate stop.
+Use `shutdown(Duration)` when completion matters. The convenience `close()` methods drain gracefully within a fixed ten-second grace period (`Lifecycle.DEFAULT_GRACE_PERIOD`), applied uniformly by every `Lifecycle` — receiver, exporter, batching processor, and subscription; call `Receiver.shutdownNow()` for an immediate stop.
 
 
 ## Thread-safety and nullness
@@ -500,6 +500,8 @@ Use `shutdown(Duration)` when completion matters. The convenience `close()` meth
 | `PipelineHandle` (from `Pipeline.from(...)`)  | `shutdown`/`forceFlush` are safe to call concurrently and idempotently. Build the pipeline on one thread.                                                                                                                                                          |
 | `TelemetryTap`                                | Thread-safe but not transactional: `setOptions` affects subscribers that attach afterward. Each `Flow.Subscriber` manages its own demand.                                                                                                                          |
 | Model records (`TracesData`, `Attributes`, …) | Immutable and freely shareable; fan-out peers share them without copying. Their builders are single-threaded.                                                                                                                                                      |
+
+`close()` blocks on the drain — it calls `shutdown(...).join()` — so do not call it from a pipeline or completion thread the drain itself needs; that thread can stall until the deadline. From inside async code, call `shutdown(Duration)` and compose the returned stage instead.
 
 **Nullness.** Every public package is `@NullMarked`: parameters, return types, and fields are non-null unless explicitly annotated `@Nullable`. The intentionally nullable spots in the public surface are:
 

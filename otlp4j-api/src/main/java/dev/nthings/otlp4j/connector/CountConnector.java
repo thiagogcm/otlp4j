@@ -7,8 +7,11 @@ import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.NumberPoint;
 import dev.nthings.otlp4j.model.Resource;
 import dev.nthings.otlp4j.model.ConsumeResult;
+import dev.nthings.otlp4j.pipeline.Lifecycle;
 import dev.nthings.otlp4j.pipeline.Sink;
 import dev.nthings.otlp4j.pipeline.MetricSink;
+import dev.nthings.otlp4j.pipeline.internal.SharedLifecycle;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
@@ -23,7 +26,13 @@ import org.slf4j.LoggerFactory;
 /// Counts each input batch and emits a delta-sum metric downstream. Backs [Connectors#spanCount]
 /// and [Connectors#logRecordCount]. The window stays monotonic under concurrent flushes and clock
 /// steps; [FailurePolicy] governs downstream failure propagation.
-final class CountConnector<I> implements Sink<I> {
+///
+/// The connector owns its single downstream: it cascades `shutdown`/`forceFlush` to it (when the
+/// downstream is itself a [Lifecycle]) and propagates the pipeline's retain, so attaching the
+/// connector drains its downstream automatically with no `Stage.owns(...)` declaration. The two
+/// concrete signals are [SpanCountConnector] and [LogRecordCountConnector].
+sealed class CountConnector<I> implements Sink<I>, SharedLifecycle
+        permits SpanCountConnector, LogRecordCountConnector {
 
     private static final InstrumentationScope SCOPE =
             InstrumentationScope.of("otlp4j-count-connector", "0.1.0");
@@ -64,6 +73,24 @@ final class CountConnector<I> implements Sink<I> {
         return downstreamStage
                 .exceptionally(t -> rejectedDownstream("failed", t))
                 .thenApply(this::applyPolicy);
+    }
+
+    @Override
+    public void retain() {
+        // Propagate ownership so a shared downstream stays reference-counted when reached only through us.
+        if (downstream instanceof SharedLifecycle shared) {
+            shared.retain();
+        }
+    }
+
+    @Override
+    public CompletionStage<Void> shutdown(Duration timeout) {
+        return downstream instanceof Lifecycle d ? d.shutdown(timeout) : CompletableFuture.completedFuture(null);
+    }
+
+    @Override
+    public CompletionStage<Void> forceFlush(Duration timeout) {
+        return downstream instanceof Lifecycle d ? d.forceFlush(timeout) : CompletableFuture.completedFuture(null);
     }
 
     /// Permanent rejection from a downstream failure, unwrapping [CompletionException] to the cause.

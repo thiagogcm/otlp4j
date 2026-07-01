@@ -139,7 +139,7 @@ public final class BatchingProcessor<T> implements Sink<T>, Lifecycle {
     @Override
     public void close() {
         try {
-            shutdown(Duration.ofSeconds(2)).toCompletableFuture().join();
+            shutdown(Lifecycle.DEFAULT_GRACE_PERIOD).toCompletableFuture().join();
         } catch (CompletionException | CancellationException e) {
             log.warn("batcher did not cleanly drain on close: {}",
                     e.getCause() != null ? e.getCause().toString() : e.toString());

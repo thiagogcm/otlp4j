@@ -55,12 +55,12 @@ An unattached source returns a retryable `Rejected` so missing or late wiring is
 
 - `transform` rewrites one batch without changing its signal type.
 - `filter` acknowledges a batch as accepted without forwarding it when the predicate returns false.
-- `owns` registers an `AutoCloseable` (e.g. the exporter behind a count sink's downstream, or any resource reachable only behind a lambda) for the subscription to drain on shutdown and flush on `forceFlush`.
+- `owns` registers an `AutoCloseable` reachable only behind a bare lambda terminal, or an exporter fronted by a `BatchingProcessor` (which drains its own queue but does not close its downstream), for the subscription to drain on shutdown and flush on `forceFlush`.
 - `to` attaches one terminal consumer; pass `FanOut.of(...)` to send the same batch to several peers concurrently.
 
 Fan-out sends the same immutable batch reference to every peer. If any peer rejects the batch, the merged result is rejected. Otherwise, partial rejection uses the largest rejected-item count rather than a sum because all peers saw the same input.
 
-Pipeline subscriptions drain any terminal or fan-out peer that implements `AutoCloseable` — including exporter facets (which carry their exporter's lifecycle) and a directly attached `BatchingProcessor` — plus any resource registered with `Stage.owns(...)` for the case the pipeline can't see, such as an exporter behind a count sink's downstream. All drain within one shared deadline. An exporter collected without a `shutdown()`/`close()` logs a warning, so a leaked channel surfaces in the logs rather than silently.
+Pipeline subscriptions drain any terminal or fan-out peer that implements `AutoCloseable` — including exporter facets (which carry their exporter's lifecycle), a directly attached `BatchingProcessor`, and count connectors (which cascade shutdown to the downstream metric sink they wrap) — plus any resource registered with `Stage.owns(...)` for the case the pipeline can't see, such as an exporter behind a bare lambda terminal or fronted by a batching processor. A multi-signal exporter is reference-counted, so a channel shared by facets in two subscriptions closes only once both have shut down. All drain within one shared deadline. An exporter collected without a `shutdown()`/`close()` logs a warning, so a leaked channel surfaces in the logs rather than silently.
 
 ## Processing and routing
 
@@ -68,7 +68,7 @@ Built-in stateless transforms filter spans or log records and add resource attri
 
 `BatchingProcessor<T>` buffers complete domain batches, then merges their top-level resource groups per signal. It flushes when the queue reaches the `flushThreshold`, on a periodic one-second timer, or through `forceFlush`/`shutdown`. Profiles batching is available only through the experimental `forProfilesUnsafe()` factory.
 
-`Connectors.spanCount` converts a trace batch into the `otlp4j.connector.span.count` metric; `Connectors.logRecordCount` similarly emits `otlp4j.connector.log.record.count`. These count sinks consume their input signal and send the derived `MetricsData` to a supplied `MetricSink`; they do not forward the original batch. Each flush carries a real per-series delta window — `[previous flush, now)`, monotonic even under concurrent calls or a backward wall-clock step. A `FailurePolicy` (default `BEST_EFFORT`) decides how a downstream metric failure maps back onto the input: `BEST_EFFORT` accepts the input and logs the failure, while `FAIL` propagates a downstream `Partial`/`Rejected` as a `Rejected` on the input result.
+`Connectors.spanCount` converts a trace batch into the `otlp4j.connector.span.count` metric; `Connectors.logRecordCount` similarly emits `otlp4j.connector.log.record.count`. These count sinks consume their input signal and send the derived `MetricsData` to a supplied `MetricSink`; they do not forward the original batch. As a `Lifecycle`, a count sink cascades `shutdown`/`forceFlush` to that downstream and propagates the pipeline's ownership to it, so attaching the connector drains its downstream automatically. Each flush carries a real per-series delta window — `[previous flush, now)`, monotonic even under concurrent calls or a backward wall-clock step. A `FailurePolicy` (default `BEST_EFFORT`) decides how a downstream metric failure maps back onto the input: `BEST_EFFORT` accepts the input and logs the failure, while `FAIL` propagates a downstream `Partial`/`Rejected` as a `Rejected` on the input result.
 
 ## Receiver tap
 

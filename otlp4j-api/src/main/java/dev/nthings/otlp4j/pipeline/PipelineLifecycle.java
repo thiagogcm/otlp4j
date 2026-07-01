@@ -1,5 +1,6 @@
 package dev.nthings.otlp4j.pipeline;
 
+import dev.nthings.otlp4j.pipeline.internal.SharedLifecycle;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -59,6 +60,13 @@ final class PipelineLifecycle {
         PipelineSubscription(PipelineHandle sourceSubscription, List<AutoCloseable> resources) {
             this.sourceSubscription = sourceSubscription;
             this.resources = Collections.unmodifiableList(resources);
+            // Register as one owner of every shared resource, so a resource shared with another
+            // subscription (e.g. a multi-signal exporter) survives until this subscription shuts down.
+            for (var resource : this.resources) {
+                if (resource instanceof SharedLifecycle shared) {
+                    shared.retain();
+                }
+            }
         }
 
         @Override

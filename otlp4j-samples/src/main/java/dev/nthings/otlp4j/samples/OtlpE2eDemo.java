@@ -112,7 +112,10 @@ public final class OtlpE2eDemo {
                 client.traces().consume(sampleTraces()).toCompletableFuture().join();
                 log.info("Client exported sample trace batch to the gateway.");
             }
-            // The subscription drains backendExporter through its attached facet.
+            // Receiver-first shutdown: drain the gateway so any in-flight request finishes through
+            // the live pipeline, then close the subscription (which drains backendExporter through
+            // its attached facet).
+            gateway.shutdown(Duration.ofSeconds(5)).toCompletableFuture().join();
             subscription.shutdown(Duration.ofSeconds(5)).toCompletableFuture().join();
         } finally {
             if (gateway != null) {

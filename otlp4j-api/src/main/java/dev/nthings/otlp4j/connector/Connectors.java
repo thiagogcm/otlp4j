@@ -2,12 +2,13 @@ package dev.nthings.otlp4j.connector;
 
 import dev.nthings.otlp4j.pipeline.LogSink;
 import dev.nthings.otlp4j.pipeline.MetricSink;
-import dev.nthings.otlp4j.pipeline.Sink;
 import dev.nthings.otlp4j.pipeline.TraceSink;
-import dev.nthings.otlp4j.model.LogsData;
-import dev.nthings.otlp4j.model.TracesData;
 
 /// Factories for built-in count sinks; overloads default to [FailurePolicy#BEST_EFFORT].
+///
+/// Each returned sink is a `Lifecycle` that cascades shutdown to its `downstream` metric sink, so a
+/// pipeline drains that downstream automatically when the connector is attached as a terminal or
+/// fan-out peer.
 public final class Connectors {
 
     private Connectors() {}
@@ -19,13 +20,7 @@ public final class Connectors {
 
     /// Trace count sink emitting `otlp4j.connector.span.count` into `downstream` under `policy`.
     public static TraceSink spanCount(MetricSink downstream, FailurePolicy policy) {
-        Sink<TracesData> counter = new CountConnector<>(
-                downstream,
-                policy,
-                "otlp4j.connector.span.count",
-                "Items observed by the span count connector",
-                TracesData::spanCount);
-        return counter::consume;
+        return new SpanCountConnector(downstream, policy);
     }
 
     /// Log count sink emitting `otlp4j.connector.log.record.count` into `downstream`, best-effort.
@@ -35,12 +30,6 @@ public final class Connectors {
 
     /// Log count sink emitting `otlp4j.connector.log.record.count` into `downstream` under `policy`.
     public static LogSink logRecordCount(MetricSink downstream, FailurePolicy policy) {
-        Sink<LogsData> counter = new CountConnector<>(
-                downstream,
-                policy,
-                "otlp4j.connector.log.record.count",
-                "Items observed by the log record count connector",
-                LogsData::logRecordCount);
-        return counter::consume;
+        return new LogRecordCountConnector(downstream, policy);
     }
 }

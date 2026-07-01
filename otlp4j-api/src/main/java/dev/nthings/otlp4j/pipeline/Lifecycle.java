@@ -14,17 +14,22 @@ import java.util.concurrent.CompletionStage;
 /// it collects within one shared budget.
 public interface Lifecycle extends AutoCloseable {
 
+    /// The grace period [#close()] and the no-argument [#shutdown()]/[#forceFlush()] drain within:
+    /// ten seconds, applied uniformly by every `Lifecycle` (receiver, exporter, batching processor,
+    /// subscription).
+    Duration DEFAULT_GRACE_PERIOD = Duration.ofSeconds(10);
+
     /// Drains the resource within `timeout`.
     ///
     /// @param timeout the drain deadline
     /// @return a stage that completes on clean drain or exceptionally on timeout
     CompletionStage<Void> shutdown(Duration timeout);
 
-    /// Drains with a default 10-second deadline.
+    /// Drains with the [#DEFAULT_GRACE_PERIOD].
     ///
     /// @return a stage that completes on clean drain or exceptionally on timeout
     default CompletionStage<Void> shutdown() {
-        return shutdown(Duration.ofSeconds(10));
+        return shutdown(DEFAULT_GRACE_PERIOD);
     }
 
     /// Flushes buffered batches downstream without tearing the resource down. The default does nothing.
@@ -35,16 +40,16 @@ public interface Lifecycle extends AutoCloseable {
         return CompletableFuture.completedFuture(null);
     }
 
-    /// Flushes with a default 10-second deadline.
+    /// Flushes with the [#DEFAULT_GRACE_PERIOD].
     ///
     /// @return a stage that completes when flushed
     default CompletionStage<Void> forceFlush() {
-        return forceFlush(Duration.ofSeconds(10));
+        return forceFlush(DEFAULT_GRACE_PERIOD);
     }
 
-    /// Drains with a default 10-second deadline.
+    /// Drains with the [#DEFAULT_GRACE_PERIOD].
     @Override
     default void close() {
-        shutdown(Duration.ofSeconds(10)).toCompletableFuture().join();
+        shutdown(DEFAULT_GRACE_PERIOD).toCompletableFuture().join();
     }
 }

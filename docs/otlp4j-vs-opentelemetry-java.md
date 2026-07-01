@@ -120,7 +120,7 @@ gRPC and HTTP transports share codec mappers and map `ConsumeResult` to OTLP res
 
 ### Graceful Lifecycle Management
 
-Pipeline subscriptions drain `AutoCloseable` terminals and fan-out peers — including exporter facets, which carry their exporter's lifecycle — within a shared shutdown deadline, and provide cancellation-aware teardown; `Stage.owns(...)` covers a resource the pipeline can't see, such as an exporter behind a count sink's downstream. `BatchingProcessor` and other buffered stages honor `forceFlush`/`shutdown`. Bare exporters hold no queue — `forceFlush()` matters when a batching processor or similar buffer sits in the pipeline.
+Pipeline subscriptions drain `AutoCloseable` terminals and fan-out peers — including exporter facets, which carry their exporter's lifecycle, and count connectors, which cascade shutdown to their downstream metric sink — within a shared shutdown deadline, and provide cancellation-aware teardown; `Stage.owns(...)` covers a resource the pipeline can't see, such as an exporter behind a bare lambda terminal or fronted by a batching processor. `BatchingProcessor` and other buffered stages honor `forceFlush`/`shutdown`. Bare exporters hold no queue — `forceFlush()` matters when a batching processor or similar buffer sits in the pipeline.
 
 ### Configurable Batching with Overflow Policies
 

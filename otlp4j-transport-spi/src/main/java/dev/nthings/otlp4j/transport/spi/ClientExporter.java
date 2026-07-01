@@ -1,10 +1,10 @@
 package dev.nthings.otlp4j.transport.spi;
 
-import dev.nthings.otlp4j.pipeline.Lifecycle;
 import dev.nthings.otlp4j.pipeline.LogSink;
 import dev.nthings.otlp4j.pipeline.MetricSink;
 import dev.nthings.otlp4j.pipeline.ProfileSink;
 import dev.nthings.otlp4j.pipeline.TraceSink;
+import dev.nthings.otlp4j.pipeline.internal.SharedLifecycle;
 import dev.nthings.otlp4j.exporter.OtlpExporter;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.model.LogsData;
@@ -21,6 +21,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,9 +33,13 @@ import org.slf4j.LoggerFactory;
 /// Each facet is a lifecycle-bearing view: draining one facet drains the whole shared channel, so a
 /// pipeline auto-collects and drains the exporter through any attached facet with no extra ceremony.
 ///
+/// The channel is reference-counted: when several subscriptions each attach a facet of the same
+/// exporter, every subscription retains it once ([SharedLifecycle#retain]) and the channel closes
+/// only on the last release, so one subscription's shutdown cannot close it out from under another.
+///
 /// An exporter garbage-collected without [ClientExporter#shutdown] logs a warning
 /// instead of silently leaking its client channel.
-public final class ClientExporter implements OtlpExporter {
+public final class ClientExporter implements OtlpExporter, SharedLifecycle {
 
     private static final Logger log = LoggerFactory.getLogger(ClientExporter.class);
 
@@ -47,6 +53,13 @@ public final class ClientExporter implements OtlpExporter {
     private final MetricSink metrics;
     private final LogSink logs;
     private final ProfileSink profiles;
+
+    /// Number of pipeline subscriptions currently sharing this exporter; the channel closes on the
+    /// release that brings it back to zero.
+    private final AtomicInteger references = new AtomicInteger();
+
+    /// Latches the one-time channel close, so the last release (or a direct shutdown) closes exactly once.
+    private final AtomicBoolean closed = new AtomicBoolean();
 
     private final ExecutorService shutdownExecutor = Executors.newSingleThreadExecutor(
             Thread.ofPlatform().daemon().name("otlp-exporter-shutdown").factory());
@@ -96,7 +109,20 @@ public final class ClientExporter implements OtlpExporter {
     }
 
     @Override
+    public void retain() {
+        references.incrementAndGet();
+    }
+
+    @Override
     public CompletionStage<Void> shutdown(Duration timeout) {
+        // Close the channel only on the last release; a direct, un-retained shutdown (facet used
+        // outside a pipeline, or close()) floors the counter at zero and closes.
+        if (references.updateAndGet(n -> n > 0 ? n - 1 : 0) > 0) {
+            return CompletableFuture.completedFuture(null);
+        }
+        if (!closed.compareAndSet(false, true)) {
+            return CompletableFuture.completedFuture(null);
+        }
         // Shutdown was requested; silence the leak watch even if the close below fails or times out.
         leakWatch.closed = true;
         cleanable.clean();
@@ -117,9 +143,14 @@ public final class ClientExporter implements OtlpExporter {
         });
     }
 
-    /// A lifecycle-bearing view of one signal: `shutdown` drains the whole exporter, since every
-    /// facet shares its channel. Each subclass adds a `consume` that hits the shared client.
-    private abstract class Facet implements Lifecycle {
+    /// A lifecycle-bearing view of one signal: `retain`/`shutdown` count against the whole exporter,
+    /// since every facet shares its channel. Each subclass adds a `consume` that hits the shared client.
+    private abstract class Facet implements SharedLifecycle {
+        @Override
+        public void retain() {
+            ClientExporter.this.retain();
+        }
+
         @Override
         public CompletionStage<Void> shutdown(Duration timeout) {
             return ClientExporter.this.shutdown(timeout);
