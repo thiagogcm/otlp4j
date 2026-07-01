@@ -9,6 +9,7 @@ import dev.nthings.otlp4j.transport.spi.ClientExporter;
 import dev.nthings.otlp4j.transport.grpc.internal.GrpcOtlpClient;
 import java.time.Duration;
 import java.util.Map;
+import java.util.function.Supplier;
 
 /// Builds [OtlpExporter]s that send typed telemetry to an OTLP/gRPC endpoint.
 ///
@@ -46,8 +47,8 @@ public final class OtlpGrpcExporter {
         }
 
         /// Applies the standard `OTEL_EXPORTER_OTLP_*` variables (see
-        /// [ClientConfig.Builder#fromEnvironment()]). Opt-in; call it first so explicit
-        /// setters override the environment.
+        /// [ClientConfig.Builder#fromEnvironment()]). Opt-in; environment values are lowest
+        /// precedence, so explicit setters win regardless of call order.
         public Builder fromEnvironment() {
             config.fromEnvironment();
             return this;
@@ -98,6 +99,13 @@ public final class OtlpGrpcExporter {
             return this;
         }
 
+        /// Sets a per-export header supplier (e.g. a rotating bearer token), re-evaluated on every
+        /// export and overlaid on the static headers.
+        public Builder setHeaders(Supplier<Map<String, String>> headerSupplier) {
+            config.setHeaders(headerSupplier);
+            return this;
+        }
+
         /// Selects request-body compression (e.g. [Compression#GZIP]). Defaults to none.
         public Builder setCompression(Compression compression) {
             config.setCompression(compression);
@@ -110,7 +118,8 @@ public final class OtlpGrpcExporter {
             return this;
         }
 
-        /// Sets the transport retry policy (e.g. [RetryPolicy#builder()]). Defaults to no retries.
+        /// Sets the transport retry policy (e.g. [RetryPolicy#builder()]). Defaults to
+        /// [RetryPolicy#getDefault()]; pass [RetryPolicy#none()] to disable retries.
         public Builder setRetryPolicy(RetryPolicy retry) {
             config.setRetryPolicy(retry);
             return this;

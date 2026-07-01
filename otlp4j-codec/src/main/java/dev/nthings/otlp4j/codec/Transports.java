@@ -2,9 +2,12 @@ package dev.nthings.otlp4j.codec;
 
 import java.net.InetSocketAddress;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.function.Supplier;
 
-/// Shared plumbing for OTLP/gRPC and OTLP/HTTP transports for
-/// bind-address resolution and client mutual-TLS validation.
+/// Shared plumbing for OTLP/gRPC and OTLP/HTTP transports for bind-address resolution, client
+/// mutual-TLS validation, and per-export header resolution.
 public final class Transports {
 
     private Transports() {}
@@ -35,5 +38,30 @@ public final class Transports {
                             + (certFile != null ? "a certificate without a key" : "a key without a certificate")
                             + ")");
         }
+    }
+
+    /// Rejects half-specified in-memory client mutual-TLS material. A certificate and key must be
+    /// supplied together.
+    public static void requireCompleteClientMutualTls(byte[] certData, byte[] keyData) {
+        if ((certData == null) != (keyData == null)) {
+            throw new IllegalArgumentException(
+                    "incomplete client mutual-TLS material: a certificate and key must be "
+                            + "supplied together (got "
+                            + (certData != null ? "a certificate without a key" : "a key without a certificate")
+                            + ")");
+        }
+    }
+
+    /// Resolves the request headers for one export: the static `constant` headers overlaid by the
+    /// per-export `supplier` (supplier wins per key). Returns `constant` unchanged when no supplier
+    /// is set.
+    public static Map<String, String> resolveHeaders(
+            Map<String, String> constant, Supplier<Map<String, String>> supplier) {
+        if (supplier == null) {
+            return constant;
+        }
+        var merged = new LinkedHashMap<String, String>(constant);
+        merged.putAll(supplier.get());
+        return merged;
     }
 }

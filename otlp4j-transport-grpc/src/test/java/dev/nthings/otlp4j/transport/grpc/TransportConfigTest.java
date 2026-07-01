@@ -27,14 +27,24 @@ import io.grpc.stub.StreamObserver;
 import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceRequest;
 import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceResponse;
 import io.opentelemetry.proto.collector.trace.v1.TraceServiceGrpc;
+import java.io.InputStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.KeyStore;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.TrustManagerFactory;
+import javax.net.ssl.X509TrustManager;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -140,14 +150,31 @@ class TransportConfigTest {
         assertThat(flaky.calls.get()).isEqualTo(3);
     }
 
-    @DisplayName("Does not retry when no RetryPolicy is set")
+    @DisplayName("Retries by default (RetryPolicy.getDefault) when no policy is set")
     @Test
-    void doesNotRetryWhenPolicyDisabled() {
+    void retriesByDefault() {
+        var flaky = new FlakyInterceptor(1); // first attempt fails, the default retry succeeds
+        var port = startRawServer(flaky);
+        var exporter = exporter(ClientConfig.builder()
+                .setEndpoint("localhost", port)
+                .setTimeout(Duration.ofSeconds(10))
+                .build());
+
+        var result = exporter.traces().consume(traces()).toCompletableFuture().join();
+
+        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(flaky.calls.get()).isEqualTo(2);
+    }
+
+    @DisplayName("Does not retry when RetryPolicy.none() is set")
+    @Test
+    void doesNotRetryWhenPolicyNone() {
         var flaky = new FlakyInterceptor(1); // fails the only attempt
         var port = startRawServer(flaky);
         var exporter = exporter(ClientConfig.builder()
                 .setEndpoint("localhost", port)
                 .setTimeout(Duration.ofSeconds(5))
+                .setRetryPolicy(RetryPolicy.none())
                 .build());
 
         assertThatThrownBy(() -> exporter.traces().consume(traces()).toCompletableFuture().join())
@@ -219,6 +246,43 @@ class TransportConfigTest {
                 .hasMessageContaining("SystemTrust");
     }
 
+    @DisplayName("Rejects SslContext TLS for a server")
+    @Test
+    void rejectsSslContextForServer() throws Exception {
+        var trustManager = trustManagerFor(resource("/tls/server.crt"));
+        var sslContext = SSLContext.getInstance("TLS");
+        sslContext.init(null, new TrustManager[] {trustManager}, null);
+        var receiver = OtlpGrpcReceiver.builder()
+                .transport(ServerConfig.builder()
+                        .setPort(0)
+                        .setTls(Tls.sslContext(sslContext, trustManager))
+                        .build())
+                .onTraces(t -> ConsumeResult.acceptedStage())
+                .build();
+        receivers.add(receiver);
+
+        assertThatThrownBy(receiver::start)
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("SslContext");
+    }
+
+    @DisplayName("A server in-memory TLS without a key is rejected")
+    @Test
+    void serverInMemoryTrustOnlyRejected() throws Exception {
+        var receiver = OtlpGrpcReceiver.builder()
+                .transport(ServerConfig.builder()
+                        .setPort(0)
+                        .setTls(Tls.trust(bytes("/tls/server.crt")))
+                        .build())
+                .onTraces(t -> ConsumeResult.acceptedStage())
+                .build();
+        receivers.add(receiver);
+
+        assertThatThrownBy(receiver::start)
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("certificate and a key");
+    }
+
     @DisplayName("OtlpGrpcReceiver.on(port) builds a startable plaintext receiver")
     @Test
     void onPortBuildsStartablePlaintextReceiver() {
@@ -283,6 +347,96 @@ class TransportConfigTest {
                 .hasMessageContaining("mutual-TLS");
     }
 
+    @DisplayName("Round-trips TracesData over in-memory (byte[]) TLS")
+    @Test
+    void roundTripsOverInMemoryTls() throws Exception {
+        var received = new AtomicReference<TracesData>();
+        var serverConfig = ServerConfig.builder()
+                .setPort(0)
+                .setTls(Tls.custom(bytes("/tls/server.crt"), bytes("/tls/server.key"), null))
+                .build();
+        var receiver = startReceiver(serverConfig, OtlpGrpcReceiver.builder().onTraces(t -> {
+            received.set(t);
+            return ConsumeResult.acceptedStage();
+        }));
+        var exporter = exporter(ClientConfig.builder()
+                .setEndpoint("localhost", receiver.port())
+                .setTls(Tls.trust(bytes("/tls/server.crt")))
+                .setTimeout(Duration.ofSeconds(5))
+                .build());
+
+        var sent = traces();
+        var result = exporter.traces().consume(sent).toCompletableFuture().join();
+
+        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(received.get()).isEqualTo(sent);
+    }
+
+    @DisplayName("Round-trips over in-memory mutual TLS (client presents a certificate)")
+    @Test
+    void roundTripsOverInMemoryMutualTls() throws Exception {
+        var received = new AtomicReference<TracesData>();
+        var receiver = startReceiver(serverTls(), OtlpGrpcReceiver.builder().onTraces(t -> {
+            received.set(t);
+            return ConsumeResult.acceptedStage();
+        }));
+        // Reuse the server material as a client identity: the server does not require client auth,
+        // so it is accepted while exercising the in-memory keyManager path.
+        var exporter = exporter(ClientConfig.builder()
+                .setEndpoint("localhost", receiver.port())
+                .setTls(Tls.custom(bytes("/tls/server.crt"), bytes("/tls/server.key"), bytes("/tls/server.crt")))
+                .setTimeout(Duration.ofSeconds(5))
+                .build());
+
+        var sent = traces();
+        var result = exporter.traces().consume(sent).toCompletableFuture().join();
+
+        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(received.get()).isEqualTo(sent);
+    }
+
+    @DisplayName("Round-trips over TLS using a caller-built SSLContext (gRPC honours the trust manager)")
+    @Test
+    void roundTripsOverSslContextTrustManager() throws Exception {
+        var received = new AtomicReference<TracesData>();
+        var receiver = startReceiver(serverTls(), OtlpGrpcReceiver.builder().onTraces(t -> {
+            received.set(t);
+            return ConsumeResult.acceptedStage();
+        }));
+        var trustManager = trustManagerFor(resource("/tls/server.crt"));
+        var sslContext = SSLContext.getInstance("TLS");
+        sslContext.init(null, new TrustManager[] {trustManager}, null);
+        var exporter = exporter(ClientConfig.builder()
+                .setEndpoint("localhost", receiver.port())
+                .setTls(Tls.sslContext(sslContext, trustManager))
+                .setTimeout(Duration.ofSeconds(5))
+                .build());
+
+        var sent = traces();
+        var result = exporter.traces().consume(sent).toCompletableFuture().join();
+
+        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(received.get()).isEqualTo(sent);
+    }
+
+    @DisplayName("Re-evaluates the header supplier on every RPC")
+    @Test
+    void reevaluatesHeaderSupplierPerRpc() {
+        var capture = new CapturingInterceptor();
+        var port = startRawServer(capture);
+        var counter = new AtomicInteger();
+        var exporter = exporter(ClientConfig.builder()
+                .setEndpoint("localhost", port)
+                .setHeaders(() -> Map.of("x-otlp-api-key", "token-" + counter.incrementAndGet()))
+                .build());
+
+        exporter.traces().consume(traces()).toCompletableFuture().join();
+        assertThat(capture.headers.get().get(API_KEY)).isEqualTo("token-1");
+
+        exporter.traces().consume(traces()).toCompletableFuture().join();
+        assertThat(capture.headers.get().get(API_KEY)).isEqualTo("token-2");
+    }
+
     private static ServerConfig serverTls() {
         // Default loopback bind; a specific bind host binds that interface only (see
         // specificBindHostBindsThatInterface).
@@ -327,6 +481,32 @@ class TransportConfigTest {
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+    }
+
+    private static byte[] bytes(String name) throws Exception {
+        return Files.readAllBytes(resource(name));
+    }
+
+    /// Builds an X509 trust manager trusting the certificate(s) in `certPem`, for the SSLContext TLS
+    /// variant.
+    private static X509TrustManager trustManagerFor(Path certPem) throws Exception {
+        var factory = CertificateFactory.getInstance("X.509");
+        var ks = KeyStore.getInstance("PKCS12");
+        ks.load(null, new char[0]);
+        try (InputStream in = Files.newInputStream(certPem)) {
+            var i = 0;
+            for (var cert : factory.generateCertificates(in)) {
+                ks.setCertificateEntry("ca-" + i++, (X509Certificate) cert);
+            }
+        }
+        var tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+        tmf.init(ks);
+        for (var tm : tmf.getTrustManagers()) {
+            if (tm instanceof X509TrustManager x) {
+                return x;
+            }
+        }
+        throw new IllegalStateException("no X509TrustManager available");
     }
 
     /// Trivial TraceService that always acks with an empty response.

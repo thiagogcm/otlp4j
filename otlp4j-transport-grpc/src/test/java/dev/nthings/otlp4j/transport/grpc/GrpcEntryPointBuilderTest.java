@@ -31,6 +31,7 @@ class GrpcEntryPointBuilderTest {
                 .setTls(Tls.systemTrust())
                 .addHeader("authorization", "Bearer x")
                 .setHeaders(Map.of("x-tenant", "acme"))
+                .setHeaders(() -> Map.of("x-rotating", "live"))
                 .setCompression(Compression.GZIP)
                 .setRetryPolicy(RetryPolicy.builder().setMaxAttempts(3).setInitialBackoff(Duration.ofMillis(50)).setMaxBackoff(Duration.ofSeconds(1)).build())
                 .build()) {

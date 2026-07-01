@@ -193,7 +193,7 @@ class OtlpEnvTest {
                 .containsExactly(Map.entry("authorization", "Bearer xyz"), Map.entry("x-tenant", "a+b"));
     }
 
-    @DisplayName("env headers merge onto headers already set, winning per key")
+    @DisplayName("env headers fill unset keys but never override explicit ones")
     @Test
     void headersMerge() {
         var merged = ClientConfig.builder()
@@ -204,7 +204,20 @@ class OtlpEnvTest {
 
         assertThat(merged.headers())
                 .containsEntry("authorization", "Bearer keep-me") // unrelated key preserved
-                .containsEntry("x-tenant", "new") // env wins per key
+                .containsEntry("x-tenant", "old") // explicit wins per key; env does not override
+                .containsEntry("x-trace", "on"); // env-only key filled
+    }
+
+    @DisplayName("explicit headers win over env headers regardless of call order")
+    @Test
+    void explicitHeadersWinRegardlessOfOrder() {
+        var cfg = ClientConfig.builder()
+                .fromEnvironment(Map.of(OtlpEnv.HEADERS, "x-tenant=env,x-trace=on")::get)
+                .addHeader("x-tenant", "explicit") // set after fromEnvironment(), still wins
+                .build();
+
+        assertThat(cfg.headers())
+                .containsEntry("x-tenant", "explicit")
                 .containsEntry("x-trace", "on");
     }
 
@@ -269,15 +282,39 @@ class OtlpEnvTest {
         assertThat(cfg.port()).isEqualTo(9999);
     }
 
-    @DisplayName("fromEnvironment() overrides setters called before it")
+    @DisplayName("explicit setters win over the environment even when called before fromEnvironment()")
     @Test
-    void envWinsOverEarlierSetters() {
+    void settersWinRegardlessOfOrder() {
         var cfg = ClientConfig.builder()
                 .setEndpoint("pre", 1)
                 .fromEnvironment(Map.of(OtlpEnv.ENDPOINT, "http://collector:4317")::get)
                 .build();
 
-        assertThat(cfg.host()).isEqualTo("collector");
-        assertThat(cfg.port()).isEqualTo(4317);
+        assertThat(cfg.host()).isEqualTo("pre");
+        assertThat(cfg.port()).isEqualTo(1);
+    }
+
+    @DisplayName("env fills only the fields the caller left unset (lowest precedence, per field)")
+    @Test
+    void envIsLowestPrecedencePerField() {
+        // Port is set explicitly; the env endpoint still supplies host and TLS but not the port.
+        var cfg = ClientConfig.builder()
+                .setPort(9999)
+                .fromEnvironment(Map.of(OtlpEnv.ENDPOINT, "https://collector:4317")::get)
+                .build();
+
+        assertThat(cfg.port()).isEqualTo(9999); // explicit port kept
+        assertThat(cfg.host()).isEqualTo("collector"); // env host filled
+        assertThat(cfg.tls()).isEqualTo(Tls.systemTrust()); // env TLS filled
+    }
+
+    @DisplayName("a malformed env value fails fast even when that field was set explicitly")
+    @Test
+    void malformedEnvFailsFastEvenWhenExplicit() {
+        assertThatThrownBy(() -> ClientConfig.builder()
+                        .setTimeout(Duration.ofSeconds(1))
+                        .fromEnvironment(Map.of(OtlpEnv.TIMEOUT, "abc")::get)
+                        .build())
+                .isInstanceOf(IllegalArgumentException.class);
     }
 }

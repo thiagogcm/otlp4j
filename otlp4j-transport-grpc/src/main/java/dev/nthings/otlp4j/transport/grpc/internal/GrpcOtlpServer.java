@@ -10,6 +10,7 @@ import io.grpc.Server;
 import io.grpc.ServerCredentials;
 import io.grpc.TlsServerCredentials;
 import io.grpc.netty.NettyServerBuilder;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.Duration;
@@ -24,7 +25,8 @@ import org.slf4j.LoggerFactory;
 ///
 /// Serves the four OTLP collector services and routes decoded requests to the
 /// per-signal [Dispatchers]. [Tls] selects the server credentials: [Tls.Disabled]
-/// is plaintext, [Tls.Custom] supplies the certificate and key.
+/// is plaintext; [Tls.Custom] and [Tls.Inline] supply the certificate and key;
+/// [Tls.SystemTrust] and [Tls.SslContext] are rejected as a server has no certificate of its own.
 ///
 /// Built on Netty's [NettyServerBuilder] so it can bind a specific interface and
 /// apply limits from [ServerConfig]: decoded-request cap, per-connection
@@ -128,8 +130,23 @@ public final class GrpcOtlpServer implements OtlpServer {
                     throw new UncheckedIOException("failed to load server TLS material", e);
                 }
             }
+            case Tls.Inline(var cert, var key, var _) -> {
+                if (cert == null || key == null) {
+                    throw new IllegalArgumentException(
+                            "in-memory server TLS requires both a certificate and a key");
+                }
+                try {
+                    yield TlsServerCredentials.newBuilder()
+                            .keyManager(new ByteArrayInputStream(cert), new ByteArrayInputStream(key))
+                            .build();
+                } catch (IOException e) {
+                    throw new UncheckedIOException("failed to load server TLS material", e);
+                }
+            }
             case Tls.SystemTrust() -> throw new IllegalArgumentException(
                     "Tls.SystemTrust is not valid for a server; use Tls.Custom with a certificate and key");
+            case Tls.SslContext(var _, var _) -> throw new IllegalArgumentException(
+                    "Tls.SslContext is not valid for a server; use Tls.Custom with a certificate and key");
         };
     }
 }

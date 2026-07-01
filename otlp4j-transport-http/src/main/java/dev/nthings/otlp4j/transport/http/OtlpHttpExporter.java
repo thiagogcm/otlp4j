@@ -9,6 +9,7 @@ import dev.nthings.otlp4j.transport.spi.ClientExporter;
 import dev.nthings.otlp4j.transport.http.internal.HttpOtlpClient;
 import java.time.Duration;
 import java.util.Map;
+import java.util.function.Supplier;
 
 /// Builds [OtlpExporter]s that send typed telemetry to an OTLP/HTTP endpoint.
 ///
@@ -53,8 +54,8 @@ public final class OtlpHttpExporter {
             return this;
         }
 
-        /// Applies the standard `OTEL_EXPORTER_OTLP_*` variables.
-        /// Opt-in; call it first so explicit setters override the environment.
+        /// Applies the standard `OTEL_EXPORTER_OTLP_*` variables. Opt-in; environment values are
+        /// lowest precedence, so explicit setters win regardless of call order.
         public Builder fromEnvironment() {
             config.fromEnvironment();
             return this;
@@ -94,6 +95,12 @@ public final class OtlpHttpExporter {
             return this;
         }
 
+        /// Bounds connection setup; unset falls back to [#setTimeout].
+        public Builder setConnectTimeout(Duration connectTimeout) {
+            config.setConnectTimeout(connectTimeout);
+            return this;
+        }
+
         /// Selects the client TLS mode (e.g. [Tls#systemTrust()] or [Tls.Custom]); also chooses the
         /// `http` vs `https` scheme. Defaults to plaintext `http`.
         public Builder setTls(Tls tls) {
@@ -113,6 +120,13 @@ public final class OtlpHttpExporter {
             return this;
         }
 
+        /// Sets a per-export header supplier (e.g. a rotating bearer token), re-evaluated on every
+        /// export and overlaid on the static headers.
+        public Builder setHeaders(Supplier<Map<String, String>> headerSupplier) {
+            config.setHeaders(headerSupplier);
+            return this;
+        }
+
         /// Selects request-body compression (e.g. [Compression#GZIP] sent as
         /// `Content-Encoding: gzip`). Defaults to none.
         public Builder setCompression(Compression compression) {
@@ -126,7 +140,8 @@ public final class OtlpHttpExporter {
             return this;
         }
 
-        /// Sets the transport retry policy. Defaults to no retries.
+        /// Sets the transport retry policy. Defaults to [RetryPolicy#getDefault()]; pass
+        /// [RetryPolicy#none()] to disable retries.
         public Builder setRetryPolicy(RetryPolicy retry) {
             config.setRetryPolicy(retry);
             return this;

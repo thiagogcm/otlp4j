@@ -22,8 +22,9 @@ import org.slf4j.LoggerFactory;
 /// OTLP/HTTP implementation of the [OtlpServer] SPI, built on the JDK [HttpServer]/[HttpsServer].
 ///
 /// Serves the four OTLP collector endpoints and routes decoded requests to per-signal
-/// [Dispatchers]. [Tls] selects the server: [Tls.Disabled] is plaintext, [Tls.Custom]
-/// supplies the certificate and key; [Tls.SystemTrust] is rejected as a server has no certificate.
+/// [Dispatchers]. [Tls] selects the server: [Tls.Disabled] is plaintext; [Tls.Custom] and
+/// [Tls.Inline] supply the certificate and key; [Tls.SystemTrust] and [Tls.SslContext] are rejected
+/// as a server has no certificate of its own.
 ///
 /// When no [ServerConfig#serverExecutor()] is configured the server uses a
 /// virtual-thread-per-request executor so a handler blocking on its dispatcher's
@@ -75,8 +76,19 @@ public final class HttpOtlpServer implements OtlpServer {
                 https.setHttpsConfigurator(new HttpsConfigurator(PemSsl.serverContext(certFile, keyFile)));
                 yield https;
             }
+            case Tls.Inline(var cert, var key, var _) -> {
+                if (cert == null || key == null) {
+                    throw new IllegalArgumentException(
+                            "in-memory server TLS requires both a certificate and a key");
+                }
+                var https = HttpsServer.create(address, 0);
+                https.setHttpsConfigurator(new HttpsConfigurator(PemSsl.serverContext(cert, key)));
+                yield https;
+            }
             case Tls.SystemTrust _ -> throw new IllegalArgumentException(
                     "Tls.SystemTrust is not valid for a server; use Tls.Custom with a certificate and key");
+            case Tls.SslContext _ -> throw new IllegalArgumentException(
+                    "Tls.SslContext is not valid for a server; use Tls.Custom with a certificate and key");
         };
     }
 

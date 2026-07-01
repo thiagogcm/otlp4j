@@ -14,11 +14,17 @@ import dev.nthings.otlp4j.config.ClientConfig;
 import dev.nthings.otlp4j.config.Compression;
 import dev.nthings.otlp4j.spi.OtlpClient;
 import dev.nthings.otlp4j.config.Tls;
+import io.grpc.CallOptions;
+import io.grpc.Channel;
 import io.grpc.ChannelCredentials;
+import io.grpc.ClientCall;
+import io.grpc.ClientInterceptor;
+import io.grpc.ForwardingClientCall.SimpleForwardingClientCall;
 import io.grpc.Grpc;
 import io.grpc.InsecureChannelCredentials;
 import io.grpc.ManagedChannel;
 import io.grpc.Metadata;
+import io.grpc.MethodDescriptor;
 import io.grpc.TlsChannelCredentials;
 import io.grpc.stub.AbstractStub;
 import io.grpc.stub.MetadataUtils;
@@ -26,10 +32,12 @@ import io.opentelemetry.proto.collector.logs.v1.LogsServiceGrpc;
 import io.opentelemetry.proto.collector.metrics.v1.MetricsServiceGrpc;
 import io.opentelemetry.proto.collector.profiles.v1development.ProfilesServiceGrpc;
 import io.opentelemetry.proto.collector.trace.v1.TraceServiceGrpc;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ExecutorService;
@@ -65,7 +73,9 @@ public final class GrpcOtlpClient implements OtlpClient {
 
         var builder = Grpc.newChannelBuilderForAddress(
                 config.host(), config.port(), channelCredentials(config.tls()));
-        if (!config.headers().isEmpty()) {
+        if (config.headerSupplier() != null) {
+            builder.intercept(new DynamicHeadersInterceptor(config.headers(), config.headerSupplier()));
+        } else if (!config.headers().isEmpty()) {
             builder.intercept(MetadataUtils.newAttachHeadersInterceptor(toMetadata(config.headers())));
         }
         var retry = config.retry();
@@ -174,6 +184,24 @@ public final class GrpcOtlpClient implements OtlpClient {
                     throw new UncheckedIOException("failed to load client TLS material", e);
                 }
             }
+            case Tls.Inline(var cert, var key, var trust) -> {
+                Transports.requireCompleteClientMutualTls(cert, key);
+                try {
+                    var b = TlsChannelCredentials.newBuilder();
+                    if (cert != null && key != null) {
+                        b.keyManager(new ByteArrayInputStream(cert), new ByteArrayInputStream(key));
+                    }
+                    if (trust != null) {
+                        b.trustManager(new ByteArrayInputStream(trust));
+                    }
+                    yield b.build();
+                } catch (IOException e) {
+                    throw new UncheckedIOException("failed to load client TLS material", e);
+                }
+            }
+            // gRPC has no SSLContext door: honour the trust manager only (no mTLS via SSLContext).
+            case Tls.SslContext(var _, var trustManager) ->
+                TlsChannelCredentials.newBuilder().trustManager(trustManager).build();
         };
     }
 
@@ -182,5 +210,31 @@ public final class GrpcOtlpClient implements OtlpClient {
         headers.forEach((name, value) ->
                 md.put(Metadata.Key.of(name, Metadata.ASCII_STRING_MARSHALLER), value));
         return md;
+    }
+
+    /// Attaches per-call headers, re-evaluating the header supplier on every RPC so a rotating
+    /// credential is refreshed. Installed only when a supplier is set; the static-header path keeps
+    /// the cheaper attach-headers interceptor.
+    private static final class DynamicHeadersInterceptor implements ClientInterceptor {
+
+        private final Map<String, String> staticHeaders;
+        private final Supplier<Map<String, String>> headerSupplier;
+
+        DynamicHeadersInterceptor(Map<String, String> staticHeaders, Supplier<Map<String, String>> headerSupplier) {
+            this.staticHeaders = staticHeaders;
+            this.headerSupplier = headerSupplier;
+        }
+
+        @Override
+        public <ReqT, RespT> ClientCall<ReqT, RespT> interceptCall(
+                MethodDescriptor<ReqT, RespT> method, CallOptions callOptions, Channel next) {
+            return new SimpleForwardingClientCall<>(next.newCall(method, callOptions)) {
+                @Override
+                public void start(Listener<RespT> responseListener, Metadata headers) {
+                    headers.merge(toMetadata(Transports.resolveHeaders(staticHeaders, headerSupplier)));
+                    super.start(responseListener, headers);
+                }
+            };
+        }
     }
 }

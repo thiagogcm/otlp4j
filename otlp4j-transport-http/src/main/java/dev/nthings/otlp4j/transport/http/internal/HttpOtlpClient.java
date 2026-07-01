@@ -79,7 +79,9 @@ public final class HttpOtlpClient implements OtlpClient {
         this.logsUri = URI.create(base + OtlpHttp.LOGS_PATH);
         this.profilesUri = URI.create(base + OtlpHttp.PROFILES_PATH);
 
-        var builder = HttpClient.newBuilder().connectTimeout(config.timeout());
+        var explicitConnect = config.connectTimeout();
+        var connectTimeout = explicitConnect != null ? explicitConnect : config.timeout();
+        var builder = HttpClient.newBuilder().connectTimeout(connectTimeout);
         switch (config.tls()) {
             case Tls.Disabled _ -> { /* plaintext http */ }
             case Tls.SystemTrust _ -> { /* https with the JVM default SSLContext */ }
@@ -87,6 +89,12 @@ public final class HttpOtlpClient implements OtlpClient {
                 Transports.requireCompleteClientMutualTls(certFile, keyFile);
                 builder.sslContext(PemSsl.clientContext(certFile, keyFile, trustFile));
             }
+            case Tls.Inline(var cert, var key, var trust) -> {
+                Transports.requireCompleteClientMutualTls(cert, key);
+                builder.sslContext(PemSsl.clientContext(cert, key, trust));
+            }
+            // Unlike gRPC, the JDK client uses a caller-built SSLContext verbatim, mTLS included.
+            case Tls.SslContext(var sslContext, var _) -> builder.sslContext(sslContext);
         }
         this.http = builder.build();
         this.executor = Executors.newVirtualThreadPerTaskExecutor();
@@ -170,7 +178,7 @@ public final class HttpOtlpClient implements OtlpClient {
         if (compress) {
             builder.header("Content-Encoding", "gzip");
         }
-        config.headers().forEach(builder::header);
+        Transports.resolveHeaders(config.headers(), config.headerSupplier()).forEach(builder::header);
         return builder.POST(HttpRequest.BodyPublishers.ofByteArray(body)).build();
     }
 

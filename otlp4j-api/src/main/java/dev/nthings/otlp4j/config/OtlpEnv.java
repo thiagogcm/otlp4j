@@ -13,8 +13,10 @@ import org.jspecify.annotations.Nullable;
 /// Applies the standard general OTLP exporter environment variables onto a
 /// [ClientConfig.Builder]. Package-private (reached only through
 /// [ClientConfig.Builder#fromEnvironment()]), so it stays out of the exported `spi`
-/// surface. Only general (non-signal-specific) variables are read, only when present, so explicit
-/// setters called after `fromEnvironment()` win; malformed values fail fast.
+/// surface. Only general (non-signal-specific) variables are read, only when present. Applied at
+/// build time, environment values are lowest precedence: each field is assigned only where the
+/// caller did not set it explicitly, so call order does not matter. Present variables are always
+/// parsed, so malformed values fail fast even when the field is set explicitly.
 ///
 /// TLS follows the endpoint scheme when set; otherwise `OTEL_EXPORTER_OTLP_INSECURE` and the
 /// certificate variables apply as independent inputs. An HTTP path prefix is taken from the URL.
@@ -41,16 +43,22 @@ final class OtlpEnv {
         }
         var timeout = value(env, TIMEOUT);
         if (timeout != null) {
-            builder.setTimeout(parseTimeout(timeout));
+            var parsed = parseTimeout(timeout);
+            if (!builder.timeoutExplicit) {
+                builder.setTimeout(parsed);
+            }
         }
         var headers = value(env, HEADERS);
         if (headers != null) {
-            // Merge onto any headers already set: env wins per key but never drops unrelated keys.
-            parseHeaders(headers).forEach(builder::addHeader);
+            // Env fills only keys not already set explicitly, so explicit headers win per key.
+            parseHeaders(headers).forEach(builder::addHeaderIfAbsent);
         }
         var compression = value(env, COMPRESSION);
         if (compression != null) {
-            builder.setCompression(parseCompression(compression));
+            var parsed = parseCompression(compression);
+            if (!builder.compressionExplicit) {
+                builder.setCompression(parsed);
+            }
         }
     }
 
@@ -63,21 +71,44 @@ final class OtlpEnv {
 
     private static void applyEndpoint(
             ClientConfig.Builder builder, String raw, UnaryOperator<String> env) {
-        // The builder parses host/port/path; here we layer the env TLS material on https.
-        var secure = builder.applyEndpointUrl(raw);
-        builder.setTls(secure ? resolveTls(env) : Tls.disabled());
+        var endpoint = ClientConfig.parseEndpoint(raw);
+        // Resolve TLS eagerly so malformed cert vars fail fast even when TLS was set explicitly.
+        var tls = endpoint.secure() ? resolveTls(env) : Tls.disabled();
+        if (!builder.hostExplicit) {
+            builder.setHost(endpoint.host());
+        }
+        if (!builder.portExplicit && endpoint.port() != -1) {
+            builder.setPort(endpoint.port());
+        }
+        if (!builder.pathExplicit) {
+            builder.setPath(endpoint.path());
+        }
+        if (!builder.tlsExplicit) {
+            builder.setTls(tls);
+        }
     }
 
     /// TLS when no endpoint dictates the scheme: `INSECURE=true` forces plaintext, else the
     /// certificate variables turn TLS on when present. Otherwise the default is left intact.
     private static void applyTlsWithoutEndpoint(ClientConfig.Builder builder, UnaryOperator<String> env) {
-        var hasCertVars = value(env, CERTIFICATE) != null
-                || value(env, CLIENT_CERTIFICATE) != null
-                || value(env, CLIENT_KEY) != null;
-        if (insecureRequested(env)) {
+        // Parse/validate eagerly (fail fast) even when TLS was set explicitly; assign only if not.
+        var insecure = insecureRequested(env);
+        @Nullable Tls resolved = null;
+        if (!insecure) {
+            var hasCertVars = value(env, CERTIFICATE) != null
+                    || value(env, CLIENT_CERTIFICATE) != null
+                    || value(env, CLIENT_KEY) != null;
+            if (hasCertVars) {
+                resolved = resolveTls(env);
+            }
+        }
+        if (builder.tlsExplicit) {
+            return;
+        }
+        if (insecure) {
             builder.setTls(Tls.disabled());
-        } else if (hasCertVars) {
-            builder.setTls(resolveTls(env));
+        } else if (resolved != null) {
+            builder.setTls(resolved);
         }
     }
 

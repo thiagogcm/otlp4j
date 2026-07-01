@@ -17,14 +17,25 @@ import dev.nthings.otlp4j.config.Tls;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.io.InputStream;
 import java.net.InetSocketAddress;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.KeyStore;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.zip.GZIPInputStream;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.TrustManagerFactory;
+import javax.net.ssl.X509TrustManager;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -200,6 +211,43 @@ class HttpTransportConfigTest {
                 .hasMessageContaining("certificate and a key");
     }
 
+    @DisplayName("Rejects SslContext TLS for a server")
+    @Test
+    void rejectsSslContextForServer() throws Exception {
+        var trustManager = trustManagerFor(resource("/tls/server.crt"));
+        var sslContext = SSLContext.getInstance("TLS");
+        sslContext.init(null, new TrustManager[] {trustManager}, null);
+        var receiver = OtlpHttpReceiver.builder()
+                .transport(ServerConfig.builder()
+                        .setPort(0)
+                        .setTls(Tls.sslContext(sslContext, trustManager))
+                        .build())
+                .onTraces(t -> ConsumeResult.acceptedStage())
+                .build();
+        receivers.add(receiver);
+
+        assertThatThrownBy(receiver::start)
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("SslContext");
+    }
+
+    @DisplayName("A server in-memory TLS without a key is rejected")
+    @Test
+    void serverInMemoryTrustOnlyRejected() throws Exception {
+        var receiver = OtlpHttpReceiver.builder()
+                .transport(ServerConfig.builder()
+                        .setPort(0)
+                        .setTls(Tls.trust(bytes("/tls/server.crt")))
+                        .build())
+                .onTraces(t -> ConsumeResult.acceptedStage())
+                .build();
+        receivers.add(receiver);
+
+        assertThatThrownBy(receiver::start)
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("certificate and a key");
+    }
+
     @DisplayName("Half-specified client mutual-TLS material is rejected")
     @Test
     void halfSpecifiedClientMtlsIsRejected() {
@@ -243,6 +291,88 @@ class HttpTransportConfigTest {
 
         assertThatThrownBy(() -> exporter.traces().consume(traces()).toCompletableFuture().join())
                 .isInstanceOf(CompletionException.class);
+    }
+
+    @DisplayName("Round-trips TracesData over in-memory (byte[]) TLS")
+    @Test
+    void roundTripsOverInMemoryTls() throws Exception {
+        var received = new AtomicReference<TracesData>();
+        var serverConfig = ServerConfig.builder()
+                .setPort(0)
+                .setTls(Tls.custom(bytes("/tls/server.crt"), bytes("/tls/server.key"), null))
+                .build();
+        var receiver = startReceiver(serverConfig, OtlpHttpReceiver.builder().onTraces(t -> {
+            received.set(t);
+            return ConsumeResult.acceptedStage();
+        }));
+        var exporter = exporter(ClientConfig.builder()
+                .setEndpoint("localhost", receiver.port())
+                .setTls(Tls.trust(bytes("/tls/server.crt")))
+                .setTimeout(Duration.ofSeconds(5))
+                .build());
+
+        var sent = traces();
+        var result = exporter.traces().consume(sent).toCompletableFuture().join();
+
+        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(received.get()).isEqualTo(sent);
+    }
+
+    @DisplayName("Round-trips over TLS using a caller-built SSLContext (used verbatim on HTTP)")
+    @Test
+    void roundTripsOverSslContext() throws Exception {
+        var received = new AtomicReference<TracesData>();
+        var receiver = startReceiver(serverTls(), OtlpHttpReceiver.builder().onTraces(t -> {
+            received.set(t);
+            return ConsumeResult.acceptedStage();
+        }));
+        var trustManager = trustManagerFor(resource("/tls/server.crt"));
+        var sslContext = SSLContext.getInstance("TLS");
+        sslContext.init(null, new TrustManager[] {trustManager}, null);
+        var exporter = exporter(ClientConfig.builder()
+                .setEndpoint("localhost", receiver.port())
+                .setTls(Tls.sslContext(sslContext, trustManager))
+                .setTimeout(Duration.ofSeconds(5))
+                .build());
+
+        var sent = traces();
+        var result = exporter.traces().consume(sent).toCompletableFuture().join();
+
+        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(received.get()).isEqualTo(sent);
+    }
+
+    @DisplayName("Re-evaluates the header supplier on every request")
+    @Test
+    void reevaluatesHeaderSupplierPerRequest() {
+        var captured = new ArrayList<Captured>();
+        var port = startRawServer(captured);
+        var counter = new AtomicInteger();
+        var exporter = exporter(ClientConfig.builder()
+                .setEndpoint("localhost", port)
+                .setHeaders(() -> Map.of("x-otlp-api-key", "token-" + counter.incrementAndGet()))
+                .build());
+
+        exporter.traces().consume(traces()).toCompletableFuture().join();
+        exporter.traces().consume(traces()).toCompletableFuture().join();
+
+        assertThat(captured).extracting(Captured::apiKey).containsExactly("token-1", "token-2");
+    }
+
+    @DisplayName("Honours a configured connect timeout on a normal round-trip")
+    @Test
+    void appliesConnectTimeout() {
+        var captured = new ArrayList<Captured>();
+        var port = startRawServer(captured);
+        var exporter = exporter(ClientConfig.builder()
+                .setEndpoint("localhost", port)
+                .setConnectTimeout(Duration.ofSeconds(3))
+                .build());
+
+        var result = exporter.traces().consume(traces()).toCompletableFuture().join();
+
+        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(captured).hasSize(1);
     }
 
     private Receiver startReceiver(ServerConfig config, OtlpHttpReceiver.Builder builder) {
@@ -304,6 +434,32 @@ class HttpTransportConfigTest {
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+    }
+
+    private static byte[] bytes(String name) throws Exception {
+        return Files.readAllBytes(resource(name));
+    }
+
+    /// Builds an X509 trust manager trusting the certificate(s) in `certPem`, for the SSLContext TLS
+    /// variant.
+    private static X509TrustManager trustManagerFor(Path certPem) throws Exception {
+        var factory = CertificateFactory.getInstance("X.509");
+        var ks = KeyStore.getInstance("PKCS12");
+        ks.load(null, new char[0]);
+        try (InputStream in = Files.newInputStream(certPem)) {
+            var i = 0;
+            for (var cert : factory.generateCertificates(in)) {
+                ks.setCertificateEntry("ca-" + i++, (X509Certificate) cert);
+            }
+        }
+        var tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+        tmf.init(ks);
+        for (var tm : tmf.getTrustManagers()) {
+            if (tm instanceof X509TrustManager x) {
+                return x;
+            }
+        }
+        throw new IllegalStateException("no X509TrustManager available");
     }
 
     private record Captured(

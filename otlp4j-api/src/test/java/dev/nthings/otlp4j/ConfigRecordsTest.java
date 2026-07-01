@@ -8,10 +8,16 @@ import dev.nthings.otlp4j.config.Compression;
 import dev.nthings.otlp4j.config.RetryPolicy;
 import dev.nthings.otlp4j.config.ServerConfig;
 import dev.nthings.otlp4j.config.Tls;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.security.KeyStore;
 import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.Executor;
+import java.util.function.Supplier;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManagerFactory;
+import javax.net.ssl.X509TrustManager;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -27,9 +33,12 @@ class ConfigRecordsTest {
         assertThat(c.timeout()).isEqualTo(Duration.ofSeconds(10));
         assertThat(c.tls()).isEqualTo(Tls.disabled());
         assertThat(c.compression()).isEqualTo(Compression.NONE);
-        assertThat(c.retry()).isEqualTo(RetryPolicy.none());
+        // Retries default on, matching otel-java (RetryPolicy.none() is the explicit opt-out).
+        assertThat(c.retry()).isEqualTo(RetryPolicy.getDefault());
         assertThat(c.headers()).isEmpty();
         assertThat(c.path()).isEmpty();
+        assertThat(c.headerSupplier()).isNull();
+        assertThat(c.connectTimeout()).isNull();
     }
 
     @DisplayName("ClientConfig normalizes the endpoint path prefix")
@@ -208,6 +217,56 @@ class ConfigRecordsTest {
                 .isEqualTo(new Tls.Custom(Path.of("c"), Path.of("k"), null));
     }
 
+    @DisplayName("Tls in-memory and SSLContext factories build the byte and context variants")
+    @Test
+    void tlsInMemoryAndSslContextFactories() throws Exception {
+        var cert = "cert".getBytes(StandardCharsets.UTF_8);
+        var key = "key".getBytes(StandardCharsets.UTF_8);
+        var trust = "trust".getBytes(StandardCharsets.UTF_8);
+
+        assertThat(Tls.trust(trust)).isInstanceOf(Tls.Inline.class);
+        var inline = (Tls.Inline) Tls.custom(cert, key, trust);
+        assertThat(inline.cert()).containsExactly(cert);
+        assertThat(inline.key()).containsExactly(key);
+        assertThat(inline.trust()).containsExactly(trust);
+        // Arrays are copied on construction, so a later mutation of the caller's array is not seen.
+        cert[0] = 'X';
+        assertThat(inline.cert()[0]).isEqualTo((byte) 'c');
+
+        var context = SSLContext.getInstance("TLS");
+        context.init(null, null, null);
+        var trustManager = defaultTrustManager();
+        var sslVariant = (Tls.SslContext) Tls.sslContext(context, trustManager);
+        assertThat(sslVariant.sslContext()).isSameAs(context);
+        assertThat(sslVariant.trustManager()).isSameAs(trustManager);
+
+        // Inline copies its arrays, so two Inline values with equal content are not equal (the
+        // record compares its byte[] components by reference, not by content).
+        assertThat(Tls.custom(key, key, null)).isNotEqualTo(Tls.custom(key, key, null));
+    }
+
+    @DisplayName("Tls.sslContext rejects null arguments")
+    @Test
+    void tlsSslContextRejectsNulls() throws Exception {
+        var context = SSLContext.getInstance("TLS");
+        context.init(null, null, null);
+        assertThatThrownBy(() -> Tls.sslContext(context, null))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> Tls.sslContext(null, defaultTrustManager()))
+                .isInstanceOf(NullPointerException.class);
+    }
+
+    private static X509TrustManager defaultTrustManager() throws Exception {
+        var tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+        tmf.init((KeyStore) null);
+        for (var tm : tmf.getTrustManagers()) {
+            if (tm instanceof X509TrustManager x) {
+                return x;
+            }
+        }
+        throw new IllegalStateException("no X509TrustManager available");
+    }
+
     @DisplayName("RetryPolicy.builder builds a validated retrying policy with a backoff multiplier")
     @Test
     void retryPolicyBuilderBuildsAValidatedRetryingPolicy() {
@@ -246,5 +305,27 @@ class ConfigRecordsTest {
                 .addHeader("k3", "v3")
                 .build();
         assertThat(c2.headers()).containsExactlyInAnyOrderEntriesOf(Map.of("k1", "v1", "k2", "v2", "k3", "v3"));
+    }
+
+    @DisplayName("ClientConfig builder carries a header supplier alongside static headers")
+    @Test
+    void clientConfigBuilderHeaderSupplier() {
+        Supplier<Map<String, String>> supplier = () -> Map.of("authorization", "Bearer live");
+        var c = ClientConfig.builder()
+                .addHeader("x-tenant", "abc")
+                .setHeaders(supplier)
+                .build();
+        // The supplier is carried without clearing the static headers.
+        assertThat(c.headers()).containsEntry("x-tenant", "abc");
+        assertThat(c.headerSupplier()).isSameAs(supplier);
+    }
+
+    @DisplayName("ClientConfig builder carries and validates a connect timeout")
+    @Test
+    void clientConfigBuilderConnectTimeout() {
+        var c = ClientConfig.builder().setConnectTimeout(Duration.ofSeconds(2)).build();
+        assertThat(c.connectTimeout()).isEqualTo(Duration.ofSeconds(2));
+        assertThatThrownBy(() -> ClientConfig.builder().setConnectTimeout(Duration.ZERO).build())
+                .isInstanceOf(IllegalArgumentException.class);
     }
 }

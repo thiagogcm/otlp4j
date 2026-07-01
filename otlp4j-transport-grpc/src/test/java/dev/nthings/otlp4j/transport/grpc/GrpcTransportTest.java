@@ -275,9 +275,13 @@ class GrpcTransportTest {
     }
 
     private OtlpExporter exporterTo(Receiver receiver) {
+        // These tests exercise request/response mechanics and error mapping, not retry; disable
+        // retries so a retryable rejection surfaces immediately rather than being retried to the
+        // deadline. Retry behaviour has dedicated coverage in TransportConfigTest.
         var exporter = OtlpGrpcExporter.builder()
                 .setEndpoint("localhost", receiver.port())
                 .setTimeout(Duration.ofSeconds(5))
+                .setRetryPolicy(RetryPolicy.none())
                 .build();
         closeables.add(exporter);
         return exporter;

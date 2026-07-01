@@ -3,6 +3,8 @@ package dev.nthings.otlp4j.transport.http.internal;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -45,6 +47,35 @@ class PemSslTest {
         assertThatThrownBy(() -> PemSsl.clientContext(null, null, missing))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("client TLS material");
+    }
+
+    @DisplayName("Builds a server context from in-memory certificate and key bytes")
+    @Test
+    void buildsServerContextFromBytes() throws Exception {
+        var context = PemSsl.serverContext(bytes(CERT), bytes(KEY));
+        assertThat(context).isNotNull();
+        assertThat(context.getProtocol()).isEqualTo("TLS");
+    }
+
+    @DisplayName("Builds client contexts (trust-only and mutual TLS) from in-memory bytes")
+    @Test
+    void buildsClientContextsFromBytes() throws Exception {
+        assertThat(PemSsl.clientContext(null, null, bytes(CERT))).isNotNull();
+        assertThat(PemSsl.clientContext(bytes(CERT), bytes(KEY), bytes(CERT))).isNotNull();
+    }
+
+    @DisplayName("Malformed in-memory material fails fast")
+    @Test
+    void malformedBytesThrow() {
+        var garbage = "not a pem".getBytes(StandardCharsets.UTF_8);
+        assertThatThrownBy(() -> PemSsl.serverContext(garbage, garbage))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> PemSsl.clientContext(null, null, garbage))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    private static byte[] bytes(Path pem) throws Exception {
+        return Files.readAllBytes(pem);
     }
 
     private static Path resource(String name) {

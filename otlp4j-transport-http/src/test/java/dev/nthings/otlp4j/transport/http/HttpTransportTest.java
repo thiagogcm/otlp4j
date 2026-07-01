@@ -353,9 +353,13 @@ class HttpTransportTest {
     }
 
     private OtlpExporter exporterTo(Receiver receiver) {
+        // These tests exercise request/response mechanics and error mapping, not retry; disable
+        // retries so a retryable rejection surfaces immediately rather than being retried to the
+        // budget. Retry behaviour has dedicated coverage in HttpTransportConfigTest.
         var exporter = OtlpHttpExporter.builder()
                 .setEndpoint("localhost", receiver.port())
                 .setTimeout(Duration.ofSeconds(5))
+                .setRetryPolicy(RetryPolicy.none())
                 .build();
         closeables.add(exporter);
         return exporter;
