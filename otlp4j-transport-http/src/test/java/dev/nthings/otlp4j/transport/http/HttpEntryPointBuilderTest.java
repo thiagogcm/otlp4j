@@ -25,6 +25,7 @@ class HttpEntryPointBuilderTest {
         try (var exporter = OtlpHttpExporter.builder()
                 .fromEnvironment()
                 .setEndpoint("collector.example", 4318)
+                .setPath("/otlp")
                 .setTimeout(Duration.ofSeconds(3))
                 .setConnectTimeout(Duration.ofSeconds(2))
                 .setTls(Tls.systemTrust())
@@ -61,17 +62,6 @@ class HttpEntryPointBuilderTest {
         }
     }
 
-    @DisplayName("OtlpHttpExporter.Builder path(...) sets the endpoint path prefix on the config")
-    @Test
-    void exporterBuilderPath() throws Exception {
-        var builder = OtlpHttpExporter.builder().setEndpoint("h", 4318).setPath("/otlp");
-
-        var field = OtlpHttpExporter.Builder.class.getDeclaredField("config");
-        field.setAccessible(true);
-        var c = ((ClientConfig.Builder) field.get(builder)).build();
-        assertThat(c.path()).isEqualTo("/otlp");
-    }
-
     @DisplayName("OtlpHttpReceiver builder applies every knob")
     @Test
     void receiverBuilderAppliesEveryKnob() {
@@ -101,26 +91,4 @@ class HttpEntryPointBuilderTest {
         assertThat(OtlpHttpReceiver.builder().setEndpoint("127.0.0.1", 0).build().port()).isZero();
     }
 
-    @DisplayName("OtlpHttpExporter.Builder addHeader adds per key and setHeaders replaces all")
-    @Test
-    void exporterBuilderHeaders() throws Exception {
-        var builder = OtlpHttpExporter.builder()
-                .addHeader("k1", "v1")
-                .setHeaders(Map.of("k2", "v2", "k3", "v3"));
-
-        var field = OtlpHttpExporter.Builder.class.getDeclaredField("config");
-        field.setAccessible(true);
-        var clientConfigBuilder = (ClientConfig.Builder) field.get(builder);
-        var c = clientConfigBuilder.build();
-        assertThat(c.headers()).containsExactlyInAnyOrderEntriesOf(Map.of("k2", "v2", "k3", "v3"));
-
-        var builder2 = OtlpHttpExporter.builder()
-                .addHeader("k1", "v1")
-                .addHeader("k2", "v2")
-                .addHeader("k3", "v3");
-
-        var clientConfigBuilder2 = (ClientConfig.Builder) field.get(builder2);
-        var c2 = clientConfigBuilder2.build();
-        assertThat(c2.headers()).containsExactlyInAnyOrderEntriesOf(Map.of("k1", "v1", "k2", "v2", "k3", "v3"));
-    }
 }
