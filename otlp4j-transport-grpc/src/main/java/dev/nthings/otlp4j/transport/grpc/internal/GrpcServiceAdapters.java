@@ -10,7 +10,9 @@ import dev.nthings.otlp4j.codec.MetricsMapper;
 import dev.nthings.otlp4j.codec.ProfilesMapper;
 import dev.nthings.otlp4j.codec.SignalResponses;
 import dev.nthings.otlp4j.codec.TraceMapper;
+import com.google.protobuf.MessageLite;
 import dev.nthings.otlp4j.spi.Dispatchers;
+import dev.nthings.otlp4j.transport.common.AdmissionControl;
 import io.grpc.BindableService;
 import io.grpc.Metadata;
 import io.grpc.Status;
@@ -57,33 +59,56 @@ final class GrpcServiceAdapters {
     }
 
     /// Creates the four OTLP collector services, each bound to its
-    /// signal's dispatcher.
-    public static List<BindableService> create(Dispatchers dispatchers) {
+    /// signal's dispatcher, gated by the shared admission control.
+    public static List<BindableService> create(Dispatchers dispatchers, AdmissionControl admission) {
         return List.of(
-                new TraceServiceAdapter(dispatchers.traces()),
-                new MetricsServiceAdapter(dispatchers.metrics()),
-                new LogsServiceAdapter(dispatchers.logs()),
-                new ProfilesServiceAdapter(dispatchers.profiles()));
+                new TraceServiceAdapter(dispatchers.traces(), admission),
+                new MetricsServiceAdapter(dispatchers.metrics(), admission),
+                new LogsServiceAdapter(dispatchers.logs(), admission),
+                new ProfilesServiceAdapter(dispatchers.profiles(), admission));
     }
 
-    /// Decodes `request` and dispatches to the signal handler. A synchronous
-    /// failure maps to gRPC `INTERNAL`; the asynchronous outcome is
+    /// Decodes `request` and dispatches to the signal handler, holding an admission permit for
+    /// the request's decoded size until the dispatch completes. At capacity the request is
+    /// rejected with `UNAVAILABLE` "receiver at capacity" (plus a pushback trailer when
+    /// configured). A synchronous failure maps to gRPC `INTERNAL`; the asynchronous outcome is
     /// handed to [#respond].
-    static <REQ, SIG, RESP> void dispatch(
+    static <REQ extends MessageLite, SIG, RESP> void dispatch(
             REQ request,
             StreamObserver<RESP> observer,
             Function<REQ, SIG> toDomain,
             Function<SIG, CompletionStage<ConsumeResult>> dispatcher,
-            Function<ConsumeResult, RESP> asResponse) {
+            Function<ConsumeResult, RESP> asResponse,
+            AdmissionControl admission) {
+        var permit = admission.tryAcquire(request.getSerializedSize());
+        if (permit == null) {
+            observer.onError(atCapacity(admission));
+            return;
+        }
         CompletionStage<ConsumeResult> stage;
         try {
             stage = dispatcher.apply(toDomain.apply(request));
         } catch (RuntimeException e) {
+            permit.close();
             observer.onError(
                     Status.INTERNAL.withDescription(e.getMessage()).withCause(e).asRuntimeException());
             return;
         }
-        respond(observer, stage, asResponse);
+        respond(observer, stage.whenComplete((result, error) -> permit.close()), asResponse);
+    }
+
+    /// `UNAVAILABLE` for a request rejected at admission, carrying the configured pushback hint.
+    private static Throwable atCapacity(AdmissionControl admission) {
+        var trailers = new Metadata();
+        var hint = admission.retryAfterHint();
+        if (hint != null) {
+            trailers.put(GrpcRetry.PUSHBACK_MS, Long.toString(hint.toMillis()));
+        }
+        log.warn("receiver at capacity ({} requests / {} bytes in flight); responding with gRPC UNAVAILABLE",
+                admission.inFlightRequests(), admission.inFlightBytes());
+        return Status.UNAVAILABLE
+                .withDescription("receiver at capacity")
+                .asRuntimeException(trailers);
     }
 
     /// Asynchronously consumes the result, mapping [ConsumeResult] to a gRPC
@@ -131,9 +156,11 @@ final class GrpcServiceAdapters {
 final class TraceServiceAdapter extends TraceServiceGrpc.TraceServiceImplBase {
 
     private final Function<TracesData, CompletionStage<ConsumeResult>> dispatcher;
+    private final AdmissionControl admission;
 
-    TraceServiceAdapter(Function<TracesData, CompletionStage<ConsumeResult>> dispatcher) {
+    TraceServiceAdapter(Function<TracesData, CompletionStage<ConsumeResult>> dispatcher, AdmissionControl admission) {
         this.dispatcher = dispatcher;
+        this.admission = admission;
     }
 
     @Override
@@ -141,16 +168,18 @@ final class TraceServiceAdapter extends TraceServiceGrpc.TraceServiceImplBase {
             ExportTraceServiceRequest request,
             StreamObserver<ExportTraceServiceResponse> observer) {
         GrpcServiceAdapters.dispatch(
-                request, observer, TraceMapper::toDomain, dispatcher, SignalResponses::traces);
+                request, observer, TraceMapper::toDomain, dispatcher, SignalResponses::traces, admission);
     }
 }
 
 final class MetricsServiceAdapter extends MetricsServiceGrpc.MetricsServiceImplBase {
 
     private final Function<MetricsData, CompletionStage<ConsumeResult>> dispatcher;
+    private final AdmissionControl admission;
 
-    MetricsServiceAdapter(Function<MetricsData, CompletionStage<ConsumeResult>> dispatcher) {
+    MetricsServiceAdapter(Function<MetricsData, CompletionStage<ConsumeResult>> dispatcher, AdmissionControl admission) {
         this.dispatcher = dispatcher;
+        this.admission = admission;
     }
 
     @Override
@@ -158,16 +187,18 @@ final class MetricsServiceAdapter extends MetricsServiceGrpc.MetricsServiceImplB
             ExportMetricsServiceRequest request,
             StreamObserver<ExportMetricsServiceResponse> observer) {
         GrpcServiceAdapters.dispatch(
-                request, observer, MetricsMapper::toDomain, dispatcher, SignalResponses::metrics);
+                request, observer, MetricsMapper::toDomain, dispatcher, SignalResponses::metrics, admission);
     }
 }
 
 final class LogsServiceAdapter extends LogsServiceGrpc.LogsServiceImplBase {
 
     private final Function<LogsData, CompletionStage<ConsumeResult>> dispatcher;
+    private final AdmissionControl admission;
 
-    LogsServiceAdapter(Function<LogsData, CompletionStage<ConsumeResult>> dispatcher) {
+    LogsServiceAdapter(Function<LogsData, CompletionStage<ConsumeResult>> dispatcher, AdmissionControl admission) {
         this.dispatcher = dispatcher;
+        this.admission = admission;
     }
 
     @Override
@@ -175,16 +206,18 @@ final class LogsServiceAdapter extends LogsServiceGrpc.LogsServiceImplBase {
             ExportLogsServiceRequest request,
             StreamObserver<ExportLogsServiceResponse> observer) {
         GrpcServiceAdapters.dispatch(
-                request, observer, LogsMapper::toDomain, dispatcher, SignalResponses::logs);
+                request, observer, LogsMapper::toDomain, dispatcher, SignalResponses::logs, admission);
     }
 }
 
 final class ProfilesServiceAdapter extends ProfilesServiceGrpc.ProfilesServiceImplBase {
 
     private final Function<ProfilesData, CompletionStage<ConsumeResult>> dispatcher;
+    private final AdmissionControl admission;
 
-    ProfilesServiceAdapter(Function<ProfilesData, CompletionStage<ConsumeResult>> dispatcher) {
+    ProfilesServiceAdapter(Function<ProfilesData, CompletionStage<ConsumeResult>> dispatcher, AdmissionControl admission) {
         this.dispatcher = dispatcher;
+        this.admission = admission;
     }
 
     @Override
@@ -192,6 +225,6 @@ final class ProfilesServiceAdapter extends ProfilesServiceGrpc.ProfilesServiceIm
             ExportProfilesServiceRequest request,
             StreamObserver<ExportProfilesServiceResponse> observer) {
         GrpcServiceAdapters.dispatch(
-                request, observer, ProfilesMapper::toDomain, dispatcher, SignalResponses::profiles);
+                request, observer, ProfilesMapper::toDomain, dispatcher, SignalResponses::profiles, admission);
     }
 }

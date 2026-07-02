@@ -118,6 +118,38 @@ public abstract class AbstractReceiverBuilder<B extends AbstractReceiverBuilder<
         return self();
     }
 
+    /// Caps decoded export requests in flight across every connection; excess requests are
+    /// rejected retryably ("at capacity"). `0` (the default) disables the cap.
+    ///
+    /// @param max the global in-flight request cap
+    /// @return this builder
+    public final B setMaxInFlightRequests(int max) {
+        config.setMaxInFlightRequests(max);
+        return self();
+    }
+
+    /// Caps decoded request bytes in flight across every connection; excess requests are
+    /// rejected retryably ("at capacity"). A request is always admitted when nothing else is in
+    /// flight. `0` (the default) disables the cap.
+    ///
+    /// @param bytes the global in-flight byte cap
+    /// @return this builder
+    public final B setMaxInFlightBytes(long bytes) {
+        config.setMaxInFlightBytes(bytes);
+        return self();
+    }
+
+    /// Sets the retry-after hint attached to admission rejections (gRPC pushback trailer / HTTP
+    /// `Retry-After`), telling throttled senders how long to wait. Unset (the default) emits no
+    /// hint.
+    ///
+    /// @param throttleRetryAfter the hint attached to "at capacity" rejections
+    /// @return this builder
+    public final B setThrottleRetryAfter(Duration throttleRetryAfter) {
+        config.setThrottleRetryAfter(throttleRetryAfter);
+        return self();
+    }
+
     /// Bounds the transport/TLS handshake deadline, not request body or connection idle time.
     /// Defaults to 20s.
     ///

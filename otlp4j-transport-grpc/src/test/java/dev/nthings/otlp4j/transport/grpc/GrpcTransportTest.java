@@ -268,6 +268,48 @@ class GrpcTransportTest {
         assertThat(received.get()).isEqualTo(sent);
     }
 
+    @DisplayName("Admission control rejects at capacity with UNAVAILABLE and pushback, then recovers")
+    @Test
+    void admissionControlRejectsAtCapacityThenRecovers() throws Exception {
+        var entered = new java.util.concurrent.CountDownLatch(1);
+        var gate = new CompletableFuture<ConsumeResult>();
+        var receiver = startReceiver(OtlpGrpcReceiver.builder()
+                .setMaxInFlightRequests(1)
+                .setThrottleRetryAfter(Duration.ofSeconds(3))
+                .onTraces(traces -> {
+                    entered.countDown();
+                    return gate;
+                }));
+        var exporter = exporterTo(receiver);
+        var batch = Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER));
+
+        // First export occupies the single admission slot until the gate opens.
+        var first = exporter.traces().consume(batch).toCompletableFuture();
+        assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+
+        // Second export is rejected at admission: UNAVAILABLE "receiver at capacity" with the
+        // configured pushback trailer (retries are disabled by exporterTo).
+        var second = exporter.traces().consume(batch).toCompletableFuture();
+        assertThatThrownBy(second::join)
+                .isInstanceOf(CompletionException.class)
+                .satisfies(e -> {
+                    var status = io.grpc.Status.fromThrowable(e.getCause());
+                    assertThat(status.getCode()).isEqualTo(io.grpc.Status.Code.UNAVAILABLE);
+                    assertThat(status.getDescription()).contains("receiver at capacity");
+                    var trailers = io.grpc.Status.trailersFromThrowable(e.getCause());
+                    assertThat(trailers).isNotNull();
+                    assertThat(trailers.get(io.grpc.Metadata.Key.of(
+                            "grpc-retry-pushback-ms", io.grpc.Metadata.ASCII_STRING_MARSHALLER)))
+                            .isEqualTo("3000");
+                });
+
+        // Releasing the slot lets both the held and a fresh export complete.
+        gate.complete(ConsumeResult.accepted());
+        assertThat(first.join()).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(exporter.traces().consume(batch).toCompletableFuture().join())
+                .isInstanceOf(ConsumeResult.Accepted.class);
+    }
+
     private Receiver startReceiver(OtlpGrpcReceiver.Builder builder) {
         var receiver = builder.ephemeralPort().build();
         receivers.add(receiver);

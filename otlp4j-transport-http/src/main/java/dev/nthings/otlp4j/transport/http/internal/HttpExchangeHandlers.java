@@ -5,6 +5,7 @@ import com.google.protobuf.MessageLite;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
+import dev.nthings.otlp4j.transport.common.AdmissionControl;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.codec.DeliveryResults;
 import dev.nthings.otlp4j.codec.LogsMapper;
@@ -45,19 +46,19 @@ final class HttpExchangeHandlers {
     private HttpExchangeHandlers() {
     }
 
-    static void register(HttpServer server, Dispatchers dispatchers, int maxBytes) {
+    static void register(HttpServer server, Dispatchers dispatchers, int maxBytes, AdmissionControl admission) {
         server.createContext(OtlpHttp.TRACES_PATH, handler(
                 ExportTraceServiceRequest::parseFrom, TraceMapper::toDomain,
-                dispatchers.traces(), SignalResponses::traces, maxBytes));
+                dispatchers.traces(), SignalResponses::traces, maxBytes, admission));
         server.createContext(OtlpHttp.METRICS_PATH, handler(
                 ExportMetricsServiceRequest::parseFrom, MetricsMapper::toDomain,
-                dispatchers.metrics(), SignalResponses::metrics, maxBytes));
+                dispatchers.metrics(), SignalResponses::metrics, maxBytes, admission));
         server.createContext(OtlpHttp.LOGS_PATH, handler(
                 ExportLogsServiceRequest::parseFrom, LogsMapper::toDomain,
-                dispatchers.logs(), SignalResponses::logs, maxBytes));
+                dispatchers.logs(), SignalResponses::logs, maxBytes, admission));
         server.createContext(OtlpHttp.PROFILES_PATH, handler(
                 ExportProfilesServiceRequest::parseFrom, ProfilesMapper::toDomain,
-                dispatchers.profiles(), SignalResponses::profiles, maxBytes));
+                dispatchers.profiles(), SignalResponses::profiles, maxBytes, admission));
     }
 
     private static <REQ, SIG> HttpHandler handler(
@@ -65,8 +66,9 @@ final class HttpExchangeHandlers {
             Function<REQ, SIG> toDomain,
             Function<SIG, CompletionStage<ConsumeResult>> dispatcher,
             Function<ConsumeResult, ? extends MessageLite> asResponse,
-            int maxBytes) {
-        return exchange -> handle(exchange, parse, toDomain, dispatcher, asResponse, maxBytes);
+            int maxBytes,
+            AdmissionControl admission) {
+        return exchange -> handle(exchange, parse, toDomain, dispatcher, asResponse, maxBytes, admission);
     }
 
     private static <REQ, SIG> void handle(
@@ -75,7 +77,8 @@ final class HttpExchangeHandlers {
             Function<REQ, SIG> toDomain,
             Function<SIG, CompletionStage<ConsumeResult>> dispatcher,
             Function<ConsumeResult, ? extends MessageLite> asResponse,
-            int maxBytes) throws IOException {
+            int maxBytes,
+            AdmissionControl admission) throws IOException {
         try {
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                 respond(exchange, 405, "text/plain", "method not allowed".getBytes(StandardCharsets.UTF_8));
@@ -93,41 +96,69 @@ final class HttpExchangeHandlers {
                 return;
             }
 
-            REQ request;
+            // Global admission: the permit spans decode and dispatch; the handler is
+            // synchronous (join below), so the finally releases it exactly once.
+            var permit = admission.tryAcquire(payload.length);
+            if (permit == null) {
+                var hint = admission.retryAfterHint();
+                if (hint != null) {
+                    exchange.getResponseHeaders().add("Retry-After",
+                            Long.toString(Math.max(1L, Math.ceilDiv(hint.toNanos(), 1_000_000_000L))));
+                }
+                log.warn("receiver at capacity ({} requests / {} bytes in flight); responding 429",
+                        admission.inFlightRequests(), admission.inFlightBytes());
+                respondText(exchange, 429, "receiver at capacity");
+                return;
+            }
             try {
-                request = parse.parse(payload);
-            } catch (InvalidProtocolBufferException e) {
-                respondText(exchange, 400, "malformed protobuf: " + e.getMessage());
-                return;
+                dispatchAdmitted(exchange, parse, toDomain, dispatcher, asResponse, payload);
+            } finally {
+                permit.close();
             }
-
-            ConsumeResult result;
-            try {
-                result = dispatcher.apply(toDomain.apply(request)).toCompletableFuture().join();
-            } catch (CompletionException e) {
-                var cause = e.getCause() != null ? e.getCause() : e;
-                log.warn("OTLP/HTTP dispatcher failed; responding 500", cause);
-                respondText(exchange, 500, cause.getMessage());
-                return;
-            } catch (RuntimeException e) {
-                log.warn("OTLP/HTTP decode or dispatch failed; responding 500", e);
-                respondText(exchange, 500, e.getMessage());
-                return;
-            }
-
-            if (result instanceof ConsumeResult.Rejected rejected) {
-                var status = DeliveryResults.httpStatus(rejected);
-                DeliveryResults.retryAfterSeconds(rejected).ifPresent(
-                        seconds -> exchange.getResponseHeaders().add("Retry-After", Long.toString(seconds)));
-                log.warn("OTLP/HTTP dispatcher rejected the whole batch; responding {}: {}",
-                        status, rejected.message());
-                respondText(exchange, status, rejected.message());
-                return;
-            }
-            respond(exchange, 200, OtlpHttp.CONTENT_TYPE, asResponse.apply(result).toByteArray());
         } finally {
             exchange.close();
         }
+    }
+
+    private static <REQ, SIG> void dispatchAdmitted(
+            HttpExchange exchange,
+            ProtoParser<REQ> parse,
+            Function<REQ, SIG> toDomain,
+            Function<SIG, CompletionStage<ConsumeResult>> dispatcher,
+            Function<ConsumeResult, ? extends MessageLite> asResponse,
+            byte[] payload) throws IOException {
+        REQ request;
+        try {
+            request = parse.parse(payload);
+        } catch (InvalidProtocolBufferException e) {
+            respondText(exchange, 400, "malformed protobuf: " + e.getMessage());
+            return;
+        }
+
+        ConsumeResult result;
+        try {
+            result = dispatcher.apply(toDomain.apply(request)).toCompletableFuture().join();
+        } catch (CompletionException e) {
+            var cause = e.getCause() != null ? e.getCause() : e;
+            log.warn("OTLP/HTTP dispatcher failed; responding 500", cause);
+            respondText(exchange, 500, cause.getMessage());
+            return;
+        } catch (RuntimeException e) {
+            log.warn("OTLP/HTTP decode or dispatch failed; responding 500", e);
+            respondText(exchange, 500, e.getMessage());
+            return;
+        }
+
+        if (result instanceof ConsumeResult.Rejected rejected) {
+            var status = DeliveryResults.httpStatus(rejected);
+            DeliveryResults.retryAfterSeconds(rejected).ifPresent(
+                    seconds -> exchange.getResponseHeaders().add("Retry-After", Long.toString(seconds)));
+            log.warn("OTLP/HTTP dispatcher rejected the whole batch; responding {}: {}",
+                    status, rejected.message());
+            respondText(exchange, status, rejected.message());
+            return;
+        }
+        respond(exchange, 200, OtlpHttp.CONTENT_TYPE, asResponse.apply(result).toByteArray());
     }
 
     /// Reads the request body, transparently inflating `Content-Encoding: gzip`,

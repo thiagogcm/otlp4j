@@ -34,6 +34,11 @@
             <groupId>dev.nthings.otlp4j</groupId>
             <artifactId>otlp4j-proto</artifactId>
         </dependency>
+        <!-- The service adapters size decoded requests (MessageLite.getSerializedSize) for admission. -->
+        <dependency>
+            <groupId>com.google.protobuf</groupId>
+            <artifactId>protobuf-java</artifactId>
+        </dependency>
         <!-- Compile scope, not runtime: GrpcOtlpServer uses NettyServerBuilder directly to bind a
              specific interface and set the hardening limits the generic builder can't. -->
         <dependency>

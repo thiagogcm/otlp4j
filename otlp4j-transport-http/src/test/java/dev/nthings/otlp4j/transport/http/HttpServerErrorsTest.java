@@ -137,6 +137,70 @@ class HttpServerErrorsTest {
         assertThat(response.headers().firstValue("Retry-After")).isEmpty();
     }
 
+    @DisplayName("Admission control rejects at capacity with 429 and Retry-After, then recovers")
+    @Test
+    void admissionControlRejectsWith429ThenRecovers() throws Exception {
+        var entered = new java.util.concurrent.CountDownLatch(1);
+        var gate = new CompletableFuture<ConsumeResult>();
+        var receiver = OtlpHttpReceiver.builder().ephemeralPort()
+                .setMaxInFlightRequests(1)
+                .setThrottleRetryAfter(Duration.ofSeconds(3))
+                .onTraces(t -> {
+                    entered.countDown();
+                    return gate;
+                })
+                .build()
+                .start();
+        receivers.add(receiver);
+        var request = HttpRequest.newBuilder(uri(receiver.port(), "/v1/traces"))
+                .header("Content-Type", "application/x-protobuf")
+                .POST(HttpRequest.BodyPublishers.ofByteArray(new byte[0]))
+                .build();
+
+        // First request occupies the single admission slot until the gate opens.
+        var first = client.sendAsync(request, HttpResponse.BodyHandlers.ofString());
+        assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+
+        var second = client.send(request, HttpResponse.BodyHandlers.ofString());
+        assertThat(second.statusCode()).isEqualTo(429);
+        assertThat(second.headers().firstValue("Retry-After")).hasValue("3");
+
+        gate.complete(ConsumeResult.accepted());
+        assertThat(first.join().statusCode()).isEqualTo(200);
+        var third = client.send(request, HttpResponse.BodyHandlers.ofString());
+        assertThat(third.statusCode()).isEqualTo(200);
+    }
+
+    @DisplayName("An admission rejection without a configured hint carries no Retry-After header")
+    @Test
+    void admissionRejectionWithoutHintHasNoRetryAfter() throws Exception {
+        var entered = new java.util.concurrent.CountDownLatch(1);
+        var gate = new CompletableFuture<ConsumeResult>();
+        var receiver = OtlpHttpReceiver.builder().ephemeralPort()
+                .setMaxInFlightRequests(1)
+                .onTraces(t -> {
+                    entered.countDown();
+                    return gate;
+                })
+                .build()
+                .start();
+        receivers.add(receiver);
+        var request = HttpRequest.newBuilder(uri(receiver.port(), "/v1/traces"))
+                .header("Content-Type", "application/x-protobuf")
+                .POST(HttpRequest.BodyPublishers.ofByteArray(new byte[0]))
+                .build();
+
+        var first = client.sendAsync(request, HttpResponse.BodyHandlers.ofString());
+        assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+
+        var second = client.send(request, HttpResponse.BodyHandlers.ofString());
+        assertThat(second.statusCode()).isEqualTo(429);
+        assertThat(second.headers().firstValue("Retry-After")).isEmpty();
+
+        gate.complete(ConsumeResult.accepted());
+        assertThat(first.join().statusCode()).isEqualTo(200);
+    }
+
     private int startReceiver(OtlpHttpReceiver.Builder builder) {
         var receiver = builder.ephemeralPort()
                 .onTraces(t -> ConsumeResult.acceptedStage())

@@ -3,6 +3,7 @@ package dev.nthings.otlp4j.transport.http.internal;
 import com.sun.net.httpserver.HttpServer;
 import com.sun.net.httpserver.HttpsConfigurator;
 import com.sun.net.httpserver.HttpsServer;
+import dev.nthings.otlp4j.transport.common.AdmissionControl;
 import dev.nthings.otlp4j.codec.Transports;
 import dev.nthings.otlp4j.spi.Dispatchers;
 import dev.nthings.otlp4j.spi.OtlpServer;
@@ -58,7 +59,8 @@ public final class HttpOtlpServer implements OtlpServer {
         this.ownsExecutor = config.serverExecutor() == null;
         this.executor = ownsExecutor ? Executors.newVirtualThreadPerTaskExecutor() : config.serverExecutor();
         http.setExecutor(executor);
-        HttpExchangeHandlers.register(http, dispatchers, config.maxInboundMessageSizeBytes());
+        HttpExchangeHandlers.register(
+                http, dispatchers, config.maxInboundMessageSizeBytes(), AdmissionControl.of(config));
         http.start();
         this.server = http;
         log.info("OTLP/HTTP server listening on port {}", port());

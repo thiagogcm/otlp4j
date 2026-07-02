@@ -139,6 +139,9 @@ class ConfigRecordsTest {
         assertThat(c.tls()).isEqualTo(Tls.disabled());
         assertThat(c.maxInboundMessageSizeBytes()).isEqualTo(4 * 1024 * 1024);
         assertThat(c.maxConcurrentCallsPerConnection()).isZero();
+        assertThat(c.maxInFlightRequests()).isZero();
+        assertThat(c.maxInFlightBytes()).isZero();
+        assertThat(c.throttleRetryAfter()).isNull();
         assertThat(c.handshakeTimeout()).isEqualTo(Duration.ofSeconds(20));
         assertThat(c.serverExecutor()).isNull();
     }
@@ -153,6 +156,9 @@ class ConfigRecordsTest {
                 .setTls(Tls.systemTrust())
                 .setMaxInboundMessageSizeBytes(1024)
                 .setMaxConcurrentCallsPerConnection(8)
+                .setMaxInFlightRequests(64)
+                .setMaxInFlightBytes(1_000_000L)
+                .setThrottleRetryAfter(Duration.ofSeconds(2))
                 .setHandshakeTimeout(Duration.ofSeconds(5))
                 .setServerExecutor(executor)
                 .build();
@@ -164,6 +170,9 @@ class ConfigRecordsTest {
         assertThat(derived.port()).isEqualTo(6000);
         assertThat(derived.maxInboundMessageSizeBytes()).isEqualTo(1024);
         assertThat(derived.maxConcurrentCallsPerConnection()).isEqualTo(8);
+        assertThat(derived.maxInFlightRequests()).isEqualTo(64);
+        assertThat(derived.maxInFlightBytes()).isEqualTo(1_000_000L);
+        assertThat(derived.throttleRetryAfter()).isEqualTo(Duration.ofSeconds(2));
         assertThat(derived.handshakeTimeout()).isEqualTo(Duration.ofSeconds(5));
         assertThat(derived.serverExecutor()).isSameAs(executor);
         assertThat(original.port()).isEqualTo(5000);
@@ -182,6 +191,12 @@ class ConfigRecordsTest {
         assertThatThrownBy(() -> ServerConfig.builder().setMaxInboundMessageSizeBytes(0).build())
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> ServerConfig.builder().setMaxConcurrentCallsPerConnection(-1).build())
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> ServerConfig.builder().setMaxInFlightRequests(-1).build())
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> ServerConfig.builder().setMaxInFlightBytes(-1L).build())
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> ServerConfig.builder().setThrottleRetryAfter(Duration.ZERO).build())
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> ServerConfig.builder().setHandshakeTimeout(Duration.ZERO).build())
                 .isInstanceOf(IllegalArgumentException.class);

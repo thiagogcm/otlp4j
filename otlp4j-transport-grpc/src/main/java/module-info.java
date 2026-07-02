@@ -7,6 +7,8 @@ module dev.nthings.otlp4j.transport.grpc {
     requires transitive dev.nthings.otlp4j.transport.common;
     requires dev.nthings.otlp4j.codec;
     requires dev.nthings.otlp4j.proto;
+    // Request sizing for admission control (MessageLite.getSerializedSize).
+    requires com.google.protobuf;
     requires io.grpc;
     requires io.grpc.stub;
     requires io.grpc.netty;

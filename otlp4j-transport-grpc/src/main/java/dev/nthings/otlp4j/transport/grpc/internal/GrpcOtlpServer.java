@@ -1,5 +1,6 @@
 package dev.nthings.otlp4j.transport.grpc.internal;
 
+import dev.nthings.otlp4j.transport.common.AdmissionControl;
 import dev.nthings.otlp4j.codec.Transports;
 import dev.nthings.otlp4j.spi.Dispatchers;
 import dev.nthings.otlp4j.spi.OtlpServer;
@@ -63,7 +64,7 @@ public final class GrpcOtlpServer implements OtlpServer {
         if (config.serverExecutor() != null) {
             builder.executor(config.serverExecutor());
         }
-        GrpcServiceAdapters.create(dispatchers).forEach(builder::addService);
+        GrpcServiceAdapters.create(dispatchers, AdmissionControl.of(config)).forEach(builder::addService);
         server = builder.build().start();
         log.info("OTLP/gRPC server listening on port {}", server.getPort());
     }

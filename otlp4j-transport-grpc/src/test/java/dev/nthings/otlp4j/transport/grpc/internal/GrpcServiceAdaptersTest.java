@@ -12,6 +12,7 @@ import dev.nthings.otlp4j.codec.MetricsMapper;
 import dev.nthings.otlp4j.codec.ProfilesMapper;
 import dev.nthings.otlp4j.codec.TraceMapper;
 import dev.nthings.otlp4j.testing.TransportFixtures;
+import dev.nthings.otlp4j.transport.common.AdmissionControl;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import io.opentelemetry.proto.collector.logs.v1.ExportLogsServiceResponse;
@@ -41,7 +42,7 @@ class GrpcServiceAdaptersTest {
         new TraceServiceAdapter(traces -> {
             received.set(traces);
             return CompletableFuture.completedStage(ConsumeResult.accepted());
-        }).export(TraceMapper.toProto(sent), observer);
+        }, AdmissionControl.unlimited()).export(TraceMapper.toProto(sent), observer);
 
         observer.await();
         assertThat(received.get()).isEqualTo(sent);
@@ -55,7 +56,7 @@ class GrpcServiceAdaptersTest {
     void traceAdapterEncodesPartialSuccessOntoTheResponse() {
         var observer = new RecordingObserver<ExportTraceServiceResponse>();
         new TraceServiceAdapter(traces -> CompletableFuture.completedStage(
-                ConsumeResult.partial(2L, "2 spans bad"))).export(
+                ConsumeResult.partial(2L, "2 spans bad")), AdmissionControl.unlimited()).export(
                         TraceMapper.toProto(TransportFixtures.richTraceData()), observer);
         observer.await();
         var partial = observer.values.getFirst().getPartialSuccess();
@@ -69,7 +70,7 @@ class GrpcServiceAdaptersTest {
     void traceAdapterMapsRejectedToUnavailable() {
         var observer = new RecordingObserver<ExportTraceServiceResponse>();
         new TraceServiceAdapter(traces -> CompletableFuture.completedStage(
-                ConsumeResult.retryable("queue full"))).export(
+                ConsumeResult.retryable("queue full")), AdmissionControl.unlimited()).export(
                         TraceMapper.toProto(TransportFixtures.richTraceData()), observer);
         observer.await();
         assertThat(observer.values).isEmpty();
@@ -84,7 +85,7 @@ class GrpcServiceAdaptersTest {
     void throttledRejectedEmitsPushbackTrailer() {
         var observer = new RecordingObserver<ExportTraceServiceResponse>();
         new TraceServiceAdapter(traces -> CompletableFuture.completedStage(
-                ConsumeResult.throttled(Duration.ofSeconds(2), "at capacity"))).export(
+                ConsumeResult.throttled(Duration.ofSeconds(2), "at capacity")), AdmissionControl.unlimited()).export(
                         TraceMapper.toProto(TransportFixtures.richTraceData()), observer);
         observer.await();
         var status = Status.fromThrowable(observer.error);
@@ -100,7 +101,7 @@ class GrpcServiceAdaptersTest {
     void retryableWithoutHintEmitsNoPushbackTrailer() {
         var observer = new RecordingObserver<ExportTraceServiceResponse>();
         new TraceServiceAdapter(traces -> CompletableFuture.completedStage(
-                ConsumeResult.retryable("queue full"))).export(
+                ConsumeResult.retryable("queue full")), AdmissionControl.unlimited()).export(
                         TraceMapper.toProto(TransportFixtures.richTraceData()), observer);
         observer.await();
         var trailers = Status.trailersFromThrowable(observer.error);
@@ -113,7 +114,7 @@ class GrpcServiceAdaptersTest {
     void permanentRejectedMapsToInternal() {
         var observer = new RecordingObserver<ExportLogsServiceResponse>();
         new LogsServiceAdapter(logs -> CompletableFuture.completedStage(
-                ConsumeResult.permanent("stage threw", new IllegalStateException("boom")))).export(
+                ConsumeResult.permanent("stage threw", new IllegalStateException("boom"))), AdmissionControl.unlimited()).export(
                         LogsMapper.toProto(TransportFixtures.richLogsData()), observer);
         observer.await();
         assertThat(observer.values).isEmpty();
@@ -130,14 +131,14 @@ class GrpcServiceAdaptersTest {
     void retryabilityIsExplicitNotDecidedByCause() {
         var retryableWithCause = new RecordingObserver<ExportTraceServiceResponse>();
         new TraceServiceAdapter(traces -> CompletableFuture.completedStage(
-                ConsumeResult.retryable("downstream down", new IllegalStateException("connect timed out")))).export(
+                ConsumeResult.retryable("downstream down", new IllegalStateException("connect timed out"))), AdmissionControl.unlimited()).export(
                         TraceMapper.toProto(TransportFixtures.richTraceData()), retryableWithCause);
         retryableWithCause.await();
         assertThat(Status.fromThrowable(retryableWithCause.error).getCode()).isEqualTo(Status.Code.UNAVAILABLE);
 
         var permanentNoCause = new RecordingObserver<ExportTraceServiceResponse>();
         new TraceServiceAdapter(traces -> CompletableFuture.completedStage(
-                ConsumeResult.permanent("dropped by policy"))).export(
+                ConsumeResult.permanent("dropped by policy")), AdmissionControl.unlimited()).export(
                         TraceMapper.toProto(TransportFixtures.richTraceData()), permanentNoCause);
         permanentNoCause.await();
         assertThat(Status.fromThrowable(permanentNoCause.error).getCode()).isEqualTo(Status.Code.INTERNAL);
@@ -148,7 +149,7 @@ class GrpcServiceAdaptersTest {
     void metricsAdapterEncodesPartialSuccessOntoTheResponse() {
         var observer = new RecordingObserver<ExportMetricsServiceResponse>();
         new MetricsServiceAdapter(metrics -> CompletableFuture.completedStage(
-                ConsumeResult.partial(5L, "5 points bad"))).export(
+                ConsumeResult.partial(5L, "5 points bad")), AdmissionControl.unlimited()).export(
                         MetricsMapper.toProto(TransportFixtures.richMetricsData()), observer);
         observer.await();
         var partial = observer.values.getFirst().getPartialSuccess();
@@ -162,7 +163,7 @@ class GrpcServiceAdaptersTest {
     void logsAdapterEncodesPartialSuccessOntoTheResponse() {
         var observer = new RecordingObserver<ExportLogsServiceResponse>();
         new LogsServiceAdapter(logs -> CompletableFuture.completedStage(
-                ConsumeResult.partial(3L, "3 records bad"))).export(
+                ConsumeResult.partial(3L, "3 records bad")), AdmissionControl.unlimited()).export(
                         LogsMapper.toProto(TransportFixtures.richLogsData()), observer);
         observer.await();
         var partial = observer.values.getFirst().getPartialSuccess();
@@ -179,7 +180,7 @@ class GrpcServiceAdaptersTest {
         new ProfilesServiceAdapter(profiles -> {
             received.set(profiles);
             return CompletableFuture.completedStage(ConsumeResult.accepted());
-        }).export(ProfilesMapper.toProto(TransportFixtures.profilesData()), observer);
+        }, AdmissionControl.unlimited()).export(ProfilesMapper.toProto(TransportFixtures.profilesData()), observer);
         observer.await();
         assertThat(received.get()).isNotNull();
         assertThat(observer.completed).isTrue();
@@ -192,7 +193,7 @@ class GrpcServiceAdaptersTest {
         var observer = new RecordingObserver<ExportTraceServiceResponse>();
         new TraceServiceAdapter(traces -> {
             throw new IllegalStateException("handler boom");
-        }).export(TraceMapper.toProto(TransportFixtures.richTraceData()), observer);
+        }, AdmissionControl.unlimited()).export(TraceMapper.toProto(TransportFixtures.richTraceData()), observer);
         observer.await();
         assertThat(observer.values).isEmpty();
         assertThat(observer.completed).isFalse();
@@ -207,7 +208,7 @@ class GrpcServiceAdaptersTest {
         var observer = new RecordingObserver<ExportMetricsServiceResponse>();
         new MetricsServiceAdapter(metrics -> {
             throw new IllegalStateException("metrics boom");
-        }).export(MetricsMapper.toProto(TransportFixtures.richMetricsData()), observer);
+        }, AdmissionControl.unlimited()).export(MetricsMapper.toProto(TransportFixtures.richMetricsData()), observer);
         observer.await();
         var status = Status.fromThrowable(observer.error);
         assertThat(status.getCode()).isEqualTo(Status.Code.INTERNAL);
@@ -220,7 +221,7 @@ class GrpcServiceAdaptersTest {
         var observer = new RecordingObserver<ExportLogsServiceResponse>();
         new LogsServiceAdapter(logs -> {
             throw new IllegalStateException("logs boom");
-        }).export(LogsMapper.toProto(TransportFixtures.richLogsData()), observer);
+        }, AdmissionControl.unlimited()).export(LogsMapper.toProto(TransportFixtures.richLogsData()), observer);
         observer.await();
         var status = Status.fromThrowable(observer.error);
         assertThat(status.getCode()).isEqualTo(Status.Code.INTERNAL);
@@ -233,7 +234,7 @@ class GrpcServiceAdaptersTest {
         var observer = new RecordingObserver<ExportProfilesServiceResponse>();
         new ProfilesServiceAdapter(profiles -> {
             throw new IllegalStateException("profiles boom");
-        }).export(ProfilesMapper.toProto(TransportFixtures.profilesData()), observer);
+        }, AdmissionControl.unlimited()).export(ProfilesMapper.toProto(TransportFixtures.profilesData()), observer);
         observer.await();
         var status = Status.fromThrowable(observer.error);
         assertThat(status.getCode()).isEqualTo(Status.Code.INTERNAL);
@@ -249,7 +250,7 @@ class GrpcServiceAdaptersTest {
         new MetricsServiceAdapter(metrics -> {
             received.set(metrics);
             return CompletableFuture.completedStage(ConsumeResult.accepted());
-        }).export(MetricsMapper.toProto(sent), observer);
+        }, AdmissionControl.unlimited()).export(MetricsMapper.toProto(sent), observer);
         observer.await();
         assertThat(received.get()).isEqualTo(sent);
         assertThat(observer.completed).isTrue();
@@ -265,7 +266,7 @@ class GrpcServiceAdaptersTest {
         new LogsServiceAdapter(logs -> {
             received.set(logs);
             return CompletableFuture.completedStage(ConsumeResult.accepted());
-        }).export(LogsMapper.toProto(sent), observer);
+        }, AdmissionControl.unlimited()).export(LogsMapper.toProto(sent), observer);
         observer.await();
         assertThat(received.get()).isEqualTo(sent);
         assertThat(observer.completed).isTrue();
