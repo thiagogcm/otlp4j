@@ -29,7 +29,7 @@ public final class Pipeline {
     /// @param <T>    the signal type
     /// @return the initial stage
     public static <T> Stage<T> from(Source<T> source) {
-        return new StageImpl<>(Objects.requireNonNull(source, "source"), batch -> batch, new ArrayList<>());
+        return new StageImpl<>(Objects.requireNonNull(source, "source"), batch -> batch, null, new ArrayList<>());
     }
 
     /// A pipeline stage parameterised by the signal currently flowing through it.
@@ -42,6 +42,16 @@ public final class Pipeline {
         /// @param fn the transform function
         /// @return this stage
         Stage<T> transform(Transform<T> fn);
+
+        /// Adds an asynchronous 1-to-1 stage. The pipeline delivers downstream only once the
+        /// processor's stage completes, so the transport acknowledgement covers it. The processor
+        /// must complete with a non-null batch (see [Processor]); to drop a batch, follow with
+        /// [#filter(Predicate)]. A processor that implements [AutoCloseable] is drained
+        /// automatically on shutdown, before the terminal's resources.
+        ///
+        /// @param stage the asynchronous stage
+        /// @return this stage
+        Stage<T> process(Processor<T> stage);
 
         /// Drops the batch entirely if `keep` rejects it.
         ///
@@ -71,12 +81,22 @@ public final class Pipeline {
     private static final class StageImpl<T> implements Stage<T> {
 
         final Source<T> source;
-        final Function<T, @Nullable T> stageFn;
+        /// Synchronous ops (transform/filter) accumulated since the last async boundary;
+        /// identity at the start. Null in, null out: a dropped batch stays dropped.
+        final Function<@Nullable T, @Nullable T> pendingSync;
+        /// The chain of stages up to the last [Processor], or null while the pipeline is fully
+        /// synchronous (the common case pays no future allocation per batch).
+        final @Nullable Function<T, CompletableFuture<@Nullable T>> asyncChain;
         final List<AutoCloseable> resources;
 
-        StageImpl(Source<T> source, Function<T, @Nullable T> stageFn, List<AutoCloseable> resources) {
+        StageImpl(
+                Source<T> source,
+                Function<@Nullable T, @Nullable T> pendingSync,
+                @Nullable Function<T, CompletableFuture<@Nullable T>> asyncChain,
+                List<AutoCloseable> resources) {
             this.source = source;
-            this.stageFn = stageFn;
+            this.pendingSync = pendingSync;
+            this.asyncChain = asyncChain;
             this.resources = resources;
         }
 
@@ -87,13 +107,30 @@ public final class Pipeline {
                     ? null
                     : Objects.requireNonNull(fn.apply(batch),
                             () -> "transform returned null (transforms are 1-to-1; drop batches with filter(...))");
-            return new StageImpl<>(source, stageFn.andThen(step), resources);
+            return new StageImpl<>(source, pendingSync.andThen(step), asyncChain, resources);
+        }
+
+        @Override
+        public Stage<T> process(Processor<T> stage) {
+            Objects.requireNonNull(stage, "stage");
+            var lifted = liftedChain();
+            Function<T, CompletableFuture<@Nullable T>> next = batch ->
+                    lifted.apply(batch).thenCompose(after -> after == null
+                            ? CompletableFuture.completedFuture(null)
+                            : invokeProcessor(stage, after));
+            var nextResources = resources;
+            if (stage instanceof AutoCloseable closeable) {
+                nextResources = new ArrayList<>(resources.size() + 1);
+                nextResources.addAll(resources);
+                nextResources.add(closeable);
+            }
+            return new StageImpl<>(source, batch -> batch, next, nextResources);
         }
 
         @Override
         public Stage<T> filter(Predicate<? super T> keep) {
             Function<@Nullable T, @Nullable T> filtered = batch -> batch != null && keep.test(batch) ? batch : null;
-            return new StageImpl<>(source, stageFn.andThen(filtered), resources);
+            return new StageImpl<>(source, pendingSync.andThen(filtered), asyncChain, resources);
         }
 
         @Override
@@ -102,13 +139,22 @@ public final class Pipeline {
             var next = new ArrayList<AutoCloseable>(resources.size() + 1);
             next.addAll(resources);
             next.add(resource);
-            return new StageImpl<>(source, stageFn, next);
+            return new StageImpl<>(source, pendingSync, asyncChain, next);
         }
 
         @Override
         public PipelineHandle to(Sink<? super T> terminal) {
             Objects.requireNonNull(terminal, "terminal");
-            Sink<T> chain = batch -> {
+            var chain = asyncChain == null ? syncChainSink(terminal) : asyncChainSink(terminal);
+            var leafResources = PipelineLifecycle.leafResources(terminal);
+            return PipelineLifecycle.subscription(
+                    source.subscribe(chain), PipelineLifecycle.combine(resources, leafResources));
+        }
+
+        /// The fully-synchronous fast path: no future allocation until the terminal.
+        private Sink<T> syncChainSink(Sink<? super T> terminal) {
+            var stageFn = pendingSync;
+            return batch -> {
                 @Nullable
                 T after;
                 try {
@@ -122,10 +168,57 @@ public final class Pipeline {
                 }
                 return deliver(terminal, after);
             };
-            var leafResources = PipelineLifecycle.leafResources(terminal);
-            return PipelineLifecycle.subscription(
-                    source.subscribe(chain), PipelineLifecycle.combine(resources, leafResources));
         }
+
+        /// The asynchronous path: runs the lifted chain, then normalizes drop/failure and
+        /// delivers to the terminal.
+        private Sink<T> asyncChainSink(Sink<? super T> terminal) {
+            var lifted = liftedChain();
+            return batch -> lifted.apply(batch)
+                    .<CompletionStage<ConsumeResult>>handle((after, failure) -> {
+                        if (failure != null) {
+                            return CompletableFuture.completedFuture(
+                                    rejectedStage("pipeline stage failed", failure));
+                        }
+                        if (after == null) {
+                            return ConsumeResult.acceptedStage();
+                        }
+                        return deliver(terminal, after);
+                    })
+                    .thenCompose(stage -> stage);
+        }
+
+        /// Lifts the accumulated stages into one future-returning function: the async chain so
+        /// far (when present), then the pending synchronous ops. Synchronous throws become
+        /// exceptional completions.
+        private Function<T, CompletableFuture<@Nullable T>> liftedChain() {
+            var sync = pendingSync;
+            var chain = asyncChain;
+            if (chain == null) {
+                return batch -> {
+                    try {
+                        return CompletableFuture.completedFuture(sync.apply(batch));
+                    } catch (RuntimeException e) {
+                        return CompletableFuture.failedFuture(e);
+                    }
+                };
+            }
+            return batch -> chain.apply(batch).thenApply(sync);
+        }
+    }
+
+    /// Invokes a processor, normalizing its failure modes into the returned future: a
+    /// synchronous throw, a null stage, or a null completion value each complete exceptionally.
+    private static <T> CompletableFuture<@Nullable T> invokeProcessor(Processor<T> stage, T batch) {
+        CompletionStage<T> result;
+        try {
+            result = Objects.requireNonNull(stage.process(batch), "processor returned a null stage");
+        } catch (Throwable e) {
+            return CompletableFuture.failedFuture(e);
+        }
+        return result.thenApply(value -> Objects.<@Nullable T>requireNonNull(value,
+                        "processor completed null (processors are 1-to-1; drop batches with filter(...))"))
+                .toCompletableFuture();
     }
 
     private static <T> CompletionStage<ConsumeResult> deliver(Sink<? super T> terminal, T batch) {
@@ -133,12 +226,15 @@ public final class Pipeline {
         try {
             stage = Objects.requireNonNull(terminal.consume(batch), "terminal returned a null stage");
         } catch (Throwable e) {
-            return CompletableFuture.completedFuture(rejectedTerminal("pipeline terminal threw", e));
+            return CompletableFuture.completedFuture(rejectedStage("pipeline terminal threw", e));
         }
-        return stage.exceptionally(t -> rejectedTerminal("pipeline terminal failed", t));
+        return stage.exceptionally(t -> rejectedStage("pipeline terminal failed", t));
     }
 
-    private static ConsumeResult rejectedTerminal(String prefix, Throwable failure) {
+    /// Permanent rejection for a failed pipeline stage or terminal, unwrapping
+    /// [CompletionException]. An [Error] is rethrown; an [InterruptedException] restores the
+    /// interrupt flag.
+    private static ConsumeResult rejectedStage(String prefix, Throwable failure) {
         var cause = failure instanceof CompletionException && failure.getCause() != null
                 ? failure.getCause()
                 : failure;
