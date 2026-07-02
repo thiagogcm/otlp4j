@@ -4,9 +4,9 @@ import dev.nthings.otlp4j.model.ConsumeResult;
 
 /// A typed signal source - a place a [Sink] can attach to receive batches.
 ///
-/// Sources are produced by receivers (one per signal) and by graph builder nodes. Implementations
-/// guarantee that at most one sink is attached at a time; for multi-sink fan-out use
-/// `FanOut` explicitly. Lifecycle is owned by the returned [PipelineHandle].
+/// Sources are produced by receivers, one per signal. Implementations guarantee that at most one
+/// sink is attached at a time; for multi-sink fan-out use `FanOut` explicitly. Lifecycle is
+/// owned by the returned [PipelineHandle].
 ///
 /// @param <T> the OTLP signal carried by this source
 public interface Source<T> {

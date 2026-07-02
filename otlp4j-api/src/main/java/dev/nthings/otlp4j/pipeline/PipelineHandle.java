@@ -9,6 +9,9 @@ import java.util.concurrent.CompletionStage;
 /// lifecycle resources: terminals and fan-out peers that implement [AutoCloseable]
 /// (such as an exporter facet or a directly attached `BatchingProcessor`) are
 /// collected automatically, along with any resource registered via [Pipeline.Stage#owns].
+/// Collected resources are deduplicated by reference identity, so a resource reachable
+/// twice (owned and auto-collected, or a duplicated fan-out peer) is retained once and
+/// shut down once.
 ///
 /// As a [Lifecycle], [#close()] performs a best-effort synchronous drain with a
 /// default timeout, [#shutdown(Duration)] returns a stage that completes when the

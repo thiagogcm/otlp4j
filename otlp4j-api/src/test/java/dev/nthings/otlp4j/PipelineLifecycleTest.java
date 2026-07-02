@@ -157,6 +157,57 @@ class PipelineLifecycleTest {
         assertThat(closed.get()).isTrue();
     }
 
+    @DisplayName("A resource reachable twice is closed exactly once (identity dedup)")
+    @Test
+    void duplicatedResourceClosedOnce() {
+        var source = new ManualSource<TracesData>();
+        var closes = new AtomicInteger();
+
+        class OnceCloseableTerminal implements TracesSink, AutoCloseable {
+            @Override public CompletionStage<ConsumeResult> consume(TracesData batch) {
+                return ConsumeResult.acceptedStage();
+            }
+            @Override public void close() {
+                if (closes.incrementAndGet() > 1) {
+                    throw new IllegalStateException("closed twice");
+                }
+            }
+        }
+
+        // The terminal is auto-collected AND registered via owns(); dedup must close it once.
+        var terminal = new OnceCloseableTerminal();
+        var sub = Pipeline.from(source).owns(terminal).to(terminal);
+        sub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
+        assertThat(closes.get()).isEqualTo(1);
+    }
+
+    @DisplayName("A duplicated fan-out peer is retained and shut down once (refcount balance)")
+    @Test
+    void duplicatedSharedPeerStaysBalanced() {
+        var source = new ManualSource<TracesData>();
+        var retains = new AtomicInteger();
+        var shutdowns = new AtomicInteger();
+
+        class SharedPeer implements TracesSink, dev.nthings.otlp4j.pipeline.SharedLifecycle {
+            @Override public CompletionStage<ConsumeResult> consume(TracesData batch) {
+                return ConsumeResult.acceptedStage();
+            }
+            @Override public void retain() {
+                retains.incrementAndGet();
+            }
+            @Override public CompletionStage<Void> shutdown(Duration timeout) {
+                shutdowns.incrementAndGet();
+                return CompletableFuture.completedFuture(null);
+            }
+        }
+
+        var peer = new SharedPeer();
+        var sub = Pipeline.from(source).to(FanOut.of(peer, peer));
+        assertThat(retains.get()).isEqualTo(1);
+        sub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
+        assertThat(shutdowns.get()).isEqualTo(1);
+    }
+
     @DisplayName("owns(owner) flushes and drains a registered resource")
     @Test
     void ownsFlushesAndDrainsResource() {

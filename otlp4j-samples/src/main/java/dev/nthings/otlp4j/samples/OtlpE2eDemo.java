@@ -14,6 +14,7 @@ import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.pipeline.FanOut;
 import dev.nthings.otlp4j.pipeline.Pipeline;
+import dev.nthings.otlp4j.pipeline.Wiring;
 import dev.nthings.otlp4j.processor.Transforms;
 import dev.nthings.otlp4j.transport.grpc.OtlpGrpcExporter;
 import dev.nthings.otlp4j.transport.grpc.OtlpGrpcReceiver;
@@ -112,11 +113,16 @@ public final class OtlpE2eDemo {
                 client.traces().consume(sampleTraces()).toCompletableFuture().join();
                 log.info("Client exported sample trace batch to the gateway.");
             }
-            // Receiver-first shutdown: drain the gateway so any in-flight request finishes through
-            // the live pipeline, then close the subscription (which drains backendExporter through
-            // its attached facet).
-            gateway.shutdown(Duration.ofSeconds(5)).toCompletableFuture().join();
-            subscription.shutdown(Duration.ofSeconds(5)).toCompletableFuture().join();
+            // One handle over the whole gateway: Wiring drains receiver-first (any in-flight
+            // request finishes through the live pipeline), then the subscription, which drains
+            // backendExporter through its attached facet.
+            Wiring.builder()
+                    .receiver(gateway)
+                    .pipeline(subscription)
+                    .build()
+                    .shutdown(Duration.ofSeconds(5))
+                    .toCompletableFuture()
+                    .join();
         } finally {
             if (gateway != null) {
                 gateway.shutdownNow().toCompletableFuture().join();
