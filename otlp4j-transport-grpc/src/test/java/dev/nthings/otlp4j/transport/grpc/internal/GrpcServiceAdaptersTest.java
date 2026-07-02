@@ -18,6 +18,7 @@ import io.opentelemetry.proto.collector.logs.v1.ExportLogsServiceResponse;
 import io.opentelemetry.proto.collector.metrics.v1.ExportMetricsServiceResponse;
 import io.opentelemetry.proto.collector.profiles.v1development.ExportProfilesServiceResponse;
 import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceResponse;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -76,6 +77,35 @@ class GrpcServiceAdaptersTest {
         var status = Status.fromThrowable(observer.error);
         assertThat(status.getCode()).isEqualTo(Status.Code.UNAVAILABLE);
         assertThat(status.getDescription()).isEqualTo("queue full");
+    }
+
+    @DisplayName("A throttled Rejected emits the grpc-retry-pushback-ms trailer")
+    @Test
+    void throttledRejectedEmitsPushbackTrailer() {
+        var observer = new RecordingObserver<ExportTraceServiceResponse>();
+        new TraceServiceAdapter(traces -> CompletableFuture.completedStage(
+                ConsumeResult.throttled(Duration.ofSeconds(2), "at capacity"))).export(
+                        TraceMapper.toProto(TransportFixtures.richTraceData()), observer);
+        observer.await();
+        var status = Status.fromThrowable(observer.error);
+        assertThat(status.getCode()).isEqualTo(Status.Code.UNAVAILABLE);
+        assertThat(status.getDescription()).isEqualTo("at capacity");
+        var trailers = Status.trailersFromThrowable(observer.error);
+        assertThat(trailers).isNotNull();
+        assertThat(trailers.get(GrpcRetry.PUSHBACK_MS)).isEqualTo("2000");
+    }
+
+    @DisplayName("A retryable Rejected without a hint emits no pushback trailer")
+    @Test
+    void retryableWithoutHintEmitsNoPushbackTrailer() {
+        var observer = new RecordingObserver<ExportTraceServiceResponse>();
+        new TraceServiceAdapter(traces -> CompletableFuture.completedStage(
+                ConsumeResult.retryable("queue full"))).export(
+                        TraceMapper.toProto(TransportFixtures.richTraceData()), observer);
+        observer.await();
+        var trailers = Status.trailersFromThrowable(observer.error);
+        assertThat(trailers).isNotNull();
+        assertThat(trailers.get(GrpcRetry.PUSHBACK_MS)).isNull();
     }
 
     @DisplayName("A permanent whole-batch Rejected maps to INTERNAL")

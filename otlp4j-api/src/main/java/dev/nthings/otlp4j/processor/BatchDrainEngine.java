@@ -45,7 +45,9 @@ final class BatchDrainEngine<T> {
         this.merger = merger;
         this.closed = closed;
         this.drainExecutor = drainExecutor;
-        this.timer = scheduler.scheduleAtFixedRate(flushIfDue, 1, 1, TimeUnit.SECONDS);
+        var intervalMillis = BatchingProcessor.FLUSH_INTERVAL.toMillis();
+        this.timer = scheduler.scheduleAtFixedRate(
+                flushIfDue, intervalMillis, intervalMillis, TimeUnit.MILLISECONDS);
     }
 
     void cancelTimer() {

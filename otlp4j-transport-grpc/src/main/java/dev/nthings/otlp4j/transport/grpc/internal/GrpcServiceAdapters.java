@@ -12,6 +12,7 @@ import dev.nthings.otlp4j.codec.SignalResponses;
 import dev.nthings.otlp4j.codec.TraceMapper;
 import dev.nthings.otlp4j.spi.Dispatchers;
 import io.grpc.BindableService;
+import io.grpc.Metadata;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import io.opentelemetry.proto.collector.logs.v1.ExportLogsServiceRequest;
@@ -39,7 +40,9 @@ import org.slf4j.LoggerFactory;
 /// - [ConsumeResult.Accepted] / [ConsumeResult.Partial] -> normal OTLP
 ///   response with appropriate `partial_success`.
 /// - A retryable [ConsumeResult.Rejected] -> gRPC `UNAVAILABLE`. Use for
-///   back-pressure such as a full queue.
+///   back-pressure such as a full queue. A `retryAfter` hint is emitted as
+///   the `grpc-retry-pushback-ms` trailer, which the bundled client folds
+///   into its retry intervals.
 /// - A permanent [ConsumeResult.Rejected] -> gRPC `INTERNAL`. Use for a
 ///   deterministic fault such as content filtering, so the client does not
 ///   waste retries on a permanently unreachable outcome.
@@ -98,14 +101,18 @@ final class GrpcServiceAdapters {
                         .asRuntimeException());
                 return;
             }
-            if (result instanceof ConsumeResult.Rejected(var retryable, var message, var cause)) {
+            if (result instanceof ConsumeResult.Rejected(var retryable, var message, var cause, var retryAfter)) {
                 var status = retryable ? Status.UNAVAILABLE : Status.INTERNAL;
                 if (cause != null) {
                     status = status.withCause(cause);
                 }
+                var trailers = new Metadata();
+                if (retryAfter != null) {
+                    trailers.put(GrpcRetry.PUSHBACK_MS, Long.toString(retryAfter.toMillis()));
+                }
                 log.warn("dispatcher rejected the whole batch; responding with gRPC {}: {}",
                         status.getCode(), message);
-                observer.onError(status.withDescription(message).asRuntimeException());
+                observer.onError(status.withDescription(message).asRuntimeException(trailers));
                 return;
             }
             try {

@@ -183,9 +183,6 @@ public final class GrpcOtlpClient implements OtlpClient {
             Status.Code.UNAVAILABLE,
             Status.Code.DATA_LOSS);
 
-    private static final Metadata.Key<String> GRPC_RETRY_PUSHBACK_MS =
-            Metadata.Key.of("grpc-retry-pushback-ms", Metadata.ASCII_STRING_MARSHALLER);
-
     private static boolean isRetryable(Throwable error) {
         return !retryPushbackDisablesRetry(error)
                 && RETRYABLE_STATUS_CODES.contains(Status.fromThrowable(error).getCode());
@@ -196,7 +193,7 @@ public final class GrpcOtlpClient implements OtlpClient {
         if (trailers == null) {
             return Duration.ZERO;
         }
-        var pushback = trailers.get(GRPC_RETRY_PUSHBACK_MS);
+        var pushback = trailers.get(GrpcRetry.PUSHBACK_MS);
         if (pushback == null) {
             return Duration.ZERO;
         }
@@ -213,7 +210,7 @@ public final class GrpcOtlpClient implements OtlpClient {
         if (trailers == null) {
             return false;
         }
-        var pushback = trailers.get(GRPC_RETRY_PUSHBACK_MS);
+        var pushback = trailers.get(GrpcRetry.PUSHBACK_MS);
         if (pushback == null) {
             return false;
         }

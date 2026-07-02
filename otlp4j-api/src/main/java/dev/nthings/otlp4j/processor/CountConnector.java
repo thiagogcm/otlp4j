@@ -136,14 +136,17 @@ sealed class CountConnector<I> implements Sink<I>, SharedLifecycle
                 }
                 return ConsumeResult.accepted();
             }
-            case ConsumeResult.Rejected(var retryable, var message, var cause) -> {
+            case ConsumeResult.Rejected(var retryable, var message, var cause, var retryAfter) -> {
                 log.warn("{} downstream rejected derived metric: {}", metricName, message, cause);
                 if (policy == FailurePolicy.FAIL) {
-                    // Forward the downstream retry intent and cause onto the input.
+                    // Forward the downstream retry intent, backpressure hint, and cause onto the input.
                     var forwarded = metricName + " derived metric rejected: " + message;
-                    return retryable
-                            ? ConsumeResult.retryable(forwarded, cause)
-                            : ConsumeResult.permanent(forwarded, cause);
+                    if (!retryable) {
+                        return ConsumeResult.permanent(forwarded, cause);
+                    }
+                    return retryAfter != null
+                            ? ConsumeResult.throttled(retryAfter, forwarded, cause)
+                            : ConsumeResult.retryable(forwarded, cause);
                 }
                 return ConsumeResult.accepted();
             }

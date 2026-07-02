@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -170,5 +171,63 @@ class ConsumeResultTest {
         var p = (ConsumeResult.Partial) result;
         assertThat(p.rejectedItems()).isEqualTo(4L);
         assertThat(p.message()).isEmpty();
+    }
+
+    @DisplayName("throttled() yields a retryable Rejected carrying the retry-after hint")
+    @Test
+    void throttledCarriesRetryAfter() {
+        var cause = new IOException("busy");
+        var plain = (ConsumeResult.Rejected) ConsumeResult.throttled(Duration.ofSeconds(2), "at capacity");
+        assertThat(plain.retryable()).isTrue();
+        assertThat(plain.retryAfter()).isEqualTo(Duration.ofSeconds(2));
+        assertThat(plain.cause()).isNull();
+
+        var withCause =
+                (ConsumeResult.Rejected) ConsumeResult.throttled(Duration.ofMillis(250), "at capacity", cause);
+        assertThat(withCause.retryable()).isTrue();
+        assertThat(withCause.retryAfter()).isEqualTo(Duration.ofMillis(250));
+        assertThat(withCause.cause()).isSameAs(cause);
+    }
+
+    @DisplayName("retryable()/permanent() factories carry no retry-after hint")
+    @Test
+    void plainFactoriesCarryNoRetryAfter() {
+        assertThat(((ConsumeResult.Rejected) ConsumeResult.retryable("r")).retryAfter()).isNull();
+        assertThat(((ConsumeResult.Rejected) ConsumeResult.permanent("p")).retryAfter()).isNull();
+    }
+
+    @DisplayName("Rejected rejects a zero, negative, or permanent retry-after hint")
+    @Test
+    void rejectedValidatesRetryAfter() {
+        assertThatThrownBy(() -> ConsumeResult.throttled(Duration.ZERO, "x"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> ConsumeResult.throttled(Duration.ofSeconds(-1), "x"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new ConsumeResult.Rejected(false, "x", null, Duration.ofSeconds(1)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("retryable");
+    }
+
+    @DisplayName("fanOutMerge keeps the longest retry-after across retryable rejections")
+    @Test
+    void fanOutMergeKeepsLongestRetryAfter() {
+        var result = ConsumeResult.fanOutMerge(List.of(
+                ConsumeResult.throttled(Duration.ofSeconds(1), "a"),
+                ConsumeResult.retryable("b"),
+                ConsumeResult.throttled(Duration.ofSeconds(5), "c")));
+        var r = (ConsumeResult.Rejected) result;
+        assertThat(r.retryable()).isTrue();
+        assertThat(r.retryAfter()).isEqualTo(Duration.ofSeconds(5));
+    }
+
+    @DisplayName("fanOutMerge drops the retry-after hint when the merge is permanent")
+    @Test
+    void fanOutMergeDropsRetryAfterWhenPermanent() {
+        var result = ConsumeResult.fanOutMerge(List.of(
+                ConsumeResult.throttled(Duration.ofSeconds(5), "a"),
+                ConsumeResult.permanent("b")));
+        var r = (ConsumeResult.Rejected) result;
+        assertThat(r.retryable()).isFalse();
+        assertThat(r.retryAfter()).isNull();
     }
 }

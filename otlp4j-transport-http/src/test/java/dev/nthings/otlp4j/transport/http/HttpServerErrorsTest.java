@@ -8,8 +8,10 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -92,6 +94,47 @@ class HttpServerErrorsTest {
                 HttpResponse.BodyHandlers.ofString());
 
         assertThat(response.statusCode()).isEqualTo(400);
+    }
+
+    @DisplayName("A throttled rejection maps to 503 with a Retry-After header")
+    @Test
+    void throttledRejectionCarriesRetryAfter() throws Exception {
+        var receiver = OtlpHttpReceiver.builder().ephemeralPort()
+                .onTraces(t -> CompletableFuture.completedFuture(
+                        ConsumeResult.throttled(Duration.ofSeconds(2), "at capacity")))
+                .build()
+                .start();
+        receivers.add(receiver);
+
+        var response = client.send(
+                HttpRequest.newBuilder(uri(receiver.port(), "/v1/traces"))
+                        .header("Content-Type", "application/x-protobuf")
+                        .POST(HttpRequest.BodyPublishers.ofByteArray(new byte[0]))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+
+        assertThat(response.statusCode()).isEqualTo(503);
+        assertThat(response.headers().firstValue("Retry-After")).hasValue("2");
+    }
+
+    @DisplayName("A retryable rejection without a hint maps to 503 without Retry-After")
+    @Test
+    void retryableRejectionWithoutHintHasNoRetryAfter() throws Exception {
+        var receiver = OtlpHttpReceiver.builder().ephemeralPort()
+                .onTraces(t -> CompletableFuture.completedFuture(ConsumeResult.retryable("queue full")))
+                .build()
+                .start();
+        receivers.add(receiver);
+
+        var response = client.send(
+                HttpRequest.newBuilder(uri(receiver.port(), "/v1/traces"))
+                        .header("Content-Type", "application/x-protobuf")
+                        .POST(HttpRequest.BodyPublishers.ofByteArray(new byte[0]))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+
+        assertThat(response.statusCode()).isEqualTo(503);
+        assertThat(response.headers().firstValue("Retry-After")).isEmpty();
     }
 
     private int startReceiver(OtlpHttpReceiver.Builder builder) {

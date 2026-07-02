@@ -1,5 +1,6 @@
 package dev.nthings.otlp4j.model;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -35,12 +36,24 @@ public sealed interface ConsumeResult permits ConsumeResult.Accepted, ConsumeRes
     ///
     /// `retryable` states retry intent: a retryable rejection maps to gRPC `UNAVAILABLE` / HTTP
     /// `503`, a permanent one to gRPC `INTERNAL` / HTTP `500`. `cause` is optional diagnostics,
-    /// orthogonal to retryability and present or absent on either disposition. Prefer the
-    /// [#retryable(String)] / [#permanent(String)] factories.
-    record Rejected(boolean retryable, String message, @Nullable Throwable cause) implements ConsumeResult {
+    /// orthogonal to retryability and present or absent on either disposition. `retryAfter`,
+    /// valid only on a retryable rejection, is an optional backpressure hint - how long the
+    /// sender should wait before retrying; the transports emit it on the wire (gRPC
+    /// `grpc-retry-pushback-ms` trailer, HTTP `Retry-After` header). Prefer the
+    /// [#retryable(String)] / [#permanent(String)] / [#throttled(Duration, String)] factories.
+    record Rejected(boolean retryable, String message, @Nullable Throwable cause, @Nullable Duration retryAfter)
+            implements ConsumeResult {
 
         public Rejected {
             message = message == null ? "" : message;
+            if (retryAfter != null) {
+                if (!retryable) {
+                    throw new IllegalArgumentException("retryAfter is only valid on a retryable rejection");
+                }
+                if (retryAfter.isZero() || retryAfter.isNegative()) {
+                    throw new IllegalArgumentException("retryAfter must be > 0, got " + retryAfter);
+                }
+            }
         }
     }
 
@@ -57,25 +70,38 @@ public sealed interface ConsumeResult permits ConsumeResult.Accepted, ConsumeRes
     /// A whole-batch rejection the sender SHOULD retry (transient, e.g. a full queue). Maps to gRPC
     /// `UNAVAILABLE` / HTTP `503`.
     static ConsumeResult retryable(String message) {
-        return new Rejected(true, message, null);
+        return new Rejected(true, message, null, null);
     }
 
     /// A retryable rejection carrying a diagnostic `cause`, such as a briefly unreachable downstream.
     /// `cause` may be null when none is available.
     static ConsumeResult retryable(String message, @Nullable Throwable cause) {
-        return new Rejected(true, message, cause);
+        return new Rejected(true, message, cause, null);
+    }
+
+    /// A retryable rejection carrying a backpressure hint: the sender should wait `retryAfter`
+    /// before retrying. Maps to gRPC `UNAVAILABLE` with a `grpc-retry-pushback-ms` trailer / HTTP
+    /// `503` with a `Retry-After` header.
+    static ConsumeResult throttled(Duration retryAfter, String message) {
+        return new Rejected(true, message, null, retryAfter);
+    }
+
+    /// A throttled rejection (see [#throttled(Duration, String)]) carrying a diagnostic `cause`.
+    /// `cause` may be null when none is available.
+    static ConsumeResult throttled(Duration retryAfter, String message, @Nullable Throwable cause) {
+        return new Rejected(true, message, cause, retryAfter);
     }
 
     /// A whole-batch rejection the sender MUST NOT retry (permanent, e.g. a policy or validation
     /// fault). Maps to gRPC `INTERNAL` / HTTP `500`.
     static ConsumeResult permanent(String message) {
-        return new Rejected(false, message, null);
+        return new Rejected(false, message, null, null);
     }
 
     /// A permanent rejection carrying the diagnostic `cause` that decided it. `cause` may be null
     /// when none is available.
     static ConsumeResult permanent(String message, @Nullable Throwable cause) {
-        return new Rejected(false, message, cause);
+        return new Rejected(false, message, cause, null);
     }
 
     /// Completed stage shorthand for [#accepted()].
@@ -89,6 +115,8 @@ public sealed interface ConsumeResult permits ConsumeResult.Accepted, ConsumeRes
     ///   - Any [Rejected] wins (the batch failed for at least one peer). The merge is permanent if
     ///     any rejecting peer is permanent, since retrying cannot satisfy that peer; the first
     ///     non-null peer cause is carried as diagnostics.
+    ///   - A retryable merge carries the longest peer [Rejected#retryAfter] - retrying sooner
+    ///     cannot satisfy the slowest peer. A permanent merge drops the hint.
     ///   - Otherwise the worst-case [Partial#rejectedItems] across peers is reported - sums would
     ///     overstate the rejection from the original sender's viewpoint, since all peers saw the
     ///     same input.
@@ -100,6 +128,7 @@ public sealed interface ConsumeResult permits ConsumeResult.Accepted, ConsumeRes
         @Nullable Rejected firstRejected = null;
         var anyPermanent = false;
         @Nullable Throwable cause = null;
+        @Nullable Duration maxRetryAfter = null;
         var maxRejected = 0L;
         @Nullable StringBuilder messages = null;
         for (var peer : peers) {
@@ -114,6 +143,10 @@ public sealed interface ConsumeResult permits ConsumeResult.Accepted, ConsumeRes
                     if (cause == null && r.cause() != null) {
                         cause = r.cause();
                     }
+                    var hint = r.retryAfter();
+                    if (hint != null && (maxRetryAfter == null || hint.compareTo(maxRetryAfter) > 0)) {
+                        maxRetryAfter = hint;
+                    }
                     messages = appendMessage(messages, r.message());
                 }
                 case Partial(var rejectedItems, var message) -> {
@@ -127,7 +160,10 @@ public sealed interface ConsumeResult permits ConsumeResult.Accepted, ConsumeRes
         }
         if (firstRejected != null) {
             return new Rejected(
-                    !anyPermanent, messages == null ? firstRejected.message() : messages.toString(), cause);
+                    !anyPermanent,
+                    messages == null ? firstRejected.message() : messages.toString(),
+                    cause,
+                    anyPermanent ? null : maxRetryAfter);
         }
         if (maxRejected == 0) {
             return accepted();

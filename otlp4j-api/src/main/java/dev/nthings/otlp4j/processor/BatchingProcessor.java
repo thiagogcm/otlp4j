@@ -31,6 +31,11 @@ public final class BatchingProcessor<T> implements Sink<T>, Lifecycle {
 
     private static final Logger log = LoggerFactory.getLogger(BatchingProcessor.class);
 
+    /// The fixed drain-timer interval. Also used as the retry-after hint on a [OverflowPolicy#FAIL]
+    /// overflow rejection: a full queue is drained within one timer tick, so retrying after one
+    /// interval is the earliest attempt that can succeed.
+    static final Duration FLUSH_INTERVAL = Duration.ofSeconds(1);
+
     private final Signal signal;
     private final Sink<? super T> downstream;
     private final int flushThreshold;
@@ -90,7 +95,7 @@ public final class BatchingProcessor<T> implements Sink<T>, Lifecycle {
                 case FAIL -> {
                     drops.increment();
                     return CompletableFuture.completedFuture(
-                            ConsumeResult.retryable("batcher queue full"));
+                            ConsumeResult.throttled(FLUSH_INTERVAL, "batcher queue full"));
                 }
             }
         }

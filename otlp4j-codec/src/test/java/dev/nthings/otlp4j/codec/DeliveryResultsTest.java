@@ -42,4 +42,35 @@ class DeliveryResultsTest {
         assertThat(DeliveryResults.isRetryable(rejected)).isFalse();
         assertThat(DeliveryResults.httpStatus(rejected)).isEqualTo(500);
     }
+
+    @DisplayName("retryAfterSeconds is empty without a hint")
+    @Test
+    void retryAfterSecondsEmptyWithoutHint() {
+        var rejected = (ConsumeResult.Rejected) (ConsumeResult) ConsumeResult.retryable("backpressure");
+        assertThat(DeliveryResults.retryAfterSeconds(rejected)).isEmpty();
+    }
+
+    @DisplayName("retryAfterSeconds rounds up to whole seconds")
+    @Test
+    void retryAfterSecondsRoundsUp() {
+        var rejected = (ConsumeResult.Rejected) (ConsumeResult) ConsumeResult
+                .throttled(java.time.Duration.ofMillis(1500), "at capacity");
+        assertThat(DeliveryResults.retryAfterSeconds(rejected)).hasValue(2L);
+    }
+
+    @DisplayName("a sub-second hint floors at Retry-After: 1")
+    @Test
+    void subSecondHintFloorsAtOne() {
+        var rejected = (ConsumeResult.Rejected) (ConsumeResult) ConsumeResult
+                .throttled(java.time.Duration.ofMillis(50), "at capacity");
+        assertThat(DeliveryResults.retryAfterSeconds(rejected)).hasValue(1L);
+    }
+
+    @DisplayName("a whole-second hint passes through unchanged")
+    @Test
+    void wholeSecondHintPassesThrough() {
+        var rejected = (ConsumeResult.Rejected) (ConsumeResult) ConsumeResult
+                .throttled(java.time.Duration.ofSeconds(30), "at capacity");
+        assertThat(DeliveryResults.retryAfterSeconds(rejected)).hasValue(30L);
+    }
 }

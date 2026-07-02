@@ -35,7 +35,8 @@ import org.slf4j.LoggerFactory;
 /// The response contract mirrors the gRPC adapters:
 /// - [ConsumeResult.Accepted] / [ConsumeResult.Partial] -> `200` with the
 ///   protobuf response (partial success carries rejected count and message).
-/// - A retryable [ConsumeResult.Rejected] -> `503`; a permanent one -> `500`.
+/// - A retryable [ConsumeResult.Rejected] -> `503` (with a `Retry-After` header when the
+///   rejection carries a retry-after hint); a permanent one -> `500`.
 /// - Malformed body -> `400`, oversized -> `413`, non-POST -> `405`, dispatcher error -> `500`.
 final class HttpExchangeHandlers {
 
@@ -116,6 +117,8 @@ final class HttpExchangeHandlers {
 
             if (result instanceof ConsumeResult.Rejected rejected) {
                 var status = DeliveryResults.httpStatus(rejected);
+                DeliveryResults.retryAfterSeconds(rejected).ifPresent(
+                        seconds -> exchange.getResponseHeaders().add("Retry-After", Long.toString(seconds)));
                 log.warn("OTLP/HTTP dispatcher rejected the whole batch; responding {}: {}",
                         status, rejected.message());
                 respondText(exchange, status, rejected.message());
