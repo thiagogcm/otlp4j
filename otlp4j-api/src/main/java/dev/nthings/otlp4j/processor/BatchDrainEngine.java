@@ -22,12 +22,22 @@ final class BatchDrainEngine<T> {
 
     private static final Logger log = LoggerFactory.getLogger(BatchDrainEngine.class);
 
+    /// Observes the outcome of every non-empty drain (an empty drain proves nothing about
+    /// downstream health). Backs the batcher's degraded-state reflection.
+    interface DrainListener {
+
+        void onDrainSuccess();
+
+        void onDrainFailure(Throwable failure);
+    }
+
     private final ArrayBlockingQueue<T> queue;
     private final Sink<? super T> downstream;
     private final Function<List<T>, T> merger;
     private final AtomicBoolean closed;
     private final ScheduledFuture<?> timer;
     private final ExecutorService drainExecutor;
+    private final DrainListener listener;
     private final Object drainMutex = new Object();
     private final AtomicBoolean drainPending = new AtomicBoolean();
     private CompletableFuture<Void> drainTail = CompletableFuture.completedFuture(null);
@@ -39,12 +49,14 @@ final class BatchDrainEngine<T> {
             AtomicBoolean closed,
             ScheduledExecutorService scheduler,
             ExecutorService drainExecutor,
-            Runnable flushIfDue) {
+            Runnable flushIfDue,
+            DrainListener listener) {
         this.queue = queue;
         this.downstream = downstream;
         this.merger = merger;
         this.closed = closed;
         this.drainExecutor = drainExecutor;
+        this.listener = listener;
         var intervalMillis = BatchingProcessor.FLUSH_INTERVAL.toMillis();
         this.timer = scheduler.scheduleAtFixedRate(
                 flushIfDue, intervalMillis, intervalMillis, TimeUnit.MILLISECONDS);
@@ -102,6 +114,10 @@ final class BatchDrainEngine<T> {
         if (snapshot.isEmpty()) {
             return CompletableFuture.completedFuture(null);
         }
+        return observed(deliver(snapshot));
+    }
+
+    private CompletableFuture<Void> deliver(List<T> snapshot) {
         try {
             var merged = merger.apply(snapshot);
             return downstream.consume(merged).toCompletableFuture()
@@ -111,6 +127,17 @@ final class BatchDrainEngine<T> {
             return CompletableFuture.failedFuture(new BatchingProcessor.BatchDeliveryException(
                     "failed to flush drained batch: " + e.getMessage(), e));
         }
+    }
+
+    /// Reports the drain outcome to the listener without altering the drain's own result.
+    private CompletableFuture<Void> observed(CompletableFuture<Void> drain) {
+        return drain.whenComplete((ignored, failure) -> {
+            if (failure != null) {
+                listener.onDrainFailure(failure);
+            } else {
+                listener.onDrainSuccess();
+            }
+        });
     }
 
     static CompletableFuture<Void> asDeliveryOutcome(ConsumeResult result) {

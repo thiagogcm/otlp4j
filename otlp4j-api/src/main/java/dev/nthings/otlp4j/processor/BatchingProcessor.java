@@ -29,6 +29,13 @@ import org.slf4j.LoggerFactory;
 
 /// An asynchronous, queue-backed, timer-triggered batching processor.
 ///
+/// > **Warning:** enqueueing acknowledges immediately. `consume` returns `Accepted` once the
+/// > batch is queued - before it is delivered downstream. A timer- or threshold-triggered drain
+/// > that fails downstream is logged at WARN and the drained batches are **lost with no upstream
+/// > signal**; only [#forceFlush] and [#shutdown] surface a [BatchDeliveryException]. Enable
+/// > [Builder#reflectDownstreamFailures] to convert sustained downstream failure into retryable
+/// > ingress rejections carrying a retry-after hint, so senders back off and retain their data.
+///
 /// Threading: one JVM-wide platform daemon thread (`otlp4j-batch-timer`) drives every batcher's
 /// flush timer; each instance adds only a single cheap virtual thread for its serial drain.
 public final class BatchingProcessor<T> implements Sink<T>, Lifecycle {
@@ -45,10 +52,18 @@ public final class BatchingProcessor<T> implements Sink<T>, Lifecycle {
     private final int flushThreshold;
     private final ArrayBlockingQueue<T> queue;
     private final OverflowPolicy overflowPolicy;
+    private final boolean reflectDownstreamFailures;
     private final LongAdder drops = new LongAdder();
     private final AtomicBoolean closed = new AtomicBoolean();
     private final ExecutorService drainExecutor;
     private final BatchDrainEngine<T> drainEngine;
+
+    /// Degraded window: a failed drain sets it one flush interval into the future; a successful
+    /// drain clears it. While the window is open and [Builder#reflectDownstreamFailures] is on,
+    /// `consume` rejects retryably instead of enqueueing. The window expiring by itself admits a
+    /// probe batch, so a healed downstream recovers without a stuck state.
+    private volatile long degradedUntilNanos;
+    private volatile @Nullable Throwable lastDrainFailure;
 
     /// One JVM-wide platform daemon thread drives every batcher's flush timer. Never shut down;
     /// instances stay independent through per-instance timer cancellation
@@ -71,16 +86,42 @@ public final class BatchingProcessor<T> implements Sink<T>, Lifecycle {
         this.flushThreshold = b.flushThreshold;
         this.queue = new ArrayBlockingQueue<>(b.queueCapacity);
         this.overflowPolicy = b.overflowPolicy;
+        this.reflectDownstreamFailures = b.reflectDownstreamFailures;
         this.drainExecutor = Executors.newSingleThreadExecutor(
                 Thread.ofVirtual().name("otlp4j-batcher-drain").factory());
         this.drainEngine = new BatchDrainEngine<>(
-                queue, downstream, signal::merge, closed, SharedTimer.INSTANCE, drainExecutor, this::flushIfDue);
+                queue, downstream, signal::merge, closed, SharedTimer.INSTANCE, drainExecutor,
+                this::flushIfDue, new DegradedWindow());
+    }
+
+    /// Tracks downstream health from drain outcomes.
+    private final class DegradedWindow implements BatchDrainEngine.DrainListener {
+
+        @Override
+        public void onDrainSuccess() {
+            degradedUntilNanos = 0L;
+            lastDrainFailure = null;
+        }
+
+        @Override
+        public void onDrainFailure(Throwable failure) {
+            lastDrainFailure = failure;
+            degradedUntilNanos = System.nanoTime() + FLUSH_INTERVAL.toNanos();
+        }
     }
 
     @Override
     public CompletionStage<ConsumeResult> consume(T batch) {
         if (closed.get()) {
             return CompletableFuture.completedFuture(ConsumeResult.retryable("batcher closed"));
+        }
+        // Degraded reflection: while the last flush failed, reject at ingress WITHOUT enqueueing,
+        // so the sender retains the batch instead of it joining a queue that is going nowhere.
+        // 0 is the healthy sentinel (nanoTime has an arbitrary origin, so compare relatively).
+        var degradedUntil = degradedUntilNanos;
+        if (reflectDownstreamFailures && degradedUntil != 0L && System.nanoTime() - degradedUntil < 0) {
+            return CompletableFuture.completedFuture(ConsumeResult.throttled(
+                    FLUSH_INTERVAL, "batcher degraded: last flush failed", lastDrainFailure));
         }
         var offered = queue.offer(batch);
         if (!offered) {
@@ -208,6 +249,7 @@ public final class BatchingProcessor<T> implements Sink<T>, Lifecycle {
         private int flushThreshold = 512;
         private int queueCapacity = 2048;
         private OverflowPolicy overflowPolicy = OverflowPolicy.DROP_NEWEST;
+        private boolean reflectDownstreamFailures = false;
 
         private Builder(Signal signal) {
             this.signal = signal;
@@ -236,6 +278,16 @@ public final class BatchingProcessor<T> implements Sink<T>, Lifecycle {
 
         public Builder<T> overflowPolicy(OverflowPolicy policy) {
             this.overflowPolicy = Objects.requireNonNull(policy, "policy");
+            return this;
+        }
+
+        /// Reflects sustained downstream failure back at ingress (default off). After a drain
+        /// fails, `consume` rejects retryably with a one-flush-interval retry-after hint - the
+        /// batch is NOT enqueued, so the sender retains it - until the window expires (admitting
+        /// a probe batch) or a drain succeeds. Off, the batcher keeps today's fire-and-forget
+        /// behaviour: failed timer/threshold drains are logged and their batches lost.
+        public Builder<T> reflectDownstreamFailures(boolean reflect) {
+            this.reflectDownstreamFailures = reflect;
             return this;
         }
 
