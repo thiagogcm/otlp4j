@@ -75,7 +75,7 @@ var receiver = OtlpGrpcReceiver.builder()
 This gateway keeps server spans, enriches their resource, and exports them to another OTLP endpoint:
 
 ```java
-var receiver = OtlpGrpcReceiver.on("0.0.0.0", 4317).start();
+var receiver = OtlpGrpcReceiver.builder().setEndpoint("0.0.0.0", 4317).build().start();
 
 var exporter = OtlpGrpcExporter.to("collector.example.com", 4317);
 
@@ -90,11 +90,16 @@ var subscription = Pipeline.from(receiver.traces())
 
 The receiver accepts one consumer per signal source. Terminate at `FanOut.of(...)` (`.to(FanOut.of(a, b))`) when several consumers need the same batch.
 
-> [!IMPORTANT] Exporter facets carry the exporter's lifecycle, so attaching one to a pipeline drains the exporter on shutdown — no registration needed. Use `Stage.owns(resource)` only for a resource hidden behind a lambda or a connector's downstream. Shut down the subscription first, then the receiver.
+> [!IMPORTANT] Exporter facets carry the exporter's lifecycle, so attaching one to a pipeline drains the exporter on shutdown — no registration needed. Use `Stage.owns(resource)` only for a resource hidden behind a lambda or a connector's downstream. `Wiring` codifies the shutdown ordering: receivers stop first (in-flight requests finish through the live pipeline), then subscriptions drain, then directly-owned resources close.
 
 ```java
-subscription.shutdown(Duration.ofSeconds(10)).toCompletableFuture().join();
-receiver.shutdown(Duration.ofSeconds(10)).toCompletableFuture().join();
+Wiring.builder()
+        .receiver(receiver)
+        .pipeline(subscription)
+        .build()
+        .shutdown(Duration.ofSeconds(10))
+        .toCompletableFuture()
+        .join();
 ```
 
 ## Modules
@@ -102,9 +107,10 @@ receiver.shutdown(Duration.ofSeconds(10)).toCompletableFuture().join();
 | Module                  | Role                                                                                                   |
 | ----------------------- | ------------------------------------------------------------------------------------------------------ |
 | `otlp4j-model`          | JDK-only OTLP domain records                                                                           |
-| `otlp4j-api`            | Public core, pipelines, processors, count sinks, exporters/receivers, configuration, and transport SPI |
+| `otlp4j-api`            | Public core, pipelines, processors, connectors, exporters/receivers, configuration, and transport SPI contracts |
 | `otlp4j-codec`          | Internal model⇄proto marshalling, qualified-exported to the two transports                             |
 | `otlp4j-proto`          | Generated OTLP messages and gRPC services, qualified-exported to the codec and transports              |
+| `otlp4j-transport-common` | Shared transport layer: `ClientExporter`/`ServerReceiver` wrap an `OtlpClient`/`OtlpServer` into the user-facing exporter/receiver, plus admission control and the entry-point builder bases |
 | `otlp4j-transport-grpc` | OTLP/gRPC exporter and receiver (`OtlpGrpcExporter`/`OtlpGrpcReceiver`), on gRPC + Netty               |
 | `otlp4j-transport-http` | OTLP/HTTP exporter and receiver (`OtlpHttpExporter`/`OtlpHttpReceiver`), JDK-only                      |
 | `otlp4j-samples`        | Executable end-to-end example                                                                          |
@@ -126,6 +132,6 @@ This runs the tests, coverage checks, Protobuf generation, and Javadoc lint. If 
 ## Current limits
 
 - The bundled transports apply the full configuration surface — TLS, headers, compression, and retry on the client; TLS, `bindHost`, and the receiver-hardening limits on the server. A non-wildcard `bindHost` (e.g. `127.0.0.1`) now binds that specific interface; a wildcard host binds every interface. Compression is asymmetric: the client requests gzip, and the server transparently decodes it (gRPC's default decoder, or `Content-Encoding: gzip` over HTTP) with no server-side switch.
-- OTLP/HTTP carries binary protobuf (`application/x-protobuf`) only — no JSON — and POSTs each signal to its standard path (`/v1/traces`, `/v1/metrics`, `/v1/logs`, `/v1development/profiles`). The scheme follows TLS (`http` when disabled, otherwise `https`); an endpoint **path prefix** (e.g. `https://host/otlp` → `/otlp/v1/...`) is applied, from the `OTEL_EXPORTER_OTLP_ENDPOINT` URL or the HTTP exporter's `path(...)`. `maxConcurrentCallsPerConnection` is a no-op for HTTP; bound concurrency with a server executor instead.
+- OTLP/HTTP carries binary protobuf (`application/x-protobuf`) only — no JSON — and POSTs each signal to its standard path (`/v1/traces`, `/v1/metrics`, `/v1/logs`, `/v1development/profiles`). The scheme follows TLS (`http` when disabled, otherwise `https`); an endpoint **path prefix** (e.g. `https://host/otlp` → `/otlp/v1/...`) is applied, from the `OTEL_EXPORTER_OTLP_ENDPOINT` URL or the HTTP exporter's `setPath(...)`. `maxConcurrentCallsPerConnection` is a no-op for HTTP; bound concurrency with a server executor instead.
 - Profiles track OpenTelemetry `v1development`. `ProfilesData.Profile` exposes top-level metadata for inspection but forwards losslessly via opaque passthrough: each profile carries its serialized proto bytes and the batch carries the serialized `ProfilesDictionary`, so samples, locations, mappings, string tables, and the original payload re-emit byte-for-byte. Only the resource/scope wrapper is modeled (standard attributes); the profile payload itself is not introspectable.
 - An unattached receiver source rejects retryably. Attach every signal that must be processed, or call `discard()` on signals that should be accepted and dropped intentionally.

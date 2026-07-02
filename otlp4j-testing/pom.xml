@@ -29,7 +29,7 @@
     <!-- No build plugins of our own: parent already wires flatten, the doclint compile pass, the
          maven-javadoc-plugin lint, and the inherited JaCoCo prepare-agent/report (which no-op
          here since the module has no tests of its own — its classes are exercised through
-         consumer test suites). No check-coverage execution: opting in to the 90/85 floor would
+         consumer test suites). No check-coverage execution: opting in to the 90/80 floor would
          require either fixture-coverage tests or per-class excludes, both wasteful. -->
 
 </project>
