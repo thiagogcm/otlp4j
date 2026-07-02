@@ -19,6 +19,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.LongAdder;
@@ -27,6 +28,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /// An asynchronous, queue-backed, timer-triggered batching processor.
+///
+/// Threading: one JVM-wide platform daemon thread (`otlp4j-batch-timer`) drives every batcher's
+/// flush timer; each instance adds only a single cheap virtual thread for its serial drain.
 public final class BatchingProcessor<T> implements Sink<T>, Lifecycle {
 
     private static final Logger log = LoggerFactory.getLogger(BatchingProcessor.class);
@@ -42,10 +46,24 @@ public final class BatchingProcessor<T> implements Sink<T>, Lifecycle {
     private final ArrayBlockingQueue<T> queue;
     private final OverflowPolicy overflowPolicy;
     private final LongAdder drops = new LongAdder();
-    private final ScheduledExecutorService scheduler;
     private final AtomicBoolean closed = new AtomicBoolean();
     private final ExecutorService drainExecutor;
     private final BatchDrainEngine<T> drainEngine;
+
+    /// One JVM-wide platform daemon thread drives every batcher's flush timer. Never shut down;
+    /// instances stay independent through per-instance timer cancellation
+    /// (`setRemoveOnCancelPolicy` keeps cancelled tasks out of the shared queue).
+    private static final class SharedTimer {
+
+        static final ScheduledExecutorService INSTANCE = create();
+
+        private static ScheduledExecutorService create() {
+            var timer = new ScheduledThreadPoolExecutor(1,
+                    Thread.ofPlatform().daemon().name("otlp4j-batch-timer").factory());
+            timer.setRemoveOnCancelPolicy(true);
+            return timer;
+        }
+    }
 
     private BatchingProcessor(Signal signal, Builder<T> b) {
         this.signal = signal;
@@ -53,12 +71,10 @@ public final class BatchingProcessor<T> implements Sink<T>, Lifecycle {
         this.flushThreshold = b.flushThreshold;
         this.queue = new ArrayBlockingQueue<>(b.queueCapacity);
         this.overflowPolicy = b.overflowPolicy;
-        this.scheduler = Executors.newSingleThreadScheduledExecutor(
-                Thread.ofPlatform().daemon().name("otlp4j-batcher").factory());
         this.drainExecutor = Executors.newSingleThreadExecutor(
-                Thread.ofPlatform().daemon().name("otlp4j-batcher-drain").factory());
+                Thread.ofVirtual().name("otlp4j-batcher-drain").factory());
         this.drainEngine = new BatchDrainEngine<>(
-                queue, downstream, signal::merge, closed, scheduler, drainExecutor, this::flushIfDue);
+                queue, downstream, signal::merge, closed, SharedTimer.INSTANCE, drainExecutor, this::flushIfDue);
     }
 
     @Override
@@ -135,10 +151,7 @@ public final class BatchingProcessor<T> implements Sink<T>, Lifecycle {
         drainEngine.cancelTimer();
         return drainEngine.finalDrain()
                 .orTimeout(timeout.toNanos(), TimeUnit.NANOSECONDS)
-                .whenComplete((ignored, t) -> {
-                    drainExecutor.shutdown();
-                    scheduler.shutdown();
-                });
+                .whenComplete((ignored, t) -> drainExecutor.shutdown());
     }
 
     @Override

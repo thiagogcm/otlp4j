@@ -10,6 +10,7 @@ import dev.nthings.otlp4j.codec.MetricsMapper;
 import dev.nthings.otlp4j.codec.ProfilesMapper;
 import dev.nthings.otlp4j.codec.TraceMapper;
 import dev.nthings.otlp4j.codec.Transports;
+import dev.nthings.otlp4j.transport.common.internal.ClientHeaders;
 import dev.nthings.otlp4j.config.ClientConfig;
 import dev.nthings.otlp4j.config.Compression;
 import dev.nthings.otlp4j.spi.OtlpClient;
@@ -287,7 +288,7 @@ public final class GrpcOtlpClient implements OtlpClient {
             return new SimpleForwardingClientCall<>(next.newCall(method, callOptions)) {
                 @Override
                 public void start(Listener<RespT> responseListener, Metadata headers) {
-                    headers.merge(toMetadata(Transports.resolveHeaders(staticHeaders, headerSupplier)));
+                    headers.merge(toMetadata(ClientHeaders.resolve(staticHeaders, headerSupplier)));
                     super.start(responseListener, headers);
                 }
             };

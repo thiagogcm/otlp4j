@@ -16,9 +16,6 @@ import java.lang.ref.Cleaner;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -60,9 +57,6 @@ public final class ClientExporter implements OtlpExporter, SharedLifecycle {
 
     /// Latches the one-time channel close, so the last release (or a direct shutdown) closes exactly once.
     private final AtomicBoolean closed = new AtomicBoolean();
-
-    private final ExecutorService shutdownExecutor = Executors.newSingleThreadExecutor(
-            Thread.ofPlatform().daemon().name("otlp-exporter-shutdown").factory());
 
     private final LeakWatch leakWatch;
     private final Cleaner.Cleanable cleanable;
@@ -126,21 +120,25 @@ public final class ClientExporter implements OtlpExporter, SharedLifecycle {
         // Shutdown was requested; silence the leak watch even if the close below fails or times out.
         leakWatch.closed = true;
         cleanable.clean();
-        CompletableFuture<Void> closing;
-        try {
-            closing = CompletableFuture.runAsync(client::close, shutdownExecutor);
-        } catch (RejectedExecutionException alreadyClosed) {
-            return CompletableFuture.completedFuture(null);
-        }
-        closing = closing.orTimeout(timeout.toNanos(), TimeUnit.NANOSECONDS);
-        return closing.whenComplete((v, e) -> {
-            if (e instanceof TimeoutException) {
-                log.warn("exporter close exceeded {}; interrupting transport teardown", timeout);
-                shutdownExecutor.shutdownNow();
-            } else {
-                shutdownExecutor.shutdown();
+        // One short-lived virtual thread per close, instead of a platform thread idling per
+        // exporter instance for its whole lifetime.
+        var closing = new CompletableFuture<Void>();
+        var closer = Thread.ofVirtual().name("otlp-exporter-shutdown").start(() -> {
+            try {
+                client.close();
+                closing.complete(null);
+            } catch (Throwable t) {
+                closing.completeExceptionally(t);
             }
         });
+        return closing
+                .orTimeout(timeout.toNanos(), TimeUnit.NANOSECONDS)
+                .whenComplete((v, e) -> {
+                    if (e instanceof TimeoutException) {
+                        log.warn("exporter close exceeded {}; interrupting transport teardown", timeout);
+                        closer.interrupt();
+                    }
+                });
     }
 
     /// A lifecycle-bearing view of one signal: `retain`/`shutdown` count against the whole exporter,

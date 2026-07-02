@@ -11,6 +11,7 @@ import dev.nthings.otlp4j.codec.MetricsMapper;
 import dev.nthings.otlp4j.codec.ProfilesMapper;
 import dev.nthings.otlp4j.codec.TraceMapper;
 import dev.nthings.otlp4j.codec.Transports;
+import dev.nthings.otlp4j.transport.common.internal.ClientHeaders;
 import dev.nthings.otlp4j.config.ClientConfig;
 import dev.nthings.otlp4j.config.Compression;
 import dev.nthings.otlp4j.spi.OtlpClient;
@@ -186,7 +187,7 @@ public final class HttpOtlpClient implements OtlpClient {
         if (compress) {
             builder.header("Content-Encoding", "gzip");
         }
-        Transports.resolveHeaders(config.headers(), config.headerSupplier()).forEach(builder::header);
+        ClientHeaders.resolve(config.headers(), config.headerSupplier()).forEach(builder::header);
         return builder.POST(HttpRequest.BodyPublishers.ofByteArray(body)).build();
     }
 

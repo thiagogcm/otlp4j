@@ -1,13 +1,11 @@
 package dev.nthings.otlp4j.transport.common;
 
-import dev.nthings.otlp4j.processor.OverflowPolicy;
 import dev.nthings.otlp4j.receiver.TapOptions;
 import java.util.Objects;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Flow;
 import java.util.concurrent.Semaphore;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.LongAdder;
 import org.jspecify.annotations.Nullable;
@@ -75,12 +73,8 @@ final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoCloseable {
 
     private static final class SubscriptionImpl<T> implements Flow.Subscription {
 
-        /// How long a BLOCK producer parks for capacity before re-checking cancellation,
-        /// so it cannot hang forever after terminateDispatch.
-        private static final long BLOCK_OFFER_POLL_NANOS = TimeUnit.MILLISECONDS.toNanos(100);
-
         private final Flow.Subscriber<? super T> subscriber;
-        private final OverflowPolicy strategy;
+        private final TapOptions.Overflow strategy;
         private final ArrayBlockingQueue<T> queue;
         private final LongAdder drops;
         private final CopyOnWriteArrayList<SubscriptionImpl<T>> roster;
@@ -101,6 +95,8 @@ final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoCloseable {
             this.roster = roster;
         }
 
+        /// Never blocks: the tap sits outside the acknowledgement path, so every overflow
+        /// strategy resolves immediately on the publishing thread.
         void offer(T item) {
             if (cancelled.get()) {
                 return;
@@ -117,18 +113,6 @@ final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoCloseable {
                 case DROP_NEWEST -> {
                     if (!queue.offer(item)) {
                         drops.increment();
-                    }
-                }
-                case BLOCK -> {
-                    // Park for capacity, but poll so cancel/close (via terminateDispatch) releases
-                    // the producer instead of hanging it.
-                    try {
-                        while (!cancelled.get()
-                                && !queue.offer(item, BLOCK_OFFER_POLL_NANOS, TimeUnit.NANOSECONDS)) {
-                            // retry; the loop condition re-checks cancellation each poll
-                        }
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
                     }
                 }
                 case FAIL -> {
@@ -149,8 +133,8 @@ final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoCloseable {
             }
         }
 
-        /// Blocks for demand, then an item, then delivers. Demand gates every strategy including
-        /// BLOCK (a `Flow.Publisher` must not exceed demand); BLOCK back-pressure is in [#offer].
+        /// Blocks for demand, then an item, then delivers (a `Flow.Publisher` must not exceed
+        /// demand).
         private void dispatchLoop() {
             try {
                 while (!cancelled.get()) {
@@ -218,8 +202,7 @@ final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoCloseable {
             }
         }
 
-        /// Interrupts the dispatcher and drains the queue so a BLOCK [#offer] producer
-        /// gets capacity and returns instead of hanging.
+        /// Interrupts the dispatcher (releasing its blocking `take`) and drains the queue.
         private void terminateDispatch() {
             var d = dispatcher;
             if (d != null) {

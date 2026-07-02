@@ -2,12 +2,9 @@ package dev.nthings.otlp4j.codec;
 
 import java.net.InetSocketAddress;
 import java.nio.file.Path;
-import java.util.LinkedHashMap;
-import java.util.Map;
-import java.util.function.Supplier;
 
-/// Shared plumbing for OTLP/gRPC and OTLP/HTTP transports for bind-address resolution, client
-/// mutual-TLS validation, and per-export header resolution.
+/// Shared plumbing for OTLP/gRPC and OTLP/HTTP transports for bind-address resolution and client
+/// mutual-TLS validation.
 public final class Transports {
 
     private Transports() {}
@@ -52,16 +49,4 @@ public final class Transports {
         }
     }
 
-    /// Resolves the request headers for one export: the static `constant` headers overlaid by the
-    /// per-export `supplier` (supplier wins per key). Returns `constant` unchanged when no supplier
-    /// is set.
-    public static Map<String, String> resolveHeaders(
-            Map<String, String> constant, Supplier<Map<String, String>> supplier) {
-        if (supplier == null) {
-            return constant;
-        }
-        var merged = new LinkedHashMap<String, String>(constant);
-        merged.putAll(supplier.get());
-        return merged;
-    }
 }

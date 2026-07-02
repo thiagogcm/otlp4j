@@ -6,7 +6,6 @@ import static org.awaitility.Awaitility.await;
 
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
-import dev.nthings.otlp4j.processor.OverflowPolicy;
 import dev.nthings.otlp4j.receiver.TapOptions;
 import dev.nthings.otlp4j.testing.Fixtures;
 import dev.nthings.otlp4j.testing.FlowSubscribers;
@@ -45,7 +44,7 @@ class TapAndMulticastEdgesTest {
     void droppedCountIncrementsWhenSubscriberStalls() {
         var tap = new ReceiverTap();
         try {
-            tap.traces(new TapOptions(OverflowPolicy.DROP_NEWEST, 1)).subscribe(FlowSubscribers.noOp());
+            tap.traces(new TapOptions(TapOptions.Overflow.DROP_NEWEST, 1)).subscribe(FlowSubscribers.noOp());
             for (var i = 0; i < 50; i++) {
                 tap.publishTraces(Fixtures.traceData(Fixtures.span("s" + i, Span.Kind.SERVER)));
             }
@@ -128,14 +127,14 @@ class TapAndMulticastEdgesTest {
     @Test
     void tapOptionsDefaultsAreSane() {
         var opts = TapOptions.defaults();
-        assertThat(opts.strategy()).isEqualTo(OverflowPolicy.DROP_OLDEST);
+        assertThat(opts.strategy()).isEqualTo(TapOptions.Overflow.DROP_OLDEST);
         assertThat(opts.bufferSize()).isEqualTo(256);
     }
 
     @DisplayName("TapOptions rejects a non-positive buffer size")
     @Test
     void tapOptionsRejectsBadBuffer() {
-        assertThatThrownBy(() -> new TapOptions(OverflowPolicy.BLOCK, 0))
+        assertThatThrownBy(() -> new TapOptions(TapOptions.Overflow.DROP_OLDEST, 0))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 

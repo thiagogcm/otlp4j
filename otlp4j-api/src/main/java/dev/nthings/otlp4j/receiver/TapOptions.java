@@ -1,12 +1,25 @@
 package dev.nthings.otlp4j.receiver;
 
-import dev.nthings.otlp4j.processor.OverflowPolicy;
 import java.util.Objects;
 
 /// Subscription options for a [TelemetryTap].
-public record TapOptions(OverflowPolicy strategy, int bufferSize) {
+///
+/// Every overflow strategy is non-blocking: the tap sits outside the acknowledgement path, so a
+/// slow subscriber can never delay the OTLP response (there is deliberately no `BLOCK` option).
+public record TapOptions(Overflow strategy, int bufferSize) {
 
-    private static final TapOptions DEFAULT = new TapOptions(OverflowPolicy.DROP_OLDEST, 256);
+    /// Policy for an item that arrives while a tap subscription's bounded buffer is full. Each
+    /// option resolves immediately - none blocks the receiver's publish thread.
+    public enum Overflow {
+        /// Evict the oldest buffered item to make room for the new one.
+        DROP_OLDEST,
+        /// Drop the arriving item; the tap increments its drop counter.
+        DROP_NEWEST,
+        /// Terminate this subscription with `onError`; other subscriptions are unaffected.
+        FAIL
+    }
+
+    private static final TapOptions DEFAULT = new TapOptions(Overflow.DROP_OLDEST, 256);
 
     public TapOptions {
         Objects.requireNonNull(strategy, "strategy");

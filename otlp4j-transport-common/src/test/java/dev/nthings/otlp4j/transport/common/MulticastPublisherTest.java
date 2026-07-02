@@ -3,7 +3,6 @@ package dev.nthings.otlp4j.transport.common;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
-import dev.nthings.otlp4j.processor.OverflowPolicy;
 import dev.nthings.otlp4j.receiver.TapOptions;
 import dev.nthings.otlp4j.testing.FlowSubscribers;
 import java.time.Duration;
@@ -37,7 +36,7 @@ class MulticastPublisherTest {
     void droppingSubscriberDoesNotBlockProducer() {
         var drops = new LongAdder();
         var pub = new MulticastPublisher<Integer>(drops);
-        pub.subscribe(FlowSubscribers.noOp(), new TapOptions(OverflowPolicy.DROP_NEWEST, 2));
+        pub.subscribe(FlowSubscribers.noOp(), new TapOptions(TapOptions.Overflow.DROP_NEWEST, 2));
         for (var i = 0; i < 50; i++) {
             pub.publish(i);
         }

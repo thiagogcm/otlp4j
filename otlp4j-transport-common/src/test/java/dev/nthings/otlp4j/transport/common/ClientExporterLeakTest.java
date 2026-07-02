@@ -66,6 +66,18 @@ class ClientExporterLeakTest {
         assertThat(reported.get(0)).contains("garbage-collected before shutdown()");
     }
 
+    @DisplayName("shutdown leaves no lingering platform shutdown thread")
+    @Test
+    void shutdownLeavesNoPlatformThread() {
+        var exporter = new ClientExporter(new RecordingOtlpClient(), "com.example.DemoExporter");
+        exporter.shutdown(java.time.Duration.ofSeconds(5)).toCompletableFuture().join();
+
+        var shutdownThreads = Thread.getAllStackTraces().keySet().stream()
+                .filter(t -> t.getName().equals("otlp-exporter-shutdown"))
+                .count();
+        assertThat(shutdownThreads).isZero();
+    }
+
     /// Builds an exporter and keeps no reference to it, so it is collectable once this returns.
     private static void abandonExporter(Consumer<String> reporter) {
         new ClientExporter(new RecordingOtlpClient(), "com.example.DemoExporter", reporter);

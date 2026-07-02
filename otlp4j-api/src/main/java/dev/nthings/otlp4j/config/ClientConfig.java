@@ -46,6 +46,7 @@ public record ClientConfig(
         Objects.requireNonNull(compression, "compression");
         Objects.requireNonNull(retry, "retry");
         headers = headers == null ? Map.of() : Collections.unmodifiableMap(new LinkedHashMap<>(headers));
+        Headers.requireValid(headers);
         path = normalizePath(path);
         if (port < 0 || port > 65535) {
             throw new IllegalArgumentException("port out of range: " + port);
@@ -252,7 +253,9 @@ public record ClientConfig(
 
         /// Sets a per-export header supplier (e.g. a rotating bearer token). Evaluated on every
         /// export and overlaid on the static headers, winning per key. Does not clear the static
-        /// [#addHeader]/[#setHeaders(Map)] entries.
+        /// [#addHeader]/[#setHeaders(Map)] entries. Supplied headers are validated (see
+        /// [Headers]) on every resolve; an invalid header fails that export exceptionally and is
+        /// not retried.
         public Builder setHeaders(Supplier<Map<String, String>> headerSupplier) {
             this.headerSupplier = headerSupplier;
             return this;

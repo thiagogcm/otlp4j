@@ -312,4 +312,24 @@ class BatchingProcessorTest {
                 .cause()
                 .hasMessageContaining("distinct ProfilesDictionaries");
     }
+
+    @DisplayName("Many batchers share one platform timer thread")
+    @Test
+    void batchersShareOneTimerThread() {
+        var batchers = new ArrayList<BatchingProcessor<TracesData>>();
+        TracesSink downstream = traces -> ConsumeResult.acceptedStage();
+        try {
+            for (var i = 0; i < 5; i++) {
+                batchers.add(BatchingProcessor.forTraces().downstream(downstream).build());
+            }
+            var timerThreads = Thread.getAllStackTraces().keySet().stream()
+                    .filter(t -> t.getName().equals("otlp4j-batch-timer"))
+                    .count();
+            assertThat(timerThreads).isEqualTo(1L);
+        } finally {
+            for (var batcher : batchers) {
+                batcher.close();
+            }
+        }
+    }
 }

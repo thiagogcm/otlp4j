@@ -3,18 +3,15 @@ package dev.nthings.otlp4j.transport.common;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
-import dev.nthings.otlp4j.processor.OverflowPolicy;
 import dev.nthings.otlp4j.receiver.TapOptions;
 import dev.nthings.otlp4j.testing.FlowSubscribers;
 import java.time.Duration;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Flow;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.LongAdder;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.Timeout;
 
 @DisplayName("MulticastPublisher backpressure")
 class MulticastBackpressureTest {
@@ -25,7 +22,7 @@ class MulticastBackpressureTest {
         var drops = new LongAdder();
         var pub = new MulticastPublisher<Integer>(drops);
         try {
-            pub.subscribe(FlowSubscribers.noOp(), new TapOptions(OverflowPolicy.DROP_OLDEST, 2));
+            pub.subscribe(FlowSubscribers.noOp(), new TapOptions(TapOptions.Overflow.DROP_OLDEST, 2));
             for (var i = 0; i < 10; i++) {
                 pub.publish(i);
             }
@@ -47,7 +44,7 @@ class MulticastBackpressureTest {
                 @Override public void onNext(Integer item) {}
                 @Override public void onError(Throwable t) { error.set(t); }
                 @Override public void onComplete() {}
-            }, new TapOptions(OverflowPolicy.FAIL, 1));
+            }, new TapOptions(TapOptions.Overflow.FAIL, 1));
             for (var i = 0; i < 10; i++) {
                 pub.publish(i);
             }
@@ -58,53 +55,21 @@ class MulticastBackpressureTest {
         }
     }
 
-    @DisplayName("BLOCK strategy delivers every item without dropping")
+    @DisplayName("Dispatch honours bounded demand and never delivers more than requested")
     @Test
-    void blockStrategyEventuallyDelivers() {
-        var drops = new LongAdder();
-        var pub = new MulticastPublisher<Integer>(drops);
-        try {
-            var sink = new CopyOnWriteArrayList<Integer>();
-            pub.subscribe(new Flow.Subscriber<>() {
-                @Override public void onSubscribe(Flow.Subscription s) { s.request(Long.MAX_VALUE); }
-                @Override public void onNext(Integer item) {
-                    try {
-                        // Synchronous slow consumer - BLOCK lets publish() wait for capacity.
-                        Thread.sleep(2);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                    }
-                    sink.add(item);
-                }
-                @Override public void onError(Throwable t) {}
-                @Override public void onComplete() {}
-            }, new TapOptions(OverflowPolicy.BLOCK, 2));
-            for (var i = 0; i < 6; i++) {
-                pub.publish(i);
-            }
-            await().atMost(Duration.ofSeconds(3)).until(() -> sink.size() == 6);
-            assertThat(sink).hasSize(6);
-            assertThat(drops.sum()).isZero();
-        } finally {
-            pub.close();
-        }
-    }
-
-    @DisplayName("BLOCK honours bounded demand and never delivers more than requested")
-    @Test
-    void blockHonoursBoundedDemand() {
+    void honoursBoundedDemand() {
         var drops = new LongAdder();
         var pub = new MulticastPublisher<Integer>(drops);
         try {
             var sink = new CopyOnWriteArrayList<Integer>();
             var subRef = new AtomicReference<Flow.Subscription>();
-            // Buffer > publish count so only demand can gate delivery; the old BLOCK bypass delivered all.
+            // Buffer > publish count so only demand can gate delivery.
             pub.subscribe(new Flow.Subscriber<>() {
                 @Override public void onSubscribe(Flow.Subscription s) { subRef.set(s); s.request(2); }
                 @Override public void onNext(Integer item) { sink.add(item); }
                 @Override public void onError(Throwable t) {}
                 @Override public void onComplete() {}
-            }, new TapOptions(OverflowPolicy.BLOCK, 16));
+            }, new TapOptions(TapOptions.Overflow.DROP_OLDEST, 16));
             for (var i = 0; i < 5; i++) {
                 pub.publish(i);
             }
@@ -124,47 +89,6 @@ class MulticastBackpressureTest {
         } finally {
             pub.close();
         }
-    }
-
-    @DisplayName("Cancelling a BLOCK subscription releases a producer blocked on a full queue")
-    @Test
-    @Timeout(15)
-    void cancelReleasesBlockedBlockProducer() throws InterruptedException {
-        var drops = new LongAdder();
-        var pub = new MulticastPublisher<Integer>(drops);
-        var subRef = new AtomicReference<Flow.Subscription>();
-        // Subscriber never requests, so the demand-gated dispatcher never drains the queue.
-        pub.subscribe(new Flow.Subscriber<>() {
-            @Override public void onSubscribe(Flow.Subscription s) { subRef.set(s); }
-            @Override public void onNext(Integer item) {}
-            @Override public void onError(Throwable t) {}
-            @Override public void onComplete() {}
-        }, new TapOptions(OverflowPolicy.BLOCK, 1));
-        await().atMost(Duration.ofSeconds(2)).until(() -> subRef.get() != null);
-
-        var producerReturned = new AtomicBoolean();
-        var producer = new Thread(() -> {
-            // The capacity-1 queue fills on the first item; the next publish blocks in offer().
-            for (var i = 0; i < 5; i++) {
-                pub.publish(i);
-            }
-            producerReturned.set(true);
-        }, "test-block-producer");
-        try {
-            producer.start();
-
-            // Nobody draining: the producer must be parked in publish(), not finished.
-            Thread.sleep(300);
-            assertThat(producerReturned.get()).isFalse();
-
-            // Cancellation must release the parked producer, not hang it.
-            subRef.get().cancel();
-            await().atMost(Duration.ofSeconds(5)).untilTrue(producerReturned);
-        } finally {
-            producer.join(Duration.ofSeconds(5));
-            pub.close();
-        }
-        assertThat(producerReturned.get()).isTrue();
     }
 
     @DisplayName("Subscriber throwing in onNext is signalled via onError")
