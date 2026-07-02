@@ -35,7 +35,9 @@ public final class Pipeline {
     /// A pipeline stage parameterised by the signal currently flowing through it.
     public sealed interface Stage<T> permits StageImpl {
 
-        /// Adds a pure 1-to-1 transform. A transform that returns null rejects the batch.
+        /// Adds a pure 1-to-1 transform. The transform must return non-null - a null return is a
+        /// contract violation surfaced as a permanent rejection. To drop a batch, use
+        /// [#filter(Predicate)], typically after a pruning transform leaves the batch empty.
         ///
         /// @param fn the transform function
         /// @return this stage
@@ -83,7 +85,8 @@ public final class Pipeline {
             Objects.requireNonNull(fn, "fn");
             Function<@Nullable T, @Nullable T> step = batch -> batch == null
                     ? null
-                    : Objects.requireNonNull(fn.apply(batch), "pipeline transform returned null");
+                    : Objects.requireNonNull(fn.apply(batch),
+                            () -> "transform returned null (transforms are 1-to-1; drop batches with filter(...))");
             return new StageImpl<>(source, stageFn.andThen(step), resources);
         }
 

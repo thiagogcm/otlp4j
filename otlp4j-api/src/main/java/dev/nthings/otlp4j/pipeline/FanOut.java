@@ -17,36 +17,55 @@ import java.util.concurrent.CompletionStage;
 /// The same `batch` reference is shared with every peer; the OTLP model is immutable, so
 /// concurrent delivery is safe.
 ///
+/// The `of` factories collapse degenerate shapes: a single peer is returned directly (so its
+/// lifecycle stays visible to the pipeline) and an empty peer set becomes a no-op sink that
+/// **accepts and discards every batch**, matching [Source#discard()] semantics.
+///
 /// @param <T> the OTLP signal carried by this fan-out
 public final class FanOut<T> implements Sink<T> {
+
+    /// Accepts and drops everything; the empty fan-out. Stateless, so one instance serves all
+    /// signal types.
+    private static final Sink<Object> DISCARD = batch -> ConsumeResult.acceptedStage();
 
     private final List<Sink<? super T>> peers;
 
     private FanOut(List<? extends Sink<? super T>> peers) {
-        if (peers.isEmpty()) {
-            throw new IllegalArgumentException("FanOut requires at least one peer");
-        }
         this.peers = List.copyOf(peers);
     }
 
-    /// Returns a [FanOut] over the given peers.
+    /// Returns a sink fanning out to the given peers. A single peer is returned as-is; an empty
+    /// peer set yields a no-op sink that accepts and discards every batch.
     ///
-    /// @param peers the peer sinks (at least one required)
+    /// @param peers the peer sinks
     /// @param <T>   the signal type
     /// @return the fan-out sink
     @SafeVarargs
-    public static <T> FanOut<T> of(Sink<? super T>... peers) {
-        return new FanOut<T>(List.of(peers));
+    public static <T> Sink<T> of(Sink<? super T>... peers) {
+        return FanOut.<T>of(List.of(peers));
     }
 
-    /// Returns a [FanOut] over the given peers.
+    /// Returns a sink fanning out to the given peers. A single peer is returned as-is; an empty
+    /// peer set yields a no-op sink that accepts and discards every batch.
     ///
-    /// @param peers the peer sinks (at least one required)
+    /// @param peers the peer sinks
     /// @param <T>   the signal type
     /// @return the fan-out sink
-    public static <T> FanOut<T> of(List<? extends Sink<? super T>> peers) {
+    public static <T> Sink<T> of(List<? extends Sink<? super T>> peers) {
         Objects.requireNonNull(peers, "peers");
-        return new FanOut<T>(peers);
+        return switch (peers.size()) {
+            case 0 -> narrow(DISCARD);
+            // The bare peer, not a wrapping lambda: a lambda would hide the peer's lifecycle
+            // from the pipeline's auto-collection.
+            case 1 -> narrow(peers.getFirst());
+            default -> new FanOut<T>(peers);
+        };
+    }
+
+    /// A `Sink<? super T>` is safe to use as a `Sink<T>`: sinks only consume `T`.
+    @SuppressWarnings("unchecked")
+    private static <T> Sink<T> narrow(Sink<? super T> sink) {
+        return (Sink<T>) sink;
     }
 
     /// The peers this fan-out delivers each batch to.

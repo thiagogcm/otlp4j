@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
+import dev.nthings.otlp4j.pipeline.FanOut;
 import dev.nthings.otlp4j.pipeline.Lifecycle;
 import dev.nthings.otlp4j.pipeline.Pipeline;
 import dev.nthings.otlp4j.pipeline.Sink;
@@ -112,7 +113,7 @@ class PipelineLifecycleTest {
             var r = source.dispatch(new TracesData(List.of())).toCompletableFuture().join();
             assertThat(r).isInstanceOf(ConsumeResult.Rejected.class);
             assertThat(((ConsumeResult.Rejected) r).message())
-                    .contains("pipeline transform returned null");
+                    .contains("transforms are 1-to-1");
         } finally {
             sub.close();
         }
@@ -128,6 +129,29 @@ class PipelineLifecycleTest {
         TracesSink terminal = traces -> ConsumeResult.acceptedStage();
         var sub = Pipeline.from(source).owns(resource).to(terminal);
 
+        assertThat(closed.get()).isFalse();
+        sub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
+        assertThat(closed.get()).isTrue();
+    }
+
+    @DisplayName("A single-peer FanOut terminal is still auto-drained (the bare peer is returned)")
+    @Test
+    void singlePeerFanOutTerminalIsAutoDrained() {
+        var source = new ManualSource<TracesData>();
+        var closed = new AtomicBoolean();
+
+        class CloseableTerminal implements TracesSink, AutoCloseable {
+            @Override public CompletionStage<ConsumeResult> consume(TracesData batch) {
+                return ConsumeResult.acceptedStage();
+            }
+            @Override public void close() {
+                closed.set(true);
+            }
+        }
+
+        // FanOut.of(peer) must return the bare peer, not a wrapping lambda - a wrapper would
+        // hide the AutoCloseable from the pipeline's auto-collection.
+        var sub = Pipeline.from(source).to(FanOut.of(new CloseableTerminal()));
         assertThat(closed.get()).isFalse();
         sub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
         assertThat(closed.get()).isTrue();

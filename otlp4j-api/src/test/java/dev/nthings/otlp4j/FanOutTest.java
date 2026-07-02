@@ -41,13 +41,24 @@ class FanOutTest {
         assertThat(result).isInstanceOf(ConsumeResult.Rejected.class);
     }
 
-    @DisplayName("of() rejects an empty peer set")
+    @DisplayName("of() with no peers accepts and discards every batch")
     @Test
-    void rejectsEmptyPeerSet() {
-        assertThatThrownBy(() -> FanOut.<TracesData>of(List.of()))
-                .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(FanOut::of)
-                .isInstanceOf(IllegalArgumentException.class);
+    void emptyFanOutAcceptsAndDiscards() {
+        var empty = FanOut.<TracesData>of(List.of());
+        var result = empty.consume(new TracesData(List.of())).toCompletableFuture().join();
+        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+
+        var emptyVarargs = FanOut.<TracesData>of();
+        assertThat(emptyVarargs.consume(new TracesData(List.of())).toCompletableFuture().join())
+                .isInstanceOf(ConsumeResult.Accepted.class);
+    }
+
+    @DisplayName("of() with a single peer returns the peer itself")
+    @Test
+    void singlePeerCollapsesToPeerIdentity() {
+        TracesSink peer = traces -> ConsumeResult.acceptedStage();
+        assertThat(FanOut.<TracesData>of(peer)).isSameAs(peer);
+        assertThat(FanOut.<TracesData>of(List.of(peer))).isSameAs(peer);
     }
 
     @DisplayName("Error-throwing peer is caught and does not block others")
@@ -63,8 +74,9 @@ class FanOutTest {
     @DisplayName("Rejection message includes exception class when message is null")
     @Test
     void rejectionMessageIncludesExceptionClass() {
+        TracesSink healthy = traces -> ConsumeResult.acceptedStage();
         TracesSink broken = traces -> { throw new IllegalStateException(); };
-        var fan = FanOut.<TracesData>of(broken);
+        var fan = FanOut.<TracesData>of(broken, healthy);
         var result = fan.consume(new TracesData(List.of())).toCompletableFuture().join();
         assertThat(result).isInstanceOfSatisfying(ConsumeResult.Rejected.class,
                 r -> assertThat(r.message()).contains("java.lang.IllegalStateException"));
@@ -73,9 +85,10 @@ class FanOutTest {
     @DisplayName("Rejection message unwraps CompletionException to show the cause")
     @Test
     void rejectionMessageUnwrapsCompletionException() {
+        TracesSink healthy = traces -> ConsumeResult.acceptedStage();
         TracesSink broken = traces -> CompletableFuture.failedFuture(
                 new CompletionException(new IllegalArgumentException("cause")));
-        var fan = FanOut.<TracesData>of(broken);
+        var fan = FanOut.<TracesData>of(broken, healthy);
         var result = fan.consume(new TracesData(List.of())).toCompletableFuture().join();
         assertThat(result).isInstanceOfSatisfying(ConsumeResult.Rejected.class,
                 r -> assertThat(r.message()).contains("cause"));

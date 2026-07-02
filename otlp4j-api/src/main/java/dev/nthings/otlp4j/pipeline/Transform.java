@@ -10,7 +10,9 @@ package dev.nthings.otlp4j.pipeline;
 @FunctionalInterface
 public interface Transform<T> {
 
-    /// Returns a non-null batch derived from `batch`. May return `batch` unchanged.
+    /// Returns a non-null batch derived from `batch`. May return `batch` unchanged. Returning
+    /// null is a contract violation that the pipeline rejects permanently; to drop a batch, use
+    /// [Pipeline.Stage#filter] instead.
     ///
     /// @param batch the input batch
     /// @return the transformed batch
