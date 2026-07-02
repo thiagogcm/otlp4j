@@ -1,6 +1,5 @@
 package dev.nthings.otlp4j.config;
 
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
@@ -42,7 +41,7 @@ public final class Headers {
                         "header name '" + name + "' contains an invalid character at index " + i);
             }
         }
-        if (name.toLowerCase(Locale.ROOT).endsWith("-bin")) {
+        if (name.regionMatches(true, name.length() - 4, "-bin", 0, 4)) {
             throw new IllegalArgumentException(
                     "header name '" + name + "' uses the gRPC-reserved -bin suffix");
         }

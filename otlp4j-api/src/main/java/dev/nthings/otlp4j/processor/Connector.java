@@ -7,7 +7,6 @@ import dev.nthings.otlp4j.pipeline.Sink;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -140,20 +139,10 @@ public abstract class Connector<I, O> implements Sink<I>, SharedLifecycle {
         return CompletableFuture.completedFuture(null);
     }
 
-    /// Permanent rejection from a derived-delivery failure, unwrapping [CompletionException] to
-    /// the cause. An [Error] is rethrown (not swallowed past `applyPolicy`); an
-    /// [InterruptedException] restores the interrupt flag.
+    /// Permanent rejection from a derived-delivery failure, normalized by
+    /// [ConsumeResult#permanentFrom] (an [Error] is rethrown, not swallowed past `applyPolicy`).
     private ConsumeResult rejected(String verb, Throwable failure) {
-        var cause = failure instanceof CompletionException && failure.getCause() != null
-                ? failure.getCause()
-                : failure;
-        if (cause instanceof Error error) {
-            throw error;
-        }
-        if (cause instanceof InterruptedException) {
-            Thread.currentThread().interrupt();
-        }
-        return ConsumeResult.permanent(name + " " + verb + ": " + cause, cause);
+        return ConsumeResult.permanentFrom(name + " " + verb, failure);
     }
 
     /// Maps the derived-delivery result onto the input result; logs failures, and under
@@ -174,7 +163,6 @@ public abstract class Connector<I, O> implements Sink<I>, SharedLifecycle {
             case ConsumeResult.Rejected(var retryable, var message, var cause, var retryAfter) -> {
                 log.warn("{} derived delivery rejected: {}", name, message, cause);
                 if (policy == FailurePolicy.FAIL) {
-                    // Forward the downstream retry intent, backpressure hint, and cause onto the input.
                     var forwarded = name + " derived batch rejected: " + message;
                     if (!retryable) {
                         return ConsumeResult.permanent(forwarded, cause);

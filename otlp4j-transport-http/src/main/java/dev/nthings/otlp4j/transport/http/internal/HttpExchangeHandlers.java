@@ -98,12 +98,12 @@ final class HttpExchangeHandlers {
 
             // Global admission: the permit spans decode and dispatch; the handler is
             // synchronous (join below), so the finally releases it exactly once.
-            var permit = admission.tryAcquire(payload.length);
+            var permit = admission.tryAcquire(() -> payload.length);
             if (permit == null) {
                 var hint = admission.retryAfterHint();
                 if (hint != null) {
                     exchange.getResponseHeaders().add("Retry-After",
-                            Long.toString(Math.max(1L, Math.ceilDiv(hint.toNanos(), 1_000_000_000L))));
+                            Long.toString(DeliveryResults.retryAfterSeconds(hint)));
                 }
                 log.warn("receiver at capacity ({} requests / {} bytes in flight); responding 429",
                         admission.inFlightRequests(), admission.inFlightBytes());

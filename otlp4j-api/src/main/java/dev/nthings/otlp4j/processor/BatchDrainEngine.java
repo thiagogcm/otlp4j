@@ -14,6 +14,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -24,11 +25,11 @@ final class BatchDrainEngine<T> {
 
     /// Observes the outcome of every non-empty drain (an empty drain proves nothing about
     /// downstream health). Backs the batcher's degraded-state reflection.
+    @FunctionalInterface
     interface DrainListener {
 
-        void onDrainSuccess();
-
-        void onDrainFailure(Throwable failure);
+        /// Called once per non-empty drain; `failure` is null on success.
+        void onDrainOutcome(@Nullable Throwable failure);
     }
 
     private final ArrayBlockingQueue<T> queue;
@@ -114,7 +115,7 @@ final class BatchDrainEngine<T> {
         if (snapshot.isEmpty()) {
             return CompletableFuture.completedFuture(null);
         }
-        return observed(deliver(snapshot));
+        return deliver(snapshot).whenComplete((ignored, failure) -> listener.onDrainOutcome(failure));
     }
 
     private CompletableFuture<Void> deliver(List<T> snapshot) {
@@ -127,17 +128,6 @@ final class BatchDrainEngine<T> {
             return CompletableFuture.failedFuture(new BatchingProcessor.BatchDeliveryException(
                     "failed to flush drained batch: " + e.getMessage(), e));
         }
-    }
-
-    /// Reports the drain outcome to the listener without altering the drain's own result.
-    private CompletableFuture<Void> observed(CompletableFuture<Void> drain) {
-        return drain.whenComplete((ignored, failure) -> {
-            if (failure != null) {
-                listener.onDrainFailure(failure);
-            } else {
-                listener.onDrainSuccess();
-            }
-        });
     }
 
     static CompletableFuture<Void> asDeliveryOutcome(ConsumeResult result) {

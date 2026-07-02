@@ -91,20 +91,15 @@ public final class BatchingProcessor<T> implements Sink<T>, Lifecycle {
                 Thread.ofVirtual().name("otlp4j-batcher-drain").factory());
         this.drainEngine = new BatchDrainEngine<>(
                 queue, downstream, signal::merge, closed, SharedTimer.INSTANCE, drainExecutor,
-                this::flushIfDue, new DegradedWindow());
+                this::flushIfDue, this::onDrainOutcome);
     }
 
     /// Tracks downstream health from drain outcomes.
-    private final class DegradedWindow implements BatchDrainEngine.DrainListener {
-
-        @Override
-        public void onDrainSuccess() {
+    private void onDrainOutcome(@Nullable Throwable failure) {
+        if (failure == null) {
             degradedUntilNanos = 0L;
             lastDrainFailure = null;
-        }
-
-        @Override
-        public void onDrainFailure(Throwable failure) {
+        } else {
             lastDrainFailure = failure;
             degradedUntilNanos = System.nanoTime() + FLUSH_INTERVAL.toNanos();
         }
@@ -115,8 +110,6 @@ public final class BatchingProcessor<T> implements Sink<T>, Lifecycle {
         if (closed.get()) {
             return CompletableFuture.completedFuture(ConsumeResult.retryable("batcher closed"));
         }
-        // Degraded reflection: while the last flush failed, reject at ingress WITHOUT enqueueing,
-        // so the sender retains the batch instead of it joining a queue that is going nowhere.
         // 0 is the healthy sentinel (nanoTime has an arbitrary origin, so compare relatively).
         var degradedUntil = degradedUntilNanos;
         if (reflectDownstreamFailures && degradedUntil != 0L && System.nanoTime() - degradedUntil < 0) {
@@ -284,8 +277,8 @@ public final class BatchingProcessor<T> implements Sink<T>, Lifecycle {
         /// Reflects sustained downstream failure back at ingress (default off). After a drain
         /// fails, `consume` rejects retryably with a one-flush-interval retry-after hint - the
         /// batch is NOT enqueued, so the sender retains it - until the window expires (admitting
-        /// a probe batch) or a drain succeeds. Off, the batcher keeps today's fire-and-forget
-        /// behaviour: failed timer/threshold drains are logged and their batches lost.
+        /// a probe batch) or a drain succeeds. Off, the batcher is fire-and-forget: failed
+        /// timer/threshold drains are logged and their batches lost.
         public Builder<T> reflectDownstreamFailures(boolean reflect) {
             this.reflectDownstreamFailures = reflect;
             return this;

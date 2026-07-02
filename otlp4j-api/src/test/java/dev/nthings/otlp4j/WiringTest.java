@@ -23,30 +23,8 @@ import org.junit.jupiter.api.Test;
 @DisplayName("Wiring")
 class WiringTest {
 
-    /// Recording lifecycle stub that appends its label to a shared sequence.
-    private static final class RecordingLifecycle implements Lifecycle {
-
-        private final String label;
-        private final List<String> sequence;
-
-        RecordingLifecycle(String label, List<String> sequence) {
-            this.label = label;
-            this.sequence = sequence;
-        }
-
-        @Override
-        public CompletionStage<Void> shutdown(Duration timeout) {
-            sequence.add(label);
-            return CompletableFuture.completedFuture(null);
-        }
-
-        @Override
-        public CompletionStage<Void> forceFlush(Duration timeout) {
-            sequence.add(label + "-flush");
-            return CompletableFuture.completedFuture(null);
-        }
-    }
-
+    /// Recording stub that appends its label to a shared sequence. A [PipelineHandle] is a
+    /// [Lifecycle], so one stub serves both builder phases.
     private static final class RecordingHandle implements PipelineHandle {
 
         private final String label;
@@ -75,9 +53,9 @@ class WiringTest {
     void shutdownOrderIsReceiversPipelinesOwned() {
         var sequence = new ArrayList<String>();
         var wiring = Wiring.builder()
-                .owns(new RecordingLifecycle("owned", sequence))
+                .owns(new RecordingHandle("owned", sequence))
                 .pipeline(new RecordingHandle("pipeline", sequence))
-                .receiver(new RecordingLifecycle("receiver", sequence))
+                .receiver(new RecordingHandle("receiver", sequence))
                 .build();
 
         wiring.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
@@ -99,7 +77,7 @@ class WiringTest {
         var wiring = Wiring.builder()
                 .receiver(failing)
                 .pipeline(new RecordingHandle("pipeline", sequence))
-                .owns(new RecordingLifecycle("owned", sequence))
+                .owns(new RecordingHandle("owned", sequence))
                 .build();
 
         var stage = wiring.shutdown(Duration.ofSeconds(1)).toCompletableFuture();
@@ -116,7 +94,7 @@ class WiringTest {
     void secondShutdownIsNoOp() {
         var sequence = new ArrayList<String>();
         var wiring = Wiring.builder()
-                .receiver(new RecordingLifecycle("receiver", sequence))
+                .receiver(new RecordingHandle("receiver", sequence))
                 .build();
 
         wiring.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
@@ -129,7 +107,7 @@ class WiringTest {
     @Test
     void crossPhaseDedup() {
         var sequence = new ArrayList<String>();
-        var receiver = new RecordingLifecycle("shared", sequence);
+        var receiver = new RecordingHandle("shared", sequence);
         var wiring = Wiring.builder()
                 .receiver(receiver)
                 .owns(receiver)
@@ -145,9 +123,9 @@ class WiringTest {
     void forceFlushOrder() {
         var sequence = new ArrayList<String>();
         var wiring = Wiring.builder()
-                .receiver(new RecordingLifecycle("receiver", sequence))
+                .receiver(new RecordingHandle("receiver", sequence))
                 .pipeline(new RecordingHandle("pipeline", sequence))
-                .owns(new RecordingLifecycle("owned", sequence))
+                .owns(new RecordingHandle("owned", sequence))
                 .build();
 
         wiring.forceFlush(Duration.ofSeconds(1)).toCompletableFuture().join();

@@ -5,7 +5,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -20,7 +19,16 @@ import org.jspecify.annotations.Nullable;
 /// along the way.
 public final class Pipeline {
 
+    /// Shared identity sentinel: reference-compared in [StageImpl#liftedChain] so a stage with no
+    /// pending synchronous ops adds no per-batch work.
+    private static final Function<?, ?> IDENTITY = Function.identity();
+
     private Pipeline() {
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> Function<@Nullable T, @Nullable T> identity() {
+        return (Function<@Nullable T, @Nullable T>) IDENTITY;
     }
 
     /// Opens a builder attached to `source`.
@@ -29,7 +37,7 @@ public final class Pipeline {
     /// @param <T>    the signal type
     /// @return the initial stage
     public static <T> Stage<T> from(Source<T> source) {
-        return new StageImpl<>(Objects.requireNonNull(source, "source"), batch -> batch, null, new ArrayList<>());
+        return new StageImpl<>(Objects.requireNonNull(source, "source"), identity(), null, new ArrayList<>());
     }
 
     /// A pipeline stage parameterised by the signal currently flowing through it.
@@ -124,7 +132,7 @@ public final class Pipeline {
                 nextResources.addAll(resources);
                 nextResources.add(closeable);
             }
-            return new StageImpl<>(source, batch -> batch, next, nextResources);
+            return new StageImpl<>(source, identity(), next, nextResources);
         }
 
         @Override
@@ -178,7 +186,7 @@ public final class Pipeline {
                     .<CompletionStage<ConsumeResult>>handle((after, failure) -> {
                         if (failure != null) {
                             return CompletableFuture.completedFuture(
-                                    rejectedStage("pipeline stage failed", failure));
+                                    ConsumeResult.permanentFrom("pipeline stage failed", failure));
                         }
                         if (after == null) {
                             return ConsumeResult.acceptedStage();
@@ -203,6 +211,9 @@ public final class Pipeline {
                     }
                 };
             }
+            if (sync == IDENTITY) {
+                return chain;
+            }
             return batch -> chain.apply(batch).thenApply(sync);
         }
     }
@@ -226,24 +237,8 @@ public final class Pipeline {
         try {
             stage = Objects.requireNonNull(terminal.consume(batch), "terminal returned a null stage");
         } catch (Throwable e) {
-            return CompletableFuture.completedFuture(rejectedStage("pipeline terminal threw", e));
+            return CompletableFuture.completedFuture(ConsumeResult.permanentFrom("pipeline terminal threw", e));
         }
-        return stage.exceptionally(t -> rejectedStage("pipeline terminal failed", t));
-    }
-
-    /// Permanent rejection for a failed pipeline stage or terminal, unwrapping
-    /// [CompletionException]. An [Error] is rethrown; an [InterruptedException] restores the
-    /// interrupt flag.
-    private static ConsumeResult rejectedStage(String prefix, Throwable failure) {
-        var cause = failure instanceof CompletionException && failure.getCause() != null
-                ? failure.getCause()
-                : failure;
-        if (cause instanceof Error error) {
-            throw error;
-        }
-        if (cause instanceof InterruptedException) {
-            Thread.currentThread().interrupt();
-        }
-        return ConsumeResult.permanent(prefix + ": " + cause, cause);
+        return stage.exceptionally(t -> ConsumeResult.permanentFrom("pipeline terminal failed", t));
     }
 }

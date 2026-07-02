@@ -105,8 +105,7 @@ class GrpcServiceAdaptersTest {
                         TraceMapper.toProto(TransportFixtures.richTraceData()), observer);
         observer.await();
         var trailers = Status.trailersFromThrowable(observer.error);
-        assertThat(trailers).isNotNull();
-        assertThat(trailers.get(GrpcRetry.PUSHBACK_MS)).isNull();
+        assertThat(trailers == null ? null : trailers.get(GrpcRetry.PUSHBACK_MS)).isNull();
     }
 
     @DisplayName("A permanent whole-batch Rejected maps to INTERNAL")

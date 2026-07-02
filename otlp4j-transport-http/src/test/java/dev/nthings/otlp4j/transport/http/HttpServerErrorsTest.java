@@ -106,12 +106,7 @@ class HttpServerErrorsTest {
                 .start();
         receivers.add(receiver);
 
-        var response = client.send(
-                HttpRequest.newBuilder(uri(receiver.port(), "/v1/traces"))
-                        .header("Content-Type", "application/x-protobuf")
-                        .POST(HttpRequest.BodyPublishers.ofByteArray(new byte[0]))
-                        .build(),
-                HttpResponse.BodyHandlers.ofString());
+        var response = client.send(emptyTraceRequest(receiver.port()), HttpResponse.BodyHandlers.ofString());
 
         assertThat(response.statusCode()).isEqualTo(503);
         assertThat(response.headers().firstValue("Retry-After")).hasValue("2");
@@ -126,12 +121,7 @@ class HttpServerErrorsTest {
                 .start();
         receivers.add(receiver);
 
-        var response = client.send(
-                HttpRequest.newBuilder(uri(receiver.port(), "/v1/traces"))
-                        .header("Content-Type", "application/x-protobuf")
-                        .POST(HttpRequest.BodyPublishers.ofByteArray(new byte[0]))
-                        .build(),
-                HttpResponse.BodyHandlers.ofString());
+        var response = client.send(emptyTraceRequest(receiver.port()), HttpResponse.BodyHandlers.ofString());
 
         assertThat(response.statusCode()).isEqualTo(503);
         assertThat(response.headers().firstValue("Retry-After")).isEmpty();
@@ -152,10 +142,7 @@ class HttpServerErrorsTest {
                 .build()
                 .start();
         receivers.add(receiver);
-        var request = HttpRequest.newBuilder(uri(receiver.port(), "/v1/traces"))
-                .header("Content-Type", "application/x-protobuf")
-                .POST(HttpRequest.BodyPublishers.ofByteArray(new byte[0]))
-                .build();
+        var request = emptyTraceRequest(receiver.port());
 
         // First request occupies the single admission slot until the gate opens.
         var first = client.sendAsync(request, HttpResponse.BodyHandlers.ofString());
@@ -185,10 +172,7 @@ class HttpServerErrorsTest {
                 .build()
                 .start();
         receivers.add(receiver);
-        var request = HttpRequest.newBuilder(uri(receiver.port(), "/v1/traces"))
-                .header("Content-Type", "application/x-protobuf")
-                .POST(HttpRequest.BodyPublishers.ofByteArray(new byte[0]))
-                .build();
+        var request = emptyTraceRequest(receiver.port());
 
         var first = client.sendAsync(request, HttpResponse.BodyHandlers.ofString());
         assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
@@ -199,6 +183,14 @@ class HttpServerErrorsTest {
 
         gate.complete(ConsumeResult.accepted());
         assertThat(first.join().statusCode()).isEqualTo(200);
+    }
+
+    /// A valid (empty-body) protobuf trace export request.
+    private static HttpRequest emptyTraceRequest(int port) {
+        return HttpRequest.newBuilder(uri(port, "/v1/traces"))
+                .header("Content-Type", "application/x-protobuf")
+                .POST(HttpRequest.BodyPublishers.ofByteArray(new byte[0]))
+                .build();
     }
 
     private int startReceiver(OtlpHttpReceiver.Builder builder) {

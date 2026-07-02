@@ -22,7 +22,6 @@ abstract sealed class CountConnector<I> extends Connector<I, MetricsData>
     private static final InstrumentationScope SCOPE =
             InstrumentationScope.of("otlp4j-count-connector", "0.1.0");
 
-    private final String metricName;
     private final String description;
     private final ToLongFunction<I> counter;
     private final AtomicLong previousFlushNanos = new AtomicLong(nowEpochNanos());
@@ -34,7 +33,6 @@ abstract sealed class CountConnector<I> extends Connector<I, MetricsData>
             String description,
             ToLongFunction<I> counter) {
         super(metricName, downstream, policy);
-        this.metricName = metricName;
         this.description = description;
         this.counter = counter;
     }
@@ -51,7 +49,7 @@ abstract sealed class CountConnector<I> extends Connector<I, MetricsData>
         var point = new NumberPoint(
                 Attributes.empty(), startEpochNanos, epochNanos, NumberPoint.longValue(count), 0L, List.of());
         var metric = new Metric(
-                metricName,
+                name(),
                 description,
                 "{item}",
                 new Metric.Sum(List.of(point), Metric.AggregationTemporality.DELTA, true),

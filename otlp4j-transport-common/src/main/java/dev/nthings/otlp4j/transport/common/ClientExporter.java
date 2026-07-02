@@ -120,8 +120,6 @@ public final class ClientExporter implements OtlpExporter, SharedLifecycle {
         // Shutdown was requested; silence the leak watch even if the close below fails or times out.
         leakWatch.closed = true;
         cleanable.clean();
-        // One short-lived virtual thread per close, instead of a platform thread idling per
-        // exporter instance for its whole lifetime.
         var closing = new CompletableFuture<Void>();
         var closer = Thread.ofVirtual().name("otlp-exporter-shutdown").start(() -> {
             try {

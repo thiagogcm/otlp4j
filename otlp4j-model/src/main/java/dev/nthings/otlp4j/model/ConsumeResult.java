@@ -3,6 +3,7 @@ package dev.nthings.otlp4j.model;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import org.jspecify.annotations.Nullable;
 
@@ -102,6 +103,27 @@ public sealed interface ConsumeResult permits ConsumeResult.Accepted, ConsumeRes
     /// when none is available.
     static ConsumeResult permanent(String message, @Nullable Throwable cause) {
         return new Rejected(false, message, cause, null);
+    }
+
+    /// Normalizes a delivery failure into a permanent rejection following the API-wide
+    /// conventions: a [java.util.concurrent.CompletionException] is unwrapped to its cause, an
+    /// [Error] is rethrown, and an [InterruptedException] restores the thread's interrupt flag.
+    /// The rejection message is `prefix + ": " + cause`.
+    ///
+    /// @param prefix  the message prefix naming the failing stage
+    /// @param failure the failure to normalize
+    /// @return a permanent rejection carrying the unwrapped cause
+    static ConsumeResult permanentFrom(String prefix, Throwable failure) {
+        var cause = failure instanceof CompletionException completion && completion.getCause() != null
+                ? completion.getCause()
+                : failure;
+        if (cause instanceof Error error) {
+            throw error;
+        }
+        if (cause instanceof InterruptedException) {
+            Thread.currentThread().interrupt();
+        }
+        return new Rejected(false, prefix + ": " + cause, cause, null);
     }
 
     /// Completed stage shorthand for [#accepted()].

@@ -26,7 +26,8 @@ public final class ClientHeaders {
             return constant;
         }
         var merged = new LinkedHashMap<String, String>(constant);
-        merged.putAll(supplier.get());
-        return Headers.requireValid(merged);
+        // Only the supplier's entries need validating: the constants were validated at build.
+        merged.putAll(Headers.requireValid(supplier.get()));
+        return merged;
     }
 }

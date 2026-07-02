@@ -1,8 +1,10 @@
 package dev.nthings.otlp4j.transport.grpc.internal;
 
 import io.grpc.Metadata;
+import java.time.Duration;
+import org.jspecify.annotations.Nullable;
 
-/// gRPC retry-pushback wire constants shared by the client (reads the trailer to fold server
+/// gRPC retry-pushback wire encoding shared by the client (reads the trailer to fold server
 /// backpressure into its retry intervals) and the server (emits it for a throttled rejection).
 final class GrpcRetry {
 
@@ -12,5 +14,16 @@ final class GrpcRetry {
             Metadata.Key.of("grpc-retry-pushback-ms", Metadata.ASCII_STRING_MARSHALLER);
 
     private GrpcRetry() {
+    }
+
+    /// Trailers carrying `hint` as the pushback delay, or null (no trailers) when there is no
+    /// hint.
+    static @Nullable Metadata pushbackTrailers(@Nullable Duration hint) {
+        if (hint == null) {
+            return null;
+        }
+        var trailers = new Metadata();
+        trailers.put(PUSHBACK_MS, Long.toString(hint.toMillis()));
+        return trailers;
     }
 }

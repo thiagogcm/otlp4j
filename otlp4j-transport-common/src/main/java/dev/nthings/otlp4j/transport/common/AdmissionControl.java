@@ -2,9 +2,11 @@ package dev.nthings.otlp4j.transport.common;
 
 import dev.nthings.otlp4j.config.ServerConfig;
 import java.time.Duration;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.function.LongSupplier;
 import org.jspecify.annotations.Nullable;
 
 /// Global admission control for a receiver: caps decoded export requests and bytes in flight
@@ -23,15 +25,15 @@ public final class AdmissionControl {
 
     private static final AdmissionControl UNLIMITED = new AdmissionControl(0, 0L, null);
 
+    /// The always-admitting no-op permit; its close mutates nothing.
+    private static final Permit NO_OP = UNLIMITED.new Permit(0L, true);
+
     private final int maxRequests;
     private final long maxBytes;
     private final @Nullable Duration retryAfterHint;
     private final AtomicInteger requests = new AtomicInteger();
     private final AtomicLong bytes = new AtomicLong();
     private final LongAdder rejected = new LongAdder();
-
-    /// The always-admitting no-op permit shared by the unlimited instance.
-    private final Permit unlimitedPermit = new Permit(0L, true);
 
     private AdmissionControl(int maxRequests, long maxBytes, @Nullable Duration retryAfterHint) {
         this.maxRequests = maxRequests;
@@ -59,20 +61,21 @@ public final class AdmissionControl {
         return UNLIMITED;
     }
 
-    /// Attempts to admit one request of `requestBytes` decoded bytes. Never blocks.
+    /// Attempts to admit one request. Never blocks. The size supplier is invoked at most once,
+    /// and only when a limit is configured, so callers may pass a lazily computed size (e.g.
+    /// `request::getSerializedSize`).
     ///
-    /// @param requestBytes the decoded size of the request
+    /// @param requestBytes supplies the decoded size of the request
     /// @return a permit to close when the request's dispatch completes, or null when the
     ///         receiver is at capacity
-    public @Nullable Permit tryAcquire(long requestBytes) {
+    public @Nullable Permit tryAcquire(LongSupplier requestBytes) {
         if (this == UNLIMITED) {
-            return unlimitedPermit;
+            return NO_OP;
         }
+        var size = requestBytes.getAsLong();
         while (true) {
             var currentRequests = requests.get();
-            // Progress guarantee: with nothing in flight, admit regardless of the byte cap.
-            var admitWhenIdle = currentRequests == 0;
-            if (!admitWhenIdle && maxRequests > 0 && currentRequests >= maxRequests) {
+            if (maxRequests > 0 && currentRequests >= maxRequests) {
                 rejected.increment();
                 return null;
             }
@@ -80,15 +83,17 @@ public final class AdmissionControl {
                 continue;
             }
             // Add first, roll back on overshoot: two concurrent admits cannot both slip under
-            // the cap through a stale read.
-            var newBytes = bytes.addAndGet(requestBytes);
+            // the cap through a stale read. Progress guarantee: the request that took the count
+            // from 0 to 1 is admitted regardless of the byte cap.
+            var admitWhenIdle = currentRequests == 0;
+            var newBytes = bytes.addAndGet(size);
             if (!admitWhenIdle && maxBytes > 0 && newBytes > maxBytes) {
-                bytes.addAndGet(-requestBytes);
+                bytes.addAndGet(-size);
                 requests.decrementAndGet();
                 rejected.increment();
                 return null;
             }
-            return new Permit(requestBytes, false);
+            return new Permit(size, false);
         }
     }
 
@@ -125,7 +130,7 @@ public final class AdmissionControl {
 
         private final long permitBytes;
         private final boolean noOp;
-        private final AtomicInteger released = new AtomicInteger();
+        private final AtomicBoolean released = new AtomicBoolean();
 
         private Permit(long permitBytes, boolean noOp) {
             this.permitBytes = permitBytes;
@@ -134,7 +139,7 @@ public final class AdmissionControl {
 
         @Override
         public void close() {
-            if (noOp || released.getAndIncrement() > 0) {
+            if (noOp || released.getAndSet(true)) {
                 return;
             }
             requests.decrementAndGet();

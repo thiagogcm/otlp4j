@@ -14,7 +14,6 @@ import com.google.protobuf.MessageLite;
 import dev.nthings.otlp4j.spi.Dispatchers;
 import dev.nthings.otlp4j.transport.common.AdmissionControl;
 import io.grpc.BindableService;
-import io.grpc.Metadata;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import io.opentelemetry.proto.collector.logs.v1.ExportLogsServiceRequest;
@@ -80,7 +79,9 @@ final class GrpcServiceAdapters {
             Function<SIG, CompletionStage<ConsumeResult>> dispatcher,
             Function<ConsumeResult, RESP> asResponse,
             AdmissionControl admission) {
-        var permit = admission.tryAcquire(request.getSerializedSize());
+        // Lazy sizing: getSerializedSize walks the whole message, so it runs only when a limit
+        // is configured.
+        var permit = admission.tryAcquire(request::getSerializedSize);
         if (permit == null) {
             observer.onError(atCapacity(admission));
             return;
@@ -99,16 +100,11 @@ final class GrpcServiceAdapters {
 
     /// `UNAVAILABLE` for a request rejected at admission, carrying the configured pushback hint.
     private static Throwable atCapacity(AdmissionControl admission) {
-        var trailers = new Metadata();
-        var hint = admission.retryAfterHint();
-        if (hint != null) {
-            trailers.put(GrpcRetry.PUSHBACK_MS, Long.toString(hint.toMillis()));
-        }
         log.warn("receiver at capacity ({} requests / {} bytes in flight); responding with gRPC UNAVAILABLE",
                 admission.inFlightRequests(), admission.inFlightBytes());
         return Status.UNAVAILABLE
                 .withDescription("receiver at capacity")
-                .asRuntimeException(trailers);
+                .asRuntimeException(GrpcRetry.pushbackTrailers(admission.retryAfterHint()));
     }
 
     /// Asynchronously consumes the result, mapping [ConsumeResult] to a gRPC
@@ -131,13 +127,10 @@ final class GrpcServiceAdapters {
                 if (cause != null) {
                     status = status.withCause(cause);
                 }
-                var trailers = new Metadata();
-                if (retryAfter != null) {
-                    trailers.put(GrpcRetry.PUSHBACK_MS, Long.toString(retryAfter.toMillis()));
-                }
                 log.warn("dispatcher rejected the whole batch; responding with gRPC {}: {}",
                         status.getCode(), message);
-                observer.onError(status.withDescription(message).asRuntimeException(trailers));
+                observer.onError(status.withDescription(message)
+                        .asRuntimeException(GrpcRetry.pushbackTrailers(retryAfter)));
                 return;
             }
             try {

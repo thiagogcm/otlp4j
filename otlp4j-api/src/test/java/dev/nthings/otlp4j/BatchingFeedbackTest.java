@@ -52,7 +52,7 @@ class BatchingFeedbackTest {
                     .isInstanceOf(CompletionException.class)
                     .hasCauseInstanceOf(BatchingProcessor.BatchDeliveryException.class);
 
-            // Even right after the failed flush, ingress still accepts (current behaviour pinned).
+            // Even right after the failed flush, ingress still accepts.
             assertThat(batcher.consume(batch()).toCompletableFuture().join())
                     .isInstanceOf(ConsumeResult.Accepted.class);
         } finally {

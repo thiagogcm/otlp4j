@@ -16,18 +16,18 @@ class AdmissionControlTest {
         var admission = AdmissionControl.of(
                 ServerConfig.builder().setMaxInFlightRequests(2).build());
 
-        var first = admission.tryAcquire(10);
-        var second = admission.tryAcquire(10);
+        var first = admission.tryAcquire(() -> 10);
+        var second = admission.tryAcquire(() -> 10);
         assertThat(first).isNotNull();
         assertThat(second).isNotNull();
         assertThat(admission.inFlightRequests()).isEqualTo(2);
 
-        assertThat(admission.tryAcquire(10)).isNull();
+        assertThat(admission.tryAcquire(() -> 10)).isNull();
         assertThat(admission.rejectedCount()).isEqualTo(1);
 
         first.close();
         assertThat(admission.inFlightRequests()).isEqualTo(1);
-        var third = admission.tryAcquire(10);
+        var third = admission.tryAcquire(() -> 10);
         assertThat(third).isNotNull();
         second.close();
         third.close();
@@ -41,15 +41,15 @@ class AdmissionControlTest {
         var admission = AdmissionControl.of(
                 ServerConfig.builder().setMaxInFlightBytes(100).build());
 
-        var first = admission.tryAcquire(60);
+        var first = admission.tryAcquire(() -> 60);
         assertThat(first).isNotNull();
         assertThat(admission.inFlightBytes()).isEqualTo(60);
 
-        assertThat(admission.tryAcquire(50)).isNull();
+        assertThat(admission.tryAcquire(() -> 50)).isNull();
         assertThat(admission.inFlightBytes()).isEqualTo(60);
         assertThat(admission.rejectedCount()).isEqualTo(1);
 
-        var second = admission.tryAcquire(40);
+        var second = admission.tryAcquire(() -> 40);
         assertThat(second).isNotNull();
         first.close();
         second.close();
@@ -62,16 +62,16 @@ class AdmissionControlTest {
         var admission = AdmissionControl.of(
                 ServerConfig.builder().setMaxInFlightBytes(100).build());
 
-        var oversized = admission.tryAcquire(10_000);
+        var oversized = admission.tryAcquire(() -> 10_000);
         assertThat(oversized).isNotNull();
         assertThat(admission.inFlightBytes()).isEqualTo(10_000);
 
         // While the oversized request is in flight, further requests are rejected.
-        assertThat(admission.tryAcquire(1)).isNull();
+        assertThat(admission.tryAcquire(() -> 1)).isNull();
 
         oversized.close();
         assertThat(admission.inFlightBytes()).isZero();
-        var next = admission.tryAcquire(1);
+        var next = admission.tryAcquire(() -> 1);
         assertThat(next).isNotNull();
         next.close();
     }
@@ -82,7 +82,7 @@ class AdmissionControlTest {
         var admission = AdmissionControl.of(
                 ServerConfig.builder().setMaxInFlightRequests(1).setMaxInFlightBytes(100).build());
 
-        var permit = admission.tryAcquire(40);
+        var permit = admission.tryAcquire(() -> 40);
         assertThat(permit).isNotNull();
         permit.close();
         permit.close();
@@ -98,7 +98,7 @@ class AdmissionControlTest {
         assertThat(admission).isSameAs(AdmissionControl.unlimited());
 
         for (var i = 0; i < 10_000; i++) {
-            var permit = admission.tryAcquire(Long.MAX_VALUE / 2);
+            var permit = admission.tryAcquire(() -> Long.MAX_VALUE / 2);
             assertThat(permit).isNotNull();
             permit.close();
         }

@@ -7,8 +7,6 @@ import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
-import org.jspecify.annotations.Nullable;
 
 /// One handle over a whole gateway's wiring: its receivers, its pipeline subscriptions, and any
 /// resources hidden from every pipeline. Codifies the shutdown ordering that is otherwise the
@@ -71,39 +69,17 @@ public final class Wiring implements Lifecycle {
         if (!closed.compareAndSet(false, true)) {
             return CompletableFuture.completedFuture(null);
         }
-        var deadlineNanos = PipelineLifecycle.deadlineNanos(timeout);
-        var firstError = new AtomicReference<@Nullable Throwable>();
-        var chain = CompletableFuture.<Void>completedFuture(null);
-        for (var receiver : dedupedPhases()) {
-            chain = chain.thenCompose(ignored -> PipelineLifecycle.settle(
-                    PipelineLifecycle.closeResource(receiver, PipelineLifecycle.remaining(deadlineNanos)),
-                    firstError));
-        }
-        return chain.thenCompose(ignored -> {
-            var error = firstError.get();
-            return error == null
-                    ? CompletableFuture.completedFuture(null)
-                    : CompletableFuture.<Void>failedFuture(error);
-        });
+        return PipelineLifecycle.closeAllInOrder(dedupedPhases(), timeout);
     }
 
     /// Flushes pipelines then owned [Lifecycle] resources, sharing one deadline. Receivers do not
     /// buffer, so they are not flushed.
     @Override
     public CompletionStage<Void> forceFlush(Duration timeout) {
-        var deadlineNanos = PipelineLifecycle.deadlineNanos(timeout);
-        var chain = CompletableFuture.<Void>completedFuture(null);
-        for (var pipeline : pipelines) {
-            chain = chain.thenCompose(ignored ->
-                    pipeline.forceFlush(PipelineLifecycle.remaining(deadlineNanos)).toCompletableFuture());
-        }
-        for (var resource : owned) {
-            if (resource instanceof Lifecycle lifecycle) {
-                chain = chain.thenCompose(ignored ->
-                        lifecycle.forceFlush(PipelineLifecycle.remaining(deadlineNanos)).toCompletableFuture());
-            }
-        }
-        return chain;
+        var ordered = new ArrayList<AutoCloseable>(pipelines.size() + owned.size());
+        ordered.addAll(pipelines);
+        ordered.addAll(owned);
+        return PipelineLifecycle.flushAllInOrder(ordered, timeout);
     }
 
     /// The three phases in shutdown order, deduplicated by reference identity across phases so a
