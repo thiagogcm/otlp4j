@@ -1,6 +1,5 @@
 package dev.nthings.otlp4j.pipeline;
 
-import dev.nthings.otlp4j.pipeline.internal.SharedLifecycle;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;

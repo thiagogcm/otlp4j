@@ -4,7 +4,7 @@ import dev.nthings.otlp4j.pipeline.LogsSink;
 import dev.nthings.otlp4j.pipeline.MetricsSink;
 import dev.nthings.otlp4j.pipeline.ProfilesSink;
 import dev.nthings.otlp4j.pipeline.TracesSink;
-import dev.nthings.otlp4j.pipeline.internal.SharedLifecycle;
+import dev.nthings.otlp4j.pipeline.SharedLifecycle;
 import dev.nthings.otlp4j.pipeline.OtlpExporter;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.model.LogsData;

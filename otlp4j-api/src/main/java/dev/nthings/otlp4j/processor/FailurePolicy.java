@@ -1,6 +1,7 @@
 package dev.nthings.otlp4j.processor;
 
-/// Whether a downstream failure of derived telemetry fails the input batch.
+/// Whether a downstream failure of derived telemetry fails the input batch. Part of the general
+/// [Connector] contract; the bundled count connectors (see [Connectors]) expose it directly.
 public enum FailurePolicy {
     /// Accept the input regardless of downstream outcome (logged); the best-effort default.
     BEST_EFFORT,

@@ -5,7 +5,9 @@ import dev.nthings.otlp4j.pipeline.LogsSink;
 import dev.nthings.otlp4j.pipeline.Sink;
 import dev.nthings.otlp4j.pipeline.TracesSink;
 
-/// Factories for built-in count sinks; overloads default to [FailurePolicy#BEST_EFFORT].
+/// Factories for built-in count sinks; overloads default to [FailurePolicy#BEST_EFFORT]. The
+/// counts are [Connector] instances - extend that class to write your own signal-changing
+/// connector.
 ///
 /// Each returned sink is a `Lifecycle` that cascades shutdown to its `downstream` metric sink, so a
 /// pipeline drains that downstream automatically when the connector is attached as a terminal or
