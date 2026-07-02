@@ -14,7 +14,7 @@ import dev.nthings.otlp4j.config.ClientConfig;
 import dev.nthings.otlp4j.config.Compression;
 import dev.nthings.otlp4j.spi.OtlpClient;
 import dev.nthings.otlp4j.config.Tls;
-import dev.nthings.otlp4j.transport.spi.internal.ResilienceRetries;
+import dev.nthings.otlp4j.transport.common.internal.ResilienceRetries;
 import io.grpc.CallOptions;
 import io.grpc.Channel;
 import io.grpc.ChannelCredentials;

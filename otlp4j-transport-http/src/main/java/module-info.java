@@ -3,7 +3,7 @@
 module dev.nthings.otlp4j.transport.http {
     requires dev.nthings.otlp4j.model;
     requires transitive dev.nthings.otlp4j.api;
-    requires transitive dev.nthings.otlp4j.transport.spi;
+    requires transitive dev.nthings.otlp4j.transport.common;
     requires dev.nthings.otlp4j.codec;
     requires dev.nthings.otlp4j.proto;
     requires com.google.protobuf;

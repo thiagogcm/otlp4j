@@ -24,7 +24,7 @@
         </dependency>
         <dependency>
             <groupId>dev.nthings.otlp4j</groupId>
-            <artifactId>otlp4j-transport-spi</artifactId>
+            <artifactId>otlp4j-transport-common</artifactId>
         </dependency>
         <dependency>
             <groupId>dev.nthings.otlp4j</groupId>

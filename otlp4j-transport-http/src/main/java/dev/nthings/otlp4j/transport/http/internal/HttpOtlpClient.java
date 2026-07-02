@@ -15,7 +15,7 @@ import dev.nthings.otlp4j.config.ClientConfig;
 import dev.nthings.otlp4j.config.Compression;
 import dev.nthings.otlp4j.spi.OtlpClient;
 import dev.nthings.otlp4j.config.Tls;
-import dev.nthings.otlp4j.transport.spi.internal.ResilienceRetries;
+import dev.nthings.otlp4j.transport.common.internal.ResilienceRetries;
 import io.opentelemetry.proto.collector.logs.v1.ExportLogsServiceResponse;
 import io.opentelemetry.proto.collector.metrics.v1.ExportMetricsServiceResponse;
 import io.opentelemetry.proto.collector.profiles.v1development.ExportProfilesServiceResponse;

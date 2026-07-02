@@ -1,0 +1,17 @@
+/// Shared transport layer: the `ClientExporter` / `ServerReceiver` composition primitives
+/// that bundled OTLP transports build on, plus package-private dispatch and tap plumbing.
+/// Most callers use `OtlpGrpc*` / `OtlpHttp*` entry points instead.
+@SuppressWarnings("module")
+module dev.nthings.otlp4j.transport.common {
+    requires dev.nthings.otlp4j.model;
+    // Shared impls expose api types in signatures; readers must read api transitively.
+    requires transitive dev.nthings.otlp4j.api;
+    requires io.github.resilience4j.core;
+    requires io.github.resilience4j.retry;
+    requires org.slf4j;
+
+    exports dev.nthings.otlp4j.transport.common;
+    exports dev.nthings.otlp4j.transport.common.internal to
+            dev.nthings.otlp4j.transport.grpc,
+            dev.nthings.otlp4j.transport.http;
+}

@@ -8,7 +8,7 @@ import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.pipeline.Sink;
 import dev.nthings.otlp4j.receiver.Receiver;
-import dev.nthings.otlp4j.transport.spi.ServerReceiver;
+import dev.nthings.otlp4j.transport.common.ServerReceiver;
 import dev.nthings.otlp4j.transport.grpc.internal.GrpcOtlpServer;
 import java.time.Duration;
 import java.util.concurrent.Executor;

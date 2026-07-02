@@ -17,7 +17,7 @@
         <module>otlp4j-proto</module>
         <module>otlp4j-api</module>
         <module>otlp4j-codec</module>
-        <module>otlp4j-transport-spi</module>
+        <module>otlp4j-transport-common</module>
         <module>otlp4j-transport-grpc</module>
         <module>otlp4j-transport-http</module>
         <module>otlp4j-samples</module>
@@ -87,7 +87,7 @@
             </dependency>
             <dependency>
                 <groupId>dev.nthings.otlp4j</groupId>
-                <artifactId>otlp4j-transport-spi</artifactId>
+                <artifactId>otlp4j-transport-common</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

@@ -4,7 +4,7 @@ import dev.nthings.otlp4j.config.ClientConfig;
 import dev.nthings.otlp4j.config.Compression;
 import dev.nthings.otlp4j.config.Tls;
 import dev.nthings.otlp4j.pipeline.OtlpExporter;
-import dev.nthings.otlp4j.transport.spi.ClientExporter;
+import dev.nthings.otlp4j.transport.common.ClientExporter;
 import dev.nthings.otlp4j.transport.grpc.internal.GrpcOtlpClient;
 import io.github.resilience4j.retry.RetryConfig;
 import java.time.Duration;
