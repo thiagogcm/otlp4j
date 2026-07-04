@@ -1,6 +1,7 @@
-package dev.nthings.otlp4j.processor;
+package dev.nthings.otlp4j.pipeline.ops;
 
 import dev.nthings.otlp4j.model.ConsumeResult;
+import dev.nthings.otlp4j.pipeline.AsyncTransform;
 import dev.nthings.otlp4j.pipeline.Lifecycle;
 import dev.nthings.otlp4j.pipeline.SharedLifecycle;
 import dev.nthings.otlp4j.pipeline.Sink;
@@ -31,8 +32,8 @@ import org.slf4j.LoggerFactory;
 /// propagated when the downstream is itself a [SharedLifecycle].
 ///
 /// A connector needing asynchronous derivation or multi-batch emission implements [Sink]
-/// directly instead (composing a [dev.nthings.otlp4j.pipeline.Processor] before the connector
-/// covers most async pre-steps).
+/// directly instead (composing an [AsyncTransform] before the connector covers most async
+/// pre-steps).
 ///
 /// @param <I> the input signal consumed by this connector
 /// @param <O> the derived signal emitted downstream

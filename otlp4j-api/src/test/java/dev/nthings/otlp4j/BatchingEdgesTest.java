@@ -12,10 +12,10 @@ import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.pipeline.LogsSink;
 import dev.nthings.otlp4j.pipeline.MetricsSink;
-import dev.nthings.otlp4j.processor.OverflowPolicy;
+import dev.nthings.otlp4j.pipeline.ops.OverflowPolicy;
 import dev.nthings.otlp4j.pipeline.ProfilesSink;
 import dev.nthings.otlp4j.pipeline.TracesSink;
-import dev.nthings.otlp4j.processor.BatchingProcessor;
+import dev.nthings.otlp4j.pipeline.ops.Batcher;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
@@ -25,7 +25,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-@DisplayName("BatchingProcessor edge cases")
+@DisplayName("Batcher edge cases")
 class BatchingEdgesTest {
 
     @DisplayName("BLOCK drop policy eventually delivers every span")
@@ -36,7 +36,7 @@ class BatchingEdgesTest {
             captured.add(traces);
             return ConsumeResult.acceptedStage();
         };
-        try (var batcher = BatchingProcessor.forTraces()
+        try (var batcher = Batcher.forTraces()
                 .downstream(downstream)
                 .flushThreshold(2)
                 .queueCapacity(2)
@@ -57,7 +57,7 @@ class BatchingEdgesTest {
     @Test
     void shutdownIsIdempotent() {
         TracesSink downstream = traces -> ConsumeResult.acceptedStage();
-        var batcher = BatchingProcessor.forTraces()
+        var batcher = Batcher.forTraces()
                 .downstream(downstream)
                 .flushThreshold(10)
                 .queueCapacity(10)
@@ -70,7 +70,7 @@ class BatchingEdgesTest {
     @Test
     void queuedReflectsBufferSize() {
         TracesSink slow = traces -> new CompletableFuture<>();
-        try (var batcher = BatchingProcessor.forTraces()
+        try (var batcher = Batcher.forTraces()
                 .downstream(slow)
                 .flushThreshold(100)
                 .queueCapacity(10)
@@ -89,7 +89,7 @@ class BatchingEdgesTest {
             traceCaptured.set(traces);
             return ConsumeResult.acceptedStage();
         };
-        try (var b = BatchingProcessor.forTraces().downstream(traceDownstream).flushThreshold(1)
+        try (var b = Batcher.forTraces().downstream(traceDownstream).flushThreshold(1)
                 .queueCapacity(2).build()) {
             b.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER))).toCompletableFuture().join();
             await().atMost(Duration.ofSeconds(2)).until(() -> traceCaptured.get() != null);
@@ -99,7 +99,7 @@ class BatchingEdgesTest {
             metricsCaptured.set(m);
             return ConsumeResult.acceptedStage();
         };
-        try (var b = BatchingProcessor.forMetrics().downstream(metricsDownstream).flushThreshold(1)
+        try (var b = Batcher.forMetrics().downstream(metricsDownstream).flushThreshold(1)
                 .queueCapacity(2).build()) {
             b.consume(Fixtures.metricsData(Fixtures.metric("m"))).toCompletableFuture().join();
             await().atMost(Duration.ofSeconds(2)).until(() -> metricsCaptured.get() != null);
@@ -109,7 +109,7 @@ class BatchingEdgesTest {
             logsCaptured.set(l);
             return ConsumeResult.acceptedStage();
         };
-        try (var b = BatchingProcessor.forLogs().downstream(logsDownstream).flushThreshold(1)
+        try (var b = Batcher.forLogs().downstream(logsDownstream).flushThreshold(1)
                 .queueCapacity(2).build()) {
             b.consume(Fixtures.logsData(Fixtures.logRecord("hi", LogRecord.Severity.INFO))).toCompletableFuture()
                     .join();
@@ -120,7 +120,7 @@ class BatchingEdgesTest {
             profilesCaptured.set(p);
             return ConsumeResult.acceptedStage();
         };
-        try (var b = BatchingProcessor.forProfilesUnsafe().downstream(profilesDownstream).flushThreshold(1)
+        try (var b = Batcher.forProfilesUnsafe().downstream(profilesDownstream).flushThreshold(1)
                 .queueCapacity(2).build()) {
             b.consume(Fixtures.profilesData(Fixtures.profile("p"))).toCompletableFuture().join();
             await().atMost(Duration.ofSeconds(2)).until(() -> profilesCaptured.get() != null);
@@ -135,7 +135,7 @@ class BatchingEdgesTest {
             captured.incrementAndGet();
             return ConsumeResult.acceptedStage();
         };
-        try (var batcher = BatchingProcessor.forTraces()
+        try (var batcher = Batcher.forTraces()
                 .downstream(downstream)
                 .flushThreshold(1000)
                 .queueCapacity(1000)

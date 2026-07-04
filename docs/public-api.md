@@ -67,9 +67,9 @@ Everything lives under the `dev.nthings.otlp4j` root. The types you import most 
 | --- | --- |
 | `OtlpGrpcExporter`, `OtlpGrpcReceiver` | `dev.nthings.otlp4j.transport.grpc` |
 | `OtlpHttpExporter`, `OtlpHttpReceiver` | `dev.nthings.otlp4j.transport.http` |
-| `Pipeline`, `Sink` (+ `TracesSink`, `MetricsSink`, `LogsSink`, `ProfilesSink` aliases), `Source`, `Transform`, `Processor`, `FanOut`, `OtlpExporter`, `PipelineHandle`, `Lifecycle`, `SharedLifecycle`, `Wiring` | `dev.nthings.otlp4j.pipeline` |
+| `Pipeline`, `Sink` (+ `TracesSink`, `MetricsSink`, `LogsSink`, `ProfilesSink` aliases), `Source`, `Transform`, `AsyncTransform`, `FanOut`, `OtlpExporter`, `PipelineHandle`, `Lifecycle`, `SharedLifecycle`, `Wiring` | `dev.nthings.otlp4j.pipeline` |
 | `Receiver`, `TelemetryTap`, `TapOptions` | `dev.nthings.otlp4j.receiver` |
-| `Transforms`, `BatchingProcessor`, `OverflowPolicy`, `Connector`, `Connectors`, `FailurePolicy` | `dev.nthings.otlp4j.processor` |
+| `Transforms`, `Batcher`, `OverflowPolicy`, `Connector`, `Connectors`, `FailurePolicy` | `dev.nthings.otlp4j.pipeline.ops` |
 | Configuration: `ClientConfig`, `ServerConfig`, `Tls`, `Compression` | `dev.nthings.otlp4j.config` |
 | Retry configuration: `RetryConfig` | `io.github.resilience4j.retry` |
 | Transport SPI: `OtlpClient`, `OtlpServer`, `Dispatchers` | `dev.nthings.otlp4j.spi` |
@@ -86,7 +86,7 @@ Everything lives under the `dev.nthings.otlp4j` root. The types you import most 
 | Collector `consumer` (`ConsumeTraces(ctx, td) error`) | `TracesSink` (a `Sink<TracesData>`) returning `CompletionStage<ConsumeResult>`. |
 | Collector `component` lifecycle (`Start`/`Shutdown(ctx)`) | `OtlpGrpcReceiver.start()`, `PipelineHandle.shutdown(Duration)`, `Lifecycle`. |
 | Collector OTLP receiver | `OtlpGrpcReceiver` plus its per-signal `Source`s. |
-| `exporterhelper` queue + retry + timeout | `BatchingProcessor` (queue), Resilience4j `RetryConfig` (transport retry), `setTimeout(...)`. |
+| `exporterhelper` queue + retry + timeout | `Batcher` (queue), Resilience4j `RetryConfig` (transport retry), `setTimeout(...)`. |
 | Functional options (`WithEndpoint`, `WithTimeout`, `WithInsecure`) | Builder methods (`setEndpoint(...)`, `setTimeout(...)`); the endpoint scheme decides plaintext vs TLS. |
 | `consumer.Capabilities{MutatesData}` | Not needed: model records are immutable, so fan-out shares them without copying. |
 
@@ -105,7 +105,7 @@ Each signal preserves OTLP's resource and instrumentation-scope grouping while p
 
 Each flattened accessor walks the resource/scope grouping and allocates a fresh list on every call, so bind it to a local rather than re-calling it in a loop or on a hot path. On hot paths prefer the `forEach...` helper to visit items in the same order without the intermediate list, or the count helper to size a batch without flattening it; these are what batching and the count connectors use. (`MetricsData`'s count helper, `dataPointCount()`, counts nested data points, the meaningful OTLP item count for metrics, rather than the number of `Metric` objects.)
 
-Records copy incoming lists and are safe to share between fan-out peers. `Attributes` and the sealed `AttributeValue` hierarchy represent OTLP values. Builders are available for `Attributes`, `Span`, `Metric`, and `LogRecord`, plus the metric data points (`NumberPoint`, `HistogramPoint`, `ExponentialHistogramPoint`), `SummaryPoint`, and `Exemplar`; `NumberPoint`, `Exemplar`, and `SummaryPoint` also offer `of(...)` factories for the common case. These builders are batch/model-construction helpers for OTLP payloads in the pipeline, not application instrumentation APIs. Builder method naming follows one rule: model and pipeline-component builders (these and `BatchingProcessor.Builder`) use no-prefix fluent setters (`name(...)`, `flushThreshold(...)`), matching the immutable records and the JDK's own builders; the configuration and transport builders (`ClientConfig`, `ServerConfig`, and the `OtlpGrpc...`/`OtlpHttp...` entry points) use `set*` to mirror OpenTelemetry Java. The remaining records use canonical constructors. To avoid hand-nesting the resource/scope wrappers, each signal type has an `of(resource, scope, items)` factory, and `Resource.of(...)` / `InstrumentationScope.of(...)` cover the common cases:
+Records copy incoming lists and are safe to share between fan-out peers. `Attributes` and the sealed `AttributeValue` hierarchy represent OTLP values. Builders are available for `Attributes`, `Span`, `Metric`, and `LogRecord`, plus the metric data points (`NumberPoint`, `HistogramPoint`, `ExponentialHistogramPoint`), `SummaryPoint`, and `Exemplar`; `NumberPoint`, `Exemplar`, and `SummaryPoint` also offer `of(...)` factories for the common case. These builders are batch/model-construction helpers for OTLP payloads in the pipeline, not application instrumentation APIs. Builder method naming follows one rule: model and pipeline-component builders (these and `Batcher.Builder`) use no-prefix fluent setters (`name(...)`, `flushThreshold(...)`), matching the immutable records and the JDK's own builders; the configuration and transport builders (`ClientConfig`, `ServerConfig`, and the `OtlpGrpc...`/`OtlpHttp...` entry points) use `set*` to mirror OpenTelemetry Java. The remaining records use canonical constructors. To avoid hand-nesting the resource/scope wrappers, each signal type has an `of(resource, scope, items)` factory, and `Resource.of(...)` / `InstrumentationScope.of(...)` cover the common cases:
 
 ```java
 var batch = TracesData.of(Resource.of(attributes), InstrumentationScope.of("my.lib", "1.0"), spans);
@@ -159,7 +159,7 @@ var exemplar = Exemplar.builder()
 CompletionStage<ConsumeResult> consume(T batch);
 ```
 
-`Sink<T>` keeps the input type parameter (a `TracesSink` cannot be fed `MetricsData`), while the result is signal-agnostic. Prefer the signal aliases `TracesSink`, `MetricsSink`, `LogsSink`, and `ProfilesSink` in declarations and extension APIs; APIs that _accept_ a sink take `Sink<? super T>`, so a lambda, an alias, a raw `Sink<TracesData>`, a `FanOut`, or a `BatchingProcessor` all fit.
+`Sink<T>` keeps the input type parameter (a `TracesSink` cannot be fed `MetricsData`), while the result is signal-agnostic. Prefer the signal aliases `TracesSink`, `MetricsSink`, `LogsSink`, and `ProfilesSink` in declarations and extension APIs; APIs that _accept_ a sink take `Sink<? super T>`, so a lambda, an alias, a raw `Sink<TracesData>`, a `FanOut`, or a `Batcher` all fit.
 
 ```java
 TracesSink report = traces -> {
@@ -252,17 +252,17 @@ var subscription = Pipeline.from(receiver.traces())
 
 The built-in `Transforms` cover the common rewrites: `keepSpansWhere` / `keepLogRecordsWhere` (record filters that prune empty scopes and resources), `mapSpans` / `mapLogRecords` (rewrite every record 1:1, keeping empty groups), `map{Traces,Metrics,Logs,Profiles}Resource` (rewrite each `Resource`), and `with{Traces,Metrics,Logs,Profiles}ResourceAttribute` (add or overwrite one resource attribute). Implement `Transform<T>` for any other synchronous one-to-one rewrite. Transforms are strictly 1-to-1 and must return non-null: a null return is a contract violation the pipeline rejects permanently. To drop a batch, use `filter(...)`, typically after a pruning transform leaves the batch empty, as above.
 
-`Stage.process(Processor<T>)` is the asynchronous counterpart: `Processor<T>` declares one method, `CompletionStage<T> process(T batch)`, for a 1-to-1 stage that needs I/O (an enrichment lookup, a remote sampling decision) off the synchronous dispatch path. The pipeline delivers downstream only once the returned stage completes, so the transport acknowledgement still covers the full chain. The same 1-to-1 contract applies: drop is not signalled by the processor, so complete with a pruned (possibly empty) batch and compose `.process(sampler).filter(t -> t.spanCount() != 0)`; a thrown exception, a failed or null stage, or a null completion value each reject the batch permanently.
+`Stage.transformAsync(AsyncTransform<T>)` is the asynchronous counterpart: `AsyncTransform<T>` declares one method, `CompletionStage<T> applyAsync(T batch)`, for a 1-to-1 stage that needs I/O (an enrichment lookup, a remote sampling decision) off the synchronous dispatch path. The pipeline delivers downstream only once the returned stage completes, so the transport acknowledgement still covers the full chain. The same 1-to-1 contract applies: drop is not signalled by the async transform, so complete with a pruned (possibly empty) batch and compose `.transformAsync(sampler).filter(t -> t.spanCount() != 0)`; a thrown exception, a failed or null stage, or a null completion value each reject the batch permanently.
 
 `FanOut.of(...)` is the one fan-out spelling: it returns a reusable `Sink<T>` that a stage terminates at with `.to(...)`. Peers run concurrently; the result is rejected if any peer rejects, otherwise a partial result uses the largest rejection count. The factories collapse degenerate shapes: a single peer is returned bare (so its lifecycle stays visible to the pipeline's auto-collection), and an **empty** peer set yields a no-op sink that **accepts and discards every batch** (matching `Source.discard()` semantics), so route an empty computed peer list deliberately.
 
 To observe batches in-path, add an observing `Sink` as a fan-out peer: it runs concurrently with the terminal and shares the acknowledgement, so an observer that rejects also rejects the batch back to the sender. An identity `Transform` observes inline instead, but an observer that throws becomes a permanent rejection unless it catches its own exceptions. For demand-aware streaming with bounded buffers that stays outside the acknowledgement path, use the receiver's `TelemetryTap`.
 
-When destinations have independent speeds or failure modes, give each its own queue: front each exporter with its own `BatchingProcessor` so a slow or failing collector drains its own buffer without stalling the others.
+When destinations have independent speeds or failure modes, give each its own queue: front each exporter with its own `Batcher` so a slow or failing collector drains its own buffer without stalling the others.
 
 ```java
-var primaryQueue = BatchingProcessor.forTraces().downstream(primary.traces()).build();
-var secondaryQueue = BatchingProcessor.forTraces().downstream(secondary.traces()).build();
+var primaryQueue = Batcher.forTraces().downstream(primary.traces()).build();
+var secondaryQueue = Batcher.forTraces().downstream(secondary.traces()).build();
 
 var subscription = Pipeline.from(receiver.traces())
         .owns(primary)             // each exporter sits behind a batcher, so declare it (see Lifecycle)
@@ -275,9 +275,9 @@ The routing concepts, contrasted:
 | Concept | Cardinality | Changes signal? | Owns downstream lifecycle? |
 | --- | --- | --- | --- |
 | `Transform` (via `Transforms`) | 1 -> 1 | no | no |
-| `Processor` (via `Stage.process`) | 1 -> 1 (asynchronous) | no | no; the stage itself is auto-collected when `AutoCloseable` |
+| `AsyncTransform` (via `Stage.transformAsync`) | 1 -> 1 (asynchronous) | no | no; the stage itself is auto-collected when `AutoCloseable` |
 | `Connector` (count sinks via `Connectors`) | 1 -> 1 | yes | yes, cascades to its downstream |
-| `BatchingProcessor` | N -> 1 (buffered) | no | no; front its downstream with `owns(...)` |
+| `Batcher` | N -> 1 (buffered) | no | no; front its downstream with `owns(...)` |
 | `TelemetryTap` (on the receiver) | observe (demand-aware) | no | n/a |
 
 ## Batch
@@ -285,7 +285,7 @@ The routing concepts, contrasted:
 Create a signal-specific batcher and attach it as the terminal consumer:
 
 ```java
-var batcher = BatchingProcessor.forTraces()
+var batcher = Batcher.forTraces()
         .downstream(exporter.traces())
         .flushThreshold(512)
         .queueCapacity(2048)
@@ -371,7 +371,7 @@ Implement `Sink<T>` plus `Lifecycle` for a custom typed terminal with flush and 
 
 ## Connect signals
 
-A connector is a signal-changing bridge: it consumes batches of one signal and emits derived batches of another (or the same) signal to a single downstream sink, the general form of the Collector's connector, embodied by the public abstract base `processor.Connector<I, O>`. The bundled count sinks are `Connector` instances: they consume one signal and emit a derived metric to a configured downstream `MetricsSink`. `Connectors.spanCount` returns a `TracesSink`; `Connectors.logRecordCount` returns a `LogsSink`. Wire them in like any other sink, as a terminal or a fan-out peer:
+A connector is a signal-changing bridge: it consumes batches of one signal and emits derived batches of another (or the same) signal to a single downstream sink, the general form of the Collector's connector, embodied by the public abstract base `pipeline.ops.Connector<I, O>`. The bundled count sinks are `Connector` instances: they consume one signal and emit a derived metric to a configured downstream `MetricsSink`. `Connectors.spanCount` returns a `TracesSink`; `Connectors.logRecordCount` returns a `LogsSink`. Wire them in like any other sink, as a terminal or a fan-out peer:
 
 ```java
 var spanCounter = Connectors.spanCount(exporter.metrics());
@@ -394,7 +394,7 @@ A `derive` throw or an exceptionally completed downstream stage is treated like 
 
 ### Write your own connector
 
-Extend `Connector<I, O>` and implement one synchronous method, `protected @Nullable O derive(I batch)`: return the derived batch, or `null` to emit nothing and accept the input. The base class finalizes `consume`, `retain`, `shutdown`, and `forceFlush`, keeping the `FailurePolicy` contract and the shared-downstream reference-count balance correct by construction (a `derive` throw follows the policy like any other derived-delivery failure). The constructors are `Connector(name, downstream)` (defaulting to `BEST_EFFORT`) and `Connector(name, downstream, policy)`; the name labels log and rejection messages. A connector holding local state overrides the `onShutdown`/`onForceFlush` hooks, which run before the downstream cascade so a buffering connector flushes into a still-open downstream. A connector needing asynchronous derivation or multi-batch emission implements `Sink<I>` directly instead (composing a `Processor` before the connector covers most async pre-steps).
+Extend `Connector<I, O>` and implement one synchronous method, `protected @Nullable O derive(I batch)`: return the derived batch, or `null` to emit nothing and accept the input. The base class finalizes `consume`, `retain`, `shutdown`, and `forceFlush`, keeping the `FailurePolicy` contract and the shared-downstream reference-count balance correct by construction (a `derive` throw follows the policy like any other derived-delivery failure). The constructors are `Connector(name, downstream)` (defaulting to `BEST_EFFORT`) and `Connector(name, downstream, policy)`; the name labels log and rejection messages. A connector holding local state overrides the `onShutdown`/`onForceFlush` hooks, which run before the downstream cascade so a buffering connector flushes into a still-open downstream. A connector needing asynchronous derivation or multi-batch emission implements `Sink<I>` directly instead (composing an `AsyncTransform` before the connector covers most async pre-steps).
 
 ```java
 // Traces in, logs out: one log record per error span.
@@ -482,11 +482,11 @@ Shut the receiver down first, then the subscription. `receiver.shutdown(timeout)
 **What a subscription drains, and what you must declare.** A subscription drains every terminal and fan-out peer it can see that implements `AutoCloseable`:
 
 - **Exporter facets** carry their exporter's lifecycle, so attaching one drains the whole exporter with nothing to register.
-- A **directly attached `BatchingProcessor`** drains its own queue on shutdown.
-- An **`AutoCloseable`/`Lifecycle` `Processor`** stage is auto-collected and drained before the terminal's resources.
+- A **directly attached `Batcher`** drains its own queue on shutdown.
+- An **`AutoCloseable`/`Lifecycle` `AsyncTransform`** stage is auto-collected and drained before the terminal's resources.
 - A **count `Connector`** cascades its shutdown to the downstream metric sink it wraps.
 
-Use `Stage.owns(resource)` only for a resource the subscription **cannot** see: one hidden behind a bare lambda terminal, or an exporter fronted by a `BatchingProcessor` (which drains its own queue but not its downstream). `owns(...)` is chainable and must be declared on the stage _before_ `.to(...)`.
+Use `Stage.owns(resource)` only for a resource the subscription **cannot** see: one hidden behind a bare lambda terminal, or an exporter fronted by a `Batcher` (which drains its own queue but not its downstream). `owns(...)` is chainable and must be declared on the stage _before_ `.to(...)`.
 
 ```java
 // A bare-lambda terminal hides the exporter it delegates to, so declare it.
@@ -498,7 +498,7 @@ var subscription = Pipeline.from(receiver.traces())
 
 Collected resources are deduplicated by reference identity, so a resource reachable twice (say as a fan-out peer and again through an `owns(...)` declaration) is retained and shut down once. When two subscriptions attach facets of the _same_ exporter, its channel closes only once both have shut down (`SharedLifecycle` reference counting). A resource the subscription never drains is not silently lost: an exporter surfaces as a warning logged by its own GC cleaner when it is collected having never been shut down.
 
-Use `shutdown(Duration)` when completion matters. The convenience `close()` methods drain gracefully within a fixed ten-second grace period (`Lifecycle.DEFAULT_GRACE_PERIOD`), applied uniformly by every `Lifecycle` (receiver, exporter, batching processor, and subscription); call `Receiver.shutdownNow()` for an immediate stop.
+Use `shutdown(Duration)` when completion matters. The convenience `close()` methods drain gracefully within a fixed ten-second grace period (`Lifecycle.DEFAULT_GRACE_PERIOD`), applied uniformly by every `Lifecycle` (receiver, exporter, batcher, and subscription); call `Receiver.shutdownNow()` for an immediate stop.
 
 ### Wiring
 
@@ -525,7 +525,7 @@ Shutdown runs receivers first (nothing new is ingested), then pipeline subscript
 | --- | --- |
 | `OtlpGrpcReceiver` / `OtlpHttpReceiver` | Thread-safe after `start()`; dispatch incoming requests to sinks concurrently. The `...Receiver.Builder` is single-threaded: configure on one thread, then `build()`. |
 | `OtlpGrpcExporter` / `OtlpHttpExporter` | Thread-safe: a single exporter owns one client/channel and may be called from many threads; each facet's `consume` is concurrency-safe. The builder is single-threaded. |
-| `BatchingProcessor` | Thread-safe: `consume`, `forceFlush`, and `shutdown` may be called concurrently (queue + counters are concurrent). `shutdown` is idempotent and then rejects new batches. |
+| `Batcher` | Thread-safe: `consume`, `forceFlush`, and `shutdown` may be called concurrently (queue + counters are concurrent). `shutdown` is idempotent and then rejects new batches. |
 | `PipelineHandle` (from `Pipeline.from(...)`) | `shutdown`/`forceFlush` are safe to call concurrently and idempotently. Build the pipeline on one thread. |
 | `TelemetryTap` | Thread-safe: each publisher multicasts independently and `TapOptions` bind to a subscription when it attaches. Each `Flow.Subscriber` manages its own demand. |
 | Model records (`TracesData`, `Attributes`, ...) | Immutable and freely shareable; fan-out peers share them without copying. Their builders are single-threaded. |
@@ -541,4 +541,4 @@ Shutdown runs receivers first (nothing new is ingested), then pipeline subscript
 - **Point values**: `NumberPoint`/`Exemplar` value may be `null` for a value-unset point.
 - **`Attributes.get(key)`** returns `null` on a lookup miss, as does the typed `getString(key)`.
 
-`BatchingProcessor.Builder.downstream` must be set before `build()`; building without it throws rather than accepting `null`.
+`Batcher.Builder.downstream` must be set before `build()`; building without it throws rather than accepting `null`.

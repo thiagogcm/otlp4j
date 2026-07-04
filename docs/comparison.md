@@ -63,14 +63,14 @@ This is the closer comparison. Both receive OTLP, process it through a pipeline 
 | --- | --- |
 | `otlpreceiver` (gRPC + HTTP) | `OtlpGrpcReceiver` / `OtlpHttpReceiver` |
 | `consumer.Traces` (`ConsumeTraces(ctx, td) error`) | `TracesSink` (`Sink<TracesData>` returning `CompletionStage<ConsumeResult>`) |
-| `processor` (`batch`, `memory_limiter`) | `Transform` / `Processor`, `BatchingProcessor`, `AdmissionControl` |
+| `processor` (`batch`, `memory_limiter`) | `Transform` / `AsyncTransform`, `Batcher`, `AdmissionControl` |
 | `connector` (`forward`, traces-to-metrics) | `Connector<I, O>` (`spanCount`, `logRecordCount`) |
 | `otlpexporter` / `otlphttpexporter` | `OtlpGrpcExporter` / `OtlpHttpExporter` |
 | `pdata` (mutable OTLP wrapper) | proto-free **immutable** model records |
 | `Capabilities{MutatesData}` plus clone-on-fan-out | immutable records, so fan-out shares with no copy |
 | service graph DAG built from YAML | `Pipeline` DSL plus `Wiring`, built in code |
 | `confmap` YAML with `${env:...}` expansion | fluent builders plus `fromEnvironment()` |
-| `exporterhelper` sending queue (memory or persistent) | `BatchingProcessor` (in-memory only) |
+| `exporterhelper` sending queue (memory or persistent) | `Batcher` (in-memory only) |
 | `configretry` exponential backoff | Resilience4j `RetryConfig` |
 | `ExportPartialSuccess` response | `ConsumeResult` (`Accepted` / `Partial` / `Rejected`) |
 | `ocb` builder produces a custom binary | Maven dependency, no build or codegen step |

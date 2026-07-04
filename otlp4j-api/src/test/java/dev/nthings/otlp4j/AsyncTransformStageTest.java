@@ -6,8 +6,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
+import dev.nthings.otlp4j.pipeline.AsyncTransform;
+import dev.nthings.otlp4j.pipeline.FanOut;
 import dev.nthings.otlp4j.pipeline.Pipeline;
-import dev.nthings.otlp4j.pipeline.Processor;
 import dev.nthings.otlp4j.pipeline.TracesSink;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.time.Duration;
@@ -23,18 +24,18 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/// Exercises [Pipeline.Stage#process]: async stage composition, drop short-circuiting, the
-/// failure-normalization matrix, and lifecycle auto-collection of closeable processors.
-@DisplayName("Pipeline async Processor stage")
-class ProcessorStageTest {
+/// Exercises [Pipeline.Stage#transformAsync]: async stage composition, drop short-circuiting, the
+/// failure-normalization matrix, and lifecycle auto-collection of closeable async transforms.
+@DisplayName("Pipeline async transform stage")
+class AsyncTransformStageTest {
 
     private static TracesData batch() {
         return Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER));
     }
 
-    @DisplayName("process() runs between surrounding sync stages, in order")
+    @DisplayName("transformAsync() runs between surrounding sync stages, in order")
     @Test
-    void processComposesInOrderWithSyncStages() {
+    void transformAsyncComposesInOrderWithSyncStages() {
         var order = new ArrayList<String>();
         var source = new ManualSource<TracesData>();
         var seen = new AtomicReference<TracesData>();
@@ -43,8 +44,8 @@ class ProcessorStageTest {
                     order.add("before");
                     return t;
                 })
-                .process(t -> {
-                    order.add("process");
+                .transformAsync(t -> {
+                    order.add("transformAsync");
                     return CompletableFuture.completedFuture(t);
                 })
                 .transform(t -> {
@@ -59,20 +60,20 @@ class ProcessorStageTest {
             var sent = batch();
             var result = source.dispatch(sent).toCompletableFuture().join();
             assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
-            assertThat(order).containsExactly("before", "process", "after");
+            assertThat(order).containsExactly("before", "transformAsync", "after");
             assertThat(seen.get()).isSameAs(sent);
         } finally {
             sub.close();
         }
     }
 
-    @DisplayName("the acknowledgement awaits a processor completing on another thread")
+    @DisplayName("the acknowledgement awaits an async transform completing on another thread")
     @Test
     void ackAwaitsAsyncCompletion() {
         var source = new ManualSource<TracesData>();
         var seen = new AtomicReference<TracesData>();
         var sub = Pipeline.from(source)
-                .process(t -> CompletableFuture.supplyAsync(() -> t,
+                .transformAsync(t -> CompletableFuture.supplyAsync(() -> t,
                         CompletableFuture.delayedExecutor(50, TimeUnit.MILLISECONDS)))
                 .to((TracesSink) t -> {
                     seen.set(t);
@@ -88,15 +89,15 @@ class ProcessorStageTest {
         }
     }
 
-    @DisplayName("two processors chain; the second sees the first's output")
+    @DisplayName("two async transforms chain; the second sees the first's output")
     @Test
-    void processorsChain() {
+    void asyncTransformsChain() {
         var source = new ManualSource<TracesData>();
         var replacement = batch();
         var secondInput = new AtomicReference<TracesData>();
         var sub = Pipeline.from(source)
-                .process(t -> CompletableFuture.completedFuture(replacement))
-                .process(t -> {
+                .transformAsync(t -> CompletableFuture.completedFuture(replacement))
+                .transformAsync(t -> {
                     secondInput.set(t);
                     return CompletableFuture.completedFuture(t);
                 })
@@ -110,15 +111,15 @@ class ProcessorStageTest {
         }
     }
 
-    @DisplayName("a batch dropped by an earlier filter never reaches the processor")
+    @DisplayName("a batch dropped by an earlier filter never reaches the async transform")
     @Test
-    void droppedBatchSkipsProcessor() {
+    void droppedBatchSkipsAsyncTransform() {
         var source = new ManualSource<TracesData>();
         var processed = new AtomicInteger();
         var delivered = new AtomicInteger();
         var sub = Pipeline.from(source)
                 .filter(t -> false)
-                .process(t -> {
+                .transformAsync(t -> {
                     processed.incrementAndGet();
                     return CompletableFuture.completedFuture(t);
                 })
@@ -136,13 +137,13 @@ class ProcessorStageTest {
         }
     }
 
-    @DisplayName("a filter after the processor drops the batch before the terminal")
+    @DisplayName("a filter after the async transform drops the batch before the terminal")
     @Test
-    void filterAfterProcessorDrops() {
+    void filterAfterAsyncTransformDrops() {
         var source = new ManualSource<TracesData>();
         var delivered = new AtomicInteger();
         var sub = Pipeline.from(source)
-                .process(t -> CompletableFuture.completedFuture(t))
+                .transformAsync(t -> CompletableFuture.completedFuture(t))
                 .filter(t -> false)
                 .to((TracesSink) t -> {
                     delivered.incrementAndGet();
@@ -157,42 +158,42 @@ class ProcessorStageTest {
         }
     }
 
-    @DisplayName("a throwing processor rejects the batch permanently")
+    @DisplayName("a throwing async transform rejects the batch permanently")
     @Test
-    void throwingProcessorRejects() {
+    void throwingAsyncTransformRejects() {
         assertRejectedPermanently(
-                t -> { throw new IllegalStateException("processor boom"); },
-                "processor boom");
+                t -> { throw new IllegalStateException("async transform boom"); },
+                "async transform boom");
     }
 
-    @DisplayName("a failed processor stage rejects the batch permanently")
+    @DisplayName("a failed async transform stage rejects the batch permanently")
     @Test
-    void failedProcessorStageRejects() {
+    void failedAsyncTransformStageRejects() {
         assertRejectedPermanently(
                 t -> CompletableFuture.failedFuture(new IllegalStateException("stage failed")),
                 "stage failed");
     }
 
-    @DisplayName("a null processor stage rejects the batch permanently")
+    @DisplayName("a null async transform stage rejects the batch permanently")
     @Test
-    void nullProcessorStageRejects() {
-        assertRejectedPermanently(t -> null, "processor returned a null stage");
+    void nullAsyncTransformStageRejects() {
+        assertRejectedPermanently(t -> null, "async transform returned a null stage");
     }
 
-    @DisplayName("a processor completing null rejects the batch permanently")
+    @DisplayName("an async transform completing null rejects the batch permanently")
     @Test
-    void nullProcessorValueRejects() {
+    void nullAsyncTransformValueRejects() {
         assertRejectedPermanently(
                 t -> CompletableFuture.completedFuture(null),
-                "processors are 1-to-1");
+                "async transforms are 1-to-1");
     }
 
-    @DisplayName("a transform violating the non-null contract after a processor still rejects")
+    @DisplayName("a transform violating the non-null contract after an async transform still rejects")
     @Test
-    void nullTransformAfterProcessorRejects() {
+    void nullTransformAfterAsyncTransformRejects() {
         var source = new ManualSource<TracesData>();
         var sub = Pipeline.from(source)
-                .process(t -> CompletableFuture.completedFuture(t))
+                .transformAsync(t -> CompletableFuture.completedFuture(t))
                 .transform(t -> null)
                 .to((TracesSink) t -> ConsumeResult.acceptedStage());
         try {
@@ -206,12 +207,12 @@ class ProcessorStageTest {
         }
     }
 
-    @DisplayName("an Error thrown by a processor propagates instead of becoming a rejection")
+    @DisplayName("an Error thrown by an async transform propagates instead of becoming a rejection")
     @Test
     void errorPropagates() {
         var source = new ManualSource<TracesData>();
         var sub = Pipeline.from(source)
-                .process(t -> { throw new AssertionError("must escape"); })
+                .transformAsync(t -> { throw new AssertionError("must escape"); })
                 .to((TracesSink) t -> ConsumeResult.acceptedStage());
         try {
             var stage = source.dispatch(batch()).toCompletableFuture();
@@ -228,7 +229,7 @@ class ProcessorStageTest {
     void interruptedExceptionRestoresFlag() {
         var source = new ManualSource<TracesData>();
         var sub = Pipeline.from(source)
-                .process(t -> CompletableFuture.failedFuture(new InterruptedException("interrupted")))
+                .transformAsync(t -> CompletableFuture.failedFuture(new InterruptedException("interrupted")))
                 .to((TracesSink) t -> ConsumeResult.acceptedStage());
         try {
             var result = source.dispatch(batch()).toCompletableFuture().join();
@@ -240,12 +241,12 @@ class ProcessorStageTest {
         }
     }
 
-    @DisplayName("a terminal failure after a processor still maps to a permanent rejection")
+    @DisplayName("a terminal failure after an async transform still maps to a permanent rejection")
     @Test
-    void terminalFailureAfterProcessorRejects() {
+    void terminalFailureAfterAsyncTransformRejects() {
         var source = new ManualSource<TracesData>();
         var sub = Pipeline.from(source)
-                .process(t -> CompletableFuture.completedFuture(t))
+                .transformAsync(t -> CompletableFuture.completedFuture(t))
                 .to((TracesSink) t -> CompletableFuture.failedFuture(new IllegalStateException("terminal down")));
         try {
             var result = source.dispatch(batch()).toCompletableFuture().join();
@@ -258,18 +259,18 @@ class ProcessorStageTest {
         }
     }
 
-    @DisplayName("an AutoCloseable processor is auto-drained on shutdown, before the terminal")
+    @DisplayName("an AutoCloseable async transform is auto-drained on shutdown, before the terminal")
     @Test
-    void closeableProcessorAutoDrainedBeforeTerminal() {
+    void closeableAsyncTransformAutoDrainedBeforeTerminal() {
         var source = new ManualSource<TracesData>();
         var order = new ArrayList<String>();
 
-        class CloseableProcessor implements Processor<TracesData>, AutoCloseable {
-            @Override public CompletionStage<TracesData> process(TracesData batch) {
+        class CloseableAsyncTransform implements AsyncTransform<TracesData>, AutoCloseable {
+            @Override public CompletionStage<TracesData> applyAsync(TracesData batch) {
                 return CompletableFuture.completedFuture(batch);
             }
             @Override public void close() {
-                order.add("processor");
+                order.add("asyncTransform");
             }
         }
         class CloseableTerminal implements TracesSink, AutoCloseable {
@@ -282,15 +283,15 @@ class ProcessorStageTest {
         }
 
         var sub = Pipeline.from(source)
-                .process(new CloseableProcessor())
+                .transformAsync(new CloseableAsyncTransform())
                 .to(new CloseableTerminal());
         sub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
-        assertThat(order).containsExactly("processor", "terminal");
+        assertThat(order).containsExactly("asyncTransform", "terminal");
     }
 
-    @DisplayName("a processor followed by a FanOut terminal delivers to every peer")
+    @DisplayName("an async transform followed by a FanOut terminal delivers to every peer")
     @Test
-    void processorWithFanOutTerminal() {
+    void asyncTransformWithFanOutTerminal() {
         var source = new ManualSource<TracesData>();
         var hits = new AtomicInteger();
         TracesSink peer = t -> {
@@ -298,8 +299,8 @@ class ProcessorStageTest {
             return ConsumeResult.acceptedStage();
         };
         var sub = Pipeline.from(source)
-                .process(t -> CompletableFuture.completedFuture(t))
-                .to(dev.nthings.otlp4j.pipeline.FanOut.of(List.of(peer, peer)));
+                .transformAsync(t -> CompletableFuture.completedFuture(t))
+                .to(FanOut.of(List.of(peer, peer)));
         try {
             var result = source.dispatch(batch()).toCompletableFuture().join();
             assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
@@ -309,11 +310,11 @@ class ProcessorStageTest {
         }
     }
 
-    private static void assertRejectedPermanently(Processor<TracesData> processor, String messagePart) {
+    private static void assertRejectedPermanently(AsyncTransform<TracesData> asyncTransform, String messagePart) {
         var source = new ManualSource<TracesData>();
         var delivered = new AtomicBoolean();
         var sub = Pipeline.from(source)
-                .process(processor)
+                .transformAsync(asyncTransform)
                 .to((TracesSink) t -> {
                     delivered.set(true);
                     return ConsumeResult.acceptedStage();

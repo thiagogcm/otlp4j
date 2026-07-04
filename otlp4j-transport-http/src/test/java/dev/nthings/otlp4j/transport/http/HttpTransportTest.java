@@ -13,7 +13,7 @@ import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.pipeline.OtlpExporter;
 import dev.nthings.otlp4j.receiver.Receiver;
 import dev.nthings.otlp4j.pipeline.Pipeline;
-import dev.nthings.otlp4j.processor.Transforms;
+import dev.nthings.otlp4j.pipeline.ops.Transforms;
 import dev.nthings.otlp4j.config.Compression;
 import io.github.resilience4j.retry.RetryConfig;
 import dev.nthings.otlp4j.testing.Fixtures;

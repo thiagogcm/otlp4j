@@ -1,4 +1,4 @@
-package dev.nthings.otlp4j.processor;
+package dev.nthings.otlp4j.pipeline.ops;
 
 import dev.nthings.otlp4j.pipeline.Lifecycle;
 import dev.nthings.otlp4j.pipeline.Sink;
@@ -7,7 +7,7 @@ import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
-import dev.nthings.otlp4j.processor.internal.Signal;
+import dev.nthings.otlp4j.pipeline.ops.internal.Signal;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -38,9 +38,9 @@ import org.slf4j.LoggerFactory;
 ///
 /// Threading: one JVM-wide platform daemon thread (`otlp4j-batch-timer`) drives every batcher's
 /// flush timer; each instance adds only a single cheap virtual thread for its serial drain.
-public final class BatchingProcessor<T> implements Sink<T>, Lifecycle {
+public final class Batcher<T> implements Sink<T>, Lifecycle {
 
-    private static final Logger log = LoggerFactory.getLogger(BatchingProcessor.class);
+    private static final Logger log = LoggerFactory.getLogger(Batcher.class);
 
     /// The fixed drain-timer interval. Also used as the retry-after hint on a [OverflowPolicy#FAIL]
     /// overflow rejection: a full queue is drained within one timer tick, so retrying after one
@@ -80,7 +80,7 @@ public final class BatchingProcessor<T> implements Sink<T>, Lifecycle {
         }
     }
 
-    private BatchingProcessor(Signal signal, Builder<T> b) {
+    private Batcher(Signal signal, Builder<T> b) {
         this.signal = signal;
         this.downstream = Objects.requireNonNull(b.downstream, "downstream");
         this.flushThreshold = b.flushThreshold;
@@ -284,11 +284,11 @@ public final class BatchingProcessor<T> implements Sink<T>, Lifecycle {
             return this;
         }
 
-        public BatchingProcessor<T> build() {
+        public Batcher<T> build() {
             if (downstream == null) {
                 throw new IllegalStateException("downstream must be set");
             }
-            return new BatchingProcessor<>(signal, this);
+            return new Batcher<>(signal, this);
         }
     }
 }

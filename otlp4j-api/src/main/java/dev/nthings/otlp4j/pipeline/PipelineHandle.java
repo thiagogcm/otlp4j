@@ -7,7 +7,7 @@ import java.util.concurrent.CompletionStage;
 ///
 /// Closing a subscription detaches the consumer from its source and drains its
 /// lifecycle resources: terminals and fan-out peers that implement [AutoCloseable]
-/// (such as an exporter facet or a directly attached `BatchingProcessor`) are
+/// (such as an exporter facet or a directly attached `Batcher`) are
 /// collected automatically, along with any resource registered via [Pipeline.Stage#owns].
 /// Collected resources are deduplicated by reference identity, so a resource reachable
 /// twice (owned and auto-collected, or a duplicated fan-out peer) is retained once and

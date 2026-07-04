@@ -13,7 +13,7 @@
     <artifactId>otlp4j-api</artifactId>
     <name>otlp4j-api</name>
     <description>The high-level, user-facing otlp4j API: typed domain model, pipeline, receiver,
-        exporter, processors and connectors. JPMS module dev.nthings.otlp4j.api — a pure module
+        exporter, pipeline operations and connectors. JPMS module dev.nthings.otlp4j.api — a pure module
         with no dependency on the generated proto code; the concrete OTLP/gRPC and OTLP/HTTP
         transports live in separate modules built on its SPI.</description>
 

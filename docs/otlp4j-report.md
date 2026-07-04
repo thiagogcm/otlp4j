@@ -67,6 +67,8 @@ Each finding lists what, evidence, why it matters, and recommendation. P0 blocks
 
 ### F1 (P0). The vocabulary is overloaded and the four single-method interfaces fragment one concept
 
+> **Status: resolved (Phase 0).** The renames in this finding have landed. `pipeline.Processor` is now `AsyncTransform` (its SAM method is `applyAsync`, and the pipeline DSL verb is `Stage.transformAsync`, mirroring `Transform.apply` and `Stage.transform`), the `dev.nthings.otlp4j.processor` package is now `dev.nthings.otlp4j.pipeline.ops`, and `BatchingProcessor` is now `Batcher`. The `Processor` name is deliberately left free for the future first-class component described in F2. The finding text below is preserved as the original review.
+
 What. Four closely-related SAM types spread across `pipeline/` and `processor/` encode one conceptual matrix:
 
 | Type | Package | Shape | Meaning |

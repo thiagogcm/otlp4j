@@ -10,8 +10,8 @@ package dev.nthings.otlp4j.pipeline;
 /// down cannot close the channel out from under another.
 ///
 /// Implement this when a resource is shared across subscriptions - a custom transport's exporter
-/// wrapping one connection behind several facets, or a [dev.nthings.otlp4j.processor.Connector]
-/// cascading to a shared downstream. The bundled shared exporter and connectors already do.
+/// wrapping one connection behind several facets, or a connector cascading to a shared downstream.
+/// The bundled shared exporter and connectors already do.
 public interface SharedLifecycle extends Lifecycle {
 
     /// Registers one more pipeline owner of this resource. Balanced by a later `shutdown`.

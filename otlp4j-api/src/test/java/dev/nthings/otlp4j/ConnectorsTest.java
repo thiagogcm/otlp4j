@@ -3,8 +3,8 @@ package dev.nthings.otlp4j;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import dev.nthings.otlp4j.processor.Connectors;
-import dev.nthings.otlp4j.processor.FailurePolicy;
+import dev.nthings.otlp4j.pipeline.ops.Connectors;
+import dev.nthings.otlp4j.pipeline.ops.FailurePolicy;
 import dev.nthings.otlp4j.model.LogRecord;
 import dev.nthings.otlp4j.model.Metric;
 import dev.nthings.otlp4j.model.MetricsData;

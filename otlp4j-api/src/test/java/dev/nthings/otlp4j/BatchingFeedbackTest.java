@@ -7,7 +7,7 @@ import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.pipeline.TracesSink;
-import dev.nthings.otlp4j.processor.BatchingProcessor;
+import dev.nthings.otlp4j.pipeline.ops.Batcher;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.time.Duration;
 import java.util.concurrent.CompletionException;
@@ -16,10 +16,10 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
-/// Exercises [BatchingProcessor.Builder#reflectDownstreamFailures]: sustained downstream failure
+/// Exercises [Batcher.Builder#reflectDownstreamFailures]: sustained downstream failure
 /// surfaces at ingress as retryable rejections with a retry-after hint, and clears on recovery.
 @Timeout(30)
-@DisplayName("BatchingProcessor downstream-failure reflection")
+@DisplayName("Batcher downstream-failure reflection")
 class BatchingFeedbackTest {
 
     private static TracesData batch() {
@@ -44,13 +44,13 @@ class BatchingFeedbackTest {
     @Test
     void defaultKeepsFireAndForget() {
         var downstream = new SwitchableDownstream();
-        var batcher = BatchingProcessor.forTraces().downstream(downstream).build();
+        var batcher = Batcher.forTraces().downstream(downstream).build();
         try {
             assertThat(batcher.consume(batch()).toCompletableFuture().join())
                     .isInstanceOf(ConsumeResult.Accepted.class);
             assertThatThrownBy(() -> batcher.forceFlush(Duration.ofSeconds(5)).toCompletableFuture().join())
                     .isInstanceOf(CompletionException.class)
-                    .hasCauseInstanceOf(BatchingProcessor.BatchDeliveryException.class);
+                    .hasCauseInstanceOf(Batcher.BatchDeliveryException.class);
 
             // Even right after the failed flush, ingress still accepts.
             assertThat(batcher.consume(batch()).toCompletableFuture().join())
@@ -64,7 +64,7 @@ class BatchingFeedbackTest {
     @Test
     void failedFlushDegradesIngress() {
         var downstream = new SwitchableDownstream();
-        var batcher = BatchingProcessor.forTraces()
+        var batcher = Batcher.forTraces()
                 .downstream(downstream)
                 .reflectDownstreamFailures(true)
                 .build();
@@ -92,7 +92,7 @@ class BatchingFeedbackTest {
     @Test
     void windowExpiresAndSuccessClears() throws Exception {
         var downstream = new SwitchableDownstream();
-        var batcher = BatchingProcessor.forTraces()
+        var batcher = Batcher.forTraces()
                 .downstream(downstream)
                 .reflectDownstreamFailures(true)
                 .build();

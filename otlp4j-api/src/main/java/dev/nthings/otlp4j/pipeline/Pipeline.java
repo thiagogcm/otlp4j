@@ -52,14 +52,14 @@ public final class Pipeline {
         Stage<T> transform(Transform<T> fn);
 
         /// Adds an asynchronous 1-to-1 stage. The pipeline delivers downstream only once the
-        /// processor's stage completes, so the transport acknowledgement covers it. The processor
-        /// must complete with a non-null batch (see [Processor]); to drop a batch, follow with
-        /// [#filter(Predicate)]. A processor that implements [AutoCloseable] is drained
-        /// automatically on shutdown, before the terminal's resources.
+        /// async transform's stage completes, so the transport acknowledgement covers it. The async
+        /// transform must complete with a non-null batch (see [AsyncTransform]); to drop a batch,
+        /// follow with [#filter(Predicate)]. An async transform that implements [AutoCloseable] is
+        /// drained automatically on shutdown, before the terminal's resources.
         ///
         /// @param stage the asynchronous stage
         /// @return this stage
-        Stage<T> process(Processor<T> stage);
+        Stage<T> transformAsync(AsyncTransform<T> stage);
 
         /// Drops the batch entirely if `keep` rejects it.
         ///
@@ -92,7 +92,7 @@ public final class Pipeline {
         /// Synchronous ops (transform/filter) accumulated since the last async boundary;
         /// identity at the start. Null in, null out: a dropped batch stays dropped.
         final Function<@Nullable T, @Nullable T> pendingSync;
-        /// The chain of stages up to the last [Processor], or null while the pipeline is fully
+        /// The chain of stages up to the last [AsyncTransform], or null while the pipeline is fully
         /// synchronous (the common case pays no future allocation per batch).
         final @Nullable Function<T, CompletableFuture<@Nullable T>> asyncChain;
         final List<AutoCloseable> resources;
@@ -119,13 +119,13 @@ public final class Pipeline {
         }
 
         @Override
-        public Stage<T> process(Processor<T> stage) {
+        public Stage<T> transformAsync(AsyncTransform<T> stage) {
             Objects.requireNonNull(stage, "stage");
             var lifted = liftedChain();
             Function<T, CompletableFuture<@Nullable T>> next = batch ->
                     lifted.apply(batch).thenCompose(after -> after == null
                             ? CompletableFuture.completedFuture(null)
-                            : invokeProcessor(stage, after));
+                            : invokeAsyncTransform(stage, after));
             var nextResources = resources;
             if (stage instanceof AutoCloseable closeable) {
                 nextResources = new ArrayList<>(resources.size() + 1);
@@ -218,17 +218,17 @@ public final class Pipeline {
         }
     }
 
-    /// Invokes a processor, normalizing its failure modes into the returned future: a
+    /// Invokes an async transform, normalizing its failure modes into the returned future: a
     /// synchronous throw, a null stage, or a null completion value each complete exceptionally.
-    private static <T> CompletableFuture<@Nullable T> invokeProcessor(Processor<T> stage, T batch) {
+    private static <T> CompletableFuture<@Nullable T> invokeAsyncTransform(AsyncTransform<T> stage, T batch) {
         CompletionStage<T> result;
         try {
-            result = Objects.requireNonNull(stage.process(batch), "processor returned a null stage");
+            result = Objects.requireNonNull(stage.applyAsync(batch), "async transform returned a null stage");
         } catch (Throwable e) {
             return CompletableFuture.failedFuture(e);
         }
         return result.thenApply(value -> Objects.<@Nullable T>requireNonNull(value,
-                        "processor completed null (processors are 1-to-1; drop batches with filter(...))"))
+                        "async transform completed null (async transforms are 1-to-1; drop batches with filter(...))"))
                 .toCompletableFuture();
     }
 

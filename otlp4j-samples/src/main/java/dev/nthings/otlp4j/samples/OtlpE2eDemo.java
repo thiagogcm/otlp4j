@@ -1,6 +1,6 @@
 package dev.nthings.otlp4j.samples;
 
-import dev.nthings.otlp4j.processor.Connectors;
+import dev.nthings.otlp4j.pipeline.ops.Connectors;
 import dev.nthings.otlp4j.pipeline.OtlpExporter;
 import dev.nthings.otlp4j.receiver.Receiver;
 import dev.nthings.otlp4j.model.AttributeValue;
@@ -15,7 +15,7 @@ import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.pipeline.FanOut;
 import dev.nthings.otlp4j.pipeline.Pipeline;
 import dev.nthings.otlp4j.pipeline.Wiring;
-import dev.nthings.otlp4j.processor.Transforms;
+import dev.nthings.otlp4j.pipeline.ops.Transforms;
 import dev.nthings.otlp4j.transport.grpc.OtlpGrpcExporter;
 import dev.nthings.otlp4j.transport.grpc.OtlpGrpcReceiver;
 import java.time.Duration;

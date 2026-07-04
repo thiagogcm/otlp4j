@@ -12,10 +12,10 @@ import dev.nthings.otlp4j.model.NumberPoint;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
-import dev.nthings.otlp4j.processor.OverflowPolicy;
+import dev.nthings.otlp4j.pipeline.ops.OverflowPolicy;
 import dev.nthings.otlp4j.pipeline.ProfilesSink;
 import dev.nthings.otlp4j.pipeline.TracesSink;
-import dev.nthings.otlp4j.processor.BatchingProcessor;
+import dev.nthings.otlp4j.pipeline.ops.Batcher;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -29,8 +29,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
-@DisplayName("BatchingProcessor")
-class BatchingProcessorTest {
+@DisplayName("Batcher")
+class BatcherTest {
 
     @DisplayName("Flushes a batch once flushThreshold is reached")
     @Test
@@ -40,7 +40,7 @@ class BatchingProcessorTest {
             captured.add(traces);
             return ConsumeResult.acceptedStage();
         };
-        try (var batcher = BatchingProcessor.forTraces()
+        try (var batcher = Batcher.forTraces()
                 .downstream(downstream)
                 .flushThreshold(3)
                 .queueCapacity(16)
@@ -63,7 +63,7 @@ class BatchingProcessorTest {
             captured.add(traces);
             return ConsumeResult.acceptedStage();
         };
-        try (var batcher = BatchingProcessor.forTraces()
+        try (var batcher = Batcher.forTraces()
                 .downstream(downstream)
                 .flushThreshold(100)
                 .queueCapacity(100)
@@ -83,7 +83,7 @@ class BatchingProcessorTest {
             ignore.incrementAndGet();
             return new CompletableFuture<>();
         };
-        try (var batcher = BatchingProcessor.forTraces()
+        try (var batcher = Batcher.forTraces()
                 .downstream(downstream)
                 .flushThreshold(100)
                 .queueCapacity(2)
@@ -106,7 +106,7 @@ class BatchingProcessorTest {
         // A three-span batch dropped whole must report three rejected spans, not one
         // Java batch.
         var r = dropNewestOverflow(
-                BatchingProcessor.forTraces().downstream(traces -> new CompletableFuture<>()),
+                Batcher.forTraces().downstream(traces -> new CompletableFuture<>()),
                 Fixtures.traceData(Fixtures.span("warm", Span.Kind.SERVER)),
                 Fixtures.traceData(
                         Fixtures.span("c", Span.Kind.SERVER),
@@ -139,7 +139,7 @@ class BatchingProcessorTest {
                 Metric.builder().name("su").data(new Metric.Summary(List.of())).build(),
                 Metric.builder().name("nodata").build()));
         var r = dropNewestOverflow(
-                BatchingProcessor.forMetrics().downstream(metrics -> new CompletableFuture<>()),
+                Batcher.forMetrics().downstream(metrics -> new CompletableFuture<>()),
                 Fixtures.metricsData(Fixtures.metric("warmup")),
                 dropped);
         assertThat(r).isInstanceOfSatisfying(ConsumeResult.Partial.class,
@@ -150,7 +150,7 @@ class BatchingProcessorTest {
     @Test
     void dropNewestCountsLogRecords() {
         var r = dropNewestOverflow(
-                BatchingProcessor.forLogs().downstream(logs -> new CompletableFuture<>()),
+                Batcher.forLogs().downstream(logs -> new CompletableFuture<>()),
                 Fixtures.logsData(Fixtures.logRecord("warm", LogRecord.Severity.INFO)),
                 Fixtures.logsData(
                         Fixtures.logRecord("a", LogRecord.Severity.INFO),
@@ -163,7 +163,7 @@ class BatchingProcessorTest {
     @Test
     void dropNewestCountsProfiles() {
         var r = dropNewestOverflow(
-                BatchingProcessor.forProfilesUnsafe().downstream(profiles -> new CompletableFuture<>()),
+                Batcher.forProfilesUnsafe().downstream(profiles -> new CompletableFuture<>()),
                 Fixtures.profilesData(Fixtures.profile("aa")),
                 Fixtures.profilesData(Fixtures.profile("01"), Fixtures.profile("02")));
         assertThat(r).isInstanceOfSatisfying(ConsumeResult.Partial.class,
@@ -176,7 +176,7 @@ class BatchingProcessorTest {
         // A dropped batch carrying no spans loses nothing, so it must not be reported
         // as a partial.
         var r = dropNewestOverflow(
-                BatchingProcessor.forTraces().downstream(traces -> new CompletableFuture<>()),
+                Batcher.forTraces().downstream(traces -> new CompletableFuture<>()),
                 Fixtures.traceData(Fixtures.span("warm", Span.Kind.SERVER)),
                 new TracesData(List.of()));
         assertThat(r).isInstanceOf(ConsumeResult.Accepted.class);
@@ -186,7 +186,7 @@ class BatchingProcessorTest {
     /// nothing drains), then offers `dropped` into the full queue and returns the
     /// overflow result.
     private static <T> ConsumeResult dropNewestOverflow(
-            BatchingProcessor.Builder<T> builder, T warmup, T dropped) {
+            Batcher.Builder<T> builder, T warmup, T dropped) {
         try (var batcher = builder
                 .flushThreshold(100)
                 .queueCapacity(1)
@@ -205,7 +205,7 @@ class BatchingProcessorTest {
             captured.add(traces);
             return ConsumeResult.acceptedStage();
         };
-        var batcher = BatchingProcessor.forTraces()
+        var batcher = Batcher.forTraces()
                 .downstream(downstream)
                 .flushThreshold(100)
                 .queueCapacity(100)
@@ -218,7 +218,7 @@ class BatchingProcessorTest {
     @DisplayName("Builder without downstream throws IllegalStateException")
     @Test
     void rejectsBuilderWithoutDownstream() {
-        var builder = BatchingProcessor.forTraces().flushThreshold(1);
+        var builder = Batcher.forTraces().flushThreshold(1);
         assertThatThrownBy(builder::build).isInstanceOf(IllegalStateException.class);
     }
 
@@ -229,7 +229,7 @@ class BatchingProcessorTest {
         // A downstream that never completes: the size-triggered flush stays in flight
         // forever.
         TracesSink stalling = traces -> new CompletableFuture<>();
-        var batcher = BatchingProcessor.forTraces()
+        var batcher = Batcher.forTraces()
                 .downstream(stalling)
                 .flushThreshold(1) // flush immediately on the first consume
                 .queueCapacity(16)
@@ -251,7 +251,7 @@ class BatchingProcessorTest {
     void shutdownPropagatesDownstreamRejection() {
         TracesSink rejecting = traces -> CompletableFuture
                 .completedFuture(ConsumeResult.retryable("backend unavailable"));
-        var batcher = BatchingProcessor.forTraces()
+        var batcher = Batcher.forTraces()
                 .downstream(rejecting)
                 .flushThreshold(100) // no size-trigger; the queued batch drains on shutdown
                 .queueCapacity(100)
@@ -263,7 +263,7 @@ class BatchingProcessorTest {
 
         assertThatThrownBy(() -> shutdown.get(5, TimeUnit.SECONDS))
                 .isInstanceOf(ExecutionException.class)
-                .hasCauseInstanceOf(BatchingProcessor.BatchDeliveryException.class)
+                .hasCauseInstanceOf(Batcher.BatchDeliveryException.class)
                 .cause()
                 .hasMessageContaining("backend unavailable");
     }
@@ -273,7 +273,7 @@ class BatchingProcessorTest {
     @Timeout(15)
     void shutdownPropagatesDownstreamFailure() {
         TracesSink failing = traces -> CompletableFuture.failedFuture(new RuntimeException("kaboom"));
-        var batcher = BatchingProcessor.forTraces()
+        var batcher = Batcher.forTraces()
                 .downstream(failing)
                 .flushThreshold(100)
                 .queueCapacity(100)
@@ -294,7 +294,7 @@ class BatchingProcessorTest {
     @Timeout(15)
     void shutdownSurfacesDistinctDictionaryMergeFailure() {
         ProfilesSink downstream = profiles -> ConsumeResult.acceptedStage();
-        var batcher = BatchingProcessor.forProfilesUnsafe()
+        var batcher = Batcher.forProfilesUnsafe()
                 .downstream(downstream)
                 .flushThreshold(100) // no size-trigger; both batches merge in the shutdown drain
                 .queueCapacity(100)
@@ -308,7 +308,7 @@ class BatchingProcessorTest {
 
         assertThatThrownBy(() -> shutdown.get(5, TimeUnit.SECONDS))
                 .isInstanceOf(ExecutionException.class)
-                .hasCauseInstanceOf(BatchingProcessor.BatchDeliveryException.class)
+                .hasCauseInstanceOf(Batcher.BatchDeliveryException.class)
                 .cause()
                 .hasMessageContaining("distinct ProfilesDictionaries");
     }
@@ -316,11 +316,11 @@ class BatchingProcessorTest {
     @DisplayName("Many batchers share one platform timer thread")
     @Test
     void batchersShareOneTimerThread() {
-        var batchers = new ArrayList<BatchingProcessor<TracesData>>();
+        var batchers = new ArrayList<Batcher<TracesData>>();
         TracesSink downstream = traces -> ConsumeResult.acceptedStage();
         try {
             for (var i = 0; i < 5; i++) {
-                batchers.add(BatchingProcessor.forTraces().downstream(downstream).build());
+                batchers.add(Batcher.forTraces().downstream(downstream).build());
             }
             var timerThreads = Thread.getAllStackTraces().keySet().stream()
                     .filter(t -> t.getName().equals("otlp4j-batch-timer"))

@@ -1,4 +1,4 @@
-package dev.nthings.otlp4j.processor;
+package dev.nthings.otlp4j.pipeline.ops;
 
 import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.pipeline.Sink;
@@ -18,7 +18,7 @@ import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/// Queue-backed serial drain engine shared by [BatchingProcessor].
+/// Queue-backed serial drain engine shared by [Batcher].
 final class BatchDrainEngine<T> {
 
     private static final Logger log = LoggerFactory.getLogger(BatchDrainEngine.class);
@@ -58,7 +58,7 @@ final class BatchDrainEngine<T> {
         this.closed = closed;
         this.drainExecutor = drainExecutor;
         this.listener = listener;
-        var intervalMillis = BatchingProcessor.FLUSH_INTERVAL.toMillis();
+        var intervalMillis = Batcher.FLUSH_INTERVAL.toMillis();
         this.timer = scheduler.scheduleAtFixedRate(
                 flushIfDue, intervalMillis, intervalMillis, TimeUnit.MILLISECONDS);
     }
@@ -125,7 +125,7 @@ final class BatchDrainEngine<T> {
                     .thenCompose(BatchDrainEngine::asDeliveryOutcome);
         } catch (RuntimeException e) {
             // An impossible merge surfaces as [BatchDeliveryException], same as a downstream rejection.
-            return CompletableFuture.failedFuture(new BatchingProcessor.BatchDeliveryException(
+            return CompletableFuture.failedFuture(new Batcher.BatchDeliveryException(
                     "failed to flush drained batch: " + e.getMessage(), e));
         }
     }
@@ -134,10 +134,10 @@ final class BatchDrainEngine<T> {
         return switch (result) {
             case ConsumeResult.Accepted _ -> CompletableFuture.completedFuture(null);
             case ConsumeResult.Partial p ->
-                CompletableFuture.failedFuture(new BatchingProcessor.BatchDeliveryException(
+                CompletableFuture.failedFuture(new Batcher.BatchDeliveryException(
                         "downstream partially rejected " + p.rejectedItems() + " item(s): " + p.message()));
             case ConsumeResult.Rejected r -> CompletableFuture.failedFuture(
-                    new BatchingProcessor.BatchDeliveryException("downstream rejected batch: " + r.message(),
+                    new Batcher.BatchDeliveryException("downstream rejected batch: " + r.message(),
                             r.cause()));
         };
     }

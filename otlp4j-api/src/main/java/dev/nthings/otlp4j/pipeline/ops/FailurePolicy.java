@@ -1,4 +1,4 @@
-package dev.nthings.otlp4j.processor;
+package dev.nthings.otlp4j.pipeline.ops;
 
 /// Whether a downstream failure of derived telemetry fails the input batch. Part of the general
 /// [Connector] contract; the bundled count connectors (see [Connectors]) expose it directly.

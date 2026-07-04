@@ -1,4 +1,4 @@
-package dev.nthings.otlp4j.processor.internal;
+package dev.nthings.otlp4j.pipeline.ops.internal;
 
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
@@ -8,7 +8,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-/// Signal-specific merge strategies for `BatchingProcessor`.
+/// Signal-specific merge strategies for `Batcher`.
 public final class BatchMergers {
 
     private BatchMergers() {
@@ -38,7 +38,7 @@ public final class BatchMergers {
     /// fails loudly rather than emitting a corrupted batch.
     ///
     /// Prefer forwarding profiles 1:1. Use only through
-    /// `BatchingProcessor.forProfilesUnsafe()`.
+    /// `Batcher.forProfilesUnsafe()`.
     public static ProfilesData mergeProfilesUnsafe(List<ProfilesData> snapshot) {
         var combined = new ArrayList<ProfilesData.ResourceProfiles>();
         var dictionary = new byte[0];

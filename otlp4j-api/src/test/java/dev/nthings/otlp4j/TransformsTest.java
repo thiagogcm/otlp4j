@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import dev.nthings.otlp4j.model.AttributeValue;
 import dev.nthings.otlp4j.model.LogRecord;
 import dev.nthings.otlp4j.model.Span;
-import dev.nthings.otlp4j.processor.Transforms;
+import dev.nthings.otlp4j.pipeline.ops.Transforms;
 import dev.nthings.otlp4j.testing.Fixtures;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

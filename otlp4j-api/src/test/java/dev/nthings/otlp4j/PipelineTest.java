@@ -11,7 +11,7 @@ import dev.nthings.otlp4j.pipeline.FanOut;
 import dev.nthings.otlp4j.pipeline.Pipeline;
 import dev.nthings.otlp4j.pipeline.Sink;
 import dev.nthings.otlp4j.pipeline.TracesSink;
-import dev.nthings.otlp4j.processor.Transforms;
+import dev.nthings.otlp4j.pipeline.ops.Transforms;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.time.Duration;
 import java.util.ArrayList;

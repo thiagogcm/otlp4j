@@ -6,9 +6,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
-import dev.nthings.otlp4j.processor.OverflowPolicy;
+import dev.nthings.otlp4j.pipeline.ops.OverflowPolicy;
 import dev.nthings.otlp4j.pipeline.TracesSink;
-import dev.nthings.otlp4j.processor.BatchingProcessor;
+import dev.nthings.otlp4j.pipeline.ops.Batcher;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
@@ -16,14 +16,14 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-@DisplayName("BatchingProcessor overflow policies")
+@DisplayName("Batcher overflow policies")
 class BatchingPolicyTest {
 
     @DisplayName("DROP_OLDEST evicts oldest entries when the queue is full")
     @Test
     void dropOldestEvictsAndKeepsLatest() {
         TracesSink stuck = traces -> new CompletableFuture<>();
-        try (var batcher = BatchingProcessor.forTraces()
+        try (var batcher = Batcher.forTraces()
                 .downstream(stuck)
                 .flushThreshold(100)
                 .queueCapacity(2)
@@ -41,7 +41,7 @@ class BatchingPolicyTest {
     @Test
     void failPolicyReportsRejected() {
         TracesSink stuck = traces -> new CompletableFuture<>();
-        try (var batcher = BatchingProcessor.forTraces()
+        try (var batcher = Batcher.forTraces()
                 .downstream(stuck)
                 .flushThreshold(100)
                 .queueCapacity(2)
@@ -62,7 +62,7 @@ class BatchingPolicyTest {
             captured.set(traces);
             return ConsumeResult.acceptedStage();
         };
-        try (var batcher = BatchingProcessor.forTraces()
+        try (var batcher = Batcher.forTraces()
                 .downstream(downstream)
                 .flushThreshold(100)
                 .queueCapacity(100)
@@ -78,14 +78,14 @@ class BatchingPolicyTest {
     @DisplayName("flushThreshold of zero throws IllegalArgumentException")
     @Test
     void rejectsZeroFlushThreshold() {
-        assertThatThrownBy(() -> BatchingProcessor.forTraces().flushThreshold(0))
+        assertThatThrownBy(() -> Batcher.forTraces().flushThreshold(0))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
     @DisplayName("queueCapacity of zero throws IllegalArgumentException")
     @Test
     void rejectsZeroQueueCapacity() {
-        assertThatThrownBy(() -> BatchingProcessor.forTraces().queueCapacity(0))
+        assertThatThrownBy(() -> Batcher.forTraces().queueCapacity(0))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -93,7 +93,7 @@ class BatchingPolicyTest {
     @Test
     void consumeAfterCloseReturnsRejected() {
         TracesSink downstream = traces -> ConsumeResult.acceptedStage();
-        var batcher = BatchingProcessor.forTraces()
+        var batcher = Batcher.forTraces()
                 .downstream(downstream)
                 .flushThreshold(10)
                 .queueCapacity(10)

@@ -17,7 +17,7 @@
         otlp4j-transport-grpc; it never touches the generated proto code.</description>
 
     <dependencies>
-        <!-- The pipeline DSL, processors and connectors. -->
+        <!-- The pipeline DSL, operations and connectors. -->
         <dependency>
             <groupId>dev.nthings.otlp4j</groupId>
             <artifactId>otlp4j-api</artifactId>

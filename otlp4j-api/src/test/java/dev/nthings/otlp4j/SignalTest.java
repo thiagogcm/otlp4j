@@ -3,8 +3,8 @@ package dev.nthings.otlp4j;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import dev.nthings.otlp4j.processor.internal.BatchMergers;
-import dev.nthings.otlp4j.processor.internal.Signal;
+import dev.nthings.otlp4j.pipeline.ops.internal.BatchMergers;
+import dev.nthings.otlp4j.pipeline.ops.internal.Signal;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;

@@ -1,4 +1,4 @@
-package dev.nthings.otlp4j.processor.internal;
+package dev.nthings.otlp4j.pipeline.ops.internal;
 
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;

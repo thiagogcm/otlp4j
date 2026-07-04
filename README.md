@@ -53,7 +53,7 @@ Compile against the public API and add the transport you want — `otlp4j-transp
 
 ## Entry points
 
-Four types cover almost everything: `OtlpGrpcReceiver` (ingest), `OtlpGrpcExporter` (send), `Pipeline` (the transform/route DSL), and the ready-made building blocks `Transforms` and `BatchingProcessor`. For OTLP/HTTP, swap in `OtlpHttpReceiver` and `OtlpHttpExporter` — same builders and pipeline wiring, default port 4318 instead of 4317. The [Public API](docs/public-api.md) guide maps every type to its package; coming from OpenTelemetry Go, start with its [concept map](docs/public-api.md#if-you-know-opentelemetry-go).
+Four types cover almost everything: `OtlpGrpcReceiver` (ingest), `OtlpGrpcExporter` (send), `Pipeline` (the transform/route DSL), and the ready-made building blocks `Transforms` and `Batcher`. For OTLP/HTTP, swap in `OtlpHttpReceiver` and `OtlpHttpExporter` — same builders and pipeline wiring, default port 4318 instead of 4317. The [Public API](docs/public-api.md) guide maps every type to its package; coming from OpenTelemetry Go, start with its [concept map](docs/public-api.md#if-you-know-opentelemetry-go).
 
 ## Hello, telemetry
 
@@ -107,7 +107,7 @@ Wiring.builder()
 | Module                  | Role                                                                                                   |
 | ----------------------- | ------------------------------------------------------------------------------------------------------ |
 | `otlp4j-model`          | JDK-only OTLP domain records                                                                           |
-| `otlp4j-api`            | Public core, pipelines, processors, connectors, exporters/receivers, configuration, and transport SPI contracts |
+| `otlp4j-api`            | Public core, pipelines, transforms, batching, connectors, exporters/receivers, configuration, and transport SPI contracts |
 | `otlp4j-codec`          | Internal model⇄proto marshalling, qualified-exported to the two transports                             |
 | `otlp4j-proto`          | Generated OTLP messages and gRPC services, qualified-exported to the codec and transports              |
 | `otlp4j-transport-common` | Shared transport layer: `ClientExporter`/`ServerReceiver` wrap an `OtlpClient`/`OtlpServer` into the user-facing exporter/receiver, plus admission control and the entry-point builder bases |

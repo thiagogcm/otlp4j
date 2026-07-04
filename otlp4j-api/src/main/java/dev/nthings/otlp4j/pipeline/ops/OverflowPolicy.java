@@ -1,6 +1,6 @@
-package dev.nthings.otlp4j.processor;
+package dev.nthings.otlp4j.pipeline.ops;
 
-/// Policy for a batch that arrives while the [BatchingProcessor]'s bounded queue is full.
+/// Policy for a batch that arrives while the [Batcher]'s bounded queue is full.
 /// (Telemetry tap subscriptions have their own, non-blocking policy:
 /// `dev.nthings.otlp4j.receiver.TapOptions.Overflow`.)
 ///
