@@ -4,6 +4,8 @@
 >
 > Method: source-only review, read without reference to prior plans, notes, or git history. Every claim is grounded in code; file and class names are concrete so changes are actionable. Breaking changes are in scope: module, package, and class renaming, plus additions and removals, are all on the table.
 
+> **Status: complete.** Every phase of the recommended path (Section 6) has landed and every finding is resolved: Phase 0 (F1, vocabulary), Phase 1 (F3, generic signal spine), Phase 2 (F2, first-class Processor), Phase 3 (F8, F4, F6, robustness defaults), and Phase 4 (F5, F7, F9, F10, F11, F12, extensibility breadth). Each finding below carries a resolution banner describing what shipped, including the deliberate divergences (the pure-SAM `Processor`, the `ON_DELIVERY` default, the protobuf-only stance); the original review text is preserved throughout, so the section 5 scorecard and section 7 verdict read as the assessment of the tree as it was reviewed, not as it now stands.
+
 ---
 
 ## 1. Executive summary
