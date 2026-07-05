@@ -13,6 +13,7 @@ import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.pipeline.ops.OverflowPolicy;
+import dev.nthings.otlp4j.pipeline.Pipeline;
 import dev.nthings.otlp4j.pipeline.ProfilesSink;
 import dev.nthings.otlp4j.pipeline.TracesSink;
 import dev.nthings.otlp4j.pipeline.ops.Batcher;
@@ -215,11 +216,42 @@ class BatcherTest {
         assertThat(captured).hasSize(1);
     }
 
-    @DisplayName("Builder without downstream throws IllegalStateException")
+    @DisplayName("A downstream-less build()/buildProcessor() succeeds, throws if used as a bare Sink, and batches via Stage.via")
     @Test
-    void rejectsBuilderWithoutDownstream() {
-        var builder = Batcher.forTraces().flushThreshold(1);
-        assertThatThrownBy(builder::build).isInstanceOf(IllegalStateException.class);
+    void unboundBuildSucceedsBareSinkThrowsAndViaBatches() {
+        // build()/buildProcessor() no longer require a downstream: the result is the mid-chain form.
+        try (var built = Batcher.forTraces().flushThreshold(1).build();
+                var processor = Batcher.forTraces().flushThreshold(1).buildProcessor()) {
+            // Used as a bare Sink with no bound downstream, consume fails fast.
+            assertThatThrownBy(() ->
+                    built.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER))))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("without a bound downstream");
+            assertThatThrownBy(() ->
+                    processor.consume(Fixtures.traceData(Fixtures.span("b", Span.Kind.SERVER))))
+                    .isInstanceOf(IllegalStateException.class);
+        }
+
+        // Attached mid-chain via Stage.via, the unbound Batcher batches into the chain continuation.
+        var source = new ManualSource<TracesData>();
+        var captured = new ArrayList<TracesData>();
+        TracesSink terminal = traces -> {
+            captured.add(traces);
+            return ConsumeResult.acceptedStage();
+        };
+        var batcher = Batcher.forTraces().flushThreshold(2).queueCapacity(16).buildProcessor();
+        var sub = Pipeline.from(source).via(batcher).to(terminal);
+        try {
+            source.dispatch(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
+                    .toCompletableFuture().join();
+            source.dispatch(Fixtures.traceData(Fixtures.span("b", Span.Kind.SERVER)))
+                    .toCompletableFuture().join();
+            await().atMost(Duration.ofSeconds(2)).until(() -> !captured.isEmpty());
+        } finally {
+            sub.shutdown(Duration.ofSeconds(2)).toCompletableFuture().join();
+        }
+        assertThat(captured).hasSize(1);
+        assertThat(captured.getFirst().spans()).hasSize(2);
     }
 
     @DisplayName("shutdown does not report success while an in-flight flush has not completed")

@@ -37,7 +37,7 @@ public final class Pipeline {
     /// @param <T>    the signal type
     /// @return the initial stage
     public static <T> Stage<T> from(Source<T> source) {
-        return new StageImpl<>(Objects.requireNonNull(source, "source"), identity(), null, new ArrayList<>());
+        return new StageImpl<>(Objects.requireNonNull(source, "source"), identity(), null, null, new ArrayList<>());
     }
 
     /// A pipeline stage parameterised by the signal currently flowing through it.
@@ -67,6 +67,16 @@ public final class Pipeline {
         /// @return this stage
         Stage<T> filter(Predicate<? super T> keep);
 
+        /// Inserts a same-signal [Processor] mid-chain: the batch flows through the stages so far, then
+        /// into `processor`, whose `next` is the remainder of the chain down to the terminal. A stateful
+        /// processor that implements [Lifecycle]/[AutoCloseable] is drained automatically on shutdown and
+        /// flushed on forceFlush - before the downstream it feeds - with no [#owns(AutoCloseable)]
+        /// declaration.
+        ///
+        /// @param processor the same-signal processor
+        /// @return this stage
+        Stage<T> via(Processor<T> processor);
+
         /// Registers a lifecycle resource that the subscription drains on shutdown and flushes on
         /// forceFlush. An escape hatch, needed only for a resource the pipeline cannot see - hidden
         /// behind a lambda sink or a connector's downstream. Exporter facets and other [AutoCloseable]
@@ -95,16 +105,23 @@ public final class Pipeline {
         /// The chain of stages up to the last [AsyncTransform], or null while the pipeline is fully
         /// synchronous (the common case pays no future allocation per batch).
         final @Nullable Function<T, CompletableFuture<@Nullable T>> asyncChain;
+        /// The chain sealed before the most recent via(): a factory that, given the continuation sink,
+        /// returns the head sink for everything up to that via boundary. Null while no via has been
+        /// added, in which case .to reduces exactly to today's syncChainSink/asyncChainSink (fast path
+        /// unchanged).
+        final @Nullable Function<Sink<? super T>, Sink<T>> upstream;
         final List<AutoCloseable> resources;
 
         StageImpl(
                 Source<T> source,
                 Function<@Nullable T, @Nullable T> pendingSync,
                 @Nullable Function<T, CompletableFuture<@Nullable T>> asyncChain,
+                @Nullable Function<Sink<? super T>, Sink<T>> upstream,
                 List<AutoCloseable> resources) {
             this.source = source;
             this.pendingSync = pendingSync;
             this.asyncChain = asyncChain;
+            this.upstream = upstream;
             this.resources = resources;
         }
 
@@ -115,7 +132,7 @@ public final class Pipeline {
                     ? null
                     : Objects.requireNonNull(fn.apply(batch),
                             () -> "transform returned null (transforms are 1-to-1; drop batches with filter(...))");
-            return new StageImpl<>(source, pendingSync.andThen(step), asyncChain, resources);
+            return new StageImpl<>(source, pendingSync.andThen(step), asyncChain, upstream, resources);
         }
 
         @Override
@@ -132,13 +149,34 @@ public final class Pipeline {
                 nextResources.addAll(resources);
                 nextResources.add(closeable);
             }
-            return new StageImpl<>(source, identity(), next, nextResources);
+            return new StageImpl<>(source, identity(), next, upstream, nextResources);
         }
 
         @Override
         public Stage<T> filter(Predicate<? super T> keep) {
             Function<@Nullable T, @Nullable T> filtered = batch -> batch != null && keep.test(batch) ? batch : null;
-            return new StageImpl<>(source, pendingSync.andThen(filtered), asyncChain, resources);
+            return new StageImpl<>(source, pendingSync.andThen(filtered), asyncChain, upstream, resources);
+        }
+
+        @Override
+        public Stage<T> via(Processor<T> processor) {
+            Objects.requireNonNull(processor, "processor");
+            var priorUpstream = upstream;
+            // Seal the current segment: a factory that, given the processor's continuation, returns the
+            // head sink for the stages accumulated so far. The method reference captures this instance's
+            // pendingSync/asyncChain, so the reset segment on the returned stage does not disturb it.
+            Function<Sink<? super T>, Sink<T>> segment = this::segmentSink;
+            Function<Sink<? super T>, Sink<T>> newUpstream = next -> {
+                Sink<T> segmentHead = segment.apply(processorSink(processor, next));
+                return priorUpstream == null ? segmentHead : priorUpstream.apply(segmentHead);
+            };
+            var nextResources = resources;
+            if (processor instanceof AutoCloseable closeable) {
+                nextResources = new ArrayList<>(resources.size() + 1);
+                nextResources.addAll(resources);
+                nextResources.add(closeable);
+            }
+            return new StageImpl<>(source, identity(), null, newUpstream, nextResources);
         }
 
         @Override
@@ -147,20 +185,27 @@ public final class Pipeline {
             var next = new ArrayList<AutoCloseable>(resources.size() + 1);
             next.addAll(resources);
             next.add(resource);
-            return new StageImpl<>(source, pendingSync, asyncChain, next);
+            return new StageImpl<>(source, pendingSync, asyncChain, upstream, next);
         }
 
         @Override
         public PipelineHandle to(Sink<? super T> terminal) {
             Objects.requireNonNull(terminal, "terminal");
-            var chain = asyncChain == null ? syncChainSink(terminal) : asyncChainSink(terminal);
+            var segmentHead = segmentSink(terminal);
+            var head = upstream == null ? segmentHead : upstream.apply(segmentHead);
             var leafResources = PipelineLifecycle.leafResources(terminal);
             return PipelineLifecycle.subscription(
-                    source.subscribe(chain), PipelineLifecycle.combine(resources, leafResources));
+                    source.subscribe(head), PipelineLifecycle.combine(resources, leafResources));
         }
 
-        /// The fully-synchronous fast path: no future allocation until the terminal.
-        private Sink<T> syncChainSink(Sink<? super T> terminal) {
+        /// The trailing segment feeding `next`: the fully-synchronous fast path when no async boundary
+        /// has been crossed, otherwise the lifted asynchronous path.
+        private Sink<T> segmentSink(Sink<? super T> next) {
+            return asyncChain == null ? syncChainSink(next) : asyncChainSink(next);
+        }
+
+        /// The fully-synchronous fast path: no future allocation until `next`.
+        private Sink<T> syncChainSink(Sink<? super T> next) {
             var stageFn = pendingSync;
             return batch -> {
                 @Nullable
@@ -174,13 +219,13 @@ public final class Pipeline {
                 if (after == null) {
                     return ConsumeResult.acceptedStage();
                 }
-                return deliver(terminal, after);
+                return deliver(next, after);
             };
         }
 
         /// The asynchronous path: runs the lifted chain, then normalizes drop/failure and
-        /// delivers to the terminal.
-        private Sink<T> asyncChainSink(Sink<? super T> terminal) {
+        /// delivers to `next`.
+        private Sink<T> asyncChainSink(Sink<? super T> next) {
             var lifted = liftedChain();
             return batch -> lifted.apply(batch)
                     .<CompletionStage<ConsumeResult>>handle((after, failure) -> {
@@ -191,7 +236,7 @@ public final class Pipeline {
                         if (after == null) {
                             return ConsumeResult.acceptedStage();
                         }
-                        return deliver(terminal, after);
+                        return deliver(next, after);
                     })
                     .thenCompose(stage -> stage);
         }
@@ -230,6 +275,12 @@ public final class Pipeline {
         return result.thenApply(value -> Objects.<@Nullable T>requireNonNull(value,
                         "async transform completed null (async transforms are 1-to-1; drop batches with filter(...))"))
                 .toCompletableFuture();
+    }
+
+    /// A mid-chain decorator sink for a [Processor]: forwards each batch through the processor to
+    /// `next`, normalizing the processor's failure modes via the shared [Processing#run].
+    private static <T> Sink<T> processorSink(Processor<T> p, Sink<? super T> next) {
+        return batch -> Processing.run(p, batch, next);
     }
 
     private static <T> CompletionStage<ConsumeResult> deliver(Sink<? super T> terminal, T batch) {

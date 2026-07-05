@@ -15,6 +15,7 @@ import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.pipeline.FanOut;
 import dev.nthings.otlp4j.pipeline.Pipeline;
 import dev.nthings.otlp4j.pipeline.Wiring;
+import dev.nthings.otlp4j.pipeline.ops.Processors;
 import dev.nthings.otlp4j.pipeline.ops.Transforms;
 import dev.nthings.otlp4j.transport.grpc.OtlpGrpcExporter;
 import dev.nthings.otlp4j.transport.grpc.OtlpGrpcReceiver;
@@ -50,7 +51,8 @@ public final class OtlpE2eDemo {
         log.info("=== otlp4j end-to-end demo ===");
         log.info("Client sent 5 spans (3 SERVER, 2 INTERNAL) to the gateway.");
         log.info("Gateway pipeline: enrich resource attribute -> redact enduser.id span attribute -> "
-                + "filter SERVER spans -> fan out to exporter + span count sink.");
+                + "filter SERVER spans -> drop-empty-traces processor (Stage.via) -> "
+                + "fan out to exporter + span count sink.");
         log.info("Backend received:");
         log.info("  filtered spans          : {} (expected 3)", result.spansAtBackend());
         log.info("  derived span-count metric: {} (expected 3)", result.derivedSpanCount());
@@ -102,7 +104,9 @@ public final class OtlpE2eDemo {
                                     .build()
                             : span))
                     .transform(Transforms.keepSpansWhere(span -> span.kind() == Span.Kind.SERVER))
-                    .filter(traces -> traces.spanCount() != 0)
+                    // Living documentation for Stage.via: a named, stateless Processor dropping a
+                    // batch the filter above emptied out, in place of the equivalent .filter(...).
+                    .via(Processors.pruning("drop-empty-traces", traces -> traces.spanCount() == 0 ? null : traces))
                     .to(FanOut.of(backendExporter.traces(), spanCounter));
 
             gateway.start();

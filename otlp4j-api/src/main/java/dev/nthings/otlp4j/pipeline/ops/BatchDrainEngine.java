@@ -14,6 +14,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,7 +34,7 @@ final class BatchDrainEngine<T> {
     }
 
     private final ArrayBlockingQueue<T> queue;
-    private final Sink<? super T> downstream;
+    private final Supplier<@Nullable Sink<? super T>> target;
     private final Function<List<T>, T> merger;
     private final AtomicBoolean closed;
     private final ScheduledFuture<?> timer;
@@ -45,7 +46,7 @@ final class BatchDrainEngine<T> {
 
     BatchDrainEngine(
             ArrayBlockingQueue<T> queue,
-            Sink<? super T> downstream,
+            Supplier<@Nullable Sink<? super T>> target,
             Function<List<T>, T> merger,
             AtomicBoolean closed,
             ScheduledExecutorService scheduler,
@@ -53,7 +54,7 @@ final class BatchDrainEngine<T> {
             Runnable flushIfDue,
             DrainListener listener) {
         this.queue = queue;
-        this.downstream = downstream;
+        this.target = target;
         this.merger = merger;
         this.closed = closed;
         this.drainExecutor = drainExecutor;
@@ -119,6 +120,12 @@ final class BatchDrainEngine<T> {
     }
 
     private CompletableFuture<Void> deliver(List<T> snapshot) {
+        var downstream = target.get();
+        if (downstream == null) {
+            // The queue is empty until process/consume has bound next, so this is a safety net,
+            // never hit in practice (see the concurrency argument in the F2 design).
+            return CompletableFuture.completedFuture(null);
+        }
         try {
             var merged = merger.apply(snapshot);
             return downstream.consume(merged).toCompletableFuture()

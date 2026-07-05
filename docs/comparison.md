@@ -63,7 +63,7 @@ This is the closer comparison. Both receive OTLP, process it through a pipeline 
 | --- | --- |
 | `otlpreceiver` (gRPC + HTTP) | `OtlpGrpcReceiver` / `OtlpHttpReceiver` |
 | `consumer.Traces` (`ConsumeTraces(ctx, td) error`) | `TracesSink` (`Sink<TracesData>` returning `CompletionStage<ConsumeResult>`) |
-| `processor` (`batch`, `memory_limiter`) | `Transform` / `AsyncTransform`, `Batcher`, `AdmissionControl` |
+| `processor` (`batch`, `memory_limiter`) | `Transform` / `AsyncTransform`, `Processor` (`Processors`, `AbstractProcessor`), `Batcher`, `AdmissionControl` |
 | `connector` (`forward`, traces-to-metrics) | `Connector<I, O>` (`spanCount`, `logRecordCount`) |
 | `otlpexporter` / `otlphttpexporter` | `OtlpGrpcExporter` / `OtlpHttpExporter` |
 | `pdata` (mutable OTLP wrapper) | proto-free **immutable** model records |

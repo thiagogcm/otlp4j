@@ -67,9 +67,9 @@ Everything lives under the `dev.nthings.otlp4j` root. The types you import most 
 | --- | --- |
 | `OtlpGrpcExporter`, `OtlpGrpcReceiver` | `dev.nthings.otlp4j.transport.grpc` |
 | `OtlpHttpExporter`, `OtlpHttpReceiver` | `dev.nthings.otlp4j.transport.http` |
-| `Pipeline`, `Sink` (+ `TracesSink`, `MetricsSink`, `LogsSink`, `ProfilesSink` aliases), `Source`, `Transform`, `AsyncTransform`, `FanOut`, `OtlpExporter`, `PipelineHandle`, `Lifecycle`, `SharedLifecycle`, `Wiring` | `dev.nthings.otlp4j.pipeline` |
+| `Pipeline`, `Sink` (+ `TracesSink`, `MetricsSink`, `LogsSink`, `ProfilesSink` aliases), `Source`, `Transform`, `AsyncTransform`, `Processor` (+ `TracesProcessor`, `MetricsProcessor`, `LogsProcessor`, `ProfilesProcessor` aliases), `FanOut`, `OtlpExporter`, `PipelineHandle`, `Lifecycle`, `SharedLifecycle`, `Wiring` | `dev.nthings.otlp4j.pipeline` |
 | `Receiver`, `TelemetryTap`, `TapOptions` | `dev.nthings.otlp4j.receiver` |
-| `Transforms`, `Batcher`, `OverflowPolicy`, `Connector`, `Connectors`, `FailurePolicy` | `dev.nthings.otlp4j.pipeline.ops` |
+| `Transforms`, `Processors`, `AbstractProcessor`, `Batcher`, `OverflowPolicy`, `Connector`, `Connectors`, `FailurePolicy` | `dev.nthings.otlp4j.pipeline.ops` |
 | Configuration: `ClientConfig`, `ServerConfig`, `Tls`, `Compression` | `dev.nthings.otlp4j.config` |
 | Retry configuration: `RetryConfig` | `io.github.resilience4j.retry` |
 | Transport SPI: `OtlpClient`, `OtlpServer`, `Dispatchers` | `dev.nthings.otlp4j.spi` |
@@ -254,6 +254,8 @@ The built-in `Transforms` cover the common rewrites: `keepSpansWhere` / `keepLog
 
 `Stage.transformAsync(AsyncTransform<T>)` is the asynchronous counterpart: `AsyncTransform<T>` declares one method, `CompletionStage<T> applyAsync(T batch)`, for a 1-to-1 stage that needs I/O (an enrichment lookup, a remote sampling decision) off the synchronous dispatch path. The pipeline delivers downstream only once the returned stage completes, so the transport acknowledgement still covers the full chain. The same 1-to-1 contract applies: drop is not signalled by the async transform, so complete with a pruned (possibly empty) batch and compose `.transformAsync(sampler).filter(t -> t.spanCount() != 0)`; a thrown exception, a failed or null stage, or a null completion value each reject the batch permanently.
 
+`Stage.via(Processor<T>)` inserts a same-signal stage mid-chain that, unlike `Transform`/`AsyncTransform`, controls delivery itself: a `Processor<T>` receives each batch plus `next` (the rest of the chain down to the terminal) and may drop it (return `ConsumeResult.acceptedStage()` without calling `next`), forward it, coalesce several inputs into one `next.consume(...)`, or split one input into several — 1-to-N where a transform is strictly 1-to-1. `Processors.pruning(name, fn)` is the reusable, named "map-or-drop" form: a `null` mapping **drops** the batch, the deliberate reverse of `Transform`'s null-is-illegal contract; `Processors.of(name, logic)` names an arbitrary processor. A stateful, resource-holding stage extends `pipeline.ops.AbstractProcessor<T>` instead of a bare lambda: it supplies a captured `next()` accessor a buffering subclass reaches from its `onShutdown`/`onForceFlush` hooks, plus an idempotent `shutdown`. `AbstractProcessor` implements `Lifecycle`, not `SharedLifecycle`, so a stateful processor instance is **single-attachment** by default (belongs to one pipeline chain); a stage that must be shared implements `SharedLifecycle` itself. A processor attached via `.via(...)` that implements `Lifecycle`/`AutoCloseable` is auto-collected and drained before the downstream it feeds, exactly like an `AutoCloseable` `AsyncTransform`, with no `owns(...)` needed. Outside the DSL, `Processor#asSink(downstream)` binds a fixed downstream into a terminal `Sink` and cascades lifecycle to both sides (like `Connector`); `Batcher` overrides `asSink` to stay non-cascading, matching its documented "drains its own queue but not its downstream" contract (see [Batch](#batch)).
+
 `FanOut.of(...)` is the one fan-out spelling: it returns a reusable `Sink<T>` that a stage terminates at with `.to(...)`. Peers run concurrently; the result is rejected if any peer rejects, otherwise a partial result uses the largest rejection count. The factories collapse degenerate shapes: a single peer is returned bare (so its lifecycle stays visible to the pipeline's auto-collection), and an **empty** peer set yields a no-op sink that **accepts and discards every batch** (matching `Source.discard()` semantics), so route an empty computed peer list deliberately.
 
 To observe batches in-path, add an observing `Sink` as a fan-out peer: it runs concurrently with the terminal and shares the acknowledgement, so an observer that rejects also rejects the batch back to the sender. An identity `Transform` observes inline instead, but an observer that throws becomes a permanent rejection unless it catches its own exceptions. For demand-aware streaming with bounded buffers that stays outside the acknowledgement path, use the receiver's `TelemetryTap`.
@@ -276,8 +278,10 @@ The routing concepts, contrasted:
 | --- | --- | --- | --- |
 | `Transform` (via `Transforms`) | 1 -> 1 | no | no |
 | `AsyncTransform` (via `Stage.transformAsync`) | 1 -> 1 (asynchronous) | no | no; the stage itself is auto-collected when `AutoCloseable` |
+| `Processor` (via `Stage.via`, `Processors`, or `AbstractProcessor`) | 1 -> N (drop, forward, coalesce, or split) | no | no; a stateful processor is auto-collected and drains before the downstream it feeds |
 | `Connector` (count sinks via `Connectors`) | 1 -> 1 | yes | yes, cascades to its downstream |
-| `Batcher` | N -> 1 (buffered) | no | no; front its downstream with `owns(...)` |
+| `Batcher`, mid-chain (`Stage.via(...)` / `buildProcessor()`) | N -> 1 (buffered) | no | n/a — the downstream is the pipeline's own tracked continuation |
+| `Batcher`, bound (`.downstream(...).build()`) | N -> 1 (buffered) | no | no; front its downstream with `owns(...)` |
 | `TelemetryTap` (on the receiver) | observe (demand-aware) | no | n/a |
 
 ## Batch
@@ -484,6 +488,7 @@ Shut the receiver down first, then the subscription. `receiver.shutdown(timeout)
 - **Exporter facets** carry their exporter's lifecycle, so attaching one drains the whole exporter with nothing to register.
 - A **directly attached `Batcher`** drains its own queue on shutdown.
 - An **`AutoCloseable`/`Lifecycle` `AsyncTransform`** stage is auto-collected and drained before the terminal's resources.
+- A stateful **`.via(processor)`** implementing `Lifecycle`/`AutoCloseable` is likewise auto-collected and drained before the downstream it feeds, with no `owns(...)` declaration.
 - A **count `Connector`** cascades its shutdown to the downstream metric sink it wraps.
 
 Use `Stage.owns(resource)` only for a resource the subscription **cannot** see: one hidden behind a bare lambda terminal, or an exporter fronted by a `Batcher` (which drains its own queue but not its downstream). `owns(...)` is chainable and must be declared on the stage _before_ `.to(...)`.
@@ -525,7 +530,8 @@ Shutdown runs receivers first (nothing new is ingested), then pipeline subscript
 | --- | --- |
 | `OtlpGrpcReceiver` / `OtlpHttpReceiver` | Thread-safe after `start()`; dispatch incoming requests to sinks concurrently. The `...Receiver.Builder` is single-threaded: configure on one thread, then `build()`. |
 | `OtlpGrpcExporter` / `OtlpHttpExporter` | Thread-safe: a single exporter owns one client/channel and may be called from many threads; each facet's `consume` is concurrency-safe. The builder is single-threaded. |
-| `Batcher` | Thread-safe: `consume`, `forceFlush`, and `shutdown` may be called concurrently (queue + counters are concurrent). `shutdown` is idempotent and then rejects new batches. |
+| `Batcher` (also a `Processor`) | Thread-safe: `consume`/`process`, `forceFlush`, and `shutdown` may be called concurrently (queue + counters are concurrent; a concurrent first `process`/`asSink` binds `next` exactly once). `shutdown` is idempotent and then rejects new batches. |
+| `Processor` / `AbstractProcessor` | The runtime type is safe to share within its single attachment (one `.via(...)` chain, or one captured `asSink` downstream). A stateful `AbstractProcessor` instance is single-attachment by default (see [Transform and route](#transform-and-route)) unless it opts into `SharedLifecycle`; stateless processors (`Processors` factories, bare lambdas) may be reused freely. |
 | `PipelineHandle` (from `Pipeline.from(...)`) | `shutdown`/`forceFlush` are safe to call concurrently and idempotently. Build the pipeline on one thread. |
 | `TelemetryTap` | Thread-safe: each publisher multicasts independently and `TapOptions` bind to a subscription when it attaches. Each `Flow.Subscriber` manages its own demand. |
 | Model records (`TracesData`, `Attributes`, ...) | Immutable and freely shareable; fan-out peers share them without copying. Their builders are single-threaded. |
@@ -541,4 +547,4 @@ Shutdown runs receivers first (nothing new is ingested), then pipeline subscript
 - **Point values**: `NumberPoint`/`Exemplar` value may be `null` for a value-unset point.
 - **`Attributes.get(key)`** returns `null` on a lookup miss, as does the typed `getString(key)`.
 
-`Batcher.Builder.downstream` must be set before `build()`; building without it throws rather than accepting `null`.
+`Batcher.Builder.downstream` is optional: `.downstream(sink)` binds the bound `Sink`/terminal form at `build()`; without it, `build()` (or its `buildProcessor()` synonym) returns the mid-chain `Processor` form, which captures its `next` from `Stage.via(...)` on first use and throws `IllegalStateException` (not a `null`-related failure) if used as a bare `Sink` before that capture.
