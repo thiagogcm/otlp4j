@@ -4,6 +4,7 @@ import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.TracesData;
+import dev.nthings.otlp4j.model.Signal;
 import dev.nthings.otlp4j.pipeline.Lifecycle;
 import dev.nthings.otlp4j.pipeline.Source;
 import java.time.Duration;
@@ -16,17 +17,28 @@ import java.util.concurrent.CompletionStage;
 /// `OtlpGrpcReceiver` / `OtlpHttpReceiver`.
 public interface Receiver extends Lifecycle {
 
+    /// The ingest source for `signal`.
+    <T> Source<T> source(Signal<T> signal);
+
     /// The trace ingest source.
-    Source<TracesData> traces();
+    default Source<TracesData> traces() {
+        return source(Signal.TRACES);
+    }
 
     /// The metrics ingest source.
-    Source<MetricsData> metrics();
+    default Source<MetricsData> metrics() {
+        return source(Signal.METRICS);
+    }
 
     /// The logs ingest source.
-    Source<LogsData> logs();
+    default Source<LogsData> logs() {
+        return source(Signal.LOGS);
+    }
 
     /// The profiles ingest source.
-    Source<ProfilesData> profiles();
+    default Source<ProfilesData> profiles() {
+        return source(Signal.PROFILES);
+    }
 
     /// The receiver's live side-channel.
     TelemetryTap tap();

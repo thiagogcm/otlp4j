@@ -117,6 +117,8 @@ Provide a `processorhelper`-style base that owns the next-forwarding, the failur
 
 ### F3 (P0). Per-signal quadruplication has no generic spine
 
+> **Status: resolved (Phase 1).** The generic signal spine has landed. `Signal` is now a public typesafe-enum class `dev.nthings.otlp4j.model.Signal<T>` carrying `{ signalName, batchType, merge, itemCount, empty }` with the former `BatchMergers` folded in as its implementation detail, paired with a `SignalBatch<T>` carrier threaded through the export and dispatch paths. `OtlpClient` and `Dispatchers` collapsed to single generic `export(SignalBatch<T>)` / `dispatch(SignalBatch<T>)` methods; `OtlpExporter.sink(Signal)`, `Receiver.source(Signal)`, and `TelemetryTap.publisher(Signal)` are the generic accessors with the per-signal methods kept as veneers; a `SignalCodec` aggregator in `otlp4j-codec` binds each signal to its mapper and response statics; both transports dispatch through `Signal`-keyed binding tables. The four `*Sink` marker interfaces remain as user-facing terminals, and no `module-info.java` changed. The finding text below is preserved as the original review.
+
 What. The four signals are enumerated about seven times over, with no `Signal`-keyed generic core to share the boilerplate:
 
 - Model: `TracesData` / `MetricsData` / `LogsData` / `ProfilesData`, each with its own `Resource*` / `Scope*` nested records, `*Count()`, and `forEach*()`.

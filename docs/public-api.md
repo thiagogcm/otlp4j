@@ -73,7 +73,7 @@ Everything lives under the `dev.nthings.otlp4j` root. The types you import most 
 | Configuration: `ClientConfig`, `ServerConfig`, `Tls`, `Compression` | `dev.nthings.otlp4j.config` |
 | Retry configuration: `RetryConfig` | `io.github.resilience4j.retry` |
 | Transport SPI: `OtlpClient`, `OtlpServer`, `Dispatchers` | `dev.nthings.otlp4j.spi` |
-| Domain records: `TracesData`, `MetricsData`, `LogsData`, `ProfilesData`, `Resource`, `Attributes`, `AttributeValue`, `Span`, `Metric`, `LogRecord`, `Exemplar`, `ConsumeResult`, ... | `dev.nthings.otlp4j.model` |
+| Domain records: `TracesData`, `MetricsData`, `LogsData`, `ProfilesData`, `Signal`, `SignalBatch`, `Resource`, `Attributes`, `AttributeValue`, `Span`, `Metric`, `LogRecord`, `Exemplar`, `ConsumeResult`, ... | `dev.nthings.otlp4j.model` |
 
 ## If you know OpenTelemetry Go
 
@@ -466,10 +466,10 @@ Demand is independent of the receive/export acknowledgement path: a slow subscri
 
 There is no provider-discovery or `ServiceLoader` indirection: an application selects a transport by instantiating its concrete entry point. To add your own, implement the two transport-side contracts in `dev.nthings.otlp4j.spi` and wrap them in an exporter/receiver:
 
-- `OtlpClient` (export) exposes `exportTraces`/`exportMetrics`/`exportLogs`/`exportProfiles`, each returning `CompletionStage<ConsumeResult>`.
-- `OtlpServer` (receive) is constructed with a `ServerConfig` and a `Dispatchers` record, the per-signal functions the server invokes as it decodes requests.
+- `OtlpClient` (export) exposes one generic `export(SignalBatch<T>)` returning `CompletionStage<ConsumeResult>`; a `SignalBatch` pairs a `Signal` with its domain batch, so a single method carries every signal.
+- `OtlpServer` (receive) is constructed with a `ServerConfig` and a `Dispatchers`, the single-method interface (`dispatch(SignalBatch<T>)`) the server invokes as it decodes requests.
 
-You do not implement the user-facing surface yourself: module `otlp4j-transport-common` (package `dev.nthings.otlp4j.transport.common`) is the shared layer the bundled entry points compose, and yours composes it the same way. Wrap your `OtlpClient` in a `ClientExporter` to get the `OtlpExporter` contract (the per-signal `Sink` facets, reference-counted channel lifecycle, and the garbage-collection leak warning) for free; wrap your `OtlpServer` in a `ServerReceiver`, which builds the `Dispatchers`, hands them to your server factory, and exposes one `Source` per signal plus the `TelemetryTap`, dispatch wiring, and lifecycle. For a fluent builder, extend `AbstractExporterBuilder`/`AbstractReceiverBuilder`: each holds the `ClientConfig.Builder`/`ServerConfig.Builder` it delegates the shared setters to, while your subclass supplies the wire client or server (`newClient`/`newServer`) and adds transport-specific knobs through `config()`. When a custom exporter shares one connection behind several facets, implement `pipeline.SharedLifecycle`: a subscription calls `retain()` once when it collects the resource, and the handle is released only when the last retained owner shuts down.
+You do not implement the user-facing surface yourself: module `otlp4j-transport-common` (package `dev.nthings.otlp4j.transport.common`) is the shared layer the bundled entry points compose, and yours composes it the same way. Wrap your `OtlpClient` in a `ClientExporter` to get the `OtlpExporter` contract (the per-signal `Sink` facets, reference-counted channel lifecycle, and the garbage-collection leak warning) for free; wrap your `OtlpServer` in a `ServerReceiver`, which implements `Dispatchers`, hands itself to your server factory, and exposes one `Source` per signal plus the `TelemetryTap`, dispatch wiring, and lifecycle. For a fluent builder, extend `AbstractExporterBuilder`/`AbstractReceiverBuilder`: each holds the `ClientConfig.Builder`/`ServerConfig.Builder` it delegates the shared setters to, while your subclass supplies the wire client or server (`newClient`/`newServer`) and adds transport-specific knobs through `config()`. When a custom exporter shares one connection behind several facets, implement `pipeline.SharedLifecycle`: a subscription calls `retain()` once when it collects the resource, and the handle is released only when the last retained owner shuts down.
 
 For a custom _terminal_ rather than a new wire protocol (somewhere telemetry lands that isn't OTLP at all), implement `Sink<T>` plus `Lifecycle` (see [Export](#export)) instead of the transport SPI.
 

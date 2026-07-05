@@ -5,12 +5,14 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.nthings.otlp4j.model.ConsumeResult;
+import dev.nthings.otlp4j.model.SignalBatch;
 import dev.nthings.otlp4j.spi.Dispatchers;
 import dev.nthings.otlp4j.config.ServerConfig;
 import dev.nthings.otlp4j.config.Tls;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -20,11 +22,12 @@ import org.junit.jupiter.api.Timeout;
 @DisplayName("GrpcOtlpServer lifecycle")
 class GrpcOtlpServerLifecycleTest {
 
-    private static final Dispatchers NO_OP = new Dispatchers(
-            t -> CompletableFuture.completedStage(ConsumeResult.accepted()),
-            m -> CompletableFuture.completedStage(ConsumeResult.accepted()),
-            l -> CompletableFuture.completedStage(ConsumeResult.accepted()),
-            p -> CompletableFuture.completedStage(ConsumeResult.accepted()));
+    private static final Dispatchers NO_OP = new Dispatchers() {
+        @Override
+        public <T> CompletionStage<ConsumeResult> dispatch(SignalBatch<T> batch) {
+            return CompletableFuture.completedStage(ConsumeResult.accepted());
+        }
+    };
 
     private static ServerConfig ephemeral() {
         return ServerConfig.builder().setPort(0).build();

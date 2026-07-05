@@ -1,10 +1,7 @@
 package dev.nthings.otlp4j.transport.common;
 
 import dev.nthings.otlp4j.model.ConsumeResult;
-import dev.nthings.otlp4j.model.LogsData;
-import dev.nthings.otlp4j.model.MetricsData;
-import dev.nthings.otlp4j.model.ProfilesData;
-import dev.nthings.otlp4j.model.TracesData;
+import dev.nthings.otlp4j.model.SignalBatch;
 import dev.nthings.otlp4j.spi.OtlpClient;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -16,22 +13,7 @@ final class RecordingOtlpClient implements OtlpClient {
     final AtomicInteger closes = new AtomicInteger();
 
     @Override
-    public CompletionStage<ConsumeResult> exportTraces(TracesData t) {
-        return ConsumeResult.acceptedStage();
-    }
-
-    @Override
-    public CompletionStage<ConsumeResult> exportMetrics(MetricsData m) {
-        return ConsumeResult.acceptedStage();
-    }
-
-    @Override
-    public CompletionStage<ConsumeResult> exportLogs(LogsData l) {
-        return ConsumeResult.acceptedStage();
-    }
-
-    @Override
-    public CompletionStage<ConsumeResult> exportProfiles(ProfilesData p) {
+    public <T> CompletionStage<ConsumeResult> export(SignalBatch<T> batch) {
         return ConsumeResult.acceptedStage();
     }
 

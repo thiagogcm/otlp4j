@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import dev.nthings.otlp4j.config.ServerConfig;
 import dev.nthings.otlp4j.config.Tls;
 import dev.nthings.otlp4j.model.ConsumeResult;
+import dev.nthings.otlp4j.model.Signal;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.spi.Dispatchers;
@@ -120,7 +121,7 @@ class AbstractReceiverBuilderTest {
 
         var batch = Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER));
         assertThat(builder.dispatchers).isNotNull();
-        var result = builder.dispatchers.traces().apply(batch).toCompletableFuture().join();
+        var result = builder.dispatchers.dispatch(Signal.TRACES.batch(batch)).toCompletableFuture().join();
 
         assertThat(result).isEqualTo(ConsumeResult.accepted());
         assertThat(seen.get()).isSameAs(batch);
@@ -134,8 +135,8 @@ class AbstractReceiverBuilderTest {
         var receiver = builder.build();
 
         assertThat(builder.dispatchers).isNotNull();
-        var result = builder.dispatchers.traces()
-                .apply(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
+        var result = builder.dispatchers
+                .dispatch(Signal.TRACES.batch(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER))))
                 .toCompletableFuture()
                 .join();
 

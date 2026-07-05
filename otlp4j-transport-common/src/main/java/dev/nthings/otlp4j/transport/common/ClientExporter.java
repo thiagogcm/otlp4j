@@ -3,6 +3,7 @@ package dev.nthings.otlp4j.transport.common;
 import dev.nthings.otlp4j.pipeline.LogsSink;
 import dev.nthings.otlp4j.pipeline.MetricsSink;
 import dev.nthings.otlp4j.pipeline.ProfilesSink;
+import dev.nthings.otlp4j.pipeline.Sink;
 import dev.nthings.otlp4j.pipeline.TracesSink;
 import dev.nthings.otlp4j.pipeline.SharedLifecycle;
 import dev.nthings.otlp4j.pipeline.OtlpExporter;
@@ -10,10 +11,13 @@ import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
+import dev.nthings.otlp4j.model.Signal;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.spi.OtlpClient;
 import java.lang.ref.Cleaner;
 import java.time.Duration;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
@@ -46,10 +50,14 @@ public final class ClientExporter implements OtlpExporter, SharedLifecycle {
     private static final Consumer<String> DEFAULT_REPORTER = log::warn;
 
     private final OtlpClient client;
-    private final TracesSink traces;
-    private final MetricsSink metrics;
-    private final LogsSink logs;
-    private final ProfilesSink profiles;
+    private final TracesFacet traces;
+    private final MetricsFacet metrics;
+    private final LogsFacet logs;
+    private final ProfilesFacet profiles;
+
+    /// Signal-keyed view of the four facets, backing the generic [#sink(Signal)] accessor. Populated
+    /// once at construction and never mutated, so the lookup in [#sink(Signal)] is provably typed.
+    private final Map<Signal<?>, Facet<?>> facets = new HashMap<>();
 
     /// Number of pipeline subscriptions currently sharing this exporter; the channel closes on the
     /// release that brings it back to zero.
@@ -73,8 +81,21 @@ public final class ClientExporter implements OtlpExporter, SharedLifecycle {
         this.metrics = new MetricsFacet();
         this.logs = new LogsFacet();
         this.profiles = new ProfilesFacet();
+        facets.put(Signal.TRACES, traces);
+        facets.put(Signal.METRICS, metrics);
+        facets.put(Signal.LOGS, logs);
+        facets.put(Signal.PROFILES, profiles);
         this.leakWatch = new LeakWatch(exporterType, leakReporter);
         this.cleanable = CLEANER.register(this, leakWatch);
+    }
+
+    @Override
+    public <T> Sink<T> sink(Signal<T> signal) {
+        // The map is keyed by Signal identity and each entry's Facet<?> was created with that same
+        // signal, so the value's element type is exactly T.
+        @SuppressWarnings("unchecked")
+        var facet = (Sink<T>) facets.get(signal);
+        return facet;
     }
 
     @Override
@@ -140,8 +161,20 @@ public final class ClientExporter implements OtlpExporter, SharedLifecycle {
     }
 
     /// A lifecycle-bearing view of one signal: `retain`/`shutdown` count against the whole exporter,
-    /// since every facet shares its channel. Each subclass adds a `consume` that hits the shared client.
-    private abstract class Facet implements SharedLifecycle {
+    /// since every facet shares its channel. `consume` exports through the shared client via the
+    /// carried [Signal]; the four subclasses exist only to carry the marker sink type.
+    private abstract class Facet<T> implements SharedLifecycle, Sink<T> {
+        final Signal<T> signal;
+
+        Facet(Signal<T> signal) {
+            this.signal = signal;
+        }
+
+        @Override
+        public CompletionStage<ConsumeResult> consume(T batch) {
+            return client.export(signal.batch(batch));
+        }
+
         @Override
         public void retain() {
             ClientExporter.this.retain();
@@ -153,31 +186,27 @@ public final class ClientExporter implements OtlpExporter, SharedLifecycle {
         }
     }
 
-    private final class TracesFacet extends Facet implements TracesSink {
-        @Override
-        public CompletionStage<ConsumeResult> consume(TracesData batch) {
-            return client.exportTraces(batch);
+    private final class TracesFacet extends Facet<TracesData> implements TracesSink {
+        TracesFacet() {
+            super(Signal.TRACES);
         }
     }
 
-    private final class MetricsFacet extends Facet implements MetricsSink {
-        @Override
-        public CompletionStage<ConsumeResult> consume(MetricsData batch) {
-            return client.exportMetrics(batch);
+    private final class MetricsFacet extends Facet<MetricsData> implements MetricsSink {
+        MetricsFacet() {
+            super(Signal.METRICS);
         }
     }
 
-    private final class LogsFacet extends Facet implements LogsSink {
-        @Override
-        public CompletionStage<ConsumeResult> consume(LogsData batch) {
-            return client.exportLogs(batch);
+    private final class LogsFacet extends Facet<LogsData> implements LogsSink {
+        LogsFacet() {
+            super(Signal.LOGS);
         }
     }
 
-    private final class ProfilesFacet extends Facet implements ProfilesSink {
-        @Override
-        public CompletionStage<ConsumeResult> consume(ProfilesData batch) {
-            return client.exportProfiles(batch);
+    private final class ProfilesFacet extends Facet<ProfilesData> implements ProfilesSink {
+        ProfilesFacet() {
+            super(Signal.PROFILES);
         }
     }
 

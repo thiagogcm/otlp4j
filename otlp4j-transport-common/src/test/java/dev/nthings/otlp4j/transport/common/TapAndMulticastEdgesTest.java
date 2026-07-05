@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
+import dev.nthings.otlp4j.model.Signal;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.receiver.TapOptions;
@@ -30,7 +31,7 @@ class TapAndMulticastEdgesTest {
             var second = new CopyOnWriteArrayList<TracesData>();
             tap.traces().subscribe(FlowSubscribers.recording(first));
             tap.traces().subscribe(FlowSubscribers.recording(second));
-            tap.publishTraces(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)));
+            tap.publish(Signal.TRACES.batch(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER))));
             await().atMost(Duration.ofSeconds(2)).until(() -> first.size() >= 1 && second.size() >= 1);
             assertThat(first).hasSize(1);
             assertThat(second).hasSize(1);
@@ -46,7 +47,7 @@ class TapAndMulticastEdgesTest {
         try {
             tap.traces(new TapOptions(TapOptions.Overflow.DROP_NEWEST, 1)).subscribe(FlowSubscribers.noOp());
             for (var i = 0; i < 50; i++) {
-                tap.publishTraces(Fixtures.traceData(Fixtures.span("s" + i, Span.Kind.SERVER)));
+                tap.publish(Signal.TRACES.batch(Fixtures.traceData(Fixtures.span("s" + i, Span.Kind.SERVER))));
             }
             assertThat(tap.droppedCount()).isGreaterThan(0L);
         } finally {

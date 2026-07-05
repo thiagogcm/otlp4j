@@ -3,13 +3,10 @@ package dev.nthings.otlp4j.transport.grpc.internal;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
+import dev.nthings.otlp4j.model.Signal;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
-import dev.nthings.otlp4j.codec.LogsMapper;
-import dev.nthings.otlp4j.codec.MetricsMapper;
-import dev.nthings.otlp4j.codec.ProfilesMapper;
-import dev.nthings.otlp4j.codec.SignalResponses;
-import dev.nthings.otlp4j.codec.TraceMapper;
+import dev.nthings.otlp4j.codec.SignalCodec;
 import com.google.protobuf.MessageLite;
 import dev.nthings.otlp4j.spi.Dispatchers;
 import dev.nthings.otlp4j.transport.common.AdmissionControl;
@@ -61,10 +58,10 @@ final class GrpcServiceAdapters {
     /// signal's dispatcher, gated by the shared admission control.
     public static List<BindableService> create(Dispatchers dispatchers, AdmissionControl admission) {
         return List.of(
-                new TraceServiceAdapter(dispatchers.traces(), admission),
-                new MetricsServiceAdapter(dispatchers.metrics(), admission),
-                new LogsServiceAdapter(dispatchers.logs(), admission),
-                new ProfilesServiceAdapter(dispatchers.profiles(), admission));
+                new TraceServiceAdapter(t -> dispatchers.dispatch(Signal.TRACES.batch(t)), admission),
+                new MetricsServiceAdapter(m -> dispatchers.dispatch(Signal.METRICS.batch(m)), admission),
+                new LogsServiceAdapter(l -> dispatchers.dispatch(Signal.LOGS.batch(l)), admission),
+                new ProfilesServiceAdapter(p -> dispatchers.dispatch(Signal.PROFILES.batch(p)), admission));
     }
 
     /// Decodes `request` and dispatches to the signal handler, holding an admission permit for
@@ -161,7 +158,7 @@ final class TraceServiceAdapter extends TraceServiceGrpc.TraceServiceImplBase {
             ExportTraceServiceRequest request,
             StreamObserver<ExportTraceServiceResponse> observer) {
         GrpcServiceAdapters.dispatch(
-                request, observer, TraceMapper::toDomain, dispatcher, SignalResponses::traces, admission);
+                request, observer, SignalCodec.TRACES::toDomain, dispatcher, SignalCodec.TRACES::response, admission);
     }
 }
 
@@ -180,7 +177,7 @@ final class MetricsServiceAdapter extends MetricsServiceGrpc.MetricsServiceImplB
             ExportMetricsServiceRequest request,
             StreamObserver<ExportMetricsServiceResponse> observer) {
         GrpcServiceAdapters.dispatch(
-                request, observer, MetricsMapper::toDomain, dispatcher, SignalResponses::metrics, admission);
+                request, observer, SignalCodec.METRICS::toDomain, dispatcher, SignalCodec.METRICS::response, admission);
     }
 }
 
@@ -199,7 +196,7 @@ final class LogsServiceAdapter extends LogsServiceGrpc.LogsServiceImplBase {
             ExportLogsServiceRequest request,
             StreamObserver<ExportLogsServiceResponse> observer) {
         GrpcServiceAdapters.dispatch(
-                request, observer, LogsMapper::toDomain, dispatcher, SignalResponses::logs, admission);
+                request, observer, SignalCodec.LOGS::toDomain, dispatcher, SignalCodec.LOGS::response, admission);
     }
 }
 
@@ -218,6 +215,6 @@ final class ProfilesServiceAdapter extends ProfilesServiceGrpc.ProfilesServiceIm
             ExportProfilesServiceRequest request,
             StreamObserver<ExportProfilesServiceResponse> observer) {
         GrpcServiceAdapters.dispatch(
-                request, observer, ProfilesMapper::toDomain, dispatcher, SignalResponses::profiles, admission);
+                request, observer, SignalCodec.PROFILES::toDomain, dispatcher, SignalCodec.PROFILES::response, admission);
     }
 }

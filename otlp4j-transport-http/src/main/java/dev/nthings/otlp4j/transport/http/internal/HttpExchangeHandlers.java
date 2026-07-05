@@ -8,20 +8,13 @@ import com.sun.net.httpserver.HttpServer;
 import dev.nthings.otlp4j.transport.common.AdmissionControl;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.codec.DeliveryResults;
-import dev.nthings.otlp4j.codec.LogsMapper;
-import dev.nthings.otlp4j.codec.MetricsMapper;
-import dev.nthings.otlp4j.codec.ProfilesMapper;
-import dev.nthings.otlp4j.codec.SignalResponses;
-import dev.nthings.otlp4j.codec.TraceMapper;
+import dev.nthings.otlp4j.codec.SignalCodec;
 import dev.nthings.otlp4j.spi.Dispatchers;
-import io.opentelemetry.proto.collector.logs.v1.ExportLogsServiceRequest;
-import io.opentelemetry.proto.collector.metrics.v1.ExportMetricsServiceRequest;
-import io.opentelemetry.proto.collector.profiles.v1development.ExportProfilesServiceRequest;
-import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceRequest;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
@@ -46,29 +39,33 @@ final class HttpExchangeHandlers {
     private HttpExchangeHandlers() {
     }
 
-    static void register(HttpServer server, Dispatchers dispatchers, int maxBytes, AdmissionControl admission) {
-        server.createContext(OtlpHttp.TRACES_PATH, handler(
-                ExportTraceServiceRequest::parseFrom, TraceMapper::toDomain,
-                dispatchers.traces(), SignalResponses::traces, maxBytes, admission));
-        server.createContext(OtlpHttp.METRICS_PATH, handler(
-                ExportMetricsServiceRequest::parseFrom, MetricsMapper::toDomain,
-                dispatchers.metrics(), SignalResponses::metrics, maxBytes, admission));
-        server.createContext(OtlpHttp.LOGS_PATH, handler(
-                ExportLogsServiceRequest::parseFrom, LogsMapper::toDomain,
-                dispatchers.logs(), SignalResponses::logs, maxBytes, admission));
-        server.createContext(OtlpHttp.PROFILES_PATH, handler(
-                ExportProfilesServiceRequest::parseFrom, ProfilesMapper::toDomain,
-                dispatchers.profiles(), SignalResponses::profiles, maxBytes, admission));
+    /// Per-signal routing table: each entry pairs a [SignalCodec] with its endpoint path. Explicit
+    /// data (not a name template) so the `/v1development/profiles` oddball is carried as a value.
+    private record Route<T, REQ extends MessageLite, RESP extends MessageLite>(
+            SignalCodec<T, REQ, RESP> codec, String path) {
     }
 
-    private static <REQ, SIG> HttpHandler handler(
-            ProtoParser<REQ> parse,
-            Function<REQ, SIG> toDomain,
-            Function<SIG, CompletionStage<ConsumeResult>> dispatcher,
-            Function<ConsumeResult, ? extends MessageLite> asResponse,
+    private static final List<Route<?, ?, ?>> ROUTES = List.of(
+            new Route<>(SignalCodec.TRACES, OtlpHttp.TRACES_PATH),
+            new Route<>(SignalCodec.METRICS, OtlpHttp.METRICS_PATH),
+            new Route<>(SignalCodec.LOGS, OtlpHttp.LOGS_PATH),
+            new Route<>(SignalCodec.PROFILES, OtlpHttp.PROFILES_PATH));
+
+    static void register(HttpServer server, Dispatchers dispatchers, int maxBytes, AdmissionControl admission) {
+        for (var route : ROUTES) {
+            server.createContext(route.path(), handler(route.codec(), dispatchers, maxBytes, admission));
+        }
+    }
+
+    private static <T, REQ extends MessageLite, RESP extends MessageLite> HttpHandler handler(
+            SignalCodec<T, REQ, RESP> codec,
+            Dispatchers dispatchers,
             int maxBytes,
             AdmissionControl admission) {
-        return exchange -> handle(exchange, parse, toDomain, dispatcher, asResponse, maxBytes, admission);
+        return exchange -> handle(exchange,
+                codec::parseRequest, codec::toDomain,
+                batch -> dispatchers.dispatch(codec.signal().batch(batch)),
+                codec::response, maxBytes, admission);
     }
 
     private static <REQ, SIG> void handle(

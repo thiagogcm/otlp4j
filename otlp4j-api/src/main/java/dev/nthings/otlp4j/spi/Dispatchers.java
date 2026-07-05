@@ -1,18 +1,14 @@
 package dev.nthings.otlp4j.spi;
 
 import dev.nthings.otlp4j.model.ConsumeResult;
-import dev.nthings.otlp4j.model.LogsData;
-import dev.nthings.otlp4j.model.MetricsData;
-import dev.nthings.otlp4j.model.ProfilesData;
-import dev.nthings.otlp4j.model.TracesData;
+import dev.nthings.otlp4j.model.SignalBatch;
 import java.util.concurrent.CompletionStage;
-import java.util.function.Function;
 
-/// Per-signal dispatch entry points an [OtlpServer] invokes as it decodes incoming OTLP requests.
-/// Each returns a [CompletionStage] so the transport can hold the request open until the pipeline
-/// acknowledges (or partial-succeeds).
-public record Dispatchers(
-        Function<TracesData,    CompletionStage<ConsumeResult>>    traces,
-        Function<MetricsData,  CompletionStage<ConsumeResult>>  metrics,
-        Function<LogsData,     CompletionStage<ConsumeResult>>     logs,
-        Function<ProfilesData, CompletionStage<ConsumeResult>> profiles) {}
+/// Dispatch entry point an [OtlpServer] invokes as it decodes incoming OTLP requests. Returns a
+/// [CompletionStage] so the transport can hold the request open until the pipeline acknowledges
+/// (or partial-succeeds).
+public interface Dispatchers {
+
+    /// Dispatches a decoded batch into the pipeline, returning the pipeline's ack.
+    <T> CompletionStage<ConsumeResult> dispatch(SignalBatch<T> batch);
+}

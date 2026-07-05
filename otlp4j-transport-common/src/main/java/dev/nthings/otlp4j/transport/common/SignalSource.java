@@ -1,6 +1,7 @@
 package dev.nthings.otlp4j.transport.common;
 
 import dev.nthings.otlp4j.model.ConsumeResult;
+import dev.nthings.otlp4j.model.Signal;
 import dev.nthings.otlp4j.pipeline.Sink;
 import dev.nthings.otlp4j.pipeline.Source;
 import dev.nthings.otlp4j.pipeline.PipelineHandle;
@@ -17,14 +18,14 @@ import org.jspecify.annotations.Nullable;
 /// caller's responsibility.
 final class SignalSource<T> implements Source<T> {
 
-    private final Class<T> signalType;
+    private final Signal<T> signal;
     private final ConsumeResult noConsumerResult;
     private final AtomicReference<@Nullable Sink<? super T>> attached = new AtomicReference<>();
 
-    public SignalSource(Class<T> signalType) {
-        this.signalType = Objects.requireNonNull(signalType, "signalType");
+    public SignalSource(Signal<T> signal) {
+        this.signal = Objects.requireNonNull(signal, "signal");
         this.noConsumerResult = ConsumeResult.retryable(
-                "no consumer attached for " + signalType.getSimpleName()
+                "no consumer attached for " + signal.batchType().getSimpleName()
                         + "; attach a sink or call discard() to accept and drop");
     }
 
@@ -33,7 +34,7 @@ final class SignalSource<T> implements Source<T> {
         Objects.requireNonNull(consumer, "consumer");
         if (!attached.compareAndSet(null, consumer)) {
             throw new IllegalStateException(
-                    "source for " + signalType.getSimpleName() + " already has a consumer; wrap with FanOut for multi-consumer attach");
+                    "source for " + signal.batchType().getSimpleName() + " already has a consumer; wrap with FanOut for multi-consumer attach");
         }
         return new PipelineHandle() {
             @Override

@@ -6,6 +6,8 @@ import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
+import dev.nthings.otlp4j.model.Signal;
+import dev.nthings.otlp4j.model.SignalBatch;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.receiver.Receiver;
 import dev.nthings.otlp4j.receiver.TelemetryTap;
@@ -14,6 +16,8 @@ import dev.nthings.otlp4j.spi.OtlpServer;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.Duration;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Function;
 import org.jspecify.annotations.Nullable;
@@ -23,14 +27,11 @@ import org.slf4j.LoggerFactory;
 /// Shared [Receiver] implementation backed by a transport [OtlpServer]. Exposes per-signal
 /// [Source]s and a [TelemetryTap], dispatches decoded batches to subscribers while mirroring
 /// to the tap. gRPC and HTTP entry points compose one of these.
-public final class ServerReceiver implements Receiver {
+public final class ServerReceiver implements Receiver, Dispatchers {
 
     private static final Logger log = LoggerFactory.getLogger(ServerReceiver.class);
 
-    private final SignalSource<TracesData>    traces   = new SignalSource<>(TracesData.class);
-    private final SignalSource<MetricsData>  metrics  = new SignalSource<>(MetricsData.class);
-    private final SignalSource<LogsData>     logs     = new SignalSource<>(LogsData.class);
-    private final SignalSource<ProfilesData> profiles = new SignalSource<>(ProfilesData.class);
+    private final Map<Signal<?>, SignalSource<?>> sources = new LinkedHashMap<>();
     private final ReceiverTap tap = new ReceiverTap();
     private final OtlpServer server;
     private final String transportName;
@@ -45,29 +46,34 @@ public final class ServerReceiver implements Receiver {
             @Nullable Sink<? super LogsData> onLogs,
             @Nullable Sink<? super ProfilesData> onProfiles) {
         this.transportName = transportName;
-        var dispatchers = new Dispatchers(
-                this::dispatchTraces,
-                this::dispatchMetrics,
-                this::dispatchLogs,
-                this::dispatchProfiles);
-        this.server = serverFactory.apply(dispatchers);
-        if (onTraces != null)   traces.subscribe(onTraces);
-        if (onMetrics != null)  metrics.subscribe(onMetrics);
-        if (onLogs != null)     logs.subscribe(onLogs);
-        if (onProfiles != null) profiles.subscribe(onProfiles);
+        for (Signal<?> signal : Signal.values()) {
+            sources.put(signal, new SignalSource<>(signal));
+        }
+        this.server = serverFactory.apply(this);
+        subscribeIfPresent(Signal.TRACES, onTraces);
+        subscribeIfPresent(Signal.METRICS, onMetrics);
+        subscribeIfPresent(Signal.LOGS, onLogs);
+        subscribeIfPresent(Signal.PROFILES, onProfiles);
+    }
+
+    /// The source for `signal`. The map is keyed by [Signal] identity and each entry was created for
+    /// that signal, so the value's element type is exactly the signal's batch type.
+    private <T> SignalSource<T> sourceFor(Signal<T> signal) {
+        @SuppressWarnings("unchecked")
+        var source = (SignalSource<T>) sources.get(signal);
+        return source;
+    }
+
+    private <T> void subscribeIfPresent(Signal<T> signal, @Nullable Sink<? super T> sink) {
+        if (sink != null) {
+            sourceFor(signal).subscribe(sink);
+        }
     }
 
     @Override
-    public Source<TracesData> traces() { return traces; }
-
-    @Override
-    public Source<MetricsData> metrics() { return metrics; }
-
-    @Override
-    public Source<LogsData> logs() { return logs; }
-
-    @Override
-    public Source<ProfilesData> profiles() { return profiles; }
+    public <T> Source<T> source(Signal<T> signal) {
+        return sourceFor(signal);
+    }
 
     @Override
     public TelemetryTap tap() { return tap; }
@@ -103,23 +109,10 @@ public final class ServerReceiver implements Receiver {
         return server.shutdownNow();
     }
 
-    private CompletionStage<ConsumeResult> dispatchTraces(TracesData batch) {
-        tap.publishTraces(batch);
-        return traces.dispatch(batch);
-    }
-
-    private CompletionStage<ConsumeResult> dispatchMetrics(MetricsData batch) {
-        tap.publishMetrics(batch);
-        return metrics.dispatch(batch);
-    }
-
-    private CompletionStage<ConsumeResult> dispatchLogs(LogsData batch) {
-        tap.publishLogs(batch);
-        return logs.dispatch(batch);
-    }
-
-    private CompletionStage<ConsumeResult> dispatchProfiles(ProfilesData batch) {
-        tap.publishProfiles(batch);
-        return profiles.dispatch(batch);
+    @Override
+    public <T> CompletionStage<ConsumeResult> dispatch(SignalBatch<T> batch) {
+        // Tap before source, matching the former per-signal dispatchX order exactly.
+        tap.publish(batch);
+        return sourceFor(batch.signal()).dispatch(batch.batch());
     }
 }

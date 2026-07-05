@@ -5,8 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import dev.nthings.otlp4j.pipeline.ops.Connectors;
 import dev.nthings.otlp4j.pipeline.FanOut;
 import dev.nthings.otlp4j.pipeline.Lifecycle;
-import dev.nthings.otlp4j.model.MetricsData;
-import dev.nthings.otlp4j.model.TracesData;
+import dev.nthings.otlp4j.model.Signal;
 import dev.nthings.otlp4j.pipeline.Pipeline;
 import java.time.Duration;
 import org.junit.jupiter.api.DisplayName;
@@ -22,7 +21,7 @@ class ExporterOwnershipTest {
     void attachedFacetDrainsExporter() {
         var client = new RecordingOtlpClient();
         var exporter = new ClientExporter(client, "test");
-        var source = new SignalSource<>(TracesData.class);
+        var source = new SignalSource<>(Signal.TRACES);
 
         var sub = Pipeline.from(source).to(exporter.traces());
 
@@ -47,7 +46,7 @@ class ExporterOwnershipTest {
         var clientB = new RecordingOtlpClient();
         var exporterA = new ClientExporter(clientA, "test");
         var exporterB = new ClientExporter(clientB, "test");
-        var source = new SignalSource<>(TracesData.class);
+        var source = new SignalSource<>(Signal.TRACES);
 
         var sub = Pipeline.from(source)
                 .to(FanOut.of(exporterA.traces(), exporterB.traces()));
@@ -62,8 +61,8 @@ class ExporterOwnershipTest {
     void sharedExporterClosesOnlyAfterLastSubscriptionReleases() {
         var client = new RecordingOtlpClient();
         var exporter = new ClientExporter(client, "test");
-        var tracesSource = new SignalSource<>(TracesData.class);
-        var metricsSource = new SignalSource<>(MetricsData.class);
+        var tracesSource = new SignalSource<>(Signal.TRACES);
+        var metricsSource = new SignalSource<>(Signal.METRICS);
 
         // Two subscriptions, each attaching a different facet of the SAME exporter.
         var subA = Pipeline.from(tracesSource).to(exporter.traces());
@@ -85,7 +84,7 @@ class ExporterOwnershipTest {
     void countConnectorDrainsDownstreamExporter() {
         var client = new RecordingOtlpClient();
         var metricsExporter = new ClientExporter(client, "test");
-        var source = new SignalSource<>(TracesData.class);
+        var source = new SignalSource<>(Signal.TRACES);
 
         // The downstream metrics exporter is reachable ONLY through the connector.
         var sub = Pipeline.from(source).to(Connectors.spanCount(metricsExporter.metrics()));
@@ -102,8 +101,8 @@ class ExporterOwnershipTest {
     void exporterSharedByFacetAndConnectorClosesOnLastRelease() {
         var client = new RecordingOtlpClient();
         var exporter = new ClientExporter(client, "test");
-        var metricsSource = new SignalSource<>(MetricsData.class);
-        var tracesSource = new SignalSource<>(TracesData.class);
+        var metricsSource = new SignalSource<>(Signal.METRICS);
+        var tracesSource = new SignalSource<>(Signal.TRACES);
 
         // Same exporter reached directly (metrics facet) and indirectly (connector downstream).
         var direct = Pipeline.from(metricsSource).to(exporter.metrics());

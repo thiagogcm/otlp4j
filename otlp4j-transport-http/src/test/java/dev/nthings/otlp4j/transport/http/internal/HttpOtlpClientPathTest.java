@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.nthings.otlp4j.config.ClientConfig;
 import dev.nthings.otlp4j.config.Tls;
+import dev.nthings.otlp4j.model.Signal;
 import java.net.URI;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -13,35 +14,33 @@ import org.junit.jupiter.api.Test;
 @DisplayName("OTLP/HTTP client endpoint path prefix")
 class HttpOtlpClientPathTest {
 
-    private static URI signalUri(ClientConfig config, String field) throws Exception {
+    private static URI signalUri(ClientConfig config, Signal<?> signal) {
         try (var client = new HttpOtlpClient(config)) {
-            var f = HttpOtlpClient.class.getDeclaredField(field);
-            f.setAccessible(true);
-            return (URI) f.get(client);
+            return client.uri(signal);
         }
     }
 
     @DisplayName("a path prefix is inserted before the /v1/<signal> paths")
     @Test
-    void prefixApplied() throws Exception {
+    void prefixApplied() {
         var config = ClientConfig.builder()
                 .setEndpoint("collector", 4318)
                 .setTls(Tls.systemTrust())
                 .setPath("/otlp")
                 .build();
 
-        assertThat(signalUri(config, "tracesUri"))
+        assertThat(signalUri(config, Signal.TRACES))
                 .isEqualTo(URI.create("https://collector:4318/otlp/v1/traces"));
-        assertThat(signalUri(config, "profilesUri"))
+        assertThat(signalUri(config, Signal.PROFILES))
                 .isEqualTo(URI.create("https://collector:4318/otlp/v1development/profiles"));
     }
 
     @DisplayName("with no prefix the standard paths are used verbatim over plaintext http")
     @Test
-    void noPrefix() throws Exception {
+    void noPrefix() {
         var config = ClientConfig.builder().setEndpoint("collector", 4318).build();
 
-        assertThat(signalUri(config, "tracesUri"))
+        assertThat(signalUri(config, Signal.TRACES))
                 .isEqualTo(URI.create("http://collector:4318/v1/traces"));
     }
 }

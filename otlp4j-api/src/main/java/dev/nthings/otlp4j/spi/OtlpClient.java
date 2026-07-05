@@ -1,10 +1,7 @@
 package dev.nthings.otlp4j.spi;
 
-import dev.nthings.otlp4j.model.LogsData;
-import dev.nthings.otlp4j.model.MetricsData;
-import dev.nthings.otlp4j.model.ProfilesData;
-import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
+import dev.nthings.otlp4j.model.SignalBatch;
 import java.util.concurrent.CompletionStage;
 
 /// Transport-side client used by exporters.
@@ -13,13 +10,8 @@ import java.util.concurrent.CompletionStage;
 /// normally uses `OtlpGrpcExporter` rather than this SPI directly.
 public interface OtlpClient extends AutoCloseable {
 
-    CompletionStage<ConsumeResult>    exportTraces(TracesData traces);
-
-    CompletionStage<ConsumeResult>  exportMetrics(MetricsData metrics);
-
-    CompletionStage<ConsumeResult>     exportLogs(LogsData logs);
-
-    CompletionStage<ConsumeResult> exportProfiles(ProfilesData profiles);
+    /// Exports one batch of `batch.signal()` and completes when the endpoint acknowledges.
+    <T> CompletionStage<ConsumeResult> export(SignalBatch<T> batch);
 
     /// Releases the client's transport resources.
     @Override

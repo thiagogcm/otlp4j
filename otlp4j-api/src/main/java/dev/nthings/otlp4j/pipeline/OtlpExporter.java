@@ -1,5 +1,7 @@
 package dev.nthings.otlp4j.pipeline;
 
+import dev.nthings.otlp4j.model.Signal;
+
 /// A multi-signal OTLP exporter: one instance delivers all four signals to a single endpoint through
 /// typed facets.
 ///
@@ -12,6 +14,9 @@ package dev.nthings.otlp4j.pipeline;
 ///
 /// For a custom single-signal destination, implement [Sink] plus [Lifecycle] directly.
 public interface OtlpExporter extends Lifecycle {
+
+    /// The export sink for `signal`.
+    <T> Sink<T> sink(Signal<T> signal);
 
     /// The trace export facet.
     TracesSink traces();

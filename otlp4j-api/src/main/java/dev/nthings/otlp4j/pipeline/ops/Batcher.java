@@ -7,7 +7,7 @@ import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
-import dev.nthings.otlp4j.pipeline.ops.internal.Signal;
+import dev.nthings.otlp4j.model.Signal;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -47,7 +47,7 @@ public final class Batcher<T> implements Sink<T>, Lifecycle {
     /// interval is the earliest attempt that can succeed.
     static final Duration FLUSH_INTERVAL = Duration.ofSeconds(1);
 
-    private final Signal signal;
+    private final Signal<T> signal;
     private final Sink<? super T> downstream;
     private final int flushThreshold;
     private final ArrayBlockingQueue<T> queue;
@@ -80,7 +80,7 @@ public final class Batcher<T> implements Sink<T>, Lifecycle {
         }
     }
 
-    private Batcher(Signal signal, Builder<T> b) {
+    private Batcher(Signal<T> signal, Builder<T> b) {
         this.signal = signal;
         this.downstream = Objects.requireNonNull(b.downstream, "downstream");
         this.flushThreshold = b.flushThreshold;
@@ -237,14 +237,14 @@ public final class Batcher<T> implements Sink<T>, Lifecycle {
     }
 
     public static final class Builder<T> {
-        private final Signal signal;
+        private final Signal<T> signal;
         private @Nullable Sink<? super T> downstream;
         private int flushThreshold = 512;
         private int queueCapacity = 2048;
         private OverflowPolicy overflowPolicy = OverflowPolicy.DROP_NEWEST;
         private boolean reflectDownstreamFailures = false;
 
-        private Builder(Signal signal) {
+        private Builder(Signal<T> signal) {
             this.signal = signal;
         }
 

@@ -5,8 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.nthings.otlp4j.pipeline.TracesSink;
 import dev.nthings.otlp4j.model.ConsumeResult;
+import dev.nthings.otlp4j.model.Signal;
 import dev.nthings.otlp4j.model.Span;
-import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
@@ -21,7 +21,7 @@ class SignalSourceTest {
     @DisplayName("dispatch returns a retryable rejection when no consumer is attached")
     @Test
     void dispatchWithoutSinkReturnsRetryableRejected() {
-        var source = new SignalSource<>(TracesData.class);
+        var source = new SignalSource<>(Signal.TRACES);
         var result = source.dispatch(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
                 .toCompletableFuture().join();
         assertThat(result).isInstanceOfSatisfying(ConsumeResult.Rejected.class, rejected -> {
@@ -35,7 +35,7 @@ class SignalSourceTest {
     @DisplayName("discard explicitly accepts and drops batches")
     @Test
     void discardAcceptsAndDropsBatches() {
-        var source = new SignalSource<>(TracesData.class);
+        var source = new SignalSource<>(Signal.TRACES);
         var discard = source.discard();
         try {
             var result = source.dispatch(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
@@ -49,7 +49,7 @@ class SignalSourceTest {
     @DisplayName("dispatch invokes the attached consumer once per batch")
     @Test
     void dispatchInvokesAttachedSink() {
-        var source = new SignalSource<>(TracesData.class);
+        var source = new SignalSource<>(Signal.TRACES);
         var hits = new AtomicInteger();
         TracesSink c = traces -> {
             hits.incrementAndGet();
@@ -68,7 +68,7 @@ class SignalSourceTest {
     @DisplayName("subscribe rejects a second concurrent subscription")
     @Test
     void doubleSubscribeRejected() {
-        var source = new SignalSource<>(TracesData.class);
+        var source = new SignalSource<>(Signal.TRACES);
         var sub = source.subscribe(traces -> ConsumeResult.acceptedStage());
         try {
             assertThatThrownBy(() -> source.subscribe(traces -> ConsumeResult.acceptedStage()))
@@ -81,7 +81,7 @@ class SignalSourceTest {
     @DisplayName("dispatch propagates a synchronous subscriber throw verbatim (transport-level failure)")
     @Test
     void dispatchPropagatesSinkException() {
-        var source = new SignalSource<>(TracesData.class);
+        var source = new SignalSource<>(Signal.TRACES);
         TracesSink c = traces -> { throw new RuntimeException("boom"); };
         var sub = source.subscribe(c);
         try {
@@ -97,7 +97,7 @@ class SignalSourceTest {
     @DisplayName("dispatch propagates an asynchronous subscriber failure verbatim (transport-level failure)")
     @Test
     void dispatchPropagatesAsyncSinkFailure() {
-        var source = new SignalSource<>(TracesData.class);
+        var source = new SignalSource<>(Signal.TRACES);
         TracesSink c = traces -> CompletableFuture.failedFuture(new IllegalStateException("async boom"));
         var sub = source.subscribe(c);
         try {

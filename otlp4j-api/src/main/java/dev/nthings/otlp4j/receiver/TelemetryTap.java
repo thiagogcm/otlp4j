@@ -3,6 +3,7 @@ package dev.nthings.otlp4j.receiver;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
+import dev.nthings.otlp4j.model.Signal;
 import dev.nthings.otlp4j.model.TracesData;
 import java.util.concurrent.Flow;
 
@@ -15,29 +16,51 @@ import java.util.concurrent.Flow;
 /// subscription, so options travel with the subscription instead of shared tap state.
 public interface TelemetryTap {
 
+    /// Live batches of `signal` under [TapOptions#defaults()].
+    <T> Flow.Publisher<T> publisher(Signal<T> signal);
+
+    /// Live batches of `signal`; `options` bind to the next subscription.
+    <T> Flow.Publisher<T> publisher(Signal<T> signal, TapOptions options);
+
     /// Live trace batches under [TapOptions#defaults()].
-    Flow.Publisher<TracesData> traces();
+    default Flow.Publisher<TracesData> traces() {
+        return publisher(Signal.TRACES);
+    }
 
     /// Live trace batches; `options` bind to the next subscription.
-    Flow.Publisher<TracesData> traces(TapOptions options);
+    default Flow.Publisher<TracesData> traces(TapOptions options) {
+        return publisher(Signal.TRACES, options);
+    }
 
     /// Live metric batches under [TapOptions#defaults()].
-    Flow.Publisher<MetricsData> metrics();
+    default Flow.Publisher<MetricsData> metrics() {
+        return publisher(Signal.METRICS);
+    }
 
     /// Live metric batches; `options` bind to the next subscription.
-    Flow.Publisher<MetricsData> metrics(TapOptions options);
+    default Flow.Publisher<MetricsData> metrics(TapOptions options) {
+        return publisher(Signal.METRICS, options);
+    }
 
     /// Live log batches under [TapOptions#defaults()].
-    Flow.Publisher<LogsData> logs();
+    default Flow.Publisher<LogsData> logs() {
+        return publisher(Signal.LOGS);
+    }
 
     /// Live log batches; `options` bind to the next subscription.
-    Flow.Publisher<LogsData> logs(TapOptions options);
+    default Flow.Publisher<LogsData> logs(TapOptions options) {
+        return publisher(Signal.LOGS, options);
+    }
 
     /// Live profile batches under [TapOptions#defaults()].
-    Flow.Publisher<ProfilesData> profiles();
+    default Flow.Publisher<ProfilesData> profiles() {
+        return publisher(Signal.PROFILES);
+    }
 
     /// Live profile batches; `options` bind to the next subscription.
-    Flow.Publisher<ProfilesData> profiles(TapOptions options);
+    default Flow.Publisher<ProfilesData> profiles(TapOptions options) {
+        return publisher(Signal.PROFILES, options);
+    }
 
     /// Total number of batches dropped across every tap publisher since the receiver started.
     long droppedCount();

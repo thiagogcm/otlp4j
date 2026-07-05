@@ -1,15 +1,11 @@
 package dev.nthings.otlp4j.transport.http.internal;
 
 import com.google.protobuf.InvalidProtocolBufferException;
-import dev.nthings.otlp4j.model.LogsData;
-import dev.nthings.otlp4j.model.MetricsData;
-import dev.nthings.otlp4j.model.ProfilesData;
-import dev.nthings.otlp4j.model.TracesData;
+import com.google.protobuf.MessageLite;
 import dev.nthings.otlp4j.model.ConsumeResult;
-import dev.nthings.otlp4j.codec.LogsMapper;
-import dev.nthings.otlp4j.codec.MetricsMapper;
-import dev.nthings.otlp4j.codec.ProfilesMapper;
-import dev.nthings.otlp4j.codec.TraceMapper;
+import dev.nthings.otlp4j.model.Signal;
+import dev.nthings.otlp4j.model.SignalBatch;
+import dev.nthings.otlp4j.codec.SignalCodec;
 import dev.nthings.otlp4j.codec.Transports;
 import dev.nthings.otlp4j.transport.common.internal.ClientHeaders;
 import dev.nthings.otlp4j.config.ClientConfig;
@@ -17,10 +13,6 @@ import dev.nthings.otlp4j.config.Compression;
 import dev.nthings.otlp4j.spi.OtlpClient;
 import dev.nthings.otlp4j.config.Tls;
 import dev.nthings.otlp4j.transport.common.internal.ResilienceRetries;
-import io.opentelemetry.proto.collector.logs.v1.ExportLogsServiceResponse;
-import io.opentelemetry.proto.collector.metrics.v1.ExportMetricsServiceResponse;
-import io.opentelemetry.proto.collector.profiles.v1development.ExportProfilesServiceResponse;
-import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceResponse;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -34,6 +26,8 @@ import java.time.Instant;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
@@ -67,10 +61,7 @@ public final class HttpOtlpClient implements OtlpClient {
     private final ClientConfig config;
     private final HttpClient http;
     private final boolean compress;
-    private final URI tracesUri;
-    private final URI metricsUri;
-    private final URI logsUri;
-    private final URI profilesUri;
+    private final Map<Signal<?>, HttpEndpoint<?, ?, ?>> endpoints = new LinkedHashMap<>();
     private final ExecutorService executor;
     private final Retry retry;
 
@@ -81,10 +72,17 @@ public final class HttpOtlpClient implements OtlpClient {
         var scheme = config.tls() instanceof Tls.Disabled ? "http" : "https";
         // config.path() is a normalized prefix.
         var base = scheme + "://" + authority(config.host(), config.port()) + config.path();
-        this.tracesUri = URI.create(base + OtlpHttp.TRACES_PATH);
-        this.metricsUri = URI.create(base + OtlpHttp.METRICS_PATH);
-        this.logsUri = URI.create(base + OtlpHttp.LOGS_PATH);
-        this.profilesUri = URI.create(base + OtlpHttp.PROFILES_PATH);
+        // Per-signal endpoint binding: each entry pairs the resolved request URI with its
+        // SignalCodec. The PROFILES path stays the /v1development oddball because it is read
+        // straight from OtlpHttp.PROFILES_PATH, never templated from the signal name.
+        endpoints.put(Signal.TRACES, new HttpEndpoint<>(
+                URI.create(base + OtlpHttp.TRACES_PATH), SignalCodec.TRACES));
+        endpoints.put(Signal.METRICS, new HttpEndpoint<>(
+                URI.create(base + OtlpHttp.METRICS_PATH), SignalCodec.METRICS));
+        endpoints.put(Signal.LOGS, new HttpEndpoint<>(
+                URI.create(base + OtlpHttp.LOGS_PATH), SignalCodec.LOGS));
+        endpoints.put(Signal.PROFILES, new HttpEndpoint<>(
+                URI.create(base + OtlpHttp.PROFILES_PATH), SignalCodec.PROFILES));
 
         var explicitConnect = config.connectTimeout();
         var connectTimeout = explicitConnect != null ? explicitConnect : config.timeout();
@@ -120,45 +118,37 @@ public final class HttpOtlpClient implements OtlpClient {
     }
 
     @Override
-    public CompletionStage<ConsumeResult> exportTraces(TracesData traces) {
-        return CompletableFuture.supplyAsync(() -> export(
-                tracesUri, TraceMapper.toProto(traces).toByteArray(),
-                ExportTraceServiceResponse::parseFrom, TraceMapper::result), executor)
+    public <T> CompletionStage<ConsumeResult> export(SignalBatch<T> batch) {
+        // Safe: endpoints is populated at construction with one entry per Signal, keyed by identity,
+        // whose value type parameter is the same T carried by the batch's signal.
+        @SuppressWarnings("unchecked")
+        var endpoint = (HttpEndpoint<T, ?, ?>) endpoints.get(batch.signal());
+        return CompletableFuture.supplyAsync(() -> send(endpoint, batch.batch()), executor)
                 .orTimeout(config.timeout().toNanos(), TimeUnit.NANOSECONDS);
     }
 
-    @Override
-    public CompletionStage<ConsumeResult> exportMetrics(MetricsData metrics) {
-        return CompletableFuture.supplyAsync(() -> export(
-                metricsUri, MetricsMapper.toProto(metrics).toByteArray(),
-                ExportMetricsServiceResponse::parseFrom, MetricsMapper::result), executor)
-                .orTimeout(config.timeout().toNanos(), TimeUnit.NANOSECONDS);
-    }
-
-    @Override
-    public CompletionStage<ConsumeResult> exportLogs(LogsData logs) {
-        return CompletableFuture.supplyAsync(() -> export(
-                logsUri, LogsMapper.toProto(logs).toByteArray(),
-                ExportLogsServiceResponse::parseFrom, LogsMapper::result), executor)
-                .orTimeout(config.timeout().toNanos(), TimeUnit.NANOSECONDS);
-    }
-
-    @Override
-    public CompletionStage<ConsumeResult> exportProfiles(ProfilesData profiles) {
-        return CompletableFuture.supplyAsync(() -> export(
-                profilesUri, ProfilesMapper.toProto(profiles).toByteArray(),
-                ExportProfilesServiceResponse::parseFrom, ProfilesMapper::result), executor)
-                .orTimeout(config.timeout().toNanos(), TimeUnit.NANOSECONDS);
-    }
-
-    /// Sends `payload` to `uri` through Resilience4j retry. A 2xx response is parsed and mapped to
-    /// [ConsumeResult]; any other outcome throws, mirroring the gRPC client where a non-OK status is
-    /// an exception.
-    private <RESP, SIG> ConsumeResult export(
-            URI uri, byte[] payload, ProtoParser<RESP> parse, Function<RESP, ConsumeResult> toResult) {
+    /// Encodes `batch` for `endpoint` and sends it through Resilience4j retry. The request is built
+    /// once, outside the retry, and re-sent on each attempt; a 2xx response is parsed and mapped to
+    /// [ConsumeResult], any other outcome throws, mirroring the gRPC client.
+    private <T, REQ extends MessageLite, RESP extends MessageLite> ConsumeResult send(
+            HttpEndpoint<T, REQ, RESP> endpoint, T batch) {
+        var codec = endpoint.codec();
+        var payload = codec.toProto(batch).toByteArray();
         var body = compress ? gzip(payload) : payload;
-        var httpRequest = request(uri, body);
-        return ResilienceRetries.execute(retry, () -> sendOnce(uri, httpRequest, parse, toResult));
+        var httpRequest = request(endpoint.uri(), body);
+        return ResilienceRetries.execute(retry,
+                () -> sendOnce(endpoint.uri(), httpRequest, codec::parseResponse, codec::result));
+    }
+
+    /// Test accessor: the resolved request URI bound to `signal`.
+    URI uri(Signal<?> signal) {
+        return endpoints.get(signal).uri();
+    }
+
+    /// Binds a resolved request URI to its [SignalCodec] for one signal. The codec carries the proto
+    /// marshalling; the URI stays transport-local because it is HTTP-specific.
+    private record HttpEndpoint<T, REQ extends MessageLite, RESP extends MessageLite>(
+            URI uri, SignalCodec<T, REQ, RESP> codec) {
     }
 
     private <RESP> ConsumeResult sendOnce(
