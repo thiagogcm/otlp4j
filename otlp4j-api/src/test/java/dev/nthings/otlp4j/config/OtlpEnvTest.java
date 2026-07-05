@@ -252,6 +252,36 @@ class OtlpEnvTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    @DisplayName("PROTOCOL=grpc is accepted and does not alter any built-in default")
+    @Test
+    void protocolGrpcAccepted() {
+        var cfg = fromEnv(Map.of(OtlpEnv.PROTOCOL, "grpc"));
+
+        assertThat(cfg).isEqualTo(ClientConfig.builder().build());
+    }
+
+    @DisplayName("PROTOCOL=http/protobuf is accepted, case-insensitively")
+    @Test
+    void protocolHttpProtobufAccepted() {
+        assertThat(fromEnv(Map.of(OtlpEnv.PROTOCOL, "http/protobuf"))).isEqualTo(ClientConfig.builder().build());
+        assertThat(fromEnv(Map.of(OtlpEnv.PROTOCOL, "HTTP/PROTOBUF"))).isEqualTo(ClientConfig.builder().build());
+    }
+
+    @DisplayName("PROTOCOL=http/json is rejected: this gateway is protobuf-only")
+    @Test
+    void protocolHttpJsonRejected() {
+        assertThatThrownBy(() -> fromEnv(Map.of(OtlpEnv.PROTOCOL, "http/json")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("http/json");
+    }
+
+    @DisplayName("a malformed PROTOCOL value is rejected")
+    @Test
+    void protocolMalformedRejected() {
+        assertThatThrownBy(() -> fromEnv(Map.of(OtlpEnv.PROTOCOL, "carrier-pigeon")))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
     @DisplayName("an empty environment leaves every built-in default intact")
     @Test
     void emptyEnvIsDefaults() {

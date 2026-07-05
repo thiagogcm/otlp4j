@@ -1,4 +1,4 @@
-package dev.nthings.otlp4j.transport.common.internal;
+package dev.nthings.otlp4j.transport.common;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

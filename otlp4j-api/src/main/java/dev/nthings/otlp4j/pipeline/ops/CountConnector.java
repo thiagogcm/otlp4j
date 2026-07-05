@@ -37,6 +37,17 @@ abstract sealed class CountConnector<I> extends Connector<I, MetricsData>
         this.counter = counter;
     }
 
+    CountConnector(
+            List<? extends Sink<? super MetricsData>> downstreams,
+            FailurePolicy policy,
+            String metricName,
+            String description,
+            ToLongFunction<I> counter) {
+        super(metricName, downstreams, policy);
+        this.description = description;
+        this.counter = counter;
+    }
+
     @Override
     protected MetricsData derive(I batch) {
         var now = nowEpochNanos();

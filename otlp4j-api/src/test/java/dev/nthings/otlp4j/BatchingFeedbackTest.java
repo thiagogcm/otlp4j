@@ -17,7 +17,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
-/// Exercises [Batcher.Builder#reflectDownstreamFailures]: sustained downstream failure
+/// Exercises [Batcher.Builder#circuitBreaker]: sustained downstream failure
 /// surfaces at ingress as retryable rejections with a retry-after hint, and clears on recovery.
 @Timeout(30)
 @DisplayName("Batcher downstream-failure reflection")
@@ -72,7 +72,7 @@ class BatchingFeedbackTest {
                 // ON_ENQUEUE: the first consume must be accepted before the failed flush degrades
                 // ingress; under ON_DELIVERY its ack would carry the downstream Rejected instead.
                 .ackMode(AckMode.ON_ENQUEUE)
-                .reflectDownstreamFailures(true)
+                .circuitBreaker(true)
                 .build();
         try {
             assertThat(batcher.consume(batch()).toCompletableFuture().join())
@@ -104,7 +104,7 @@ class BatchingFeedbackTest {
                 // enqueue acceptance before degrade; under ON_DELIVERY the consume join would drain
                 // on the timer first and the forceFlush would find an empty queue.
                 .ackMode(AckMode.ON_ENQUEUE)
-                .reflectDownstreamFailures(true)
+                .circuitBreaker(true)
                 .build();
         try {
             batcher.consume(batch()).toCompletableFuture().join();
@@ -135,7 +135,7 @@ class BatchingFeedbackTest {
         var downstream = new SwitchableDownstream();   // starts unhealthy
         var batcher = Batcher.forTraces()
                 .downstream(downstream)
-                .reflectDownstreamFailures(true)
+                .circuitBreaker(true)
                 .flushThreshold(100)   // drain only on the explicit forceFlush
                 .build();   // ON_DELIVERY default
         try {
@@ -149,7 +149,7 @@ class BatchingFeedbackTest {
             assertThat(inFlight.join()).isInstanceOfSatisfying(ConsumeResult.Rejected.class,
                     r -> assertThat(r.message()).contains("backend down"));
 
-            // reflectDownstreamFailures (proactive): the next batch is rejected at ingress, unqueued.
+            // circuitBreaker (proactive): the next batch is rejected at ingress, unqueued.
             assertThat(batcher.consume(batch()).toCompletableFuture().join())
                     .isInstanceOfSatisfying(ConsumeResult.Rejected.class,
                             r -> assertThat(r.message()).contains("degraded"));

@@ -9,6 +9,7 @@ import dev.nthings.otlp4j.spi.Dispatchers;
 import dev.nthings.otlp4j.spi.OtlpServer;
 import dev.nthings.otlp4j.config.ServerConfig;
 import dev.nthings.otlp4j.config.Tls;
+import dev.nthings.otlp4j.telemetry.GatewayMetrics;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.time.Duration;
@@ -17,6 +18,7 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,6 +32,13 @@ import org.slf4j.LoggerFactory;
 /// When no [ServerConfig#serverExecutor()] is configured the server uses a
 /// virtual-thread-per-request executor so a handler blocking on its dispatcher's
 /// [CompletionStage] never starves the others.
+///
+/// `HttpExchangeHandlers.handle` joins the dispatcher stage, which is safe only because that
+/// default executor is virtual-thread-per-request. A bounded `serverExecutor` composes with
+/// admission along a different axis: the pool caps handler concurrency, admission caps decoded
+/// in-flight requests/bytes, and a request blocked waiting for a pool thread holds no admission
+/// permit yet (the permit is acquired inside the handler). A bounded pool smaller than the offered
+/// load therefore queues exchanges at the pool, not at admission.
 public final class HttpOtlpServer implements OtlpServer {
 
     private static final Logger log = LoggerFactory.getLogger(HttpOtlpServer.class);
@@ -40,14 +49,30 @@ public final class HttpOtlpServer implements OtlpServer {
 
     private final ServerConfig config;
     private final Dispatchers dispatchers;
+    private final GatewayMetrics telemetry;
 
     private HttpServer server;
     private Executor executor;
     private boolean ownsExecutor;
+    private volatile @Nullable AdmissionControl admission;
 
-    public HttpOtlpServer(ServerConfig config, Dispatchers dispatchers) {
+    /// Full constructor. `telemetry` receives the admission instruments.
+    ///
+    /// @param config      the transport config
+    /// @param dispatchers the per-signal dispatch functions
+    /// @param telemetry   the self-observability registry for admission health
+    public HttpOtlpServer(ServerConfig config, Dispatchers dispatchers, GatewayMetrics telemetry) {
         this.config = config;
         this.dispatchers = dispatchers;
+        this.telemetry = telemetry;
+    }
+
+    /// Convenience constructor with no self-observability ([GatewayMetrics#noop]).
+    ///
+    /// @param config      the transport config
+    /// @param dispatchers the per-signal dispatch functions
+    public HttpOtlpServer(ServerConfig config, Dispatchers dispatchers) {
+        this(config, dispatchers, GatewayMetrics.noop());
     }
 
     @Override
@@ -59,8 +84,10 @@ public final class HttpOtlpServer implements OtlpServer {
         this.ownsExecutor = config.serverExecutor() == null;
         this.executor = ownsExecutor ? Executors.newVirtualThreadPerTaskExecutor() : config.serverExecutor();
         http.setExecutor(executor);
+        var admissionControl = AdmissionControl.of(config, telemetry);
+        this.admission = admissionControl;
         HttpExchangeHandlers.register(
-                http, dispatchers, config.maxInboundMessageSizeBytes(), AdmissionControl.of(config));
+                http, dispatchers, config.maxInboundMessageSizeBytes(), admissionControl);
         http.start();
         this.server = http;
         log.info("OTLP/HTTP server listening on port {}", port());
@@ -119,12 +146,23 @@ public final class HttpOtlpServer implements OtlpServer {
         if (current == null) {
             return CompletableFuture.completedFuture(null);
         }
+        closeAdmission();
         return CompletableFuture.runAsync(() -> {
             current.stop(delaySeconds);
             if (ownsExecutor && executor instanceof ExecutorService es) {
                 es.shutdown();
             }
         }, SHUTDOWN_EXECUTOR);
+    }
+
+    /// Closes the admission control (idempotent) so its in-flight gauge registrations are released on
+    /// shutdown; both [#shutdown] and [#shutdownNow] route through [#stop]. A null admission (server
+    /// never started) is a no-op.
+    private void closeAdmission() {
+        var current = admission;
+        if (current != null) {
+            current.close();
+        }
     }
 
     /// Clamps a drain timeout to the `int` seconds [HttpServer#stop(int)] expects,

@@ -4,6 +4,7 @@ import dev.nthings.otlp4j.config.ServerConfig;
 import dev.nthings.otlp4j.receiver.Receiver;
 import dev.nthings.otlp4j.spi.Dispatchers;
 import dev.nthings.otlp4j.spi.OtlpServer;
+import dev.nthings.otlp4j.telemetry.GatewayMetrics;
 import dev.nthings.otlp4j.transport.common.AbstractReceiverBuilder;
 import dev.nthings.otlp4j.transport.http.internal.HttpOtlpServer;
 
@@ -36,8 +37,9 @@ public final class OtlpHttpReceiver {
         }
 
         @Override
-        protected OtlpServer newServer(ServerConfig config, Dispatchers dispatchers) {
-            return new HttpOtlpServer(config, dispatchers);
+        protected OtlpServer newServer(
+                ServerConfig config, Dispatchers dispatchers, GatewayMetrics telemetry) {
+            return new HttpOtlpServer(config, dispatchers, telemetry);
         }
     }
 }

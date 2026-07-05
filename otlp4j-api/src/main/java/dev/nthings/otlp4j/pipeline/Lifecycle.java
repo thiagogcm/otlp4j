@@ -1,7 +1,9 @@
 package dev.nthings.otlp4j.pipeline;
 
 import java.time.Duration;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 
 /// A resource with a graceful, deadline-bounded lifecycle.
@@ -47,9 +49,17 @@ public interface Lifecycle extends AutoCloseable {
         return forceFlush(DEFAULT_GRACE_PERIOD);
     }
 
-    /// Drains with the [#DEFAULT_GRACE_PERIOD].
+    /// Best-effort synchronous drain within the [#DEFAULT_GRACE_PERIOD]. This is the
+    /// try-with-resources idiom, so it SWALLOWS a drain failure or timeout as a WARN log rather than
+    /// throwing (a throw during teardown would mask the primary exception being unwound). Every
+    /// `Lifecycle` (receiver, exporter, batching processor, client, wiring) inherits this one rule;
+    /// call [#shutdown(Duration)] directly when the drain outcome must be observed.
     @Override
     default void close() {
-        shutdown(DEFAULT_GRACE_PERIOD).toCompletableFuture().join();
+        try {
+            shutdown(DEFAULT_GRACE_PERIOD).toCompletableFuture().join();
+        } catch (CompletionException | CancellationException e) {
+            LifecycleSupport.warnCloseDrainFailed(this, e);
+        }
     }
 }

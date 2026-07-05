@@ -4,6 +4,7 @@ import dev.nthings.otlp4j.config.ServerConfig;
 import dev.nthings.otlp4j.receiver.Receiver;
 import dev.nthings.otlp4j.spi.Dispatchers;
 import dev.nthings.otlp4j.spi.OtlpServer;
+import dev.nthings.otlp4j.telemetry.GatewayMetrics;
 import dev.nthings.otlp4j.transport.common.AbstractReceiverBuilder;
 import dev.nthings.otlp4j.transport.grpc.internal.GrpcOtlpServer;
 
@@ -23,16 +24,23 @@ public final class OtlpGrpcReceiver {
     /// transport; the shared knobs live on [AbstractReceiverBuilder].
     public static final class Builder extends AbstractReceiverBuilder<Builder> {
 
+        private int maxConcurrentCallsPerConnection = 0;
+
         private Builder() {
             super(ServerConfig.builder(), "OTLP/gRPC");
         }
 
-        /// Caps in-flight calls per connection; `0` (default) is unlimited.
+        /// Caps in-flight calls per connection; `0` (default) is unlimited. gRPC-only: threaded
+        /// straight into [GrpcOtlpServer], not stored in the shared [ServerConfig] (HTTP has no
+        /// equivalent, so a shared field would be silently ignored there).
         ///
-        /// @param max the per-connection cap
+        /// @param max the per-connection cap (must be >= 0)
         /// @return this builder
         public Builder setMaxConcurrentCallsPerConnection(int max) {
-            config().setMaxConcurrentCallsPerConnection(max);
+            if (max < 0) {
+                throw new IllegalArgumentException("maxConcurrentCallsPerConnection must be >= 0: " + max);
+            }
+            this.maxConcurrentCallsPerConnection = max;
             return this;
         }
 
@@ -42,8 +50,9 @@ public final class OtlpGrpcReceiver {
         }
 
         @Override
-        protected OtlpServer newServer(ServerConfig config, Dispatchers dispatchers) {
-            return new GrpcOtlpServer(config, dispatchers);
+        protected OtlpServer newServer(
+                ServerConfig config, Dispatchers dispatchers, GatewayMetrics telemetry) {
+            return new GrpcOtlpServer(config, dispatchers, telemetry, maxConcurrentCallsPerConnection);
         }
     }
 }

@@ -6,12 +6,12 @@ import dev.nthings.otlp4j.model.Signal;
 import dev.nthings.otlp4j.model.SignalBatch;
 import dev.nthings.otlp4j.codec.SignalCodec;
 import dev.nthings.otlp4j.codec.Transports;
-import dev.nthings.otlp4j.transport.common.internal.ClientHeaders;
+import dev.nthings.otlp4j.transport.common.ClientHeaders;
 import dev.nthings.otlp4j.config.ClientConfig;
 import dev.nthings.otlp4j.config.Compression;
 import dev.nthings.otlp4j.spi.OtlpClient;
 import dev.nthings.otlp4j.config.Tls;
-import dev.nthings.otlp4j.transport.common.internal.ResilienceRetries;
+import dev.nthings.otlp4j.transport.common.ResilienceRetries;
 import io.grpc.CallOptions;
 import io.grpc.Channel;
 import io.grpc.ChannelCredentials;
@@ -43,6 +43,7 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -59,7 +60,10 @@ public final class GrpcOtlpClient implements OtlpClient {
 
     private static final Logger log = LoggerFactory.getLogger(GrpcOtlpClient.class);
 
-    private static final long CLOSE_TIMEOUT_SECONDS = 5;
+    /// Runs each blocking teardown wait on a virtual thread, mirroring `GrpcOtlpServer`'s naming
+    /// precedent so a stalled teardown is greppable by thread name.
+    private static final Executor SHUTDOWN_EXECUTOR =
+            task -> Thread.ofVirtual().name("otlp-grpc-client-shutdown").start(task);
 
     private final ManagedChannel channel;
     private final TraceServiceGrpc.TraceServiceBlockingStub traceStub;
@@ -116,6 +120,10 @@ public final class GrpcOtlpClient implements OtlpClient {
         // whose value type parameter is the same T carried by the batch's signal.
         @SuppressWarnings("unchecked")
         var export = (GrpcExport<T, ?, ?>) exports.get(batch.signal());
+        // Double-deadline, belt-and-suspenders and intentional: the stub's withDeadlineAfter (in
+        // call(...)) bounds each in-flight RPC, while this orTimeout bounds the whole async attempt
+        // (retry backoff and executor queueing included), so a stalled carrier thread cannot
+        // outlive the caller's budget. A slow call is interrupted by whichever fires first.
         return CompletableFuture.supplyAsync(
                 () -> ResilienceRetries.execute(retry, () -> export.result(batch.batch())),
                 executor)
@@ -139,37 +147,51 @@ public final class GrpcOtlpClient implements OtlpClient {
         return compress ? s.withCompression("gzip") : s;
     }
 
-    /// Two-phase teardown bounded by [#CLOSE_TIMEOUT_SECONDS] per await. Both awaits are
-    /// interrupt-responsive: an interrupt propagates through both phases so teardown stops
-    /// promptly when the caller's deadline elapses.
+    /// Two-phase teardown on a named shutdown carrier, bounded so the total wall-clock cannot
+    /// exceed `timeout`. One deadline is computed up front; each phase (channel termination, then
+    /// per-export executor drain) receives the REMAINING budget clamped at zero via
+    /// `Math.max(0, ...)`, so the worst case is `timeout`, never `2 x timeout`. Both awaits are
+    /// interrupt-responsive: an interrupt in phase one leaves the flag set, so phase two's await
+    /// returns at once, and teardown still forces both resources down so no export carrier leaks.
+    /// `forceFlush` is the inherited no-op (the client does not buffer).
     @Override
-    public void close() {
-        channel.shutdown();
+    public CompletionStage<Void> shutdown(Duration timeout) {
+        return CompletableFuture.runAsync(() -> {
+            var deadline = System.nanoTime() + timeout.toNanos();
+            channel.shutdown();
+            awaitChannelTermination(Duration.ofNanos(Math.max(0, deadline - System.nanoTime())));
+            drainExecutor(Duration.ofNanos(Math.max(0, deadline - System.nanoTime())));
+        }, SHUTDOWN_EXECUTOR);
+    }
+
+    /// Awaits channel termination within `budget`, forcing it down on timeout or interrupt.
+    private void awaitChannelTermination(Duration budget) {
         try {
-            if (!channel.awaitTermination(CLOSE_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-                log.warn("OTLP/gRPC channel did not terminate within {}s; forcing shutdown",
-                        CLOSE_TIMEOUT_SECONDS);
+            if (!channel.awaitTermination(budget.toNanos(), TimeUnit.NANOSECONDS)) {
+                log.warn("OTLP/gRPC channel did not terminate within {}; forcing shutdown", budget);
                 channel.shutdownNow();
             }
         } catch (InterruptedException e) {
-            // Interrupt unblocks this await; force channel down. The interrupt flag stays set so
-            // the executor await in the finally block returns immediately.
+            // Interrupt unblocks this await; force the channel down and re-set the flag so the
+            // executor drain that follows returns immediately.
             log.warn("interrupted while closing OTLP/gRPC channel; forcing shutdown");
             channel.shutdownNow();
             Thread.currentThread().interrupt();
-        } finally {
-            // Bound teardown: shut down, wait, then force so no export carriers leak.
-            executor.shutdown();
-            try {
-                if (!executor.awaitTermination(CLOSE_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-                    log.warn("per-export executor did not terminate within {}s; interrupting outstanding exports",
-                            CLOSE_TIMEOUT_SECONDS);
-                    executor.shutdownNow();
-                }
-            } catch (InterruptedException e) {
+        }
+    }
+
+    /// Drains the per-export executor within `budget`, interrupting outstanding exports on timeout.
+    private void drainExecutor(Duration budget) {
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(budget.toNanos(), TimeUnit.NANOSECONDS)) {
+                log.warn("per-export executor did not terminate within {}; interrupting outstanding exports",
+                        budget);
                 executor.shutdownNow();
-                Thread.currentThread().interrupt();
             }
+        } catch (InterruptedException e) {
+            executor.shutdownNow();
+            Thread.currentThread().interrupt();
         }
     }
 
@@ -192,7 +214,7 @@ public final class GrpcOtlpClient implements OtlpClient {
         if (trailers == null) {
             return Duration.ZERO;
         }
-        var pushback = trailers.get(GrpcRetry.PUSHBACK_MS);
+        var pushback = trailers.get(GrpcPushback.PUSHBACK_MS);
         if (pushback == null) {
             return Duration.ZERO;
         }
@@ -209,7 +231,7 @@ public final class GrpcOtlpClient implements OtlpClient {
         if (trailers == null) {
             return false;
         }
-        var pushback = trailers.get(GrpcRetry.PUSHBACK_MS);
+        var pushback = trailers.get(GrpcPushback.PUSHBACK_MS);
         if (pushback == null) {
             return false;
         }

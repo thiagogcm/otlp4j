@@ -13,6 +13,18 @@ package dev.nthings.otlp4j.pipeline.ops;
 ///     A drain that later fails downstream loses the batch with no upstream signal (surfaced only
 ///     through [Batcher#drainFailedCount] and the WARN log). Lossy by design; use it for
 ///     high-throughput, tap-like paths that value ingress latency over delivery guarantees.
+///
+/// This "does the sender learn the downstream outcome?" question is the same axis the [Connector]
+/// expresses with [FailurePolicy], one buffering, one not:
+///
+/// | Sender learns downstream outcome? | Connector | Batcher |
+/// | --- | --- | --- |
+/// | Yes (propagate) | `FailurePolicy.FAIL` | `AckMode.ON_DELIVERY` |
+/// | No (swallow) | `FailurePolicy.BEST_EFFORT` | `AckMode.ON_ENQUEUE` |
+///
+/// `AckMode` additionally controls timing (the batcher buffers; the connector does not), which
+/// `FailurePolicy` cannot express, so the two stay distinct types. The orthogonal proactive-ingress
+/// axis is [Batcher.Builder#circuitBreaker], not this one.
 public enum AckMode {
 
     /// Ack after the batch is drained and delivered downstream, reflecting the real result.

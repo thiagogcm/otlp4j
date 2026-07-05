@@ -4,6 +4,7 @@ import dev.nthings.otlp4j.model.Signal;
 import dev.nthings.otlp4j.model.SignalBatch;
 import dev.nthings.otlp4j.receiver.TapOptions;
 import dev.nthings.otlp4j.receiver.TelemetryTap;
+import dev.nthings.otlp4j.telemetry.GatewayMetrics;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.Flow;
@@ -15,9 +16,11 @@ final class ReceiverTap implements TelemetryTap, AutoCloseable {
     private final LongAdder drops = new LongAdder();
     private final Map<Signal<?>, MulticastPublisher<?>> publishers = new LinkedHashMap<>();
 
-    ReceiverTap() {
+    ReceiverTap(GatewayMetrics telemetry) {
+        var dropped = telemetry.counter(
+                "otlp4j.receiver.tap.dropped", "telemetry items dropped by a tap subscriber's overflow");
         for (Signal<?> signal : Signal.values()) {
-            publishers.put(signal, new MulticastPublisher<>(drops));
+            publishers.put(signal, new MulticastPublisher<>(drops, dropped));
         }
     }
 

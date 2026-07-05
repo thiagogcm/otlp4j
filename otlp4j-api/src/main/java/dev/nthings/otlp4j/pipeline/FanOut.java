@@ -7,12 +7,14 @@ import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.Executor;
 
 /// A [Sink] that delivers the same batch to several peers concurrently.
 ///
-/// All peers run in parallel; their results are aggregated with [ConsumeResult#fanOutMerge]
-/// (worst-case rejection count, not sum). A peer that throws is captured as a per-peer
-/// [ConsumeResult.Rejected] and never blocks the other peers.
+/// Each peer's `consume` is launched on its own virtual thread, so the peers run concurrently rather
+/// than being kicked off one after another on the caller thread; their results are aggregated with
+/// [ConsumeResult#fanOutMerge] (worst-case rejection count, not sum). A peer that throws is captured
+/// as a per-peer [ConsumeResult.Rejected] and never blocks the other peers.
 ///
 /// The same `batch` reference is shared with every peer; the OTLP model is immutable, so
 /// concurrent delivery is safe.
@@ -27,6 +29,12 @@ public final class FanOut<T> implements Sink<T> {
     /// Accepts and drops everything; the empty fan-out. Stateless, so one instance serves all
     /// signal types.
     private static final Sink<Object> DISCARD = batch -> ConsumeResult.acceptedStage();
+
+    /// Launches each peer's `consume` on its own fresh virtual thread, so N peers genuinely overlap
+    /// instead of being started sequentially on the caller thread. Stateless (a VT-per-task lambda,
+    /// the same idiom as the transports' shutdown executors), so it holds nothing at rest and needs
+    /// no shutdown.
+    private static final Executor LAUNCH = task -> Thread.ofVirtual().name("otlp4j-fanout").start(task);
 
     private final List<Sink<? super T>> peers;
 
@@ -81,23 +89,27 @@ public final class FanOut<T> implements Sink<T> {
         CompletableFuture<ConsumeResult>[] futures = new CompletableFuture[peers.size()];
         for (var i = 0; i < peers.size(); i++) {
             final var idx = i;
-            CompletionStage<ConsumeResult> peerStage;
-            try {
-                peerStage = peers.get(i).consume(batch);
-            } catch (Throwable t) {
-                peerStage = CompletableFuture.completedFuture(ConsumeResult.permanent(
-                        "peer[" + idx + "] threw: " + describe(t), t));
-            }
-            futures[i] = peerStage
-                    .exceptionally(t -> ConsumeResult.permanent(
-                            "peer[" + idx + "] failed: " + describe(t), t))
-                    .toCompletableFuture();
+            final var peer = peers.get(i);
+            futures[i] = CompletableFuture.supplyAsync(() -> {
+                        try {
+                            return peer.consume(batch);                 // launched on a per-peer VT
+                        } catch (Throwable t) {                         // sync throw: keep the "threw" shape
+                            return CompletableFuture.completedFuture(ConsumeResult.permanent(
+                                    "peer[" + idx + "] threw: " + describe(t), t));
+                        }
+                    }, LAUNCH)
+                    .thenCompose(stage -> stage)                        // flatten the peer's CompletionStage
+                    .exceptionally(t -> ConsumeResult.permanent(        // async failure: keep the "failed" shape
+                            "peer[" + idx + "] failed: " + describe(t), t));
         }
         return CompletableFuture.allOf(futures).thenApply(v -> {
             var results = new ArrayList<ConsumeResult>(futures.length);
             for (var f : futures) {
                 results.add(f.join());
             }
+            // fanOutMerge takes the MAX rejected-item count, not the sum: every peer sees the SAME
+            // immutable batch, so the worst peer's rejected count is the batch's true rejected count;
+            // summing across peers would double-count the same items.
             return ConsumeResult.fanOutMerge(results);
         });
     }

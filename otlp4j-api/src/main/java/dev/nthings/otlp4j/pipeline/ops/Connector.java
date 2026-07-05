@@ -2,21 +2,33 @@ package dev.nthings.otlp4j.pipeline.ops;
 
 import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.pipeline.AsyncTransform;
+import dev.nthings.otlp4j.pipeline.FanOut;
 import dev.nthings.otlp4j.pipeline.Lifecycle;
 import dev.nthings.otlp4j.pipeline.SharedLifecycle;
 import dev.nthings.otlp4j.pipeline.Sink;
 import java.time.Duration;
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.function.BiFunction;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /// A signal-changing bridge: consumes batches of one signal and emits derived batches of another
-/// (or the same) signal to a single downstream sink - the general form of the Collector's
+/// (or the same) signal to one or more downstream sinks - the general form of the Collector's
 /// connector. The bundled span-count and log-record-count connectors (see [Connectors]) are
 /// instances; extend this class to write your own.
+///
+/// A connector may fan its derived batch to several downstreams: the delivery path is a
+/// [FanOut] over the downstream list, so N downstreams get real per-peer parallelism and their
+/// results merge with FanOut semantics (worst-case rejection). This has one deliberate consequence.
+/// With a single downstream the connector's own try/catch runs and a downstream [Error] is rethrown
+/// (fail-fast on a programming bug in the one downstream). With two or more downstreams the fan
+/// isolates each peer, so a peer `Error` becomes a captured rejection governed by the
+/// [FailurePolicy] rather than aborting delivery to the healthy peers. Both behaviors are correct
+/// for their shape; see the [#Connector(String,List,FailurePolicy)] constructor.
 ///
 /// Subclasses implement one method, [#derive], which maps an input batch to zero or one
 /// downstream batch synchronously. The base class owns everything else and keeps it correct by
@@ -27,9 +39,9 @@ import org.slf4j.LoggerFactory;
 /// [#onForceFlush] hooks instead, which run before the downstream cascade so a buffering
 /// connector flushes into a still-open downstream.
 ///
-/// The connector owns its single downstream: attaching the connector to a pipeline drains the
+/// The connector owns its downstreams: attaching the connector to a pipeline drains every
 /// downstream automatically with no `Stage.owns(...)` declaration, and the pipeline's retain is
-/// propagated when the downstream is itself a [SharedLifecycle].
+/// propagated to each downstream that is itself a [SharedLifecycle].
 ///
 /// A connector needing asynchronous derivation or multi-batch emission implements [Sink]
 /// directly instead (composing an [AsyncTransform] before the connector covers most async
@@ -42,7 +54,13 @@ public abstract class Connector<I, O> implements Sink<I>, SharedLifecycle {
     private static final Logger log = LoggerFactory.getLogger(Connector.class);
 
     private final String name;
-    private final Sink<? super O> downstream;
+    /// The downstream sinks, one or many; the source of truth for the lifecycle cascade (a
+    /// [FanOut] is not a [Lifecycle], so cascading over the raw list is the only correct way to
+    /// drain a fan of exporter facets).
+    private final List<Sink<? super O>> downstreams;
+    /// The merged delivery path: [FanOut#of] over [#downstreams] (the bare peer for one, a real
+    /// [FanOut] for many).
+    private final Sink<? super O> delivery;
     private final FailurePolicy policy;
 
     /// Creates a best-effort connector (see [FailurePolicy#BEST_EFFORT]): a failure of the
@@ -51,7 +69,7 @@ public abstract class Connector<I, O> implements Sink<I>, SharedLifecycle {
     /// @param name       the connector name, used in log and rejection messages
     /// @param downstream the sink receiving derived batches
     protected Connector(String name, Sink<? super O> downstream) {
-        this(name, downstream, FailurePolicy.BEST_EFFORT);
+        this(name, List.of(Objects.requireNonNull(downstream, "downstream")), FailurePolicy.BEST_EFFORT);
     }
 
     /// Creates a connector with the given failure policy.
@@ -60,8 +78,26 @@ public abstract class Connector<I, O> implements Sink<I>, SharedLifecycle {
     /// @param downstream the sink receiving derived batches
     /// @param policy     how a derived-delivery failure reflects on the input batch
     protected Connector(String name, Sink<? super O> downstream, FailurePolicy policy) {
+        this(name, List.of(Objects.requireNonNull(downstream, "downstream")), policy);
+    }
+
+    /// Fans the derived batch to every downstream, merging their results with [FanOut] semantics
+    /// (worst-case rejection). At least one downstream is required.
+    ///
+    /// A peer that throws or fails when there are two or more downstreams is isolated by the fan and
+    /// its failure becomes a rejection governed by `policy`, unlike the single-downstream form which
+    /// propagates an [Error] and restores an interrupt flag. See the class-level divergence note.
+    ///
+    /// @param name        the connector name, used in log and rejection messages
+    /// @param downstreams the sinks receiving derived batches (at least one)
+    /// @param policy      how a merged derived-delivery failure reflects on the input batch
+    protected Connector(String name, List<? extends Sink<? super O>> downstreams, FailurePolicy policy) {
         this.name = Objects.requireNonNull(name, "name");
-        this.downstream = Objects.requireNonNull(downstream, "downstream");
+        this.downstreams = List.copyOf(downstreams);   // List.copyOf rejects null elements
+        if (this.downstreams.isEmpty()) {
+            throw new IllegalArgumentException(name + ": a connector needs at least one downstream");
+        }
+        this.delivery = FanOut.of(this.downstreams);   // one -> the bare peer, many -> a real FanOut
         this.policy = Objects.requireNonNull(policy, "policy");
     }
 
@@ -95,7 +131,7 @@ public abstract class Connector<I, O> implements Sink<I>, SharedLifecycle {
         CompletionStage<ConsumeResult> downstreamStage;
         try {
             downstreamStage = Objects.requireNonNull(
-                    downstream.consume(derived), "downstream returned a null stage");
+                    delivery.consume(derived), "downstream returned a null stage");
         } catch (Throwable e) {
             downstreamStage = CompletableFuture.completedFuture(rejected("downstream threw", e));
         }
@@ -107,29 +143,52 @@ public abstract class Connector<I, O> implements Sink<I>, SharedLifecycle {
     @Override
     public final void retain() {
         // Propagate ownership so a shared downstream stays reference-counted when reached only through us.
-        if (downstream instanceof SharedLifecycle shared) {
-            shared.retain();
+        for (var d : downstreams) {
+            if (d instanceof SharedLifecycle shared) {
+                shared.retain();
+            }
         }
     }
 
     @Override
     public final void release() {
-        // Mirror retain()'s propagation: drop one owner's stake on a shared downstream without draining.
-        if (downstream instanceof SharedLifecycle shared) {
-            shared.release();
+        // Mirror retain()'s propagation: drop one owner's stake on each shared downstream without draining.
+        for (var d : downstreams) {
+            if (d instanceof SharedLifecycle shared) {
+                shared.release();
+            }
         }
     }
 
     @Override
     public final CompletionStage<Void> shutdown(Duration timeout) {
-        return onShutdown(timeout).thenCompose(ignored ->
-                downstream instanceof Lifecycle d ? d.shutdown(timeout) : CompletableFuture.completedFuture(null));
+        return onShutdown(timeout).thenCompose(ignored -> cascade(Lifecycle::shutdown, timeout));
     }
 
     @Override
     public final CompletionStage<Void> forceFlush(Duration timeout) {
-        return onForceFlush(timeout).thenCompose(ignored ->
-                downstream instanceof Lifecycle d ? d.forceFlush(timeout) : CompletableFuture.completedFuture(null));
+        return onForceFlush(timeout).thenCompose(ignored -> cascade(Lifecycle::forceFlush, timeout));
+    }
+
+    /// Drains or flushes every [Lifecycle] downstream under one deadline; non-Lifecycle peers are
+    /// skipped. The single-downstream case passes the peer stage through unwrapped so its failure
+    /// nesting is byte-identical to the pre-multi-downstream direct ternary; only the true
+    /// multi-downstream case introduces the `allOf` wrapper, and that case did not exist before.
+    private CompletionStage<Void> cascade(BiFunction<Lifecycle, Duration, CompletionStage<Void>> op, Duration t) {
+        var lifecycles = downstreams.stream()
+                .filter(Lifecycle.class::isInstance)
+                .map(Lifecycle.class::cast)
+                .toList();
+        if (lifecycles.isEmpty()) {
+            return CompletableFuture.completedFuture(null);
+        }
+        if (lifecycles.size() == 1) {
+            return op.apply(lifecycles.get(0), t);   // unwrapped passthrough
+        }
+        var futures = lifecycles.stream()
+                .map(d -> op.apply(d, t).toCompletableFuture())
+                .toArray(CompletableFuture[]::new);
+        return CompletableFuture.allOf(futures);
     }
 
     /// Drains connector-local state on shutdown, before the downstream cascade. Default: no-op.

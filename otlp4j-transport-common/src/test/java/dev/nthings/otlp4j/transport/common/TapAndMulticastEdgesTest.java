@@ -1,5 +1,6 @@
 package dev.nthings.otlp4j.transport.common;
 
+import dev.nthings.otlp4j.pipeline.ops.OverflowPolicy;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
@@ -25,7 +26,7 @@ class TapAndMulticastEdgesTest {
     @DisplayName("A typed channel multicasts to every subscriber")
     @Test
     void receiverTapMulticastsToEverySubscriber() {
-        var tap = new ReceiverTap();
+        var tap = new ReceiverTap(dev.nthings.otlp4j.telemetry.GatewayMetrics.noop());
         try {
             var first = new CopyOnWriteArrayList<TracesData>();
             var second = new CopyOnWriteArrayList<TracesData>();
@@ -43,9 +44,9 @@ class TapAndMulticastEdgesTest {
     @DisplayName("droppedCount increases when a subscriber stalls")
     @Test
     void droppedCountIncrementsWhenSubscriberStalls() {
-        var tap = new ReceiverTap();
+        var tap = new ReceiverTap(dev.nthings.otlp4j.telemetry.GatewayMetrics.noop());
         try {
-            tap.traces(new TapOptions(TapOptions.Overflow.DROP_NEWEST, 1)).subscribe(FlowSubscribers.noOp());
+            tap.traces(new TapOptions(OverflowPolicy.DROP_NEWEST, 1)).subscribe(FlowSubscribers.noOp());
             for (var i = 0; i < 50; i++) {
                 tap.publish(Signal.TRACES.batch(Fixtures.traceData(Fixtures.span("s" + i, Span.Kind.SERVER))));
             }
@@ -128,14 +129,14 @@ class TapAndMulticastEdgesTest {
     @Test
     void tapOptionsDefaultsAreSane() {
         var opts = TapOptions.defaults();
-        assertThat(opts.strategy()).isEqualTo(TapOptions.Overflow.DROP_OLDEST);
+        assertThat(opts.strategy()).isEqualTo(OverflowPolicy.DROP_OLDEST);
         assertThat(opts.bufferSize()).isEqualTo(256);
     }
 
     @DisplayName("TapOptions rejects a non-positive buffer size")
     @Test
     void tapOptionsRejectsBadBuffer() {
-        assertThatThrownBy(() -> new TapOptions(TapOptions.Overflow.DROP_OLDEST, 0))
+        assertThatThrownBy(() -> new TapOptions(OverflowPolicy.DROP_OLDEST, 0))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 

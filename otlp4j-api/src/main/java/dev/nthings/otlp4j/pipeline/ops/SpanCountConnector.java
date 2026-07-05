@@ -4,6 +4,7 @@ import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.pipeline.Sink;
 import dev.nthings.otlp4j.pipeline.TracesSink;
+import java.util.List;
 
 /// The span-count connector as a [TracesSink]: counts spans per batch and emits
 /// `otlp4j.connector.span.count` to its downstream metric sink, whose lifecycle it cascades.
@@ -12,6 +13,15 @@ final class SpanCountConnector extends CountConnector<TracesData> implements Tra
     SpanCountConnector(Sink<? super MetricsData> downstream, FailurePolicy policy) {
         super(
                 downstream,
+                policy,
+                "otlp4j.connector.span.count",
+                "Items observed by the span count connector",
+                TracesData::spanCount);
+    }
+
+    SpanCountConnector(List<? extends Sink<? super MetricsData>> downstreams, FailurePolicy policy) {
+        super(
+                downstreams,
                 policy,
                 "otlp4j.connector.span.count",
                 "Items observed by the span count connector",

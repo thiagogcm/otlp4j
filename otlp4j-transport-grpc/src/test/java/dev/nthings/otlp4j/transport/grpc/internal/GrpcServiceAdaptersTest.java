@@ -93,7 +93,7 @@ class GrpcServiceAdaptersTest {
         assertThat(status.getDescription()).isEqualTo("at capacity");
         var trailers = Status.trailersFromThrowable(observer.error);
         assertThat(trailers).isNotNull();
-        assertThat(trailers.get(GrpcRetry.PUSHBACK_MS)).isEqualTo("2000");
+        assertThat(trailers.get(GrpcPushback.PUSHBACK_MS)).isEqualTo("2000");
     }
 
     @DisplayName("A retryable Rejected without a hint emits no pushback trailer")
@@ -105,7 +105,7 @@ class GrpcServiceAdaptersTest {
                         TraceMapper.toProto(TransportFixtures.richTraceData()), observer);
         observer.await();
         var trailers = Status.trailersFromThrowable(observer.error);
-        assertThat(trailers == null ? null : trailers.get(GrpcRetry.PUSHBACK_MS)).isNull();
+        assertThat(trailers == null ? null : trailers.get(GrpcPushback.PUSHBACK_MS)).isNull();
     }
 
     @DisplayName("A permanent whole-batch Rejected maps to INTERNAL")

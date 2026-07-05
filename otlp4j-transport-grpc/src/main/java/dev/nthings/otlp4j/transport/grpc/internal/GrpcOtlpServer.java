@@ -6,6 +6,7 @@ import dev.nthings.otlp4j.spi.Dispatchers;
 import dev.nthings.otlp4j.spi.OtlpServer;
 import dev.nthings.otlp4j.config.ServerConfig;
 import dev.nthings.otlp4j.config.Tls;
+import dev.nthings.otlp4j.telemetry.GatewayMetrics;
 import io.grpc.InsecureServerCredentials;
 import io.grpc.Server;
 import io.grpc.ServerCredentials;
@@ -19,6 +20,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,8 +32,8 @@ import org.slf4j.LoggerFactory;
 /// [Tls.SystemTrust] and [Tls.SslContext] are rejected as a server has no certificate of its own.
 ///
 /// Built on Netty's [NettyServerBuilder] so it can bind a specific interface and
-/// apply limits from [ServerConfig]: decoded-request cap, per-connection
-/// concurrency cap, handshake deadline, and optional bounded executor.
+/// apply limits from [ServerConfig] (decoded-request cap, handshake deadline, optional bounded
+/// executor) plus the gRPC-only per-connection concurrency cap passed to the constructor.
 public final class GrpcOtlpServer implements OtlpServer {
 
     private static final Logger log = LoggerFactory.getLogger(GrpcOtlpServer.class);
@@ -41,12 +43,45 @@ public final class GrpcOtlpServer implements OtlpServer {
 
     private final ServerConfig config;
     private final Dispatchers dispatchers;
+    private final GatewayMetrics telemetry;
+    private final int maxConcurrentCallsPerConnection;
 
     private Server server;
+    private volatile @Nullable AdmissionControl admission;
 
-    public GrpcOtlpServer(ServerConfig config, Dispatchers dispatchers) {
+    /// Full constructor. `telemetry` receives the admission instruments; `maxConcurrentCallsPerConnection`
+    /// is a gRPC-only hardening knob (`0` keeps gRPC's unlimited default); HTTP has no equivalent, which
+    /// is why it is a transport-local ctor arg rather than a shared [ServerConfig] field.
+    ///
+    /// @param config                          the transport config
+    /// @param dispatchers                     the per-signal dispatch functions
+    /// @param telemetry                       the self-observability registry for admission health
+    /// @param maxConcurrentCallsPerConnection the per-connection concurrency cap, or `0` for unlimited
+    public GrpcOtlpServer(ServerConfig config, Dispatchers dispatchers, GatewayMetrics telemetry,
+            int maxConcurrentCallsPerConnection) {
         this.config = config;
         this.dispatchers = dispatchers;
+        this.telemetry = telemetry;
+        this.maxConcurrentCallsPerConnection = maxConcurrentCallsPerConnection;
+    }
+
+    /// Convenience constructor with the given concurrency cap and no self-observability
+    /// ([GatewayMetrics#noop]).
+    ///
+    /// @param config                          the transport config
+    /// @param dispatchers                     the per-signal dispatch functions
+    /// @param maxConcurrentCallsPerConnection the per-connection concurrency cap, or `0` for unlimited
+    public GrpcOtlpServer(ServerConfig config, Dispatchers dispatchers, int maxConcurrentCallsPerConnection) {
+        this(config, dispatchers, GatewayMetrics.noop(), maxConcurrentCallsPerConnection);
+    }
+
+    /// Convenience constructor with no per-connection concurrency cap (`0`, gRPC's unlimited default)
+    /// and no self-observability ([GatewayMetrics#noop]).
+    ///
+    /// @param config      the transport config
+    /// @param dispatchers the per-signal dispatch functions
+    public GrpcOtlpServer(ServerConfig config, Dispatchers dispatchers) {
+        this(config, dispatchers, GatewayMetrics.noop(), 0);
     }
 
     @Override
@@ -58,13 +93,15 @@ public final class GrpcOtlpServer implements OtlpServer {
                 Transports.bindAddress(config.bindHost(), config.port()), serverCredentials(config.tls()))
                 .maxInboundMessageSize(config.maxInboundMessageSizeBytes())
                 .handshakeTimeout(config.handshakeTimeout().toNanos(), TimeUnit.NANOSECONDS);
-        if (config.maxConcurrentCallsPerConnection() > 0) {
-            builder.maxConcurrentCallsPerConnection(config.maxConcurrentCallsPerConnection());
+        if (maxConcurrentCallsPerConnection > 0) {
+            builder.maxConcurrentCallsPerConnection(maxConcurrentCallsPerConnection);
         }
         if (config.serverExecutor() != null) {
             builder.executor(config.serverExecutor());
         }
-        GrpcServiceAdapters.create(dispatchers, AdmissionControl.of(config)).forEach(builder::addService);
+        var admissionControl = AdmissionControl.of(config, telemetry);
+        this.admission = admissionControl;
+        GrpcServiceAdapters.create(dispatchers, admissionControl).forEach(builder::addService);
         server = builder.build().start();
         log.info("OTLP/gRPC server listening on port {}", server.getPort());
     }
@@ -84,6 +121,7 @@ public final class GrpcOtlpServer implements OtlpServer {
             return CompletableFuture.completedFuture(null);
         }
         log.debug("initiating graceful shutdown of OTLP/gRPC server");
+        closeAdmission();
         current.shutdown();
         return waitForTermination(current, timeout);
     }
@@ -98,8 +136,18 @@ public final class GrpcOtlpServer implements OtlpServer {
             return CompletableFuture.completedFuture(null);
         }
         log.debug("forcing shutdown of OTLP/gRPC server");
+        closeAdmission();
         current.shutdownNow();
         return waitForTermination(current, Duration.ofSeconds(5));
+    }
+
+    /// Closes the admission control (idempotent) so its in-flight gauge registrations are released
+    /// on shutdown; a null admission (server never started) is a no-op.
+    private void closeAdmission() {
+        var current = admission;
+        if (current != null) {
+            current.close();
+        }
     }
 
     private static CompletionStage<Void> waitForTermination(Server server, Duration timeout) {

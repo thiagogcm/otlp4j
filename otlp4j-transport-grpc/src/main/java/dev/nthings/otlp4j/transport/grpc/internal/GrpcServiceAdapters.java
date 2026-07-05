@@ -101,7 +101,7 @@ final class GrpcServiceAdapters {
                 admission.inFlightRequests(), admission.inFlightBytes());
         return Status.UNAVAILABLE
                 .withDescription("receiver at capacity")
-                .asRuntimeException(GrpcRetry.pushbackTrailers(admission.retryAfterHint()));
+                .asRuntimeException(GrpcPushback.pushbackTrailers(admission.retryAfterHint()));
     }
 
     /// Asynchronously consumes the result, mapping [ConsumeResult] to a gRPC
@@ -127,7 +127,7 @@ final class GrpcServiceAdapters {
                 log.warn("dispatcher rejected the whole batch; responding with gRPC {}: {}",
                         status.getCode(), message);
                 observer.onError(status.withDescription(message)
-                        .asRuntimeException(GrpcRetry.pushbackTrailers(retryAfter)));
+                        .asRuntimeException(GrpcPushback.pushbackTrailers(retryAfter)));
                 return;
             }
             try {

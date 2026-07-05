@@ -1,4 +1,4 @@
-package dev.nthings.otlp4j.transport.common.internal;
+package dev.nthings.otlp4j.transport.common;
 
 import io.github.resilience4j.core.functions.CheckedSupplier;
 import io.github.resilience4j.retry.Retry;

@@ -20,6 +20,22 @@ import org.jspecify.annotations.Nullable;
 ///
 /// TLS follows the endpoint scheme when set; otherwise `OTEL_EXPORTER_OTLP_INSECURE` and the
 /// certificate variables apply as independent inputs. An HTTP path prefix is taken from the URL.
+///
+/// **Implemented subset.** Recognized: `OTEL_EXPORTER_OTLP_ENDPOINT`, `_HEADERS`, `_TIMEOUT`,
+/// `_COMPRESSION`, `_CERTIFICATE`, `_CLIENT_CERTIFICATE`, `_CLIENT_KEY`, `_INSECURE`, and
+/// `_PROTOCOL` (validated only; see below). Deliberately NOT implemented: the per-signal
+/// `OTEL_EXPORTER_OTLP_{TRACES,METRICS,LOGS}_*` endpoint/header/timeout overrides, because this
+/// gateway is one endpoint, one channel, four facets (one [ClientConfig]), while the per-signal
+/// variables exist to route different signals to different endpoints, a capability the
+/// single-client model does not have; and any server-side (receiver) environment configuration.
+/// Both gaps are intentional and documented here rather than silently ignored.
+///
+/// `OTEL_EXPORTER_OTLP_PROTOCOL` is recognized for fail-fast spec-compatibility validation only:
+/// `grpc` and `http/protobuf` are accepted, `http/json` and any other value are rejected with
+/// [IllegalArgumentException]. It does NOT select the transport; that remains the entry point the
+/// caller chose (`OtlpGrpcExporter` vs `OtlpHttpExporter`). Validating it here means a value that
+/// conflicts with this gateway's protobuf-only stance (see finding F12 in
+/// `docs/otlp4j-report.md`) fails fast instead of being silently ignored.
 final class OtlpEnv {
 
     static final String ENDPOINT = "OTEL_EXPORTER_OTLP_ENDPOINT";
@@ -30,6 +46,7 @@ final class OtlpEnv {
     static final String CLIENT_CERTIFICATE = "OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE";
     static final String CLIENT_KEY = "OTEL_EXPORTER_OTLP_CLIENT_KEY";
     static final String INSECURE = "OTEL_EXPORTER_OTLP_INSECURE";
+    static final String PROTOCOL = "OTEL_EXPORTER_OTLP_PROTOCOL";
 
     private OtlpEnv() {}
 
@@ -59,6 +76,22 @@ final class OtlpEnv {
             if (!builder.compressionExplicit) {
                 builder.setCompression(parsed);
             }
+        }
+        var protocol = value(env, PROTOCOL);
+        if (protocol != null) {
+            validateProtocol(protocol);
+        }
+    }
+
+    /// Validates `OTEL_EXPORTER_OTLP_PROTOCOL` for spec-compatibility; never assigns a builder
+    /// field, since transport selection stays with the entry point the caller chose.
+    private static void validateProtocol(String raw) {
+        switch (raw.strip().toLowerCase(Locale.ROOT)) {
+            case "grpc", "http/protobuf" -> { /* accepted; transport is chosen by the entry point */ }
+            case "http/json" -> throw new IllegalArgumentException(
+                    PROTOCOL + "=http/json is not supported; this gateway speaks OTLP over protobuf only");
+            default -> throw new IllegalArgumentException(
+                    PROTOCOL + " must be 'grpc' or 'http/protobuf': " + raw);
         }
     }
 

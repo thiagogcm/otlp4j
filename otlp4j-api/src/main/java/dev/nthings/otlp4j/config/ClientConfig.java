@@ -294,9 +294,19 @@ public record ClientConfig(
 
         /// Applies the standard general `OTEL_EXPORTER_OTLP_*` exporter variables present in the
         /// environment (endpoint URL with any path prefix, timeout, headers, compression, insecure,
-        /// TLS cert paths). Opt-in and deterministic; read only when present. Environment values are
-        /// lowest precedence: applied at [#build()] only where the caller did not set the field, so
-        /// call order does not matter. Malformed values throw [IllegalArgumentException] at build.
+        /// TLS cert paths, and protocol). Opt-in and deterministic; read only when present.
+        /// Environment values are lowest precedence: applied at [#build()] only where the caller did
+        /// not set the field, so call order does not matter. Malformed values throw
+        /// [IllegalArgumentException] at build.
+        ///
+        /// **Implemented subset.** `OTEL_EXPORTER_OTLP_ENDPOINT`, `_HEADERS`, `_TIMEOUT`,
+        /// `_COMPRESSION`, `_CERTIFICATE`, `_CLIENT_CERTIFICATE`, `_CLIENT_KEY`, and `_INSECURE` fill
+        /// this config's fields; `_PROTOCOL` is validated (`grpc` and `http/protobuf` accepted,
+        /// `http/json` rejected as this gateway is protobuf-only) but does not select the transport,
+        /// which remains the entry point the caller chose. The per-signal
+        /// `OTEL_EXPORTER_OTLP_{TRACES,METRICS,LOGS}_*` overrides and any server-side (receiver)
+        /// environment variables are out of scope: this gateway is one endpoint, one channel, four
+        /// facets, so there is no per-signal destination to route them to.
         public Builder fromEnvironment() {
             return fromEnvironment(System::getenv);
         }

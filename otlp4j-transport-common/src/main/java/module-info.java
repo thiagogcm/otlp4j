@@ -11,7 +11,4 @@ module dev.nthings.otlp4j.transport.common {
     requires org.slf4j;
 
     exports dev.nthings.otlp4j.transport.common;
-    exports dev.nthings.otlp4j.transport.common.internal to
-            dev.nthings.otlp4j.transport.grpc,
-            dev.nthings.otlp4j.transport.http;
 }

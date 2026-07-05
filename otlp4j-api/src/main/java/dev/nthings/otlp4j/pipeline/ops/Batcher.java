@@ -3,6 +3,7 @@ package dev.nthings.otlp4j.pipeline.ops;
 import dev.nthings.otlp4j.pipeline.Lifecycle;
 import dev.nthings.otlp4j.pipeline.Processor;
 import dev.nthings.otlp4j.pipeline.Sink;
+import dev.nthings.otlp4j.telemetry.GatewayMetrics;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
@@ -13,9 +14,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Objects;
 import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -25,8 +24,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.LongAdder;
 import org.jspecify.annotations.Nullable;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /// An asynchronous, queue-backed, timer-triggered batching processor.
 ///
@@ -36,7 +33,7 @@ import org.slf4j.LoggerFactory;
 ///     delivered downstream, and completes it with the real downstream result, so a sender learns
 ///     of a downstream failure and retains its data. The first-drain latency is bounded by
 ///     [Builder#flushInterval] and, once a downstream stage is in flight, by [Builder#deliveryTimeout]
-///     (when set). Enable [Builder#reflectDownstreamFailures] alongside it for proactive ingress
+///     (when set). Enable [Builder#circuitBreaker] alongside it for proactive ingress
 ///     rejection after a sustained outage.
 ///   - [AckMode#ON_ENQUEUE] completes the ack `Accepted` the moment the batch is queued, before
 ///     delivery. A drain that later fails downstream loses the batch with no upstream signal
@@ -59,8 +56,6 @@ import org.slf4j.LoggerFactory;
 /// fallback is used. Each instance adds only a single cheap virtual thread for its serial drain.
 public final class Batcher<T> implements Processor<T>, Sink<T>, Lifecycle {
 
-    private static final Logger log = LoggerFactory.getLogger(Batcher.class);
-
     /// The default drain-timer interval, used when [Builder#flushInterval] is not set. Also the
     /// default retry-after hint on a [OverflowPolicy#FAIL] overflow rejection: a full queue is
     /// drained within one timer tick, so retrying after one interval is the earliest attempt that
@@ -75,7 +70,7 @@ public final class Batcher<T> implements Processor<T>, Sink<T>, Lifecycle {
     private final int flushThreshold;
     private final ArrayBlockingQueue<QueueEntry<T>> queue;
     private final OverflowPolicy overflowPolicy;
-    private final boolean reflectDownstreamFailures;
+    private final boolean circuitBreaker;
     private final AckMode ackMode;
     private final Duration flushInterval;
     private final @Nullable Duration deliveryTimeout;
@@ -84,9 +79,15 @@ public final class Batcher<T> implements Processor<T>, Sink<T>, Lifecycle {
     private final AtomicBoolean closed = new AtomicBoolean();
     private final ExecutorService drainExecutor;
     private final BatchDrainEngine<T> drainEngine;
+    /// Self-observability instruments; fed alongside the [LongAdder]s so [#droppedCount] and friends
+    /// stay the source of truth. Under the default [GatewayMetrics#noop] each `add` is a no-op and the
+    /// gauge registration is the shared no-op handle closed harmlessly on shutdown.
+    private final GatewayMetrics.LongCounter droppedCounter;
+    private final GatewayMetrics.LongCounter drainFailedCounter;
+    private final GatewayMetrics.Registration queuedGauge;
 
     /// Degraded window: a failed drain sets it one flush interval into the future; a successful
-    /// drain clears it. While the window is open and [Builder#reflectDownstreamFailures] is on,
+    /// drain clears it. While the window is open and [Builder#circuitBreaker] is on,
     /// `consume` rejects retryably instead of enqueueing. The window expiring by itself admits a
     /// probe batch, so a healed downstream recovers without a stuck state.
     private volatile long degradedUntilNanos;
@@ -100,7 +101,7 @@ public final class Batcher<T> implements Processor<T>, Sink<T>, Lifecycle {
         this.flushThreshold = b.flushThreshold;
         this.queue = new ArrayBlockingQueue<>(b.queueCapacity);
         this.overflowPolicy = b.overflowPolicy;
-        this.reflectDownstreamFailures = b.reflectDownstreamFailures;
+        this.circuitBreaker = b.circuitBreaker;
         this.ackMode = b.ackMode;
         this.flushInterval = b.flushInterval;
         this.deliveryTimeout = b.deliveryTimeout;
@@ -112,6 +113,12 @@ public final class Batcher<T> implements Processor<T>, Sink<T>, Lifecycle {
         this.drainEngine = new BatchDrainEngine<>(
                 queue, next::get, signal::merge, closed, scheduler.executor(), drainExecutor,
                 this::flushIfDue, this::onDrainOutcome, flushInterval, deliveryTimeout);
+        this.droppedCounter = b.telemetry.counter(
+                "otlp4j.batcher.dropped", "batches dropped by queue overflow per the OverflowPolicy");
+        this.drainFailedCounter = b.telemetry.counter(
+                "otlp4j.batcher.drain_failed", "batches involved in a failed downstream drain");
+        this.queuedGauge = b.telemetry.gauge(
+                "otlp4j.batcher.queued", "batches currently buffered, awaiting a drain", queue::size);
     }
 
     /// Tracks downstream health from drain outcomes and counts batches lost to a failed drain.
@@ -121,6 +128,7 @@ public final class Batcher<T> implements Processor<T>, Sink<T>, Lifecycle {
             lastDrainFailure = null;
         } else {
             drainFailed.add(batchCount);
+            drainFailedCounter.add(batchCount);
             lastDrainFailure = failure;
             degradedUntilNanos = System.nanoTime() + flushInterval.toNanos();
         }
@@ -167,7 +175,7 @@ public final class Batcher<T> implements Processor<T>, Sink<T>, Lifecycle {
         }
         // 0 is the healthy sentinel (nanoTime has an arbitrary origin, so compare relatively).
         var degradedUntil = degradedUntilNanos;
-        if (reflectDownstreamFailures && degradedUntil != 0L && System.nanoTime() - degradedUntil < 0) {
+        if (circuitBreaker && degradedUntil != 0L && System.nanoTime() - degradedUntil < 0) {
             return CompletableFuture.completedFuture(ConsumeResult.throttled(
                     flushInterval, "batcher degraded: last flush failed", lastDrainFailure));
         }
@@ -187,6 +195,7 @@ public final class Batcher<T> implements Processor<T>, Sink<T>, Lifecycle {
                         var evicted = queue.poll();
                         if (evicted != null) {
                             drops.increment();
+                            droppedCounter.add(1);
                             // ON_DELIVERY: the evicted caller is still waiting - tell it, retryably.
                             // ON_ENQUEUE: evicted.ack is null -> completeAck is a no-op.
                             completeAck(evicted, ConsumeResult.throttled(
@@ -196,6 +205,7 @@ public final class Batcher<T> implements Processor<T>, Sink<T>, Lifecycle {
                 }
                 case DROP_NEWEST -> {   // arriving batch never entered the queue; its fresh ack is unused
                     drops.increment();
+                    droppedCounter.add(1);
                     var rejectedItems = signal.itemCount(batch);
                     return CompletableFuture.completedFuture(rejectedItems == 0
                             ? ConsumeResult.accepted()
@@ -212,6 +222,7 @@ public final class Batcher<T> implements Processor<T>, Sink<T>, Lifecycle {
                 }
                 case FAIL -> {
                     drops.increment();
+                    droppedCounter.add(1);
                     return CompletableFuture.completedFuture(
                             ConsumeResult.throttled(flushInterval, "batcher queue full"));
                 }
@@ -292,6 +303,8 @@ public final class Batcher<T> implements Processor<T>, Sink<T>, Lifecycle {
                     // hangs forever; complete them retryably.
                     sweepResidualAcks();
                     drainExecutor.shutdown();
+                    // Unregister the queued gauge so a dead batcher is not polled forever.
+                    queuedGauge.close();
                 });
     }
 
@@ -302,16 +315,6 @@ public final class Batcher<T> implements Processor<T>, Sink<T>, Lifecycle {
         queue.drainTo(residual);
         for (var entry : residual) {
             completeAck(entry, ConsumeResult.retryable("batcher shut down before delivery"));
-        }
-    }
-
-    @Override
-    public void close() {
-        try {
-            shutdown(Lifecycle.DEFAULT_GRACE_PERIOD).toCompletableFuture().join();
-        } catch (CompletionException | CancellationException e) {
-            log.warn("batcher did not cleanly drain on close: {}",
-                    e.getCause() != null ? e.getCause().toString() : e.toString());
         }
     }
 
@@ -359,11 +362,12 @@ public final class Batcher<T> implements Processor<T>, Sink<T>, Lifecycle {
         private int flushThreshold = 512;
         private int queueCapacity = 2048;
         private OverflowPolicy overflowPolicy = OverflowPolicy.DROP_NEWEST;
-        private boolean reflectDownstreamFailures = false;
+        private boolean circuitBreaker = false;
         private AckMode ackMode = AckMode.ON_DELIVERY;
         private Duration flushInterval = DEFAULT_FLUSH_INTERVAL;
         private @Nullable Duration deliveryTimeout = null;
         private @Nullable BatchScheduler scheduler = null;
+        private GatewayMetrics telemetry = GatewayMetrics.noop();
 
         private Builder(Signal<T> signal) {
             this.signal = signal;
@@ -395,13 +399,19 @@ public final class Batcher<T> implements Processor<T>, Sink<T>, Lifecycle {
             return this;
         }
 
-        /// Reflects sustained downstream failure back at ingress (default off). After a drain
-        /// fails, `consume` rejects retryably with a one-flush-interval retry-after hint - the
-        /// batch is NOT enqueued, so the sender retains it - until the window expires (admitting
-        /// a probe batch) or a drain succeeds. Off, the batcher is fire-and-forget: failed
-        /// timer/threshold drains are logged and their batches lost.
-        public Builder<T> reflectDownstreamFailures(boolean reflect) {
-            this.reflectDownstreamFailures = reflect;
+        /// Proactive ingress circuit breaker (default off): the companion to [AckMode#ON_DELIVERY]'s
+        /// reactive per-drain truthfulness. After a drain fails, `consume` rejects retryably with a
+        /// one-flush-interval retry-after hint (the batch is NOT enqueued, so the sender retains it)
+        /// until the degraded window expires (admitting a probe batch) or a drain succeeds. This is a
+        /// distinct axis from [AckMode]: `ON_DELIVERY` decides whether an accepted batch's ack carries
+        /// the real downstream result, while `circuitBreaker` decides whether new batches are refused
+        /// at admission during a degraded window. A forwarding gateway commonly wants both. Off, the
+        /// batcher is fire-and-forget: failed timer/threshold drains are logged and their batches lost.
+        ///
+        /// @param enabled true to refuse ingress during a degraded window
+        /// @return this builder
+        public Builder<T> circuitBreaker(boolean enabled) {
+            this.circuitBreaker = enabled;
             return this;
         }
 
@@ -460,6 +470,19 @@ public final class Batcher<T> implements Processor<T>, Sink<T>, Lifecycle {
         /// @return this builder
         public Builder<T> scheduler(BatchScheduler scheduler) {
             this.scheduler = Objects.requireNonNull(scheduler, "scheduler");
+            return this;
+        }
+
+        /// Sets the [GatewayMetrics] registry the batcher reports to (default [GatewayMetrics#noop]).
+        /// The batcher registers the `otlp4j.batcher.dropped` and `otlp4j.batcher.drain_failed`
+        /// counters and the `otlp4j.batcher.queued` gauge; the gauge is unregistered on
+        /// [Batcher#shutdown]. The existing getters ([Batcher#droppedCount], [Batcher#drainFailedCount],
+        /// [Batcher#queued]) remain the source of truth; the registry is fed alongside them.
+        ///
+        /// @param telemetry the self-observability registry
+        /// @return this builder
+        public Builder<T> telemetry(GatewayMetrics telemetry) {
+            this.telemetry = Objects.requireNonNull(telemetry, "telemetry");
             return this;
         }
 

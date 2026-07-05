@@ -1,5 +1,6 @@
 package dev.nthings.otlp4j.transport.common;
 
+import dev.nthings.otlp4j.pipeline.ops.OverflowPolicy;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
@@ -22,7 +23,7 @@ class MulticastBackpressureTest {
         var drops = new LongAdder();
         var pub = new MulticastPublisher<Integer>(drops);
         try {
-            pub.subscribe(FlowSubscribers.noOp(), new TapOptions(TapOptions.Overflow.DROP_OLDEST, 2));
+            pub.subscribe(FlowSubscribers.noOp(), new TapOptions(OverflowPolicy.DROP_OLDEST, 2));
             for (var i = 0; i < 10; i++) {
                 pub.publish(i);
             }
@@ -44,7 +45,7 @@ class MulticastBackpressureTest {
                 @Override public void onNext(Integer item) {}
                 @Override public void onError(Throwable t) { error.set(t); }
                 @Override public void onComplete() {}
-            }, new TapOptions(TapOptions.Overflow.FAIL, 1));
+            }, new TapOptions(OverflowPolicy.FAIL, 1));
             for (var i = 0; i < 10; i++) {
                 pub.publish(i);
             }
@@ -69,7 +70,7 @@ class MulticastBackpressureTest {
                 @Override public void onNext(Integer item) { sink.add(item); }
                 @Override public void onError(Throwable t) {}
                 @Override public void onComplete() {}
-            }, new TapOptions(TapOptions.Overflow.DROP_OLDEST, 16));
+            }, new TapOptions(OverflowPolicy.DROP_OLDEST, 16));
             for (var i = 0; i < 5; i++) {
                 pub.publish(i);
             }

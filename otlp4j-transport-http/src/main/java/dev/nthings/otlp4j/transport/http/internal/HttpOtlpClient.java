@@ -7,12 +7,12 @@ import dev.nthings.otlp4j.model.Signal;
 import dev.nthings.otlp4j.model.SignalBatch;
 import dev.nthings.otlp4j.codec.SignalCodec;
 import dev.nthings.otlp4j.codec.Transports;
-import dev.nthings.otlp4j.transport.common.internal.ClientHeaders;
+import dev.nthings.otlp4j.transport.common.ClientHeaders;
 import dev.nthings.otlp4j.config.ClientConfig;
 import dev.nthings.otlp4j.config.Compression;
 import dev.nthings.otlp4j.spi.OtlpClient;
 import dev.nthings.otlp4j.config.Tls;
-import dev.nthings.otlp4j.transport.common.internal.ResilienceRetries;
+import dev.nthings.otlp4j.transport.common.ResilienceRetries;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -32,6 +32,7 @@ import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -53,7 +54,9 @@ public final class HttpOtlpClient implements OtlpClient {
 
     private static final Logger log = LoggerFactory.getLogger(HttpOtlpClient.class);
 
-    private static final long CLOSE_TIMEOUT_SECONDS = 5;
+    /// Runs the blocking teardown on a virtual thread, greppable by thread name if it stalls.
+    private static final Executor SHUTDOWN_EXECUTOR =
+            task -> Thread.ofVirtual().name("otlp-http-client-shutdown").start(task);
 
     /// Statuses the OTLP/HTTP client may retry, per the OTLP spec (plus 408).
     private static final Set<Integer> RETRYABLE_STATUS = Set.of(408, 429, 502, 503, 504);
@@ -123,6 +126,11 @@ public final class HttpOtlpClient implements OtlpClient {
         // whose value type parameter is the same T carried by the batch's signal.
         @SuppressWarnings("unchecked")
         var endpoint = (HttpEndpoint<T, ?, ?>) endpoints.get(batch.signal());
+        // Double-deadline, belt-and-suspenders and intentional: the HttpRequest.timeout (in
+        // request(...)) bounds each in-flight connection, while this orTimeout bounds the whole
+        // async attempt (retry backoff and executor queueing included), so a stalled carrier
+        // thread cannot outlive the caller's budget. A slow call is interrupted by whichever
+        // fires first.
         return CompletableFuture.supplyAsync(() -> send(endpoint, batch.batch()), executor)
                 .orTimeout(config.timeout().toNanos(), TimeUnit.NANOSECONDS);
     }
@@ -242,22 +250,31 @@ public final class HttpOtlpClient implements OtlpClient {
         return out.toByteArray();
     }
 
-    /// Interrupt-responsive teardown bounded by [#CLOSE_TIMEOUT_SECONDS]: drains the per-export
-    /// executor, then forcibly closes the client.
+    /// Interrupt-responsive teardown on a named shutdown carrier, bounded by `timeout`: drains the
+    /// per-export executor under the remaining budget (one deadline, clamped at zero via
+    /// `Math.max(0, ...)` so the wall-clock cannot exceed `timeout`), then forcibly closes the JDK
+    /// client. `forceFlush` is the inherited no-op (the client does not buffer).
     @Override
-    public void close() {
+    public CompletionStage<Void> shutdown(Duration timeout) {
+        return CompletableFuture.runAsync(() -> {
+            var deadline = System.nanoTime() + timeout.toNanos();
+            drainExecutor(Duration.ofNanos(Math.max(0, deadline - System.nanoTime())));
+            http.shutdownNow();
+        }, SHUTDOWN_EXECUTOR);
+    }
+
+    /// Drains the per-export executor within `budget`, interrupting outstanding exports on timeout.
+    private void drainExecutor(Duration budget) {
         executor.shutdown();
         try {
-            if (!executor.awaitTermination(CLOSE_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-                log.warn("per-export executor did not terminate within {}s; interrupting outstanding exports",
-                        CLOSE_TIMEOUT_SECONDS);
+            if (!executor.awaitTermination(budget.toNanos(), TimeUnit.NANOSECONDS)) {
+                log.warn("per-export executor did not terminate within {}; interrupting outstanding exports",
+                        budget);
                 executor.shutdownNow();
             }
         } catch (InterruptedException e) {
             executor.shutdownNow();
             Thread.currentThread().interrupt();
-        } finally {
-            http.shutdownNow();
         }
     }
 }

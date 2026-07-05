@@ -5,6 +5,7 @@ import dev.nthings.otlp4j.config.Compression;
 import dev.nthings.otlp4j.config.Tls;
 import dev.nthings.otlp4j.pipeline.OtlpExporter;
 import dev.nthings.otlp4j.spi.OtlpClient;
+import dev.nthings.otlp4j.telemetry.GatewayMetrics;
 import io.github.resilience4j.retry.RetryConfig;
 import java.time.Duration;
 import java.util.Map;
@@ -22,6 +23,7 @@ public abstract class AbstractExporterBuilder<B extends AbstractExporterBuilder<
 
     private ClientConfig.Builder config;
     private final String exporterType;
+    private GatewayMetrics gatewayMetrics = GatewayMetrics.noop();
 
     /// Seeds the base with the transport's default config (e.g. the HTTP entry point pre-sets
     /// port 4318) and the exporter type name reported by the lifecycle leak warning.
@@ -170,11 +172,23 @@ public abstract class AbstractExporterBuilder<B extends AbstractExporterBuilder<
         return self();
     }
 
+    /// Sets the [GatewayMetrics] registry the exporter reports to (default [GatewayMetrics#noop]).
+    /// The exporter feeds the `otlp4j.exporter.export.success` / `otlp4j.exporter.export.failure`
+    /// counters off each export's outcome. Named `telemetry` for vocabulary parity with the receiver
+    /// and batcher knobs.
+    ///
+    /// @param telemetry the self-observability registry
+    /// @return this builder
+    public final B telemetry(GatewayMetrics telemetry) {
+        this.gatewayMetrics = Objects.requireNonNull(telemetry, "telemetry");
+        return self();
+    }
+
     /// Builds the exporter: finishes the config, asks the transport for its client, and wraps it
     /// in a [ClientExporter].
     ///
     /// @return the ready-to-use exporter
     public final OtlpExporter build() {
-        return new ClientExporter(newClient(config.build()), exporterType);
+        return new ClientExporter(newClient(config.build()), exporterType, gatewayMetrics);
     }
 }

@@ -7,11 +7,12 @@ import org.jspecify.annotations.Nullable;
 
 /// Configuration for an OTLP receiver transport.
 ///
-/// Carries bind address, [Tls], and hardening limits: max decoded request size, optional
-/// per-connection concurrency cap, optional global admission limits (in-flight requests and
-/// decoded bytes across every connection, with an optional throttle retry-after hint), handshake
-/// deadline, and optional server executor. Defaults match gRPC's own. The handshake deadline
-/// bounds only the transport/TLS handshake - not a slow request body or idle connection.
+/// Carries bind address, [Tls], and hardening limits: max decoded request size, optional global
+/// admission limits (in-flight requests and decoded bytes across every connection, with an
+/// optional throttle retry-after hint), handshake deadline, and optional server executor. Defaults
+/// match gRPC's own. The handshake deadline bounds only the transport/TLS handshake - not a slow
+/// request body or idle connection. The gRPC-only per-connection concurrency cap is a knob on
+/// `OtlpGrpcReceiver.Builder` / `GrpcOtlpServer`, not a shared config field (HTTP has no equivalent).
 ///
 /// Compression is asymmetric: the server transparently decodes gzip requests but response
 /// compression is not configured (OTLP responses are negligible). gzip is selected by the
@@ -21,7 +22,6 @@ public record ServerConfig(
         int port,
         Tls tls,
         int maxInboundMessageSizeBytes,
-        int maxConcurrentCallsPerConnection,
         int maxInFlightRequests,
         long maxInFlightBytes,
         @Nullable Duration throttleRetryAfter,
@@ -40,10 +40,6 @@ public record ServerConfig(
         if (maxInboundMessageSizeBytes <= 0) {
             throw new IllegalArgumentException(
                     "maxInboundMessageSizeBytes must be positive: " + maxInboundMessageSizeBytes);
-        }
-        if (maxConcurrentCallsPerConnection < 0) {
-            throw new IllegalArgumentException(
-                    "maxConcurrentCallsPerConnection must be >= 0: " + maxConcurrentCallsPerConnection);
         }
         if (maxInFlightRequests < 0) {
             throw new IllegalArgumentException("maxInFlightRequests must be >= 0: " + maxInFlightRequests);
@@ -77,7 +73,6 @@ public record ServerConfig(
                 .setPort(port)
                 .setTls(tls)
                 .setMaxInboundMessageSizeBytes(maxInboundMessageSizeBytes)
-                .setMaxConcurrentCallsPerConnection(maxConcurrentCallsPerConnection)
                 .setMaxInFlightRequests(maxInFlightRequests)
                 .setMaxInFlightBytes(maxInFlightBytes)
                 .setHandshakeTimeout(handshakeTimeout)
@@ -94,7 +89,6 @@ public record ServerConfig(
         private int port = 4317;
         private Tls tls = Tls.disabled();
         private int maxInboundMessageSizeBytes = DEFAULT_MAX_INBOUND_MESSAGE_SIZE_BYTES;
-        private int maxConcurrentCallsPerConnection = 0;
         private int maxInFlightRequests = 0;
         private long maxInFlightBytes = 0L;
         private @Nullable Duration throttleRetryAfter = null;
@@ -122,13 +116,6 @@ public record ServerConfig(
         /// memory-exhausting oversized requests.
         public Builder setMaxInboundMessageSizeBytes(int bytes) {
             this.maxInboundMessageSizeBytes = bytes;
-            return this;
-        }
-
-        /// Caps concurrent in-flight calls per connection. `0` (the default) keeps gRPC's
-        /// unlimited behaviour; a positive value is applied to the receiver.
-        public Builder setMaxConcurrentCallsPerConnection(int max) {
-            this.maxConcurrentCallsPerConnection = max;
             return this;
         }
 
@@ -165,7 +152,9 @@ public record ServerConfig(
 
         /// Supplies the executor that runs the service handlers. `null` (the default) selects the
         /// transport's default; pass a BOUNDED pool to cap the work the receiver will admit
-        /// concurrently.
+        /// concurrently. The pool bounds handler concurrency while admission independently caps
+        /// decoded in-flight requests/bytes: a request waiting for a pool thread holds no admission
+        /// permit yet (the permit is taken inside the handler), so the two limits compose.
         public Builder setServerExecutor(@Nullable Executor serverExecutor) {
             this.serverExecutor = serverExecutor;
             return this;
@@ -177,7 +166,6 @@ public record ServerConfig(
                     port,
                     tls,
                     maxInboundMessageSizeBytes,
-                    maxConcurrentCallsPerConnection,
                     maxInFlightRequests,
                     maxInFlightBytes,
                     throttleRetryAfter,

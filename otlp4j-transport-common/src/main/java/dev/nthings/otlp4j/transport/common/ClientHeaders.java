@@ -1,4 +1,4 @@
-package dev.nthings.otlp4j.transport.common.internal;
+package dev.nthings.otlp4j.transport.common;
 
 import dev.nthings.otlp4j.config.Headers;
 import java.util.LinkedHashMap;

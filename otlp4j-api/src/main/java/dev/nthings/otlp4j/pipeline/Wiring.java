@@ -26,6 +26,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /// and released by the one shutdown, so handing a shared exporter to the wiring AND attaching its
 /// facets in member pipelines stays reference-count balanced.
 ///
+/// A `Wiring` participates in refcounting (it retains and releases its owned shared resources)
+/// without itself being a [SharedLifecycle], and that asymmetry is intentional: a wiring is a
+/// top-level owner (one wiring is one gateway), not a shared resource. Making it `SharedLifecycle`
+/// would imply wirings-of-wirings, which is not a use case, so it retains its owned resources once
+/// and releases them on its single [#shutdown(Duration)], exactly like any other owner.
+///
 /// ```java
 /// try (var wiring = Wiring.builder()
 ///         .receiver(receiver)

@@ -1,6 +1,8 @@
 package dev.nthings.otlp4j.transport.common;
 
+import dev.nthings.otlp4j.pipeline.ops.OverflowPolicy;
 import dev.nthings.otlp4j.receiver.TapOptions;
+import dev.nthings.otlp4j.telemetry.GatewayMetrics;
 import java.util.Objects;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -23,10 +25,18 @@ final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoCloseable {
 
     private final CopyOnWriteArrayList<SubscriptionImpl<T>> subscriptions = new CopyOnWriteArrayList<>();
     private final LongAdder drops;
+    private final GatewayMetrics.LongCounter dropped;
     private volatile boolean closed;
 
+    /// Convenience for direct construction (tests): drops are counted in the [LongAdder] only, with no
+    /// self-observability counter.
     public MulticastPublisher(LongAdder drops) {
+        this(drops, GatewayMetrics.noop().counter("otlp4j.receiver.tap.dropped", ""));
+    }
+
+    public MulticastPublisher(LongAdder drops, GatewayMetrics.LongCounter dropped) {
         this.drops = Objects.requireNonNull(drops, "drops");
+        this.dropped = Objects.requireNonNull(dropped, "dropped");
     }
 
     public void publish(T item) {
@@ -53,7 +63,7 @@ final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoCloseable {
             subscriber.onComplete();
             return;
         }
-        var sub = new SubscriptionImpl<>(subscriber, options, drops, subscriptions);
+        var sub = new SubscriptionImpl<>(subscriber, options, drops, dropped, subscriptions);
         subscriptions.add(sub);
         subscriber.onSubscribe(sub);
         sub.startDispatcher();
@@ -74,9 +84,10 @@ final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoCloseable {
     private static final class SubscriptionImpl<T> implements Flow.Subscription {
 
         private final Flow.Subscriber<? super T> subscriber;
-        private final TapOptions.Overflow strategy;
+        private final OverflowPolicy strategy;
         private final ArrayBlockingQueue<T> queue;
         private final LongAdder drops;
+        private final GatewayMetrics.LongCounter dropped;
         private final CopyOnWriteArrayList<SubscriptionImpl<T>> roster;
         private final Semaphore demand = new Semaphore(0);
         private final AtomicBoolean cancelled = new AtomicBoolean();
@@ -87,12 +98,20 @@ final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoCloseable {
                 Flow.Subscriber<? super T> subscriber,
                 TapOptions options,
                 LongAdder drops,
+                GatewayMetrics.LongCounter dropped,
                 CopyOnWriteArrayList<SubscriptionImpl<T>> roster) {
             this.subscriber = subscriber;
             this.strategy = options.strategy();
             this.queue = new ArrayBlockingQueue<>(options.bufferSize());
             this.drops = drops;
+            this.dropped = dropped;
             this.roster = roster;
+        }
+
+        /// Records one dropped item against both the getter's [LongAdder] and the metrics counter.
+        private void recordDrop() {
+            drops.increment();
+            dropped.add(1);
         }
 
         /// Never blocks: the tap sits outside the acknowledgement path, so every overflow
@@ -101,25 +120,24 @@ final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoCloseable {
             if (cancelled.get()) {
                 return;
             }
-            switch (strategy) {
-                case DROP_OLDEST -> {
-                    if (!queue.offer(item)) {
-                        if (queue.poll() != null) {
-                            drops.increment();
-                        }
-                        queue.offer(item);
+            // TapOptions rejects BLOCK at construction, so it never reaches this tap; the three
+            // reachable policies branch with if/else (a switch would need an uncoverable BLOCK arm,
+            // and this class is not jacoco-excluded).
+            if (strategy == OverflowPolicy.DROP_OLDEST) {
+                if (!queue.offer(item)) {
+                    if (queue.poll() != null) {
+                        recordDrop();
                     }
+                    queue.offer(item);
                 }
-                case DROP_NEWEST -> {
-                    if (!queue.offer(item)) {
-                        drops.increment();
-                    }
+            } else if (strategy == OverflowPolicy.DROP_NEWEST) {
+                if (!queue.offer(item)) {
+                    recordDrop();
                 }
-                case FAIL -> {
-                    if (!queue.offer(item)) {
-                        drops.increment();
-                        completeExceptionally(new IllegalStateException("tap buffer overflow"));
-                    }
+            } else { // FAIL
+                if (!queue.offer(item)) {
+                    recordDrop();
+                    completeExceptionally(new IllegalStateException("tap buffer overflow"));
                 }
             }
         }

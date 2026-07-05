@@ -17,4 +17,5 @@ module dev.nthings.otlp4j.api {
     exports dev.nthings.otlp4j.pipeline.ops;
     exports dev.nthings.otlp4j.config;
     exports dev.nthings.otlp4j.spi;
+    exports dev.nthings.otlp4j.telemetry;
 }

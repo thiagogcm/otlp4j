@@ -10,6 +10,7 @@ import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.spi.Dispatchers;
 import dev.nthings.otlp4j.spi.OtlpServer;
+import dev.nthings.otlp4j.telemetry.GatewayMetrics;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
@@ -53,6 +54,7 @@ class AbstractReceiverBuilderTest {
 
         @Nullable ServerConfig captured;
         @Nullable Dispatchers dispatchers;
+        @Nullable GatewayMetrics capturedTelemetry;
 
         TestBuilder() {
             super(ServerConfig.builder(), "OTLP/test");
@@ -64,9 +66,11 @@ class AbstractReceiverBuilderTest {
         }
 
         @Override
-        protected OtlpServer newServer(ServerConfig config, Dispatchers dispatchers) {
+        protected OtlpServer newServer(
+                ServerConfig config, Dispatchers dispatchers, GatewayMetrics telemetry) {
             this.captured = config;
             this.dispatchers = dispatchers;
+            this.capturedTelemetry = telemetry;
             return new StubServer();
         }
     }
@@ -91,6 +95,19 @@ class AbstractReceiverBuilderTest {
         assertThat(c.handshakeTimeout()).isEqualTo(Duration.ofSeconds(5));
         assertThat(c.serverExecutor()).isSameAs(executor);
         executor.shutdown();
+    }
+
+    @DisplayName("telemetry defaults to noop and the explicit registry reaches newServer")
+    @Test
+    void telemetryKnobThreadsToNewServer() {
+        var defaulted = new TestBuilder();
+        defaulted.build();
+        assertThat(defaulted.capturedTelemetry).isSameAs(GatewayMetrics.noop());
+
+        var registry = new dev.nthings.otlp4j.telemetry.LoggingGatewayMetrics();
+        var configured = new TestBuilder();
+        configured.telemetry(registry).build();
+        assertThat(configured.capturedTelemetry).isSameAs(registry);
     }
 
     @DisplayName("ephemeralPort() binds port 0 and setConfig replaces prior state")

@@ -170,7 +170,7 @@ class TransportConfigTest {
 
     @DisplayName("Honours positive gRPC retry pushback")
     @Test
-    void honoursPositiveGrpcRetryPushback() {
+    void honoursPositiveGrpcPushback() {
         var flaky = new PushbackInterceptor(1, "25");
         var port = startRawServer(flaky);
         var exporter = exporter(ClientConfig.builder()
@@ -187,7 +187,7 @@ class TransportConfigTest {
 
     @DisplayName("Negative gRPC retry pushback disables retry")
     @Test
-    void negativeGrpcRetryPushbackDisablesRetry() {
+    void negativeGrpcPushbackDisablesRetry() {
         var flaky = new PushbackInterceptor(1, "-1");
         var port = startRawServer(flaky);
         var exporter = exporter(ClientConfig.builder()

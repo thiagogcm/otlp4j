@@ -14,6 +14,7 @@ import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.Signal;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.spi.OtlpClient;
+import dev.nthings.otlp4j.telemetry.GatewayMetrics;
 import java.lang.ref.Cleaner;
 import java.time.Duration;
 import java.util.HashMap;
@@ -50,6 +51,8 @@ public final class ClientExporter implements OtlpExporter, SharedLifecycle {
     private static final Consumer<String> DEFAULT_REPORTER = log::warn;
 
     private final OtlpClient client;
+    private final GatewayMetrics.LongCounter exportSuccess;
+    private final GatewayMetrics.LongCounter exportFailure;
     private final TracesFacet traces;
     private final MetricsFacet metrics;
     private final LogsFacet logs;
@@ -69,14 +72,33 @@ public final class ClientExporter implements OtlpExporter, SharedLifecycle {
     private final LeakWatch leakWatch;
     private final Cleaner.Cleanable cleanable;
 
-    /// Creates an exporter over `client`. `exporterType` labels it in the leak warning.
+    /// Creates an exporter over `client`, with no self-observability ([GatewayMetrics#noop]).
+    /// `exporterType` labels it in the leak warning.
     public ClientExporter(OtlpClient client, String exporterType) {
-        this(client, exporterType, DEFAULT_REPORTER);
+        this(client, exporterType, GatewayMetrics.noop());
+    }
+
+    /// Creates an exporter over `client`, reporting per-signal export success/failure to `telemetry`.
+    /// `exporterType` labels it in the leak warning.
+    public ClientExporter(OtlpClient client, String exporterType, GatewayMetrics telemetry) {
+        this(client, exporterType, telemetry, DEFAULT_REPORTER);
     }
 
     /// Package-private: redirects the leak warning so a test can observe it without a logging backend.
+    /// Reports no metrics ([GatewayMetrics#noop]).
     ClientExporter(OtlpClient client, String exporterType, Consumer<String> leakReporter) {
+        this(client, exporterType, GatewayMetrics.noop(), leakReporter);
+    }
+
+    /// Package-private canonical constructor: `telemetry` receives the export counters, `leakReporter`
+    /// the leak warning.
+    ClientExporter(OtlpClient client, String exporterType, GatewayMetrics telemetry,
+            Consumer<String> leakReporter) {
         this.client = client;
+        this.exportSuccess = telemetry.counter(
+                "otlp4j.exporter.export.success", "batches the endpoint acknowledged");
+        this.exportFailure = telemetry.counter(
+                "otlp4j.exporter.export.failure", "batches the endpoint rejected or that failed to send");
         this.traces = new TracesFacet();
         this.metrics = new MetricsFacet();
         this.logs = new LogsFacet();
@@ -151,7 +173,10 @@ public final class ClientExporter implements OtlpExporter, SharedLifecycle {
         var closing = new CompletableFuture<Void>();
         var closer = Thread.ofVirtual().name("otlp-exporter-shutdown").start(() -> {
             try {
-                client.close();
+                // Inner bound: the client's own shutdown honours the same deadline. The outer
+                // orTimeout + interrupt below is retained as defense-in-depth, so a buggy
+                // third-party OtlpClient that ignores its budget is still capped by the caller's.
+                client.shutdown(timeout).toCompletableFuture().join();
                 closing.complete(null);
             } catch (Throwable t) {
                 closing.completeExceptionally(t);
@@ -179,7 +204,15 @@ public final class ClientExporter implements OtlpExporter, SharedLifecycle {
 
         @Override
         public CompletionStage<ConsumeResult> consume(T batch) {
-            return client.export(signal.batch(batch));
+            // Feed the export counters off the outcome without altering the returned stage: a failed
+            // stage or a Rejected result counts as a failure, anything else as a success.
+            return client.export(signal.batch(batch)).whenComplete((result, failure) -> {
+                if (failure != null || result instanceof ConsumeResult.Rejected) {
+                    exportFailure.add(1);
+                } else {
+                    exportSuccess.add(1);
+                }
+            });
         }
 
         @Override

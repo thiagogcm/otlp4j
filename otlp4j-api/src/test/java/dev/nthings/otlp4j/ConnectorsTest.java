@@ -15,6 +15,7 @@ import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.pipeline.MetricsSink;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import org.junit.jupiter.api.DisplayName;
@@ -220,6 +221,40 @@ class ConnectorsTest {
         var second = point(captured.get(1));
         assertThat(first.startEpochNanos()).as("first window start is a real wall-clock time, not the epoch").isGreaterThan(0L);
         assertThat(second.startEpochNanos()).as("second window starts where the first ended").isEqualTo(first.epochNanos());
+    }
+
+    @DisplayName("spanCount list overload routes the count to every downstream metric sink")
+    @Test
+    void spanCountListOverloadFansToDownstreams() {
+        var a = new ArrayList<MetricsData>();
+        var b = new ArrayList<MetricsData>();
+        MetricsSink peerA = m -> {
+            a.add(m);
+            return ConsumeResult.acceptedStage();
+        };
+        MetricsSink peerB = m -> {
+            b.add(m);
+            return ConsumeResult.acceptedStage();
+        };
+        var connector = Connectors.spanCount(List.of(peerA, peerB), FailurePolicy.BEST_EFFORT);
+        var result = connector.consume(Fixtures.traceData(
+                Fixtures.span("a", Span.Kind.SERVER), Fixtures.span("b", Span.Kind.SERVER)))
+                .toCompletableFuture().join();
+        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(a).hasSize(1);
+        assertThat(b).hasSize(1);
+        assertThat(longValue(a.getFirst().metrics().getFirst())).isEqualTo(2L);
+    }
+
+    @DisplayName("logRecordCount list overload under FAIL propagates a peer rejection to the input")
+    @Test
+    void logRecordCountListOverloadFailPropagates() {
+        MetricsSink healthy = m -> ConsumeResult.acceptedStage();
+        MetricsSink rejecting = m -> CompletableFuture.completedStage(ConsumeResult.retryable("backend down"));
+        var connector = Connectors.logRecordCount(List.of(healthy, rejecting), FailurePolicy.FAIL);
+        var result = connector.consume(Fixtures.logsData(Fixtures.logRecord("hi", LogRecord.Severity.INFO)))
+                .toCompletableFuture().join();
+        assertThat(result).isInstanceOf(ConsumeResult.Rejected.class);
     }
 
     private static NumberPoint point(MetricsData data) {

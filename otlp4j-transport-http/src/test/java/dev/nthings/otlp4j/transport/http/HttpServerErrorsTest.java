@@ -17,6 +17,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /// Drives the OTLP/HTTP receiver with a raw [HttpClient] to exercise the server-side error mapping
 /// (bad method, malformed body, oversized body, bad encoding) that the high-level client never emits.
@@ -63,6 +65,72 @@ class HttpServerErrorsTest {
                 HttpResponse.BodyHandlers.ofString());
 
         assertThat(response.statusCode()).isEqualTo(400);
+    }
+
+    @DisplayName("A JSON Content-Type is rejected with 415 (this receiver is protobuf-only)")
+    @Test
+    void jsonContentTypeIsRejectedWith415() throws Exception {
+        var port = startReceiver(OtlpHttpReceiver.builder());
+
+        var response = client.send(
+                HttpRequest.newBuilder(uri(port, "/v1/traces"))
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofByteArray(new byte[0]))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+
+        assertThat(response.statusCode()).isEqualTo(415);
+        assertThat(response.body()).contains("application/x-protobuf");
+    }
+
+    @DisplayName("A text/plain (or any other non-protobuf) Content-Type is rejected with 415")
+    @Test
+    void unknownContentTypeIsRejectedWith415() throws Exception {
+        var port = startReceiver(OtlpHttpReceiver.builder());
+
+        var response = client.send(
+                HttpRequest.newBuilder(uri(port, "/v1/traces"))
+                        .header("Content-Type", "text/plain")
+                        .POST(HttpRequest.BodyPublishers.ofByteArray(new byte[0]))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+
+        assertThat(response.statusCode()).isEqualTo(415);
+    }
+
+    @DisplayName("An absent Content-Type header is tolerated (some clients omit it)")
+    @Test
+    void absentContentTypeIsTolerated() throws Exception {
+        var port = startReceiver(OtlpHttpReceiver.builder());
+
+        var response = client.send(
+                HttpRequest.newBuilder(uri(port, "/v1/traces"))
+                        .POST(HttpRequest.BodyPublishers.ofByteArray(new byte[0]))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+
+        assertThat(response.statusCode()).isEqualTo(200);
+    }
+
+    @DisplayName("A protobuf Content-Type is accepted regardless of case or trailing parameters")
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "application/x-protobuf",
+            "APPLICATION/X-PROTOBUF",
+            "application/x-protobuf; charset=utf-8",
+            "application/x-protobuf;charset=utf-8"
+    })
+    void protobufContentTypeVariantsAreAccepted(String contentType) throws Exception {
+        var port = startReceiver(OtlpHttpReceiver.builder());
+
+        var response = client.send(
+                HttpRequest.newBuilder(uri(port, "/v1/traces"))
+                        .header("Content-Type", contentType)
+                        .POST(HttpRequest.BodyPublishers.ofByteArray(new byte[0]))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+
+        assertThat(response.statusCode()).isEqualTo(200);
     }
 
     @DisplayName("A body over the size cap is rejected with 413")

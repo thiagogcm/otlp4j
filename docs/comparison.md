@@ -48,8 +48,9 @@ Because they sit in different zones they are not substitutes. The SDK has no OTL
 | `Context` propagation (W3C, B3, Jaeger, OT Trace) | Declarative **pipeline DSL** with transform, filter, and fan-out |
 | Sampling (`ParentBased`, `TraceIdRatioBased`, Jaeger remote, custom) | Live **`TelemetryTap`** `Flow.Publisher` streams off the acknowledgement path |
 | `SpanProcessor` / `LogRecordProcessor` (batch, simple) | Receive-side **partial success** (`ConsumeResult`) mapped to OTLP responses |
-| Metrics **aggregation engine**: temporality, `View`, cardinality limits, exemplar filter (all GA) | **Signal-to-signal connectors** at batch granularity (`spanCount`, `logRecordCount`) |
+| Metrics **aggregation engine**: temporality, `View`, cardinality limits, exemplar filter (all GA) | **Signal-to-signal connectors** at batch granularity: built-in `spanCount`/`logRecordCount`, plus a `(Signal, Signal)`-keyed factory for your own, each fanning to one or more downstreams |
 | `SpanLimits` / `LogLimits` and other production guardrails | Global receiver **admission control** (in-flight request and byte caps) |
+| `BatchSpanProcessor`'s own queue self-instrumentation (size, dropped, processed) | Gateway-wide **`GatewayMetrics`** SPI: queue depth, drops, drain failures, admission rejections, export outcomes, no-op by default |
 | Autoconfigure env/SPI and resource detection (rich detectors live in contrib) | **Proto-free immutable** domain model with JPMS-isolated protobuf |
 | Non-OTLP exporters (Zipkin, Prometheus, logging, OTLP-JSON) | Dual OTLP transports under one contract (Netty gRPC, JDK-only HTTP) |
 
@@ -64,8 +65,9 @@ This is the closer comparison. Both receive OTLP, process it through a pipeline 
 | `otlpreceiver` (gRPC + HTTP) | `OtlpGrpcReceiver` / `OtlpHttpReceiver` |
 | `consumer.Traces` (`ConsumeTraces(ctx, td) error`) | `TracesSink` (`Sink<TracesData>` returning `CompletionStage<ConsumeResult>`) |
 | `processor` (`batch`, `memory_limiter`) | `Transform` / `AsyncTransform`, `Processor` (`Processors`, `AbstractProcessor`), `Batcher`, `AdmissionControl` |
-| `connector` (`forward`, traces-to-metrics) | `Connector<I, O>` (`spanCount`, `logRecordCount`) |
+| `connector` (`forward`, traces-to-metrics), a factory-wired N-by-M matrix | `Connector<I, O>` (`spanCount`/`logRecordCount` built in; `Connectors.of(in, out, derive, ...)` for your own), fanning to one or more downstreams |
 | `otlpexporter` / `otlphttpexporter` | `OtlpGrpcExporter` / `OtlpHttpExporter` |
+| `component.TelemetrySettings` (every component self-reports) | `GatewayMetrics` SPI (`telemetry(...)` on the entry-point builders), no-op by default |
 | `pdata` (mutable OTLP wrapper) | proto-free **immutable** model records |
 | `Capabilities{MutatesData}` plus clone-on-fan-out | immutable records, so fan-out shares with no copy |
 | service graph DAG built from YAML | `Pipeline` DSL plus `Wiring`, built in code |

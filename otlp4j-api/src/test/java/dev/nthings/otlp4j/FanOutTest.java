@@ -10,6 +10,8 @@ import dev.nthings.otlp4j.pipeline.TracesSink;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -92,6 +94,32 @@ class FanOutTest {
         var result = fan.consume(new TracesData(List.of())).toCompletableFuture().join();
         assertThat(result).isInstanceOfSatisfying(ConsumeResult.Rejected.class,
                 r -> assertThat(r.message()).contains("cause"));
+    }
+
+    @DisplayName("peers are launched concurrently, not one after another on the caller thread")
+    @Test
+    void peersLaunchConcurrently() {
+        // Each peer trips the shared latch and then waits for it to reach zero. The wait can only
+        // clear when BOTH peers have started, so a sequential caller-thread dispatch (peer 0 blocks
+        // before peer 1 is ever launched) would deadlock; genuine concurrent launch completes.
+        var bothStarted = new CountDownLatch(2);
+        TracesSink gated = traces -> {
+            bothStarted.countDown();
+            try {
+                if (!bothStarted.await(5, TimeUnit.SECONDS)) {
+                    return CompletableFuture.completedStage(ConsumeResult.permanent("peer never saw its sibling start"));
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return CompletableFuture.completedStage(ConsumeResult.permanent("interrupted", e));
+            }
+            return ConsumeResult.acceptedStage();
+        };
+        var fan = FanOut.<TracesData>of(gated, gated);
+        var result = fan.consume(new TracesData(List.of()))
+                .toCompletableFuture().orTimeout(10, TimeUnit.SECONDS).join();
+        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(bothStarted.getCount()).isZero();
     }
 
     @DisplayName("consume() merges peer Partial counts using the max")

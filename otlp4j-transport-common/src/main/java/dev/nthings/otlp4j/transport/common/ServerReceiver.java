@@ -13,6 +13,7 @@ import dev.nthings.otlp4j.receiver.Receiver;
 import dev.nthings.otlp4j.receiver.TelemetryTap;
 import dev.nthings.otlp4j.spi.Dispatchers;
 import dev.nthings.otlp4j.spi.OtlpServer;
+import dev.nthings.otlp4j.telemetry.GatewayMetrics;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.Duration;
@@ -32,20 +33,23 @@ public final class ServerReceiver implements Receiver, Dispatchers {
     private static final Logger log = LoggerFactory.getLogger(ServerReceiver.class);
 
     private final Map<Signal<?>, SignalSource<?>> sources = new LinkedHashMap<>();
-    private final ReceiverTap tap = new ReceiverTap();
+    private final ReceiverTap tap;
     private final OtlpServer server;
     private final String transportName;
 
     /// Builds dispatch wiring, then asks `serverFactory` for the transport server bound to it.
-    /// `transportName` (e.g. `OTLP/gRPC`) is used only for log messages.
+    /// `transportName` (e.g. `OTLP/gRPC`) is used only for log messages. `telemetry` feeds the tap's
+    /// `otlp4j.receiver.tap.dropped` counter.
     public ServerReceiver(
             String transportName,
             Function<Dispatchers, OtlpServer> serverFactory,
             @Nullable Sink<? super TracesData> onTraces,
             @Nullable Sink<? super MetricsData> onMetrics,
             @Nullable Sink<? super LogsData> onLogs,
-            @Nullable Sink<? super ProfilesData> onProfiles) {
+            @Nullable Sink<? super ProfilesData> onProfiles,
+            GatewayMetrics telemetry) {
         this.transportName = transportName;
+        this.tap = new ReceiverTap(telemetry);
         for (Signal<?> signal : Signal.values()) {
             sources.put(signal, new SignalSource<>(signal));
         }

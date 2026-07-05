@@ -121,11 +121,11 @@ class GrpcOtlpServerLifecycleTest {
         var config = ServerConfig.builder()
                 .setPort(0)
                 .setMaxInboundMessageSizeBytes(1024 * 1024)
-                .setMaxConcurrentCallsPerConnection(16)
                 .setHandshakeTimeout(Duration.ofSeconds(5))
                 .setServerExecutor(Runnable::run)
                 .build();
-        var server = new GrpcOtlpServer(config, NO_OP);
+        // The gRPC-only per-connection concurrency cap is now a constructor arg, not a ServerConfig field.
+        var server = new GrpcOtlpServer(config, NO_OP, 16);
         server.start();
         try {
             assertThat(server.port()).isPositive();

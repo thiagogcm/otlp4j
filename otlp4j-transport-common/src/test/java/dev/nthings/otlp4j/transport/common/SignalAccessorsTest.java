@@ -59,7 +59,7 @@ class SignalAccessorsTest {
     @DisplayName("receiver.source(Signal) resolves to the matching per-signal source")
     @Test
     void receiverSourceResolves() {
-        var receiver = new ServerReceiver("OTLP/test", disp -> new StubServer(), null, null, null, null);
+        var receiver = new ServerReceiver("OTLP/test", disp -> new StubServer(), null, null, null, null, dev.nthings.otlp4j.telemetry.GatewayMetrics.noop());
         Source<LogsData> source = receiver.source(Signal.LOGS);
         assertThat(source).isSameAs(receiver.logs());
     }
@@ -67,7 +67,7 @@ class SignalAccessorsTest {
     @DisplayName("tap.publisher(Signal) resolves to the matching per-signal publisher")
     @Test
     void tapPublisherResolves() {
-        var receiver = new ServerReceiver("OTLP/test", disp -> new StubServer(), null, null, null, null);
+        var receiver = new ServerReceiver("OTLP/test", disp -> new StubServer(), null, null, null, null, dev.nthings.otlp4j.telemetry.GatewayMetrics.noop());
         Flow.Publisher<TracesData> publisher = receiver.tap().publisher(Signal.TRACES);
         assertThat(publisher).isSameAs(receiver.tap().traces());
     }

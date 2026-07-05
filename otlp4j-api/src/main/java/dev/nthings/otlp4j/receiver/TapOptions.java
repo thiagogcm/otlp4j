@@ -1,28 +1,27 @@
 package dev.nthings.otlp4j.receiver;
 
+import dev.nthings.otlp4j.pipeline.ops.OverflowPolicy;
 import java.util.Objects;
 
 /// Subscription options for a [TelemetryTap].
 ///
-/// Every overflow strategy is non-blocking: the tap sits outside the acknowledgement path, so a
-/// slow subscriber can never delay the OTLP response (there is deliberately no `BLOCK` option).
-public record TapOptions(Overflow strategy, int bufferSize) {
+/// Reuses the pipeline-wide [OverflowPolicy] as the one overflow vocabulary. Every tap strategy is
+/// non-blocking: the tap sits outside the acknowledgement path, so a slow subscriber can never delay
+/// the OTLP response. [OverflowPolicy#BLOCK] is therefore rejected at construction (it is a
+/// Batcher-only ingress-backpressure policy); use `DROP_OLDEST`, `DROP_NEWEST`, or `FAIL`.
+///
+/// @param strategy   the overflow policy for a full subscription buffer (not [OverflowPolicy#BLOCK])
+/// @param bufferSize the per-subscription buffer size, at least 1
+public record TapOptions(OverflowPolicy strategy, int bufferSize) {
 
-    /// Policy for an item that arrives while a tap subscription's bounded buffer is full. Each
-    /// option resolves immediately - none blocks the receiver's publish thread.
-    public enum Overflow {
-        /// Evict the oldest buffered item to make room for the new one.
-        DROP_OLDEST,
-        /// Drop the arriving item; the tap increments its drop counter.
-        DROP_NEWEST,
-        /// Terminate this subscription with `onError`; other subscriptions are unaffected.
-        FAIL
-    }
-
-    private static final TapOptions DEFAULT = new TapOptions(Overflow.DROP_OLDEST, 256);
+    private static final TapOptions DEFAULT = new TapOptions(OverflowPolicy.DROP_OLDEST, 256);
 
     public TapOptions {
         Objects.requireNonNull(strategy, "strategy");
+        if (strategy == OverflowPolicy.BLOCK) {
+            throw new IllegalArgumentException(
+                    "the tap sits outside the ack path; BLOCK is unavailable, use DROP_OLDEST, DROP_NEWEST, or FAIL");
+        }
         if (bufferSize < 1) {
             throw new IllegalArgumentException("bufferSize must be >= 1, got " + bufferSize);
         }

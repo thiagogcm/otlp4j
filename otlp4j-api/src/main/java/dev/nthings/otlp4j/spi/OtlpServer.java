@@ -23,14 +23,11 @@ public interface OtlpServer extends Lifecycle {
     @Override
     CompletionStage<Void> shutdown(Duration timeout);
 
-    /// Initiates a forceful shutdown.
+    /// Initiates a forceful, best-effort shutdown and returns promptly. A transport may briefly
+    /// await its own teardown before completing: the gRPC server awaits up to 5s for the Netty
+    /// event loop to drain; the HTTP server returns at once via `stop(0)`. That bounded gRPC wait
+    /// is an internal transport detail, documented here as bounded rather than open-ended.
+    ///
+    /// @return a stage that completes when the forceful teardown finishes
     CompletionStage<Void> shutdownNow();
-
-    /// Closes the server gracefully within the shared [Lifecycle#DEFAULT_GRACE_PERIOD], like the rest
-    /// of the API (`Receiver`/`Exporter`/`PipelineHandle`). Use [#shutdownNow()] to force-kill
-    /// in-flight requests instead of draining them.
-    @Override
-    default void close() {
-        shutdown(Lifecycle.DEFAULT_GRACE_PERIOD).toCompletableFuture().join();
-    }
 }

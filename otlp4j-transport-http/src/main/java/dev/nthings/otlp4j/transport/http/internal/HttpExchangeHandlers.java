@@ -20,6 +20,7 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Function;
 import java.util.zip.GZIPInputStream;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -32,6 +33,11 @@ import org.slf4j.LoggerFactory;
 /// - A retryable [ConsumeResult.Rejected] -> `503` (with a `Retry-After` header when the
 ///   rejection carries a retry-after hint); a permanent one -> `500`.
 /// - Malformed body -> `400`, oversized -> `413`, non-POST -> `405`, dispatcher error -> `500`.
+/// - A `Content-Type` other than `application/x-protobuf` -> `415` (an absent header is
+///   tolerated, since some clients omit it). This receiver is protobuf-only: OTLP/JSON is not
+///   accepted. The `415` choice follows HTTP content negotiation convention (RFC 9110) and the
+///   OpenTelemetry Collector's own behavior for an unsupported media type; the OTLP spec itself
+///   does not mandate a status code for a Content-Type mismatch, only for malformed data (`400`).
 final class HttpExchangeHandlers {
 
     private static final Logger log = LoggerFactory.getLogger(HttpExchangeHandlers.class);
@@ -79,6 +85,14 @@ final class HttpExchangeHandlers {
         try {
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                 respond(exchange, 405, "text/plain", "method not allowed".getBytes(StandardCharsets.UTF_8));
+                return;
+            }
+
+            var contentType = exchange.getRequestHeaders().getFirst("Content-Type");
+            if (!isProtobuf(contentType)) {
+                respondText(exchange, 415, "unsupported Content-Type "
+                        + (contentType == null ? "(none)" : "'" + contentType + "'")
+                        + "; this receiver accepts only application/x-protobuf (OTLP/JSON is not supported)");
                 return;
             }
 
@@ -156,6 +170,20 @@ final class HttpExchangeHandlers {
             return;
         }
         respond(exchange, 200, OtlpHttp.CONTENT_TYPE, asResponse.apply(result).toByteArray());
+    }
+
+    /// Whether `contentType` names the OTLP/HTTP binary-protobuf media type. A null header is
+    /// tolerated (some clients omit it); otherwise only the media type before any `;` parameter
+    /// (for example `; charset=utf-8`) is compared, case-insensitively, against
+    /// [OtlpHttp#CONTENT_TYPE]. Anything else, including `application/json` and `text/plain`, is
+    /// not protobuf.
+    private static boolean isProtobuf(@Nullable String contentType) {
+        if (contentType == null) {
+            return true;
+        }
+        var semicolon = contentType.indexOf(';');
+        var mediaType = (semicolon < 0 ? contentType : contentType.substring(0, semicolon)).strip();
+        return mediaType.equalsIgnoreCase(OtlpHttp.CONTENT_TYPE);
     }
 
     /// Reads the request body, transparently inflating `Content-Encoding: gzip`,

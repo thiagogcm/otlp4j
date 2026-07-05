@@ -1,0 +1,43 @@
+package dev.nthings.otlp4j.transport.common;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
+
+import dev.nthings.otlp4j.model.Signal;
+import dev.nthings.otlp4j.model.Span;
+import dev.nthings.otlp4j.model.TracesData;
+import dev.nthings.otlp4j.receiver.TapOptions;
+import dev.nthings.otlp4j.pipeline.ops.OverflowPolicy;
+import dev.nthings.otlp4j.telemetry.LoggingGatewayMetrics;
+import dev.nthings.otlp4j.testing.Fixtures;
+import dev.nthings.otlp4j.testing.FlowSubscribers;
+import java.time.Duration;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+/// Pins F11's tap counter: `otlp4j.receiver.tap.dropped` is fed alongside [TelemetryTap#droppedCount].
+@DisplayName("ReceiverTap self-observability")
+class TapMetricsTest {
+
+    private static final String DROPPED = "otlp4j.receiver.tap.dropped";
+
+    @DisplayName("a slow subscriber's overflow drops feed the tap dropped counter")
+    @Test
+    void tapDropsFeedTheCounter() {
+        var registry = new LoggingGatewayMetrics();
+        try (var tap = new ReceiverTap(registry)) {
+            // A no-demand subscriber with a 1-slot DROP_NEWEST buffer: everything past the first
+            // buffered item is dropped.
+            tap.publisher(Signal.TRACES, new TapOptions(OverflowPolicy.DROP_NEWEST, 1))
+                    .subscribe(FlowSubscribers.noOp());
+
+            for (var i = 0; i < 20; i++) {
+                TracesData data = Fixtures.traceData(Fixtures.span("s" + i, Span.Kind.SERVER));
+                tap.publish(Signal.TRACES.batch(data));
+            }
+
+            await().atMost(Duration.ofSeconds(2)).until(() -> tap.droppedCount() > 0);
+            assertThat(registry.counterValue(DROPPED)).isEqualTo(tap.droppedCount());
+        }
+    }
+}

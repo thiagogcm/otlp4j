@@ -138,7 +138,6 @@ class ConfigRecordsTest {
         assertThat(c.port()).isEqualTo(4317);
         assertThat(c.tls()).isEqualTo(Tls.disabled());
         assertThat(c.maxInboundMessageSizeBytes()).isEqualTo(4 * 1024 * 1024);
-        assertThat(c.maxConcurrentCallsPerConnection()).isZero();
         assertThat(c.maxInFlightRequests()).isZero();
         assertThat(c.maxInFlightBytes()).isZero();
         assertThat(c.throttleRetryAfter()).isNull();
@@ -155,7 +154,6 @@ class ConfigRecordsTest {
                 .setPort(5000)
                 .setTls(Tls.systemTrust())
                 .setMaxInboundMessageSizeBytes(1024)
-                .setMaxConcurrentCallsPerConnection(8)
                 .setMaxInFlightRequests(64)
                 .setMaxInFlightBytes(1_000_000L)
                 .setThrottleRetryAfter(Duration.ofSeconds(2))
@@ -169,7 +167,6 @@ class ConfigRecordsTest {
         assertThat(derived.tls()).isEqualTo(Tls.systemTrust());
         assertThat(derived.port()).isEqualTo(6000);
         assertThat(derived.maxInboundMessageSizeBytes()).isEqualTo(1024);
-        assertThat(derived.maxConcurrentCallsPerConnection()).isEqualTo(8);
         assertThat(derived.maxInFlightRequests()).isEqualTo(64);
         assertThat(derived.maxInFlightBytes()).isEqualTo(1_000_000L);
         assertThat(derived.throttleRetryAfter()).isEqualTo(Duration.ofSeconds(2));
@@ -189,8 +186,6 @@ class ConfigRecordsTest {
     @Test
     void serverConfigRejectsBadHardeningLimits() {
         assertThatThrownBy(() -> ServerConfig.builder().setMaxInboundMessageSizeBytes(0).build())
-                .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> ServerConfig.builder().setMaxConcurrentCallsPerConnection(-1).build())
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> ServerConfig.builder().setMaxInFlightRequests(-1).build())
                 .isInstanceOf(IllegalArgumentException.class);

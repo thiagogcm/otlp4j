@@ -1,11 +1,13 @@
 package dev.nthings.otlp4j.transport.common;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.nthings.otlp4j.config.ClientConfig;
 import dev.nthings.otlp4j.config.Compression;
 import dev.nthings.otlp4j.config.Tls;
 import dev.nthings.otlp4j.spi.OtlpClient;
+import dev.nthings.otlp4j.telemetry.LoggingGatewayMetrics;
 import io.github.resilience4j.retry.RetryConfig;
 import java.time.Duration;
 import java.util.Map;
@@ -118,6 +120,17 @@ class AbstractExporterBuilderTest {
         assertThat(c.port()).isEqualTo(9999);
         assertThat(c.timeout()).isEqualTo(Duration.ofSeconds(7));
         assertThat(c.compression()).isEqualTo(Compression.GZIP);
+    }
+
+    @DisplayName("telemetry knob is chainable, defaults are usable, and null is rejected")
+    @Test
+    void telemetryKnobChainableAndNullRejected() {
+        var builder = new TestBuilder();
+        try (var exporter = builder.telemetry(new LoggingGatewayMetrics()).build()) {
+            assertThat(exporter.traces()).isNotNull();
+        }
+        assertThatThrownBy(() -> new TestBuilder().telemetry(null))
+                .isInstanceOf(NullPointerException.class);
     }
 
     @DisplayName("fromEnvironment() builds a usable exporter")
