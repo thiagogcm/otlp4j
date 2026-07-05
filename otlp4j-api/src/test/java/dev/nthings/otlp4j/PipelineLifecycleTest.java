@@ -12,6 +12,7 @@ import dev.nthings.otlp4j.pipeline.Pipeline;
 import dev.nthings.otlp4j.pipeline.Sink;
 import dev.nthings.otlp4j.pipeline.Source;
 import dev.nthings.otlp4j.pipeline.PipelineHandle;
+import dev.nthings.otlp4j.pipeline.SharedLifecycle;
 import dev.nthings.otlp4j.pipeline.TracesSink;
 import java.time.Duration;
 import java.util.List;
@@ -194,6 +195,9 @@ class PipelineLifecycleTest {
             }
             @Override public void retain() {
                 retains.incrementAndGet();
+            }
+            @Override public void release() {
+                retains.decrementAndGet();
             }
             @Override public CompletionStage<Void> shutdown(Duration timeout) {
                 shutdowns.incrementAndGet();
@@ -404,5 +408,61 @@ class PipelineLifecycleTest {
         assertThat(flushed.get()).isEqualTo(1);
 
         sub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
+    }
+
+    @DisplayName("release() decrements the reference count without draining; the last shutdown closes")
+    @Test
+    void releaseDecrementsWithoutDraining() {
+        var closed = new AtomicBoolean();
+
+        class RefCounted implements SharedLifecycle {
+            private final AtomicInteger refs = new AtomicInteger();
+            @Override public void retain() {
+                refs.incrementAndGet();
+            }
+            @Override public void release() {
+                refs.decrementAndGet();
+            }
+            @Override public CompletionStage<Void> shutdown(Duration timeout) {
+                if (refs.decrementAndGet() <= 0) {
+                    closed.set(true);
+                }
+                return CompletableFuture.completedFuture(null);
+            }
+        }
+
+        var resource = new RefCounted();
+        resource.retain();
+        resource.retain();
+
+        resource.release();
+        assertThat(closed).isFalse();
+
+        resource.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
+        assertThat(closed).isTrue();
+    }
+
+    @DisplayName("a built PipelineHandle describes its topology; a custom handle stays opaque")
+    @Test
+    void pipelineHandleDescribeNonOpaque() {
+        var source = new ManualSource<TracesData>();
+
+        class Terminal implements TracesSink, AutoCloseable {
+            @Override public CompletionStage<ConsumeResult> consume(TracesData batch) {
+                return ConsumeResult.acceptedStage();
+            }
+            @Override public void close() {
+            }
+        }
+
+        var sub = Pipeline.from(source).to(new Terminal());
+        assertThat(sub.describe())
+                .doesNotStartWith("pipeline<opaque handle:")
+                .contains("pipeline:")
+                .contains("source: " + ManualSource.class.getName())
+                .contains("terminal: AUTO_CLOSEABLE");
+
+        PipelineHandle custom = timeout -> CompletableFuture.completedFuture(null);
+        assertThat(custom.describe()).startsWith("pipeline<opaque handle:");
     }
 }

@@ -299,19 +299,56 @@ var batcher = Batcher.forTraces()
 var subscription = Pipeline.from(receiver.traces()).to(batcher);
 ```
 
-The four factories are `forTraces`, `forMetrics`, `forLogs`, and `forProfilesUnsafe`. Both knobs count **batches**, not telemetry items: `flushThreshold` is the queue depth that triggers a drain, and `queueCapacity` is the hard cap (overflow follows the `OverflowPolicy`). `queued()` reports buffered batches, and `droppedCount()` counts dropped batches. Besides reaching the `flushThreshold`, a periodic one-second timer flushes whatever has queued, so a partly filled batch never waits indefinitely. Threading is cheap: one JVM-wide platform daemon thread (`otlp4j-batch-timer`) drives every batcher's flush timer, and each instance adds only a single virtual thread for its serial drain. `forceFlush` drains the current queue; `shutdown` stops the timer, drains once, then rejects new batches; a pipeline subscription closes a directly attached batcher.
+The four factories are `forTraces`, `forMetrics`, `forLogs`, and `forProfilesUnsafe`. Both knobs count **batches**, not telemetry items: `flushThreshold` is the queue depth that triggers a drain, and `queueCapacity` is the hard cap (overflow follows the `OverflowPolicy`). `queued()` reports buffered batches. Besides reaching the `flushThreshold`, a `flushInterval` timer (`Builder#flushInterval`, default one second) flushes whatever has queued, so a partly filled batch never waits indefinitely. `forceFlush` drains the current queue; `shutdown` stops the timer, drains once, then rejects new batches; a pipeline subscription closes a directly attached batcher.
+
+### Ack mode
+
+`Builder#ackMode` names when `consume`'s returned ack actually completes, the split the OpenTelemetry Collector spells `wait_for_result`:
+
+- `AckMode.ON_DELIVERY` (the default) holds the ack open until the batch is drained and delivered downstream, then completes it with the real downstream result. Batches merged together under `flushThreshold > 1` share one delivery fate, so a `Partial`'s rejected-item count can reflect the whole merged batch rather than just the caller's own contribution (use `flushThreshold(1)` or `ON_ENQUEUE` when per-batch precision matters). This is the recommended mode for a forwarding gateway: a sender learns of a downstream failure and can retain and retry its own data, at a latency bounded by `flushInterval` to first drain and, once a downstream stage is in flight, by `deliveryTimeout` (below).
+- `AckMode.ON_ENQUEUE` completes the ack `Accepted` the moment the batch is queued, before delivery. A drain that later fails downstream loses the batch with no upstream signal, surfaced only through `drainFailedCount()` (below) and a WARN log. Use it for high-throughput, tap-like paths that value ingress latency over delivery guarantees.
 
 > [!WARNING]
 >
-> Enqueueing acknowledges immediately: `consume` returns `Accepted` once the batch is queued, before it is delivered downstream. A timer- or threshold-triggered drain that fails downstream is logged at WARN and the drained batches are **lost with no upstream signal**; only `forceFlush` and `shutdown` surface a `BatchDeliveryException`. Opt in to `reflectDownstreamFailures(true)` when senders must learn about sustained downstream failure.
+> A single-threaded producer that joins on each batch's ack before sending the next one **deadlocks** under `ON_DELIVERY` whenever `flushThreshold > 1` and no timer or `forceFlush` intervenes: batch *i*'s ack cannot resolve until batches *i+1..N* are enqueued, which the blocked producer never does. A real gateway dispatches concurrently (one virtual thread per inbound request), so the deadlock cannot form there; a synchronous test or benchmark driving one batch at a time should either set `.ackMode(AckMode.ON_ENQUEUE)` or enqueue every batch first and join their acks afterward.
 
-`reflectDownstreamFailures(true)` (default off) reflects sustained downstream failure back at ingress: after a failed drain the batcher rejects new batches retryably with a one-flush-interval retry-after hint **without enqueueing them** (the sender retains the batch instead of it joining a queue that is going nowhere) until the window expires (admitting a probe batch, so a healed downstream recovers without a stuck state) or a drain succeeds.
+Only `forceFlush` and `shutdown` wrap a downstream `Partial`/`Rejected` (or a merge failure) in a `BatchDeliveryException`; under `ON_DELIVERY`, `consume`'s own ack carries the downstream `ConsumeResult` directly, unwrapped.
+
+`reflectDownstreamFailures(true)` (default off) is orthogonal to `AckMode`: rather than reporting the fate of batches already queued, it is proactive admission control that rejects *new* batches at ingress once a drain has failed, **without enqueueing them** (the sender retains the batch instead of it joining a queue going nowhere), retryably with a one-flush-interval retry-after hint, until the window expires (admitting a probe batch, so a healed downstream recovers without a stuck state) or a drain succeeds. A forwarding gateway typically enables both: `ON_DELIVERY` for the batches already in the queue, `reflectDownstreamFailures` to stop admitting more once the downstream is known to be down.
+
+Two counters distinguish where a batch was lost:
+
+| Counter | Counts | Meaning under `ON_ENQUEUE` | Meaning under `ON_DELIVERY` |
+| --- | --- | --- | --- |
+| `droppedCount()` | Batches dropped by queue overflow (never enqueued, or evicted to make room), per the `OverflowPolicy` | Lost | Lost |
+| `drainFailedCount()` | Batches in a failed drain: an impossible merge, or a downstream that threw or returned `Partial`/`Rejected` | Silently lost (total silent loss is `droppedCount() + drainFailedCount()`) | Not lost; every caller learned the real result and can retry, so this reads as "delivery failures observed" |
+
+`deliveryTimeout` (`Builder#deliveryTimeout`, default unset/unbounded) bounds the in-flight downstream leg once a drain starts: a downstream stage that has not completed within the timeout fails the drain, so no `ON_DELIVERY` caller's ack is stranded by a hung custom downstream. The bundled transports complete on a per-call virtual thread and do not need it; set it at or below the transport deadline for a custom downstream.
+
+### Scheduler ownership
+
+A batcher's age-based flush timer is driven by a `BatchScheduler`: an owned one built with `BatchScheduler.create()` / `create(threadName)` and passed to `Builder#scheduler`, or, if none is set, the process-wide `BatchScheduler.shared()` fallback (one daemon thread named `otlp4j-batch-timer`, never shut down). The batcher **uses** whichever scheduler it has but never owns or closes it. Share one owned scheduler across a gateway's batchers to keep its timer thread isolated from other gateways in the same JVM, and register it with `Wiring.Builder#owns` (a `BatchScheduler` is `AutoCloseable`) so it closes only after every batcher using it has shut down:
+
+```java
+var timer = BatchScheduler.create("gw1-batch-timer");
+var q1 = Batcher.forTraces().downstream(exp.traces()).scheduler(timer).build();
+var q2 = Batcher.forMetrics().downstream(exp.metrics()).scheduler(timer).build();
+try (var wiring = Wiring.builder()
+        .receiver(receiver)
+        .pipeline(Pipeline.from(receiver.traces()).to(q1))
+        .pipeline(Pipeline.from(receiver.metrics()).to(q2))
+        .owns(exp)
+        .owns(timer)              // closed last, after both batchers have stopped flushing
+        .build()) { /* serve */ }
+```
+
+`Wiring`'s three-phase shutdown (receivers, then pipelines, then owned resources) makes this ordering automatic. Closing a scheduler only ever stops age-based flushing: threshold drains, `forceFlush`, and `shutdown` all run on the batcher's own drain executor and are unaffected, so a mis-ordered close never loses data. Under `ON_DELIVERY` it can still leave a sub-threshold batch's ack unresolved until some later drain fires, so close the scheduler last regardless of ack mode.
 
 Overflow behavior (the `OverflowPolicy`):
 
 | Policy | Result |
 | --- | --- |
-| `DROP_OLDEST` | Evict the oldest queued batch and accept the new batch |
+| `DROP_OLDEST` | Evict the oldest queued batch and accept the new batch (under `ON_DELIVERY` the evicted batch's ack completes retryably rather than being stranded) |
 | `DROP_NEWEST` | Drop the new batch and return `Partial` with its item count (`Accepted` if empty) |
 | `BLOCK` | Block until queue space is available |
 | `FAIL` | Drop the new batch and return a throttled retryable `Rejected` hinting one flush interval, the earliest retry that can find queue space |
@@ -505,6 +542,8 @@ Collected resources are deduplicated by reference identity, so a resource reacha
 
 Use `shutdown(Duration)` when completion matters. The convenience `close()` methods drain gracefully within a fixed ten-second grace period (`Lifecycle.DEFAULT_GRACE_PERIOD`), applied uniformly by every `Lifecycle` (receiver, exporter, batcher, and subscription); call `Receiver.shutdownNow()` for an immediate stop.
 
+`SharedLifecycle` pairs its `retain()` with two symmetric verbs. `shutdown(Duration)` decrements the reference count and drains the underlying resource when the count reaches zero (the last owner tears it down). `release()` decrements without draining, for an owner that detaches its stake but is not the one to close the resource, so the retain/release/shutdown accounting stays auditable. If every owner calls `release()` and none calls `shutdown()`, the resource is never physically closed (the last owner must `shutdown()`); the exporter's GC leak-watch remains the safety net for that footgun.
+
 ### Wiring
 
 `Wiring` codifies that ordering into one handle over the whole gateway: its receivers, its pipeline subscriptions, and any resources hidden from every pipeline:
@@ -521,6 +560,8 @@ try (var wiring = Wiring.builder()
 ```
 
 Shutdown runs receivers first (nothing new is ingested), then pipeline subscriptions (in-flight work and their collected resources drain), then directly owned resources, all within one shared deadline. It is best-effort (a failing step never blocks the rest, and the first error is rethrown once everything has been attempted), and a second `shutdown` is a no-op. Resources are deduplicated by reference identity across all three phases, so a resource registered twice is shut down once. `owns(...)` takes any `AutoCloseable`; a `SharedLifecycle` (such as a shared exporter) is retained once at `build()`, so handing an exporter to the wiring _and_ attaching its facets in member pipelines stays reference-count balanced.
+
+`Wiring.describe()` returns a human-readable dump of the visible topology: each receiver, each pipeline's structural shape (source, terminal shape and runtime class, and the closeable resources it drains, with shared ones annotated by their structural owner count), and each owned resource. It is reflection-free, so it prints structural nodes precisely and labels a bare-lambda terminal as opaque (its captures are invisible). `Wiring.validate()` runs cheap structural checks over that same declared topology and returns the issues found (empty means clean): `NO_RECEIVERS`/`NO_PIPELINES` from the phase lists, `REDUNDANT_OWNS` and `DOUBLE_ATTACHED_UNSHARED` exactly by reference identity (the latter catches a stateful non-`SharedLifecycle` terminal attached to two pipelines and thus shut down twice), and the advisory partial heuristic `OPAQUE_TERMINAL` (a lambda terminal with no `owns(...)`: if it captures a closeable, declare it). Both are ordinary methods you call in a test or at startup; they touch only in-memory lists, never the ingest path. A custom `PipelineHandle` that cannot introspect itself reports an opaque topology, so validation never breaks on third-party handles.
 
 ## Thread-safety and nullness
 

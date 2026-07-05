@@ -241,6 +241,9 @@ class ProcessorPipelineLifecycleTest {
                 retains.incrementAndGet();
                 refs.incrementAndGet();
             }
+            @Override public void release() {
+                refs.decrementAndGet();
+            }
             @Override public CompletionStage<Void> shutdown(Duration timeout) {
                 if (refs.decrementAndGet() == 0) {
                     teardowns.incrementAndGet();

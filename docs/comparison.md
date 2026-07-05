@@ -71,6 +71,7 @@ This is the closer comparison. Both receive OTLP, process it through a pipeline 
 | service graph DAG built from YAML | `Pipeline` DSL plus `Wiring`, built in code |
 | `confmap` YAML with `${env:...}` expansion | fluent builders plus `fromEnvironment()` |
 | `exporterhelper` sending queue (memory or persistent) | `Batcher` (in-memory only) |
+| `wait_for_result` (hold the ack for the export result) | `Batcher.AckMode.ON_DELIVERY` (the default) |
 | `configretry` exponential backoff | Resilience4j `RetryConfig` |
 | `ExportPartialSuccess` response | `ConsumeResult` (`Accepted` / `Partial` / `Rejected`) |
 | `ocb` builder produces a custom binary | Maven dependency, no build or codegen step |

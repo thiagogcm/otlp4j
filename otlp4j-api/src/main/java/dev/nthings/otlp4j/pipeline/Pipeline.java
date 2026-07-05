@@ -1,6 +1,8 @@
 package dev.nthings.otlp4j.pipeline;
 
 import dev.nthings.otlp4j.model.ConsumeResult;
+import dev.nthings.otlp4j.pipeline.ops.Batcher;
+import dev.nthings.otlp4j.pipeline.ops.Connector;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -194,8 +196,39 @@ public final class Pipeline {
             var segmentHead = segmentSink(terminal);
             var head = upstream == null ? segmentHead : upstream.apply(segmentHead);
             var leafResources = PipelineLifecycle.leafResources(terminal);
+            var shape = classifyTerminal(terminal, leafResources);
             return PipelineLifecycle.subscription(
-                    source.subscribe(head), PipelineLifecycle.combine(resources, leafResources));
+                    source.subscribe(head),
+                    PipelineLifecycle.combine(resources, leafResources),
+                    source.getClass().getName(),
+                    shape,
+                    terminal.getClass().getName(),
+                    !resources.isEmpty());
+        }
+
+        /// Classifies the terminal into a [TerminalShape] using reflection-free `instanceof` checks
+        /// against the typed shapes, then the generic [SharedLifecycle]/[AutoCloseable] buckets,
+        /// defaulting to [TerminalShape#OPAQUE_LAMBDA] for a bare lambda with no visible closeable.
+        private static TerminalShape classifyTerminal(Sink<?> terminal, List<AutoCloseable> leafResources) {
+            if (terminal instanceof Batcher<?>) {
+                return TerminalShape.BATCHER;
+            }
+            if (terminal instanceof Connector<?, ?>) {
+                return TerminalShape.CONNECTOR;
+            }
+            if (terminal instanceof BoundProcessorSink<?>) {
+                return TerminalShape.PROCESSOR_SINK;
+            }
+            if (terminal instanceof FanOut<?>) {
+                return TerminalShape.FANOUT;
+            }
+            if (terminal instanceof SharedLifecycle) {
+                return TerminalShape.SHARED_LIFECYCLE;
+            }
+            if (terminal instanceof AutoCloseable) {
+                return TerminalShape.AUTO_CLOSEABLE;
+            }
+            return leafResources.isEmpty() ? TerminalShape.OPAQUE_LAMBDA : TerminalShape.AUTO_CLOSEABLE;
         }
 
         /// The trailing segment feeding `next`: the fully-synchronous fast path when no async boundary

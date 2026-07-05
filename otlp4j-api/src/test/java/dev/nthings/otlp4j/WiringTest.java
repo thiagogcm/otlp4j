@@ -10,6 +10,7 @@ import dev.nthings.otlp4j.pipeline.Pipeline;
 import dev.nthings.otlp4j.pipeline.PipelineHandle;
 import dev.nthings.otlp4j.pipeline.SharedLifecycle;
 import dev.nthings.otlp4j.pipeline.TracesSink;
+import dev.nthings.otlp4j.pipeline.ValidationIssue;
 import dev.nthings.otlp4j.pipeline.Wiring;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -143,6 +144,9 @@ class WiringTest {
             @Override public void retain() {
                 retains.incrementAndGet();
             }
+            @Override public void release() {
+                retains.decrementAndGet();
+            }
             @Override public CompletionStage<Void> shutdown(Duration timeout) {
                 shutdowns.incrementAndGet();
                 return CompletableFuture.completedFuture(null);
@@ -152,6 +156,13 @@ class WiringTest {
         var shared = new SharedResource();
         var wiring = Wiring.builder().owns(shared).owns(shared).build();
         assertThat(retains.get()).isEqualTo(1);
+
+        // A transient owner that retains then release()s nets back to the wiring's one stake, without
+        // draining: release decrements the count but never closes.
+        shared.retain();
+        shared.release();
+        assertThat(retains.get()).isEqualTo(1);
+        assertThat(shutdowns.get()).isZero();
 
         wiring.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
         assertThat(shutdowns.get()).isEqualTo(1);
@@ -177,5 +188,175 @@ class WiringTest {
             assertThat(terminalClosed.get()).isZero();
         }
         assertThat(terminalClosed.get()).isEqualTo(1);
+    }
+
+    // --- F6: describe() / validate() ---
+
+    /// A no-op ingest-side [Lifecycle], to satisfy the receiver phase in validate() tests.
+    private static final class NoopReceiver implements Lifecycle {
+        @Override public CompletionStage<Void> shutdown(Duration timeout) {
+            return CompletableFuture.completedFuture(null);
+        }
+    }
+
+    /// An [AutoCloseable] terminal: a visible, non-opaque leaf resource.
+    private static final class ClosingTerminal implements TracesSink, AutoCloseable {
+        @Override public CompletionStage<ConsumeResult> consume(TracesData batch) {
+            return ConsumeResult.acceptedStage();
+        }
+        @Override public void close() {
+        }
+    }
+
+    /// A plain [Lifecycle] (not [SharedLifecycle]) terminal: attaching one instance to two pipelines
+    /// is the DOUBLE_ATTACHED_UNSHARED bug.
+    private static final class StatefulSink implements TracesSink, Lifecycle {
+        @Override public CompletionStage<ConsumeResult> consume(TracesData batch) {
+            return ConsumeResult.acceptedStage();
+        }
+        @Override public CompletionStage<Void> shutdown(Duration timeout) {
+            return CompletableFuture.completedFuture(null);
+        }
+    }
+
+    @DisplayName("describe() dumps receivers, each pipeline's topology, and owned resources")
+    @Test
+    void describeDumpsTopology() {
+        var source = new ManualSource<TracesData>();
+        var terminal = new ClosingTerminal();
+        var subscription = Pipeline.from(source).to(terminal);
+        var wiring = Wiring.builder()
+                .receiver(new NoopReceiver())
+                .pipeline(subscription)
+                .owns(new ClosingTerminal())
+                .build();
+
+        var dump = wiring.describe();
+        assertThat(dump)
+                .contains("wiring:")
+                .contains("receivers (1):")
+                .contains(NoopReceiver.class.getName())
+                .contains("pipelines (1):")
+                .contains("pipeline:")
+                .contains("terminal: AUTO_CLOSEABLE")
+                .contains(ClosingTerminal.class.getName())
+                .contains("owned (1):");
+    }
+
+    @DisplayName("describe() annotates a shared owned resource with its structural owner count")
+    @Test
+    void describeAnnotatesSharedOwnerCount() {
+        var retains = new AtomicInteger();
+
+        class SharedTerminal implements TracesSink, SharedLifecycle {
+            @Override public CompletionStage<ConsumeResult> consume(TracesData batch) {
+                return ConsumeResult.acceptedStage();
+            }
+            @Override public void retain() {
+                retains.incrementAndGet();
+            }
+            @Override public void release() {
+                retains.decrementAndGet();
+            }
+            @Override public CompletionStage<Void> shutdown(Duration timeout) {
+                return CompletableFuture.completedFuture(null);
+            }
+        }
+
+        var source = new ManualSource<TracesData>();
+        var shared = new SharedTerminal();
+        var subscription = Pipeline.from(source).to(shared);
+        var wiring = Wiring.builder().pipeline(subscription).owns(shared).build();
+
+        // One pipeline attachment plus the owned registration: two structural owners.
+        assertThat(wiring.describe()).contains("[shared, owners=2]");
+    }
+
+    @DisplayName("validate() flags an opaque lambda terminal with no owns(), and clears it once owns() is declared")
+    @Test
+    void validateFlagsOpaqueTerminalWithoutOwns() {
+        var opaqueSource = new ManualSource<TracesData>();
+        TracesSink lambda = traces -> ConsumeResult.acceptedStage();
+        var opaque = Pipeline.from(opaqueSource).to(lambda);
+
+        var declaredSource = new ManualSource<TracesData>();
+        var declared = Pipeline.from(declaredSource).owns(new ClosingTerminal()).to(lambda);
+
+        var wiring = Wiring.builder()
+                .receiver(new NoopReceiver())
+                .pipeline(opaque)
+                .pipeline(declared)
+                .build();
+
+        var issues = wiring.validate();
+        assertThat(issues).extracting(ValidationIssue::kind)
+                .containsOnlyOnce(ValidationIssue.Kind.OPAQUE_TERMINAL);
+    }
+
+    @DisplayName("validate() flags pipelines declared with no receiver")
+    @Test
+    void validateFlagsNoReceivers() {
+        var source = new ManualSource<TracesData>();
+        var subscription = Pipeline.from(source).to(new ClosingTerminal());
+        var wiring = Wiring.builder().pipeline(subscription).build();
+
+        assertThat(wiring.validate()).extracting(ValidationIssue::kind)
+                .contains(ValidationIssue.Kind.NO_RECEIVERS);
+    }
+
+    @DisplayName("validate() flags receivers declared with no pipeline")
+    @Test
+    void validateFlagsNoPipelines() {
+        var wiring = Wiring.builder().receiver(new NoopReceiver()).build();
+
+        assertThat(wiring.validate()).extracting(ValidationIssue::kind)
+                .contains(ValidationIssue.Kind.NO_PIPELINES);
+    }
+
+    @DisplayName("validate() flags the same non-shared Lifecycle attached to two pipelines")
+    @Test
+    void validateFlagsDoubleAttachedUnshared() {
+        var shared = new StatefulSink();
+        var sourceA = new ManualSource<TracesData>();
+        var sourceB = new ManualSource<TracesData>();
+        var subA = Pipeline.from(sourceA).to(shared);
+        var subB = Pipeline.from(sourceB).to(shared);
+        var wiring = Wiring.builder()
+                .receiver(new NoopReceiver())
+                .pipeline(subA)
+                .pipeline(subB)
+                .build();
+
+        assertThat(wiring.validate()).extracting(ValidationIssue::kind)
+                .contains(ValidationIssue.Kind.DOUBLE_ATTACHED_UNSHARED);
+    }
+
+    @DisplayName("validate() flags a resource both owned and auto-collected by a pipeline")
+    @Test
+    void validateFlagsRedundantOwns() {
+        var source = new ManualSource<TracesData>();
+        var terminal = new ClosingTerminal();
+        var subscription = Pipeline.from(source).to(terminal);
+        var wiring = Wiring.builder()
+                .receiver(new NoopReceiver())
+                .pipeline(subscription)
+                .owns(terminal)
+                .build();
+
+        assertThat(wiring.validate()).extracting(ValidationIssue::kind)
+                .contains(ValidationIssue.Kind.REDUNDANT_OWNS);
+    }
+
+    @DisplayName("validate() returns no issues for a clean topology")
+    @Test
+    void validateCleanTopologyIsEmpty() {
+        var source = new ManualSource<TracesData>();
+        var subscription = Pipeline.from(source).to(new ClosingTerminal());
+        var wiring = Wiring.builder()
+                .receiver(new NoopReceiver())
+                .pipeline(subscription)
+                .build();
+
+        assertThat(wiring.validate()).isEmpty();
     }
 }

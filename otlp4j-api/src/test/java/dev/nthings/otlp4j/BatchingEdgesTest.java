@@ -12,6 +12,7 @@ import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.pipeline.LogsSink;
 import dev.nthings.otlp4j.pipeline.MetricsSink;
+import dev.nthings.otlp4j.pipeline.ops.AckMode;
 import dev.nthings.otlp4j.pipeline.ops.OverflowPolicy;
 import dev.nthings.otlp4j.pipeline.ProfilesSink;
 import dev.nthings.otlp4j.pipeline.TracesSink;
@@ -38,6 +39,9 @@ class BatchingEdgesTest {
         };
         try (var batcher = Batcher.forTraces()
                 .downstream(downstream)
+                // ON_ENQUEUE: this test asserts BLOCK admission (backpressure for capacity). Under
+                // ON_DELIVERY each per-iter delivery join would serialize on the age timer.
+                .ackMode(AckMode.ON_ENQUEUE)
                 .flushThreshold(2)
                 .queueCapacity(2)
                 .overflowPolicy(OverflowPolicy.BLOCK)
@@ -72,6 +76,9 @@ class BatchingEdgesTest {
         TracesSink slow = traces -> new CompletableFuture<>();
         try (var batcher = Batcher.forTraces()
                 .downstream(slow)
+                // ON_ENQUEUE: the slow downstream never completes; this test asserts the buffered
+                // queue depth, so a per-consume delivery join under ON_DELIVERY would hang.
+                .ackMode(AckMode.ON_ENQUEUE)
                 .flushThreshold(100)
                 .queueCapacity(10)
                 .build()) {

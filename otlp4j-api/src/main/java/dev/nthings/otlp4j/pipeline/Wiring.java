@@ -2,7 +2,9 @@ package dev.nthings.otlp4j.pipeline;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -80,6 +82,130 @@ public final class Wiring implements Lifecycle {
         ordered.addAll(pipelines);
         ordered.addAll(owned);
         return PipelineLifecycle.flushAllInOrder(ordered, timeout);
+    }
+
+    /// A human-readable dump of the whole wiring: its receivers, each pipeline's
+    /// [PipelineHandle#describe], and its owned resources (shared ones annotated with a structural
+    /// owner count). Cheap; intended for logs and tests, never the ingest path.
+    ///
+    /// @return a human-readable wiring description
+    public String describe() {
+        var owners = structuralOwnerCounts();
+        var sb = new StringBuilder("wiring:\n");
+        appendClassList(sb, "receivers", receivers);
+        sb.append("  pipelines");
+        if (pipelines.isEmpty()) {
+            sb.append(": none\n");
+        } else {
+            sb.append(" (").append(pipelines.size()).append("):\n");
+            for (var pipeline : pipelines) {
+                sb.append(indent(pipeline.describe())).append('\n');
+            }
+        }
+        sb.append("  owned");
+        if (owned.isEmpty()) {
+            sb.append(": none");
+        } else {
+            sb.append(" (").append(owned.size()).append("):");
+            for (var resource : owned) {
+                sb.append("\n    - ").append(resource.getClass().getName());
+                if (resource instanceof SharedLifecycle) {
+                    sb.append(" [shared, owners=").append(owners.getOrDefault(resource, 1)).append(']');
+                }
+            }
+        }
+        return sb.toString();
+    }
+
+    /// Runs cheap structural checks over the declared topology and returns the issues found (empty =
+    /// clean). Gated by being an explicit call, never on the ingest path. Honest about its limits: it
+    /// cannot see resources captured inside a lambda terminal (see
+    /// [ValidationIssue.Kind#OPAQUE_TERMINAL]).
+    ///
+    /// @return the issues found, empty when the visible topology is clean
+    public List<ValidationIssue> validate() {
+        var issues = new ArrayList<ValidationIssue>();
+        if (!pipelines.isEmpty() && receivers.isEmpty()) {
+            issues.add(new ValidationIssue(ValidationIssue.Kind.NO_RECEIVERS,
+                    pipelines.size() + " pipeline(s) declared but no receiver ingests into them"));
+        }
+        if (!receivers.isEmpty() && pipelines.isEmpty()) {
+            issues.add(new ValidationIssue(ValidationIssue.Kind.NO_PIPELINES,
+                    receivers.size() + " receiver(s) declared but no pipeline drains them"));
+        }
+        // Count structural attachments of each resource across pipelines, by identity.
+        Map<AutoCloseable, Integer> pipelineRefs = new IdentityHashMap<>();
+        for (var pipeline : pipelines) {
+            var topology = pipeline.topology();
+            if ((topology.terminal() == TerminalShape.OPAQUE_LAMBDA
+                    || (topology.terminal() == TerminalShape.FANOUT && topology.resources().isEmpty()))
+                    && !topology.ownsDeclared()) {
+                issues.add(new ValidationIssue(ValidationIssue.Kind.OPAQUE_TERMINAL,
+                        "terminal " + topology.terminalClass()
+                                + " is opaque; if it captures a closeable, declare it with owns()"));
+            }
+            for (var resource : topology.resources()) {
+                pipelineRefs.merge(resource, 1, Integer::sum);
+            }
+        }
+        // DOUBLE_ATTACHED_UNSHARED: the same non-shared Lifecycle in two pipelines is shut down twice.
+        for (var entry : pipelineRefs.entrySet()) {
+            var resource = entry.getKey();
+            if (entry.getValue() >= 2 && resource instanceof Lifecycle && !(resource instanceof SharedLifecycle)) {
+                issues.add(new ValidationIssue(ValidationIssue.Kind.DOUBLE_ATTACHED_UNSHARED,
+                        resource.getClass().getName() + " is attached to " + entry.getValue()
+                                + " pipelines but is not a SharedLifecycle; it would be shut down more than once"));
+            }
+        }
+        // REDUNDANT_OWNS: an owned resource is also auto-collected by a pipeline.
+        for (var resource : owned) {
+            if (pipelineRefs.containsKey(resource)) {
+                issues.add(new ValidationIssue(ValidationIssue.Kind.REDUNDANT_OWNS,
+                        resource.getClass().getName()
+                                + " is registered with owns(...) but is also auto-collected by a pipeline"));
+            }
+        }
+        return issues;
+    }
+
+    /// Structural owner count per resource: how many deduped references (pipeline attachments plus
+    /// the owned registration) point to each, by identity, for [#describe].
+    private Map<AutoCloseable, Integer> structuralOwnerCounts() {
+        Map<AutoCloseable, Integer> counts = new IdentityHashMap<>();
+        for (var pipeline : pipelines) {
+            for (var resource : pipeline.topology().resources()) {
+                counts.merge(resource, 1, Integer::sum);
+            }
+        }
+        for (var resource : owned) {
+            counts.merge(resource, 1, Integer::sum);
+        }
+        return counts;
+    }
+
+    private static void appendClassList(StringBuilder sb, String label, List<? extends AutoCloseable> items) {
+        sb.append("  ").append(label);
+        if (items.isEmpty()) {
+            sb.append(": none\n");
+            return;
+        }
+        sb.append(" (").append(items.size()).append("):");
+        for (var item : items) {
+            sb.append("\n    - ").append(item.getClass().getName());
+        }
+        sb.append('\n');
+    }
+
+    private static String indent(String block) {
+        var sb = new StringBuilder();
+        var lines = block.split("\n", -1);
+        for (var i = 0; i < lines.length; i++) {
+            sb.append("    ").append(lines[i]);
+            if (i < lines.length - 1) {
+                sb.append('\n');
+            }
+        }
+        return sb.toString();
     }
 
     /// The three phases in shutdown order, deduplicated by reference identity across phases so a

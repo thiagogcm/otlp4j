@@ -11,6 +11,7 @@ import dev.nthings.otlp4j.pipeline.Lifecycle;
 import dev.nthings.otlp4j.pipeline.Pipeline;
 import dev.nthings.otlp4j.pipeline.Sink;
 import dev.nthings.otlp4j.pipeline.TracesSink;
+import dev.nthings.otlp4j.pipeline.ops.AckMode;
 import dev.nthings.otlp4j.pipeline.ops.Batcher;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.time.Duration;
@@ -40,12 +41,19 @@ class BatcherProcessorTest {
         var batcher = Batcher.forTraces()
                 .flushThreshold(3)
                 .queueCapacity(16)
-                .buildProcessor();
+                .buildProcessor();   // ON_DELIVERY default
         var sub = Pipeline.from(source).via(batcher).to(terminal);
         try {
+            // Fire all three before joining: under the ON_DELIVERY default a per-dispatch join below
+            // the threshold would drain each singly on the age timer. Firing all three reaches the
+            // threshold and coalesces into one delivery, and every ack resolves Accepted.
+            var acks = new ArrayList<CompletableFuture<ConsumeResult>>();
             for (var i = 0; i < 3; i++) {
-                source.dispatch(Fixtures.traceData(Fixtures.span("s" + i, Span.Kind.SERVER)))
-                        .toCompletableFuture().join();
+                acks.add(source.dispatch(Fixtures.traceData(Fixtures.span("s" + i, Span.Kind.SERVER)))
+                        .toCompletableFuture());
+            }
+            for (var ack : acks) {
+                assertThat(ack.join()).isInstanceOf(ConsumeResult.Accepted.class);
             }
             await().atMost(Duration.ofSeconds(2)).until(() -> !captured.isEmpty());
         } finally {
@@ -53,6 +61,54 @@ class BatcherProcessorTest {
         }
         assertThat(captured).hasSize(1);
         assertThat(captured.getFirst().spans()).hasSize(3);
+    }
+
+    @DisplayName("ON_ENQUEUE: a mid-chain Batcher acks immediately, before any delivery")
+    @Test
+    @Timeout(15)
+    void midChainBatcherOnEnqueueAcksImmediately() {
+        var source = new ManualSource<TracesData>();
+        var captured = new ArrayList<TracesData>();
+        TracesSink terminal = traces -> {
+            captured.add(traces);
+            return ConsumeResult.acceptedStage();
+        };
+        var batcher = Batcher.forTraces()
+                .ackMode(AckMode.ON_ENQUEUE)
+                .flushThreshold(3) // below threshold: nothing drains yet
+                .queueCapacity(16)
+                .buildProcessor();
+        var sub = Pipeline.from(source).via(batcher).to(terminal);
+        try {
+            var r = source.dispatch(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
+                    .toCompletableFuture().join();
+            assertThat(r).isInstanceOf(ConsumeResult.Accepted.class);
+            assertThat(captured).isEmpty(); // acked at enqueue, before any downstream delivery
+        } finally {
+            sub.shutdown(Duration.ofSeconds(2)).toCompletableFuture().join();
+        }
+    }
+
+    @DisplayName("ON_DELIVERY: a downstream rejection threads back to the Stage.via upstream ack")
+    @Test
+    @Timeout(15)
+    void midChainBatcherOnDeliveryThreadsResultUpstream() {
+        var source = new ManualSource<TracesData>();
+        TracesSink terminal = traces -> CompletableFuture
+                .completedFuture(ConsumeResult.retryable("terminal says no"));
+        var batcher = Batcher.forTraces()
+                .flushThreshold(1) // a single dispatch drains, its verdict flows upstream
+                .queueCapacity(16)
+                .buildProcessor();   // ON_DELIVERY default
+        var sub = Pipeline.from(source).via(batcher).to(terminal);
+        try {
+            var r = source.dispatch(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
+                    .toCompletableFuture().join();
+            assertThat(r).isInstanceOfSatisfying(ConsumeResult.Rejected.class,
+                    rr -> assertThat(rr.message()).contains("terminal says no"));
+        } finally {
+            sub.shutdown(Duration.ofSeconds(2)).toCompletableFuture().join();
+        }
     }
 
     @DisplayName("An unbound Batcher used as a bare Sink without a bound downstream throws")

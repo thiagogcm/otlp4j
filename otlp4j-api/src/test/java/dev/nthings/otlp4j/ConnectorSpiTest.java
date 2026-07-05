@@ -201,6 +201,9 @@ class ConnectorSpiTest {
             @Override public void retain() {
                 retains.incrementAndGet();
             }
+            @Override public void release() {
+                retains.decrementAndGet();
+            }
             @Override public CompletionStage<Void> shutdown(Duration timeout) {
                 return CompletableFuture.completedFuture(null);
             }
@@ -209,6 +212,44 @@ class ConnectorSpiTest {
         var connector = new SpanToLogConnector(new SharedDownstream(), FailurePolicy.BEST_EFFORT);
         connector.retain();
         assertThat(retains.get()).isEqualTo(1);
+    }
+
+    @DisplayName("release() cascades to a SharedLifecycle downstream without draining it")
+    @Test
+    void connectorReleasePropagatesWithoutClosingDownstream() {
+        var retains = new AtomicInteger();
+        var shutdowns = new AtomicInteger();
+
+        class SharedDownstream implements Sink<LogsData>, SharedLifecycle {
+            @Override public CompletionStage<ConsumeResult> consume(LogsData batch) {
+                return ConsumeResult.acceptedStage();
+            }
+            @Override public void retain() {
+                retains.incrementAndGet();
+            }
+            @Override public void release() {
+                retains.decrementAndGet();
+            }
+            @Override public CompletionStage<Void> shutdown(Duration timeout) {
+                shutdowns.incrementAndGet();
+                return CompletableFuture.completedFuture(null);
+            }
+        }
+
+        var connector = new SpanToLogConnector(new SharedDownstream(), FailurePolicy.BEST_EFFORT);
+        connector.retain();
+        connector.release();
+        assertThat(retains.get()).isZero();
+        assertThat(shutdowns.get()).isZero();
+    }
+
+    @DisplayName("release() with no SharedLifecycle downstream is a no-op")
+    @Test
+    void connectorReleaseWithoutSharedDownstreamIsNoOp() {
+        Sink<LogsData> plain = logs -> ConsumeResult.acceptedStage();
+        var connector = new SpanToLogConnector(plain, FailurePolicy.BEST_EFFORT);
+        connector.retain();
+        connector.release(); // no shared downstream: a no-op, must not throw
     }
 
     @DisplayName("shutdown runs the onShutdown hook before cascading to the downstream")

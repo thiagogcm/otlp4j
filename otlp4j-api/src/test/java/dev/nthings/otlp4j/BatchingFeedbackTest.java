@@ -7,6 +7,7 @@ import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.pipeline.TracesSink;
+import dev.nthings.otlp4j.pipeline.ops.AckMode;
 import dev.nthings.otlp4j.pipeline.ops.Batcher;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.time.Duration;
@@ -44,7 +45,9 @@ class BatchingFeedbackTest {
     @Test
     void defaultKeepsFireAndForget() {
         var downstream = new SwitchableDownstream();
-        var batcher = Batcher.forTraces().downstream(downstream).build();
+        // ON_ENQUEUE: this asserts the fire-and-forget contract (ingress always accepts against an
+        // unhealthy downstream). Under ON_DELIVERY the first ack would carry the real Rejected.
+        var batcher = Batcher.forTraces().downstream(downstream).ackMode(AckMode.ON_ENQUEUE).build();
         try {
             assertThat(batcher.consume(batch()).toCompletableFuture().join())
                     .isInstanceOf(ConsumeResult.Accepted.class);
@@ -66,6 +69,9 @@ class BatchingFeedbackTest {
         var downstream = new SwitchableDownstream();
         var batcher = Batcher.forTraces()
                 .downstream(downstream)
+                // ON_ENQUEUE: the first consume must be accepted before the failed flush degrades
+                // ingress; under ON_DELIVERY its ack would carry the downstream Rejected instead.
+                .ackMode(AckMode.ON_ENQUEUE)
                 .reflectDownstreamFailures(true)
                 .build();
         try {
@@ -94,6 +100,10 @@ class BatchingFeedbackTest {
         var downstream = new SwitchableDownstream();
         var batcher = Batcher.forTraces()
                 .downstream(downstream)
+                // ON_ENQUEUE: this races an explicit forceFlush against the age timer and asserts
+                // enqueue acceptance before degrade; under ON_DELIVERY the consume join would drain
+                // on the timer first and the forceFlush would find an empty queue.
+                .ackMode(AckMode.ON_ENQUEUE)
                 .reflectDownstreamFailures(true)
                 .build();
         try {
@@ -114,6 +124,36 @@ class BatchingFeedbackTest {
             batcher.forceFlush(Duration.ofSeconds(5)).toCompletableFuture().join();
             assertThat(batcher.consume(batch()).toCompletableFuture().join())
                     .isInstanceOf(ConsumeResult.Accepted.class);
+        } finally {
+            batcher.close();
+        }
+    }
+
+    @DisplayName("ON_DELIVERY composes with reflection: the in-flight ack learns the rejection, the next batch is rejected at ingress")
+    @Test
+    void onDeliveryComposesWithReflection() {
+        var downstream = new SwitchableDownstream();   // starts unhealthy
+        var batcher = Batcher.forTraces()
+                .downstream(downstream)
+                .reflectDownstreamFailures(true)
+                .flushThreshold(100)   // drain only on the explicit forceFlush
+                .build();   // ON_DELIVERY default
+        try {
+            var inFlight = batcher.consume(batch()).toCompletableFuture();   // queued, ack pending
+            // The failed drain surfaces on forceFlush and also opens the degraded window.
+            assertThatThrownBy(() -> batcher.forceFlush(Duration.ofSeconds(5)).toCompletableFuture().join())
+                    .isInstanceOf(CompletionException.class)
+                    .hasCauseInstanceOf(Batcher.BatchDeliveryException.class);
+
+            // ON_DELIVERY (reactive): the in-flight caller learns the real downstream rejection.
+            assertThat(inFlight.join()).isInstanceOfSatisfying(ConsumeResult.Rejected.class,
+                    r -> assertThat(r.message()).contains("backend down"));
+
+            // reflectDownstreamFailures (proactive): the next batch is rejected at ingress, unqueued.
+            assertThat(batcher.consume(batch()).toCompletableFuture().join())
+                    .isInstanceOfSatisfying(ConsumeResult.Rejected.class,
+                            r -> assertThat(r.message()).contains("degraded"));
+            assertThat(batcher.queued()).isZero();
         } finally {
             batcher.close();
         }

@@ -30,6 +30,12 @@ final class BoundProcessorSink<T> implements Sink<T>, SharedLifecycle {
         if (downstream instanceof SharedLifecycle sd) sd.retain();
     }
 
+    @Override public void release() {
+        // Mirror retain(): drop one owner's stake on each shared side without draining.
+        if (processor instanceof SharedLifecycle sp) sp.release();
+        if (downstream instanceof SharedLifecycle sd) sd.release();
+    }
+
     @Override public CompletionStage<Void> shutdown(Duration timeout) {
         return drain(processor, timeout).thenCompose(ignored ->
                 downstream instanceof Lifecycle d ? d.shutdown(timeout) : CompletableFuture.completedFuture(null));

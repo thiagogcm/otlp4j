@@ -129,6 +129,13 @@ public final class ClientExporter implements OtlpExporter, SharedLifecycle {
     }
 
     @Override
+    public void release() {
+        // Drop one owner's stake without draining; floors at zero. The Cleaner leak-watch remains the
+        // safety net if every owner releases and none shuts the channel down.
+        references.updateAndGet(n -> n > 0 ? n - 1 : 0);
+    }
+
+    @Override
     public CompletionStage<Void> shutdown(Duration timeout) {
         // Close the channel only on the last release; a direct, un-retained shutdown (facet used
         // outside a pipeline, or close()) floors the counter at zero and closes.
@@ -178,6 +185,11 @@ public final class ClientExporter implements OtlpExporter, SharedLifecycle {
         @Override
         public void retain() {
             ClientExporter.this.retain();
+        }
+
+        @Override
+        public void release() {
+            ClientExporter.this.release();
         }
 
         @Override

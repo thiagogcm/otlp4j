@@ -113,6 +113,14 @@ public abstract class Connector<I, O> implements Sink<I>, SharedLifecycle {
     }
 
     @Override
+    public final void release() {
+        // Mirror retain()'s propagation: drop one owner's stake on a shared downstream without draining.
+        if (downstream instanceof SharedLifecycle shared) {
+            shared.release();
+        }
+    }
+
+    @Override
     public final CompletionStage<Void> shutdown(Duration timeout) {
         return onShutdown(timeout).thenCompose(ignored ->
                 downstream instanceof Lifecycle d ? d.shutdown(timeout) : CompletableFuture.completedFuture(null));

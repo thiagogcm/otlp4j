@@ -1,5 +1,7 @@
 package dev.nthings.otlp4j.pipeline;
 
+import java.time.Duration;
+
 /// A [Lifecycle] that several pipeline subscriptions can share, such as a multi-signal exporter
 /// whose per-signal facets each carry the one channel's lifecycle, or a connector that owns a
 /// shared downstream.
@@ -14,6 +16,18 @@ package dev.nthings.otlp4j.pipeline;
 /// The bundled shared exporter and connectors already do.
 public interface SharedLifecycle extends Lifecycle {
 
-    /// Registers one more pipeline owner of this resource. Balanced by a later `shutdown`.
+    /// Registers one more pipeline owner of this resource. Balanced by a later [#shutdown(Duration)]
+    /// or [#release()].
     void retain();
+
+    /// Drops one owner's stake WITHOUT draining: decrements the reference count, never closing the
+    /// underlying resource even if it reaches zero.
+    ///
+    /// The symmetric counterpart to [#retain()] for an owner that detaches but is not the one to
+    /// tear the resource down. The last owner that means to close it calls
+    /// [Lifecycle#shutdown(Duration)] instead, which decrements and drains on the last release.
+    ///
+    /// WARNING: if EVERY owner calls `release()` and none calls [Lifecycle#shutdown(Duration)], the
+    /// resource is never physically closed; the last owner must `shutdown()`.
+    void release();
 }

@@ -64,8 +64,15 @@ final class PipelineLifecycle {
         return Collections.unmodifiableList(deduped);
     }
 
-    static PipelineHandle subscription(PipelineHandle sourceSubscription, List<AutoCloseable> resources) {
-        return new PipelineSubscription(sourceSubscription, resources);
+    static PipelineHandle subscription(
+            PipelineHandle sourceSubscription,
+            List<AutoCloseable> resources,
+            String sourceClass,
+            TerminalShape terminalShape,
+            String terminalClass,
+            boolean ownsDeclared) {
+        return new PipelineSubscription(
+                sourceSubscription, resources, sourceClass, terminalShape, terminalClass, ownsDeclared);
     }
 
     static long deadlineNanos(Duration timeout) {
@@ -151,13 +158,31 @@ final class PipelineLifecycle {
         /// The source subscription first (stopping ingest, and flushing a buffering source before
         /// its consumers), then the collected resources.
         private final List<AutoCloseable> drainOrder;
+        /// The deduplicated collected resources (without the source subscription): the topology view
+        /// consumed by [Wiring#validate]/[Wiring#describe] for identity-based cross-pipeline checks.
+        private final List<AutoCloseable> resources;
+        private final String sourceClass;
+        private final TerminalShape terminalShape;
+        private final String terminalClass;
+        private final boolean ownsDeclared;
 
-        PipelineSubscription(PipelineHandle sourceSubscription, List<AutoCloseable> resources) {
+        PipelineSubscription(
+                PipelineHandle sourceSubscription,
+                List<AutoCloseable> resources,
+                String sourceClass,
+                TerminalShape terminalShape,
+                String terminalClass,
+                boolean ownsDeclared) {
             var deduped = dedupByIdentity(resources);
             var ordered = new ArrayList<AutoCloseable>(deduped.size() + 1);
             ordered.add(sourceSubscription);
             ordered.addAll(deduped);
             this.drainOrder = Collections.unmodifiableList(ordered);
+            this.resources = deduped;
+            this.sourceClass = sourceClass;
+            this.terminalShape = terminalShape;
+            this.terminalClass = terminalClass;
+            this.ownsDeclared = ownsDeclared;
             // Register as one owner of every shared resource, so a resource shared with another
             // subscription (e.g. a multi-signal exporter) survives until this subscription shuts down.
             for (var resource : deduped) {
@@ -175,6 +200,43 @@ final class PipelineLifecycle {
         @Override
         public CompletionStage<Void> forceFlush(Duration timeout) {
             return flushAllInOrder(drainOrder, timeout);
+        }
+
+        @Override
+        public PipelineTopology topology() {
+            return new PipelineTopology(terminalShape, terminalClass, ownsDeclared, resources);
+        }
+
+        @Override
+        public String describe() {
+            var sb = new StringBuilder("pipeline:\n");
+            sb.append("  source: ").append(sourceClass).append('\n');
+            sb.append("  terminal: ").append(terminalShape).append(" (").append(terminalClass).append(")");
+            if (terminalShape == TerminalShape.OPAQUE_LAMBDA && !ownsDeclared) {
+                sb.append(" [captures invisible - declare closeables via owns()]");
+            }
+            sb.append('\n');
+            if (resources.isEmpty()) {
+                sb.append("  resources: none");
+            } else {
+                sb.append("  resources (").append(resources.size()).append("):");
+                for (var resource : resources) {
+                    sb.append("\n    - [").append(role(resource)).append("] ")
+                            .append(resource.getClass().getName());
+                }
+            }
+            return sb.toString();
+        }
+
+        /// The lifecycle role of a drained resource, for [#describe].
+        private static String role(AutoCloseable resource) {
+            if (resource instanceof SharedLifecycle) {
+                return "shared";
+            }
+            if (resource instanceof Lifecycle) {
+                return "lifecycle";
+            }
+            return "closeable";
         }
     }
 }

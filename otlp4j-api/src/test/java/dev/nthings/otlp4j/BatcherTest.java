@@ -12,6 +12,7 @@ import dev.nthings.otlp4j.model.NumberPoint;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
+import dev.nthings.otlp4j.pipeline.ops.AckMode;
 import dev.nthings.otlp4j.pipeline.ops.OverflowPolicy;
 import dev.nthings.otlp4j.pipeline.Pipeline;
 import dev.nthings.otlp4j.pipeline.ProfilesSink;
@@ -26,6 +27,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -45,12 +47,18 @@ class BatcherTest {
                 .downstream(downstream)
                 .flushThreshold(3)
                 .queueCapacity(16)
-                .build()) {
+                .build()) {   // ON_DELIVERY default
+            // Fire all three before joining: under ON_DELIVERY a per-batch join below the threshold
+            // would deadlock, since batch i's ack cannot resolve until the queue reaches the
+            // threshold. Firing all three lets one coalesced delivery resolve every ack Accepted.
+            var acks = new ArrayList<CompletableFuture<ConsumeResult>>();
             for (var i = 0; i < 3; i++) {
-                batcher.consume(Fixtures.traceData(Fixtures.span("s" + i, Span.Kind.SERVER)))
-                        .toCompletableFuture().join();
+                acks.add(batcher.consume(Fixtures.traceData(Fixtures.span("s" + i, Span.Kind.SERVER)))
+                        .toCompletableFuture());
             }
-            await().atMost(Duration.ofSeconds(2)).until(() -> !captured.isEmpty());
+            for (var ack : acks) {
+                assertThat(ack.join()).isInstanceOf(ConsumeResult.Accepted.class);
+            }
         }
         assertThat(captured).hasSize(1);
         assertThat(captured.getFirst().spans()).hasSize(3);
@@ -86,6 +94,9 @@ class BatcherTest {
         };
         try (var batcher = Batcher.forTraces()
                 .downstream(downstream)
+                // The downstream never completes; ON_ENQUEUE keeps the warmup joins from blocking on a
+                // drain, so the test asserts DROP_NEWEST overflow (enqueue-time) mechanics.
+                .ackMode(AckMode.ON_ENQUEUE)
                 .flushThreshold(100)
                 .queueCapacity(2)
                 .overflowPolicy(OverflowPolicy.DROP_NEWEST)
@@ -189,6 +200,9 @@ class BatcherTest {
     private static <T> ConsumeResult dropNewestOverflow(
             Batcher.Builder<T> builder, T warmup, T dropped) {
         try (var batcher = builder
+                // The warmup downstream never completes; ON_ENQUEUE keeps the warmup join from
+                // blocking on a drain, so the test asserts overflow (enqueue-time) mechanics.
+                .ackMode(AckMode.ON_ENQUEUE)
                 .flushThreshold(100)
                 .queueCapacity(1)
                 .overflowPolicy(OverflowPolicy.DROP_NEWEST)
@@ -242,10 +256,15 @@ class BatcherTest {
         var batcher = Batcher.forTraces().flushThreshold(2).queueCapacity(16).buildProcessor();
         var sub = Pipeline.from(source).via(batcher).to(terminal);
         try {
-            source.dispatch(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
-                    .toCompletableFuture().join();
-            source.dispatch(Fixtures.traceData(Fixtures.span("b", Span.Kind.SERVER)))
-                    .toCompletableFuture().join();
+            // Fire both before joining: under the ON_DELIVERY default a per-dispatch join below the
+            // flushThreshold would resolve only via the age timer, draining each singly. Firing both
+            // lets the queue reach the threshold and coalesce into one delivery.
+            var a = source.dispatch(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
+                    .toCompletableFuture();
+            var b = source.dispatch(Fixtures.traceData(Fixtures.span("b", Span.Kind.SERVER)))
+                    .toCompletableFuture();
+            a.join();
+            b.join();
             await().atMost(Duration.ofSeconds(2)).until(() -> !captured.isEmpty());
         } finally {
             sub.shutdown(Duration.ofSeconds(2)).toCompletableFuture().join();
@@ -263,6 +282,9 @@ class BatcherTest {
         TracesSink stalling = traces -> new CompletableFuture<>();
         var batcher = Batcher.forTraces()
                 .downstream(stalling)
+                // ON_ENQUEUE: the point is the shutdown timeout, not the ack; a never-completing
+                // downstream would otherwise block the first consume join under ON_DELIVERY.
+                .ackMode(AckMode.ON_ENQUEUE)
                 .flushThreshold(1) // flush immediately on the first consume
                 .queueCapacity(16)
                 .build();
@@ -285,6 +307,11 @@ class BatcherTest {
                 .completedFuture(ConsumeResult.retryable("backend unavailable"));
         var batcher = Batcher.forTraces()
                 .downstream(rejecting)
+                // ON_ENQUEUE: this test asserts that the SHUTDOWN drain propagates a rejection. Under
+                // ON_DELIVERY the consume join would force the age timer to drain the single
+                // sub-threshold batch first, emptying the queue before shutdown runs. ON_ENQUEUE keeps
+                // the batch queued for the shutdown drain (the Void exception shape is identical).
+                .ackMode(AckMode.ON_ENQUEUE)
                 .flushThreshold(100) // no size-trigger; the queued batch drains on shutdown
                 .queueCapacity(100)
                 .build();
@@ -307,6 +334,9 @@ class BatcherTest {
         TracesSink failing = traces -> CompletableFuture.failedFuture(new RuntimeException("kaboom"));
         var batcher = Batcher.forTraces()
                 .downstream(failing)
+                // ON_ENQUEUE: asserts the SHUTDOWN drain propagates a downstream failure with the raw
+                // cause preserved; keeps the batch queued for the shutdown drain (see rejection test).
+                .ackMode(AckMode.ON_ENQUEUE)
                 .flushThreshold(100)
                 .queueCapacity(100)
                 .build();
@@ -328,6 +358,10 @@ class BatcherTest {
         ProfilesSink downstream = profiles -> ConsumeResult.acceptedStage();
         var batcher = Batcher.forProfilesUnsafe()
                 .downstream(downstream)
+                // ON_ENQUEUE: both batches must sit in the queue together so the SHUTDOWN drain merges
+                // them and surfaces the distinct-dictionary conflict. Under ON_DELIVERY each consume
+                // join would drain its batch singly on the age timer (a single batch never conflicts).
+                .ackMode(AckMode.ON_ENQUEUE)
                 .flushThreshold(100) // no size-trigger; both batches merge in the shutdown drain
                 .queueCapacity(100)
                 .build();
@@ -363,5 +397,186 @@ class BatcherTest {
                 batcher.close();
             }
         }
+    }
+
+    @DisplayName("ON_DELIVERY: the ack reflects the downstream result verbatim")
+    @Test
+    @Timeout(15)
+    void onDeliveryAckReflectsDownstreamResult() {
+        var next = new AtomicReference<ConsumeResult>(ConsumeResult.accepted());
+        TracesSink downstream = traces -> CompletableFuture.completedFuture(next.get());
+        try (var batcher = Batcher.forTraces()
+                .downstream(downstream)
+                .flushThreshold(1) // each batch drains on its own; the ack carries the real verdict
+                .queueCapacity(16)
+                .build()) {   // ON_DELIVERY default
+            assertThat(consumeJoin(batcher)).isInstanceOf(ConsumeResult.Accepted.class);
+
+            next.set(ConsumeResult.partial(2, "half"));
+            assertThat(consumeJoin(batcher)).isInstanceOfSatisfying(ConsumeResult.Partial.class,
+                    p -> assertThat(p.rejectedItems()).isEqualTo(2L));
+
+            next.set(ConsumeResult.retryable("try later"));
+            assertThat(consumeJoin(batcher)).isInstanceOfSatisfying(ConsumeResult.Rejected.class,
+                    r -> assertThat(r.message()).contains("try later"));
+        }
+    }
+
+    @DisplayName("ON_DELIVERY: merged batches share one delivery fate")
+    @Test
+    @Timeout(15)
+    void onDeliveryMergedBatchesShareFate() {
+        TracesSink downstream = traces -> CompletableFuture
+                .completedFuture(ConsumeResult.retryable("whole batch rejected"));
+        try (var batcher = Batcher.forTraces()
+                .downstream(downstream)
+                .flushThreshold(3) // three inputs coalesce into one downstream consume
+                .queueCapacity(16)
+                .build()) {   // ON_DELIVERY default
+            var acks = new ArrayList<CompletableFuture<ConsumeResult>>();
+            for (var i = 0; i < 3; i++) {
+                acks.add(batcher.consume(Fixtures.traceData(Fixtures.span("s" + i, Span.Kind.SERVER)))
+                        .toCompletableFuture());
+            }
+            for (var ack : acks) {
+                assertThat(ack.join()).isInstanceOfSatisfying(ConsumeResult.Rejected.class,
+                        r -> assertThat(r.message()).contains("whole batch rejected"));
+            }
+        }
+    }
+
+    @DisplayName("ON_DELIVERY: a downstream that throws acks the caller retryably")
+    @Test
+    @Timeout(15)
+    void onDeliveryDownstreamThrowAcksRetryable() {
+        TracesSink throwing = traces -> {
+            throw new RuntimeException("kaboom");
+        };
+        try (var batcher = Batcher.forTraces()
+                .downstream(throwing)
+                .flushThreshold(1)
+                .queueCapacity(16)
+                .build()) {   // ON_DELIVERY default
+            var r = batcher.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
+                    .toCompletableFuture().join();
+            assertThat(r).isInstanceOfSatisfying(ConsumeResult.Rejected.class, rr -> {
+                assertThat(rr.retryable()).isTrue();
+                assertThat(rr.cause()).hasMessageContaining("kaboom");
+            });
+        }
+    }
+
+    @DisplayName("drainFailedCount counts failed-drain batches; droppedCount stays 0")
+    @Test
+    @Timeout(15)
+    void drainFailedCountCountsFailedDrains() {
+        TracesSink rejecting = traces -> CompletableFuture
+                .completedFuture(ConsumeResult.retryable("backend down"));
+        try (var batcher = Batcher.forTraces()
+                .downstream(rejecting)
+                .ackMode(AckMode.ON_ENQUEUE) // fire-and-forget: the failed drain is silent loss
+                .flushThreshold(1)
+                .queueCapacity(16)
+                .build()) {
+            batcher.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
+                    .toCompletableFuture().join();
+            await().atMost(Duration.ofSeconds(3)).until(() -> batcher.drainFailedCount() >= 1L);
+            assertThat(batcher.drainFailedCount()).isEqualTo(1L);
+            assertThat(batcher.droppedCount()).isZero();
+        }
+    }
+
+    @DisplayName("ON_DELIVERY: DROP_OLDEST completes the evicted caller's ack retryably")
+    @Test
+    @Timeout(15)
+    void dropOldestCompletesEvictedAckRetryable() {
+        TracesSink stuck = traces -> new CompletableFuture<>();
+        try (var batcher = Batcher.forTraces()
+                .downstream(stuck)
+                .flushThreshold(100)
+                .queueCapacity(1)
+                .overflowPolicy(OverflowPolicy.DROP_OLDEST)
+                .build()) {   // ON_DELIVERY default
+            var first = batcher.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
+                    .toCompletableFuture();               // enqueued, ack pending
+            batcher.consume(Fixtures.traceData(Fixtures.span("b", Span.Kind.SERVER)))
+                    .toCompletableFuture();               // evicts the first entry
+
+            assertThat(first.join()).isInstanceOfSatisfying(ConsumeResult.Rejected.class, r -> {
+                assertThat(r.retryable()).isTrue();
+                assertThat(r.message()).contains("DROP_OLDEST");
+            });
+            assertThat(batcher.droppedCount()).isEqualTo(1L);
+        }
+    }
+
+    @DisplayName("ON_ENQUEUE: DROP_OLDEST eviction leaves the null ack untouched")
+    @Test
+    @Timeout(15)
+    void dropOldestUnderOnEnqueueDoesNotTouchAck() {
+        TracesSink stuck = traces -> new CompletableFuture<>();
+        try (var batcher = Batcher.forTraces()
+                .downstream(stuck)
+                .ackMode(AckMode.ON_ENQUEUE)
+                .flushThreshold(100)
+                .queueCapacity(1)
+                .overflowPolicy(OverflowPolicy.DROP_OLDEST)
+                .build()) {
+            var first = batcher.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
+                    .toCompletableFuture().join();
+            assertThat(first).isInstanceOf(ConsumeResult.Accepted.class);
+            var second = batcher.consume(Fixtures.traceData(Fixtures.span("b", Span.Kind.SERVER)))
+                    .toCompletableFuture().join();   // evicts the first entry, whose ack is null
+            assertThat(second).isInstanceOf(ConsumeResult.Accepted.class);
+            assertThat(batcher.droppedCount()).isEqualTo(1L);
+        }
+    }
+
+    @DisplayName("flushInterval knob drives the age-based flush faster than the default")
+    @Test
+    @Timeout(15)
+    void flushIntervalKnobDrivesTimer() {
+        var captured = new AtomicInteger();
+        TracesSink downstream = traces -> {
+            captured.incrementAndGet();
+            return ConsumeResult.acceptedStage();
+        };
+        try (var batcher = Batcher.forTraces()
+                .downstream(downstream)
+                .ackMode(AckMode.ON_ENQUEUE)
+                .flushInterval(Duration.ofMillis(100)) // well below the 1s default
+                .flushThreshold(1000)
+                .queueCapacity(1000)
+                .build()) {
+            batcher.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
+                    .toCompletableFuture().join();
+            // The age timer drains within ~100ms; the 1s default could not meet this deadline.
+            await().atMost(Duration.ofMillis(800)).until(() -> captured.get() == 1);
+        }
+    }
+
+    @DisplayName("ON_DELIVERY: deliveryTimeout fails a hung downstream instead of stranding the ack")
+    @Test
+    @Timeout(15)
+    void deliveryTimeoutFailsHungDownstream() {
+        TracesSink hung = traces -> new CompletableFuture<>();
+        try (var batcher = Batcher.forTraces()
+                .downstream(hung)
+                .deliveryTimeout(Duration.ofMillis(200))
+                .flushThreshold(1)
+                .queueCapacity(16)
+                .build()) {   // ON_DELIVERY default
+            var r = batcher.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
+                    .toCompletableFuture().join();
+            assertThat(r).isInstanceOfSatisfying(ConsumeResult.Rejected.class, rr -> {
+                assertThat(rr.retryable()).isTrue();
+                assertThat(rr.cause()).isInstanceOf(TimeoutException.class);
+            });
+        }
+    }
+
+    private static ConsumeResult consumeJoin(Batcher<TracesData> batcher) {
+        return batcher.consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
+                .toCompletableFuture().join();
     }
 }

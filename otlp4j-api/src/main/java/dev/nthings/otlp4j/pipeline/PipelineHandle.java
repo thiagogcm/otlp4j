@@ -25,4 +25,22 @@ public interface PipelineHandle extends Lifecycle {
     /// @return a stage that completes on clean drain or exceptionally on timeout
     @Override
     CompletionStage<Void> shutdown(Duration timeout);
+
+    /// A human-readable dump of this pipeline's visible topology (source, terminal shape, and the
+    /// [AutoCloseable] resources it will drain). A custom handle that cannot introspect itself
+    /// returns an opaque one-liner. Cheap; intended for logs and tests, not the ingest path.
+    ///
+    /// @return a human-readable topology description
+    default String describe() {
+        return "pipeline<opaque handle: " + getClass().getName() + ">";
+    }
+
+    /// This handle's reflection-free structural topology, consumed by [Wiring#validate] and
+    /// [Wiring#describe]. A custom handle returns [PipelineTopology#opaque()] (the safe default) so
+    /// third-party handles never break validation.
+    ///
+    /// @return this handle's declared topology, opaque for a custom handle
+    default PipelineTopology topology() {
+        return PipelineTopology.opaque();
+    }
 }

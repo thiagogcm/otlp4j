@@ -230,6 +230,9 @@ class ProcessorTest {
             @Override public void retain() {
                 processorRetains.incrementAndGet();
             }
+            @Override public void release() {
+                processorRetains.decrementAndGet();
+            }
             @Override public CompletionStage<Void> shutdown(Duration timeout) {
                 return CompletableFuture.completedFuture(null);
             }
@@ -242,6 +245,9 @@ class ProcessorTest {
             @Override public void retain() {
                 downstreamRetains.incrementAndGet();
             }
+            @Override public void release() {
+                downstreamRetains.decrementAndGet();
+            }
             @Override public CompletionStage<Void> shutdown(Duration timeout) {
                 return CompletableFuture.completedFuture(null);
             }
@@ -251,6 +257,53 @@ class ProcessorTest {
         ((SharedLifecycle) sink).retain();
         assertThat(processorRetains.get()).isEqualTo(1);
         assertThat(downstreamRetains.get()).isEqualTo(1);
+    }
+
+    @DisplayName("The default asSink release()s a SharedLifecycle on both sides without draining either")
+    @Test
+    void asSinkReleasesSharedOnBothSides() {
+        var processorRefs = new AtomicInteger();
+        var downstreamRefs = new AtomicInteger();
+        var shutdowns = new AtomicInteger();
+
+        class SharedProcessor implements Processor<TracesData>, SharedLifecycle {
+            @Override public CompletionStage<ConsumeResult> process(TracesData batch, Sink<? super TracesData> next) {
+                return next.consume(batch);
+            }
+            @Override public void retain() {
+                processorRefs.incrementAndGet();
+            }
+            @Override public void release() {
+                processorRefs.decrementAndGet();
+            }
+            @Override public CompletionStage<Void> shutdown(Duration timeout) {
+                shutdowns.incrementAndGet();
+                return CompletableFuture.completedFuture(null);
+            }
+        }
+
+        class SharedSink implements TracesSink, SharedLifecycle {
+            @Override public CompletionStage<ConsumeResult> consume(TracesData batch) {
+                return ConsumeResult.acceptedStage();
+            }
+            @Override public void retain() {
+                downstreamRefs.incrementAndGet();
+            }
+            @Override public void release() {
+                downstreamRefs.decrementAndGet();
+            }
+            @Override public CompletionStage<Void> shutdown(Duration timeout) {
+                shutdowns.incrementAndGet();
+                return CompletableFuture.completedFuture(null);
+            }
+        }
+
+        var sink = new SharedProcessor().asSink(new SharedSink());
+        ((SharedLifecycle) sink).retain();
+        ((SharedLifecycle) sink).release();
+        assertThat(processorRefs.get()).isZero();
+        assertThat(downstreamRefs.get()).isZero();
+        assertThat(shutdowns.get()).isZero();
     }
 
     @DisplayName("A stateless (non-Lifecycle) asSink cascade shuts and flushes cleanly with nothing to drain")

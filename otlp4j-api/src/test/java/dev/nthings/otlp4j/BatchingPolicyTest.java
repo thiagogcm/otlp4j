@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.ConsumeResult;
+import dev.nthings.otlp4j.pipeline.ops.AckMode;
 import dev.nthings.otlp4j.pipeline.ops.OverflowPolicy;
 import dev.nthings.otlp4j.pipeline.TracesSink;
 import dev.nthings.otlp4j.pipeline.ops.Batcher;
@@ -25,6 +26,9 @@ class BatchingPolicyTest {
         TracesSink stuck = traces -> new CompletableFuture<>();
         try (var batcher = Batcher.forTraces()
                 .downstream(stuck)
+                // ON_ENQUEUE: the stuck downstream never drains, so a per-consume join under
+                // ON_DELIVERY would hang; this test asserts overflow eviction counting.
+                .ackMode(AckMode.ON_ENQUEUE)
                 .flushThreshold(100)
                 .queueCapacity(2)
                 .overflowPolicy(OverflowPolicy.DROP_OLDEST)
@@ -43,6 +47,9 @@ class BatchingPolicyTest {
         TracesSink stuck = traces -> new CompletableFuture<>();
         try (var batcher = Batcher.forTraces()
                 .downstream(stuck)
+                // ON_ENQUEUE: the stuck downstream never drains; this test asserts the FAIL overflow
+                // rejection at enqueue time, so a per-consume delivery join would only hang.
+                .ackMode(AckMode.ON_ENQUEUE)
                 .flushThreshold(100)
                 .queueCapacity(2)
                 .overflowPolicy(OverflowPolicy.FAIL)
@@ -64,6 +71,10 @@ class BatchingPolicyTest {
         };
         try (var batcher = Batcher.forTraces()
                 .downstream(downstream)
+                // ON_ENQUEUE: the test asserts nothing is delivered until the explicit forceFlush.
+                // Under ON_DELIVERY the consume join could not return before delivery, so `captured`
+                // would already be populated by the time the assertion runs.
+                .ackMode(AckMode.ON_ENQUEUE)
                 .flushThreshold(100)
                 .queueCapacity(100)
                 .build()) {

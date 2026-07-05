@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import dev.nthings.otlp4j.pipeline.ops.Connectors;
 import dev.nthings.otlp4j.pipeline.FanOut;
 import dev.nthings.otlp4j.pipeline.Lifecycle;
+import dev.nthings.otlp4j.pipeline.SharedLifecycle;
 import dev.nthings.otlp4j.model.Signal;
 import dev.nthings.otlp4j.pipeline.Pipeline;
 import java.time.Duration;
@@ -114,6 +115,51 @@ class ExporterOwnershipTest {
                 .isZero();
 
         direct.shutdown(Duration.ofSeconds(2)).toCompletableFuture().join();
+        assertThat(client.closes.get()).isEqualTo(1);
+    }
+
+    @DisplayName("release() drops one owner's stake without draining, even at refcount zero")
+    @Test
+    void releaseDecrementsWithoutClosingChannel() {
+        var client = new RecordingOtlpClient();
+        var exporter = new ClientExporter(client, "test");
+
+        exporter.retain();
+        exporter.retain();
+
+        exporter.release(); // 2 -> 1
+        assertThat(client.closes.get())
+                .as("release() decrements without closing while another owner remains")
+                .isZero();
+
+        exporter.release(); // 1 -> 0
+        assertThat(client.closes.get())
+                .as("release() never physically closes, even at refcount zero")
+                .isZero();
+
+        exporter.release(); // floors at zero, no underflow, still no close
+        assertThat(client.closes.get()).isZero();
+
+        // The last owner that means to tear the channel down calls shutdown(), which decrements
+        // (floored at zero) and closes.
+        exporter.shutdown(Duration.ofSeconds(2)).toCompletableFuture().join();
+        assertThat(client.closes.get()).isEqualTo(1);
+    }
+
+    @DisplayName("a facet's release() delegates to the exporter without draining the shared channel")
+    @Test
+    void facetReleaseDelegatesWithoutClosing() {
+        var client = new RecordingOtlpClient();
+        var exporter = new ClientExporter(client, "test");
+        var facet = (SharedLifecycle) exporter.traces();
+
+        facet.retain();
+        facet.release();
+        assertThat(client.closes.get())
+                .as("facet.release() decrements the shared exporter without closing it")
+                .isZero();
+
+        facet.shutdown(Duration.ofSeconds(2)).toCompletableFuture().join();
         assertThat(client.closes.get()).isEqualTo(1);
     }
 }
