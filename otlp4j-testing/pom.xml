@@ -18,11 +18,73 @@
         module ships no production behaviour and is not part of any module's runtime surface.</description>
 
     <!-- The fixtures speak only in dev.nthings.otlp4j.model terms (no api, no proto, no logging
-         facade), so this is the single compile dependency. -->
+         facade), so this is the single non-optional compile dependency. The conformance harness
+         under dev.nthings.otlp4j.testing.conformance adds the further compile dependencies below,
+         all marked optional so they do not propagate to the many modules that consume this jar in
+         test scope and never touch the harness. Optional here is load-bearing: a transport-http
+         test build must not gain Netty transitively, and a model or api test build must not gain
+         proto or gRPC transitively. The declaring module still compiles the harness against them.
+         This module has no module-info.java and must keep it that way: it stays on the classpath so
+         the harness can read otlp4j-proto's packages, which the proto module exports only qualified
+         to the codec and the two transports. -->
     <dependencies>
         <dependency>
             <groupId>dev.nthings.otlp4j</groupId>
             <artifactId>otlp4j-model</artifactId>
+        </dependency>
+
+        <!-- The wire clients build OTLP request/response protos with the generated builders and
+             drive the generated blocking stubs directly, so they name proto and gRPC types. -->
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-proto</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>com.google.protobuf</groupId>
+            <artifactId>protobuf-java</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>io.grpc</groupId>
+            <artifactId>grpc-api</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>io.grpc</groupId>
+            <artifactId>grpc-stub</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>io.grpc</groupId>
+            <artifactId>grpc-protobuf</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <!-- grpc-netty supplies the NameResolver/LoadBalancer providers the channel needs at
+             runtime for a host:port target; compile-visible so the harness stays self-contained. -->
+        <dependency>
+            <groupId>io.grpc</groupId>
+            <artifactId>grpc-netty</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- The abstract JUnit suites and the AssertJ/Awaitility assertions live in src/main so a
+             concrete runner in otlp4j-conformance can subclass them; the test-scope inheritance
+             from the parent is not visible to main sources, hence these optional compile deps. -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.awaitility</groupId>
+            <artifactId>awaitility</artifactId>
+            <optional>true</optional>
         </dependency>
     </dependencies>
 

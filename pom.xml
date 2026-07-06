@@ -22,6 +22,7 @@
         <module>otlp4j-transport-http</module>
         <module>otlp4j-samples</module>
         <module>otlp4j-testing</module>
+        <module>otlp4j-conformance</module>
         <module>otlp4j-coverage</module>
     </modules>
 
@@ -46,6 +47,10 @@
         <assertj.version>3.27.7</assertj.version>
         <awaitility.version>4.3.0</awaitility.version>
         <resilience4j.version>2.4.0</resilience4j.version>
+        <!-- JMH is used only by the otlp4j-benchmarks module, which builds solely under the
+             `bench` profile and never in the default reactor. Pinned here so the module POM
+             stays version-free. -->
+        <jmh.version>1.37</jmh.version>
 
         <protobuf-maven-plugin.version>5.1.5</protobuf-maven-plugin.version>
         <maven-clean-plugin.version>3.5.0</maven-clean-plugin.version>
@@ -110,6 +115,11 @@
                 <artifactId>otlp4j-testing</artifactId>
                 <version>${project.version}</version>
             </dependency>
+            <dependency>
+                <groupId>dev.nthings.otlp4j</groupId>
+                <artifactId>otlp4j-conformance</artifactId>
+                <version>${project.version}</version>
+            </dependency>
 
             <!-- Third-party BOMs -->
             <dependency>
@@ -167,6 +177,21 @@
                 <groupId>ch.qos.logback</groupId>
                 <artifactId>logback-classic</artifactId>
                 <version>${logback.version}</version>
+            </dependency>
+
+            <!-- JMH artifacts for the benchmarks module. jmh-core is the harness runtime and
+                 jmh-generator-annprocess is the annotation processor that emits the benchmark
+                 stubs and META-INF/BenchmarkList at compile time. Only otlp4j-benchmarks, built
+                 under the `bench` profile, consumes them. -->
+            <dependency>
+                <groupId>org.openjdk.jmh</groupId>
+                <artifactId>jmh-core</artifactId>
+                <version>${jmh.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.openjdk.jmh</groupId>
+                <artifactId>jmh-generator-annprocess</artifactId>
+                <version>${jmh.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
@@ -399,4 +424,19 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!-- The JMH benchmark module is deliberately kept out of the default reactor so the
+             everyday `./mvnw verify` stays fast and never compiles or shades the heavyweight
+             benchmark uber jar. It is contributed only when this profile is active, for example
+             `./mvnw -B -Pbench -pl otlp4j-benchmarks -am package`. Because otlp4j-benchmarks sits
+             below the transports in the dependency graph and nothing depends on it, it introduces
+             no reactor cycle. -->
+        <profile>
+            <id>bench</id>
+            <modules>
+                <module>otlp4j-benchmarks</module>
+            </modules>
+        </profile>
+    </profiles>
 </project>

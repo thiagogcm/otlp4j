@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>dev.nthings.otlp4j</groupId>
+        <artifactId>otlp4j-parent</artifactId>
+        <version>${revision}</version>
+    </parent>
+
+    <artifactId>otlp4j-benchmarks</artifactId>
+    <name>otlp4j-benchmarks</name>
+    <description>JMH harness that captures the Phase 0 receive-forward-export throughput and
+        allocation baseline. It is built only under the `bench` profile and never by the default
+        reactor, so `./mvnw verify` stays fast. The module shades its dependencies into a
+        self-contained benchmarks.jar whose main class is org.openjdk.jmh.Main. It is kept
+        non-modular (no module-info.java) so the harness reaches otlp4j-proto's qualified-exported
+        packages on the classpath, exactly like otlp4j-conformance.</description>
+
+    <properties>
+        <!-- Pinned locally: the shade plugin is used only by this module, so it does not belong in
+             the shared parent pluginManagement. -->
+        <maven-shade-plugin.version>3.6.0</maven-shade-plugin.version>
+        <!-- Benchmark harness, not a published API: no javadoc jar is produced or linted. -->
+        <maven.javadoc.skip>true</maven.javadoc.skip>
+    </properties>
+
+    <!-- Compile-scoped so the shaded benchmarks.jar is self-contained: the harness boots real
+         OTLP/gRPC and OTLP/HTTP receivers and exporters, marshals through the codec, and builds
+         domain payloads with the model builders and the otlp4j-testing fixtures. -->
+    <dependencies>
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-transport-grpc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-transport-http</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-codec</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-proto</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-model</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-testing</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.google.protobuf</groupId>
+            <artifactId>protobuf-java</artifactId>
+        </dependency>
+        <!-- Supplies the gRPC NameResolver/LoadBalancer providers the exporter channel needs at run
+             time for a host:port target. Their META-INF/services files collide with grpc-core's,
+             which is why the shade ServicesResourceTransformer below is mandatory. -->
+        <dependency>
+            <groupId>io.grpc</groupId>
+            <artifactId>grpc-netty</artifactId>
+        </dependency>
+        <!-- The JMH runtime harness. -->
+        <dependency>
+            <groupId>org.openjdk.jmh</groupId>
+            <artifactId>jmh-core</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <!-- The shaded uber jar is named benchmarks.jar so the documented
+             `java -jar otlp4j-benchmarks/target/benchmarks.jar` recipe is stable. -->
+        <finalName>benchmarks</finalName>
+        <plugins>
+            <!-- The JMH annotation processor must be wired explicitly through
+                 annotationProcessorPaths. A bare provided-scope dependency on the classpath is not
+                 auto-discovered by javac here, so without this the build produces zero benchmark
+                 stubs and no META-INF/BenchmarkList, and the resulting jar throws
+                 "Unable to find the resource: /META-INF/BenchmarkList" at run time even though
+                 `package` succeeds. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.openjdk.jmh</groupId>
+                            <artifactId>jmh-generator-annprocess</artifactId>
+                            <version>${jmh.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
+
+            <!-- Build the self-contained benchmarks.jar with org.openjdk.jmh.Main as its main
+                 class. Two transformers are required, not one. ManifestResourceTransformer sets the
+                 main class. ServicesResourceTransformer concatenates every jar's
+                 META-INF/services/* entries: grpc-core and grpc-netty both ship providers under the
+                 identical paths io.grpc.NameResolverProvider and io.grpc.LoadBalancerProvider, so
+                 without merging shade keeps only one file and silently drops the other, breaking
+                 gRPC channel construction for a host:port target with ProviderNotFoundException. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>${maven-shade-plugin.version}</version>
+                <executions>
+                    <execution>
+                        <id>shade-benchmarks</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <finalName>benchmarks</finalName>
+                            <!-- This module only ever produces a shaded fat jar and is never
+                                 installed or deployed, so the reduced POM serves no purpose. Leaving
+                                 the plugin default on would write dependency-reduced-pom.xml into the
+                                 module basedir (outside target/, so mvn clean never removes it), and
+                                 that path is not covered by .gitignore, so it would be swept into a
+                                 commit. Suppressing it keeps the working tree clean. -->
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <transformers>
+                                <transformer
+                                    implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                    <mainClass>org.openjdk.jmh.Main</mainClass>
+                                </transformer>
+                                <transformer
+                                    implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+                            </transformers>
+                            <!-- Drop signed-jar signature files so the uber jar loads. -->
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                        <exclude>module-info.class</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <!-- This module ships benchmark harness code, not a public API, and produces no javadoc-worthy
+         surface, so the parent's javadoc lint is skipped. It declares no check-coverage execution:
+         benchmarks are not units under the coverage ratchet, and the module is not part of the
+         default build the aggregate reports over. -->
+</project>

@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>dev.nthings.otlp4j</groupId>
+        <artifactId>otlp4j-parent</artifactId>
+        <version>${revision}</version>
+    </parent>
+
+    <artifactId>otlp4j-conformance</artifactId>
+    <name>otlp4j-conformance</name>
+    <description>The black-box OTLP wire conformance runner. Holds the single bootstrap seam
+        implementation that boots a real OTLP/gRPC or OTLP/HTTP receiver on an ephemeral port, plus
+        the two concrete JUnit subclasses that execute the reusable conformance suites shipped in
+        otlp4j-testing. This module sits below the transports in the reactor, so its dependency on
+        both the transports and otlp4j-testing is acyclic; it is the only place a transport or model
+        type appears, so when Phase 1 breaks the API only the seam implementation changes. Produces
+        no artifact of its own beyond its test coverage, which feeds the coverage aggregate. Kept
+        non-modular (no module-info.java) so the harness reads otlp4j-proto's qualified-exported
+        packages on the classpath.</description>
+
+    <!-- This module is a pure test bed: every dependency is test-scoped because the module ships
+         no production code, only src/test. It boots the real transports, so it depends on both;
+         it drives them over the raw wire through the otlp4j-testing harness, so it depends on that;
+         and it names proto and gRPC types transitively through those, but declares the ones the
+         seam implementation and the harness need directly so the classpath is self-contained. The
+         JUnit, AssertJ and Awaitility test dependencies are inherited from the parent POM. -->
+    <dependencies>
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-transport-grpc</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-transport-http</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- The reusable conformance suites, wire clients, seam interface and TLS material. Its
+             harness dependencies are declared optional there, so they do not flow transitively and
+             are re-declared below where the runner needs them at compile and run time. -->
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-testing</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- The wire clients and the parameterised suites name the generated proto request and
+             response types and drive the generated gRPC stubs; the seam does not, but the harness
+             classes they inherit from do, so proto and gRPC must be on the test classpath. -->
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-proto</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.google.protobuf</groupId>
+            <artifactId>protobuf-java</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Supplies the NameResolver/LoadBalancer providers the gRPC channel needs at run time for
+             a host:port target. -->
+        <dependency>
+            <groupId>io.grpc</groupId>
+            <artifactId>grpc-netty</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <!-- No check-coverage execution: this is a black-box integration module, not a unit under a
+         coverage ratchet, so it opts out of the 90/80 floor exactly as otlp4j-samples does. It
+         still inherits the parent JaCoCo prepare-agent and report, so it produces target/jacoco.exec
+         and its cross-module coverage feeds the aggregate report in otlp4j-coverage. -->
+
+</project>

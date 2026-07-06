@@ -59,6 +59,18 @@
             <groupId>dev.nthings.otlp4j</groupId>
             <artifactId>otlp4j-samples</artifactId>
         </dependency>
+        <!-- The black-box conformance runner: its jacoco.exec attributes the cross-module wire
+             behaviour that the transport-common and codec check-coverage excludes defer to this
+             aggregate. otlp4j-testing carries the harness classes the runner executes, so it is
+             added here too so that main-source coverage is attributed rather than dropped. -->
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-conformance</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-testing</artifactId>
+        </dependency>
     </dependencies>
 
     <build>
