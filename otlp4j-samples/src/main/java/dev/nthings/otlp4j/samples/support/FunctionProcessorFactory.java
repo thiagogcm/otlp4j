@@ -11,9 +11,10 @@ import dev.nthings.otlp4j.core.component.StabilityLevel;
 import dev.nthings.otlp4j.core.consumer.ConsumeContext;
 import dev.nthings.otlp4j.core.consumer.ConsumerCapabilities;
 import dev.nthings.otlp4j.core.consumer.SignalConsumer;
+import dev.nthings.otlp4j.codec.Payloads;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.result.Provenance;
-import dev.nthings.otlp4j.core.signal.ModelBatchPayload;
+import dev.nthings.otlp4j.core.signal.PayloadView;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import java.util.concurrent.CompletableFuture;
@@ -122,17 +123,15 @@ public final class FunctionProcessorFactory<M> implements ProcessorFactory<Funct
 
         @Override
         public CompletionStage<DeliveryResult> consume(ConsumeContext context, TelemetryPayload data) {
-            var in = castPayload(data);
-            var transformed = transform.apply(in.batch());
+            // Read the domain through the interface-level DOMAIN_IMMUTABLE view, so the processor works
+            // whether the upstream handed it a proto-backed payload (materialising the domain once, on
+            // demand) or a domain-backed one, then emit a fresh domain payload for the transform result.
+            var in = signal.batchType().cast(data.view(PayloadView.DOMAIN_IMMUTABLE));
+            var transformed = transform.apply(in);
             if (transformed == null) {
                 return DeliveryResult.acceptedStage(provenance);
             }
-            return next.consume(context, new ModelBatchPayload<>(signal, transformed));
-        }
-
-        @SuppressWarnings("unchecked")
-        private ModelBatchPayload<M> castPayload(TelemetryPayload data) {
-            return (ModelBatchPayload<M>) data;
+            return next.consume(context, Payloads.domain(signal, transformed));
         }
 
         @Override

@@ -13,7 +13,7 @@ import dev.nthings.otlp4j.core.consumer.SignalConsumer;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.result.Disposition;
 import dev.nthings.otlp4j.core.result.Provenance;
-import dev.nthings.otlp4j.core.signal.ModelBatchPayload;
+import dev.nthings.otlp4j.codec.Payloads;
 import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
@@ -143,7 +143,7 @@ class AbstractReceiverBuilderTest {
         var receiver = builder.route(TRACES, recording(seen)).build();
 
         var batch = Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER));
-        var payload = new ModelBatchPayload<>(TRACES, batch);
+        var payload = Payloads.domain(TRACES, batch);
         assertThat(builder.dispatchers).isNotNull();
         var result = builder.dispatchers.dispatch(payload).toCompletableFuture().join();
 
@@ -160,7 +160,7 @@ class AbstractReceiverBuilderTest {
 
         assertThat(builder.dispatchers).isNotNull();
         var result = builder.dispatchers
-                .dispatch(new ModelBatchPayload<>(
+                .dispatch(Payloads.domain(
                         TRACES, Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER))))
                 .toCompletableFuture()
                 .join();

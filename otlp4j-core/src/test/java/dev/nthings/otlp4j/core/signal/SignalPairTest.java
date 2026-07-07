@@ -41,6 +41,31 @@ class SignalPairTest {
             public long itemCount() {
                 return 7L;
             }
+
+            @Override
+            public long estimatedSerializedSize() {
+                return 0L;
+            }
+
+            @Override
+            public PayloadMemoryMode memoryMode() {
+                return PayloadMemoryMode.DOMAIN_BACKED;
+            }
+
+            @Override
+            public <V> V view(PayloadView<V> view) {
+                throw new IllegalArgumentException("this marker exposes no views: " + view);
+            }
+
+            @Override
+            public TelemetryPayload copyForMutation() {
+                return this;
+            }
+
+            @Override
+            public void writeTo(java.io.OutputStream out) {
+                // A marker with no wire form; the test exercises only signal and item count.
+            }
         };
         assertThat(payload.signal()).isEqualTo(SignalDescriptor.LOGS);
         assertThat(payload.itemCount()).isEqualTo(7L);

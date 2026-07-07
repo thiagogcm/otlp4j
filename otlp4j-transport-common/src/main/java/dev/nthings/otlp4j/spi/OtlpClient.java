@@ -2,7 +2,7 @@ package dev.nthings.otlp4j.spi;
 
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.result.Provenance;
-import dev.nthings.otlp4j.core.signal.SignalDescriptor;
+import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -19,15 +19,15 @@ import java.util.concurrent.CompletionStage;
 /// client does not buffer.
 public interface OtlpClient extends AutoCloseable {
 
-    /// Exports one `batch` of `signal` and completes when the endpoint acknowledges, mapping the
-    /// endpoint's response to a [DeliveryResult] attributed to `provenance`.
+    /// Exports one `payload` and completes when the endpoint acknowledges, mapping the endpoint's
+    /// response to a [DeliveryResult] attributed to `provenance`. The client obtains the wire
+    /// representation from the payload, so a proto-backed pass-through payload writes with no
+    /// re-encode and a domain-backed payload materialises its proto once.
     ///
-    /// @param signal     the batch's signal
-    /// @param batch      the batch to export
+    /// @param payload    the payload to export
     /// @param provenance the provenance to attribute the result to
-    /// @param <T>        the batch's domain payload type
     /// @return a stage completing with the export outcome
-    <T> CompletionStage<DeliveryResult> export(SignalDescriptor<T> signal, T batch, Provenance provenance);
+    CompletionStage<DeliveryResult> export(TelemetryPayload payload, Provenance provenance);
 
     /// Drains in-flight exports and releases the client's transport resources within `timeout`.
     ///

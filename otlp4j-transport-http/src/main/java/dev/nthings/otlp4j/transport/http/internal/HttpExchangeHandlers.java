@@ -7,7 +7,6 @@ import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 import dev.nthings.otlp4j.transport.common.AdmissionControl;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
-import dev.nthings.otlp4j.core.signal.ModelBatchPayload;
 import dev.nthings.otlp4j.codec.DeliveryResultStatuses;
 import dev.nthings.otlp4j.codec.SignalCodec;
 import dev.nthings.otlp4j.spi.Dispatchers;
@@ -70,16 +69,15 @@ final class HttpExchangeHandlers {
             int maxBytes,
             AdmissionControl admission) {
         return exchange -> handle(exchange,
-                codec::parseRequest, codec::toDomain,
-                batch -> dispatchers.dispatch(new ModelBatchPayload<>(codec.descriptor(), batch)),
+                codec::parseRequest,
+                request -> dispatchers.dispatch(codec.proto(request)),
                 codec::deliveryResponse, maxBytes, admission);
     }
 
-    private static <REQ, SIG> void handle(
+    private static <REQ> void handle(
             HttpExchange exchange,
             ProtoParser<REQ> parse,
-            Function<REQ, SIG> toDomain,
-            Function<SIG, CompletionStage<DeliveryResult>> dispatcher,
+            Function<REQ, CompletionStage<DeliveryResult>> dispatcher,
             Function<DeliveryResult, ? extends MessageLite> asResponse,
             int maxBytes,
             AdmissionControl admission) throws IOException {
@@ -123,7 +121,7 @@ final class HttpExchangeHandlers {
                 return;
             }
             try {
-                dispatchAdmitted(exchange, parse, toDomain, dispatcher, asResponse, payload);
+                dispatchAdmitted(exchange, parse, dispatcher, asResponse, payload);
             } finally {
                 permit.close();
             }
@@ -132,11 +130,10 @@ final class HttpExchangeHandlers {
         }
     }
 
-    private static <REQ, SIG> void dispatchAdmitted(
+    private static <REQ> void dispatchAdmitted(
             HttpExchange exchange,
             ProtoParser<REQ> parse,
-            Function<REQ, SIG> toDomain,
-            Function<SIG, CompletionStage<DeliveryResult>> dispatcher,
+            Function<REQ, CompletionStage<DeliveryResult>> dispatcher,
             Function<DeliveryResult, ? extends MessageLite> asResponse,
             byte[] payload) throws IOException {
         REQ request;
@@ -149,7 +146,7 @@ final class HttpExchangeHandlers {
 
         DeliveryResult result;
         try {
-            result = dispatcher.apply(toDomain.apply(request)).toCompletableFuture().join();
+            result = dispatcher.apply(request).toCompletableFuture().join();
         } catch (CompletionException e) {
             var cause = e.getCause() != null ? e.getCause() : e;
             log.warn("OTLP/HTTP dispatcher failed; responding 500", cause);

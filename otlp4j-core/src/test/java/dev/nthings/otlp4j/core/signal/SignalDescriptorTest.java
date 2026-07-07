@@ -7,16 +7,15 @@ import dev.nthings.otlp4j.core.component.StabilityLevel;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
-import dev.nthings.otlp4j.model.Signal;
 import dev.nthings.otlp4j.model.TracesData;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /// Unit tests for [SignalDescriptor]: the closed value set, its wire ordering and stability, and the
-/// merge/itemCount/empty operations delegating to the model `Signal` so the two never diverge. The
-/// profiles-merge parity test is the guard the report requires: the descriptor must throw the same
-/// exception the model signal throws on distinct dictionaries.
+/// merge/itemCount/empty operations it owns directly over the immutable model records. The
+/// profiles-merge test is the guard the report requires: merging batches that carry distinct
+/// non-empty dictionaries throws.
 class SignalDescriptorTest {
 
     @Test
@@ -63,25 +62,20 @@ class SignalDescriptorTest {
     }
 
     @Test
-    @DisplayName("empty, merge and itemCount delegate to the model signal")
-    void delegation() {
+    @DisplayName("empty, merge and itemCount compose correctly over TracesData")
+    void mergeAndItemCount() {
         assertThat(SignalDescriptor.TRACES.empty().spanCount()).isZero();
 
         var one = new TracesData(new TracesData(List.of()).resourceSpans());
         var merged = SignalDescriptor.TRACES.merge(List.of(one, SignalDescriptor.TRACES.empty()));
-        assertThat(SignalDescriptor.TRACES.itemCount(merged))
-                .isEqualTo(Signal.TRACES.itemCount(Signal.TRACES.merge(List.of(one, Signal.TRACES.empty()))));
+        assertThat(SignalDescriptor.TRACES.itemCount(merged)).isEqualTo(one.spanCount());
     }
 
     @Test
-    @DisplayName("PROFILES.merge throws the same IllegalStateException as Signal.PROFILES on "
-            + "distinct dictionaries")
+    @DisplayName("PROFILES.merge throws IllegalStateException on distinct non-empty dictionaries")
     void profilesMergeParity() {
         var first = new ProfilesData(List.of(), new byte[] {1});
         var second = new ProfilesData(List.of(), new byte[] {2});
-
-        assertThatThrownBy(() -> Signal.PROFILES.merge(List.of(first, second)))
-                .isInstanceOf(IllegalStateException.class);
 
         assertThatThrownBy(() -> SignalDescriptor.PROFILES.merge(List.of(first, second)))
                 .isInstanceOf(IllegalStateException.class)

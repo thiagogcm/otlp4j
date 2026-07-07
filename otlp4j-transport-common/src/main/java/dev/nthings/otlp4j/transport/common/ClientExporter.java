@@ -6,8 +6,8 @@ import dev.nthings.otlp4j.core.consumer.ConsumeContext;
 import dev.nthings.otlp4j.core.consumer.ConsumerCapabilities;
 import dev.nthings.otlp4j.core.consumer.SignalConsumer;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
+import dev.nthings.otlp4j.codec.Payloads;
 import dev.nthings.otlp4j.core.result.Provenance;
-import dev.nthings.otlp4j.core.signal.ModelBatchPayload;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import dev.nthings.otlp4j.spi.OtlpClient;
@@ -138,7 +138,7 @@ public final class ClientExporter implements AutoCloseable {
     /// @return a stage completing with the delivery result
     public <T> CompletionStage<DeliveryResult> export(SignalDescriptor<T> signal, T batch) {
         return consumer(signal).consume(
-                new ReceiverConsumeContext(Clock.systemUTC()), new ModelBatchPayload<>(signal, batch));
+                new ReceiverConsumeContext(Clock.systemUTC()), Payloads.domain(signal, batch));
     }
 
     /// Flushes any buffered exports; a no-op, since the exporter does not buffer.
@@ -232,12 +232,11 @@ public final class ClientExporter implements AutoCloseable {
 
         @Override
         public CompletionStage<DeliveryResult> consume(ConsumeContext context, TelemetryPayload data) {
-            // The payload's signal is this facet's signal, so its batch is the domain type the
-            // descriptor identifies.
-            var batch = signal.batchType().cast(((ModelBatchPayload<?>) data).batch());
+            // Forward the payload as is: the client reads its wire representation directly, so a
+            // pass-through proto-backed payload is never decoded to the domain here.
             // Feed the export counters off the outcome without altering the returned stage: a failed
             // stage or a Rejected result counts as a failure, anything else as a success.
-            return client.export(signal, batch, provenance).whenComplete((result, failure) -> {
+            return client.export(data, provenance).whenComplete((result, failure) -> {
                 if (failure != null || result instanceof DeliveryResult.Rejected) {
                     exportFailure.add(1);
                 } else {

@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
 import dev.nthings.otlp4j.core.policy.OverflowPolicy;
-import dev.nthings.otlp4j.core.signal.ModelBatchPayload;
+import dev.nthings.otlp4j.codec.Payloads;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.receiver.TapOptions;
@@ -33,7 +33,7 @@ class TapMetricsTest {
 
             for (var i = 0; i < 20; i++) {
                 var data = Fixtures.traceData(Fixtures.span("s" + i, Span.Kind.SERVER));
-                tap.publish(new ModelBatchPayload<>(SignalDescriptor.TRACES, data));
+                tap.publish(Payloads.domain(SignalDescriptor.TRACES, data));
             }
 
             await().atMost(Duration.ofSeconds(2)).until(() -> tap.droppedCount() > 0);

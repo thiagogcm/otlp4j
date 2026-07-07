@@ -18,7 +18,7 @@ import dev.nthings.otlp4j.core.consumer.ConsumerCapabilities;
 import dev.nthings.otlp4j.core.pipeline.PipelineId;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.result.Provenance;
-import dev.nthings.otlp4j.core.signal.ModelBatchPayload;
+import dev.nthings.otlp4j.core.signal.PayloadView;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import dev.nthings.otlp4j.model.AttributeValue;
@@ -164,7 +164,7 @@ public final class OtlpE2eDemo {
     private static GatewayRuntime buildBackend(
             AtomicReference<TracesData> backendTraces, List<Metric> backendMetrics) {
         Consumer<TelemetryPayload> capture = payload -> {
-            var batch = ((ModelBatchPayload<?>) payload).batch();
+            var batch = payload.view(PayloadView.DOMAIN_IMMUTABLE);
             if (batch instanceof TracesData traces) {
                 backendTraces.set(traces);
             } else if (batch instanceof MetricsData metrics) {

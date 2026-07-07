@@ -40,6 +40,13 @@
             <groupId>org.jspecify</groupId>
             <artifactId>jspecify</artifactId>
         </dependency>
+        <!-- Test scope only: the graph runtime tests build TelemetryPayload carriers through the
+             codec payload facade (Payloads); the runtime itself never names codec. -->
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-codec</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

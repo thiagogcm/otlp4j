@@ -30,6 +30,12 @@
             <groupId>dev.nthings.otlp4j</groupId>
             <artifactId>otlp4j-core</artifactId>
         </dependency>
+        <!-- The codec payload facade (Payloads) the exporter facet and the convenience export build;
+             its public payload surface names only core types, so no proto leaks onto this module. -->
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-codec</artifactId>
+        </dependency>
         <!-- Resilience4j is the internal retry engine the neutral RetryPolicy translates to; it used
              to arrive transitively through api, which no longer re-exports it. -->
         <dependency>

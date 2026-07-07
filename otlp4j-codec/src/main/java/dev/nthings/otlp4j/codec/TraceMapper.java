@@ -18,6 +18,23 @@ public final class TraceMapper {
 
     private TraceMapper() {}
 
+    // --- proto item count ---
+
+    /// Counts spans in a proto trace export request without decoding it to the domain, walking the
+    /// full resource then scope then span hierarchy so the count agrees with `TracesData.spanCount`.
+    ///
+    /// @param request the proto trace export request
+    /// @return the total span count
+    public static long itemCount(ExportTraceServiceRequest request) {
+        long count = 0;
+        for (var rs : request.getResourceSpansList()) {
+            for (var ss : rs.getScopeSpansList()) {
+                count += ss.getSpansCount();
+            }
+        }
+        return count;
+    }
+
     // --- proto -> domain ---
 
     public static TracesData toDomain(ExportTraceServiceRequest request) {

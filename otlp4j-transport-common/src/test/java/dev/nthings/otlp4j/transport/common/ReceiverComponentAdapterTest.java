@@ -14,7 +14,8 @@ import dev.nthings.otlp4j.core.consumer.SignalConsumer;
 import dev.nthings.otlp4j.core.consumer.SignalConsumers;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.result.Provenance;
-import dev.nthings.otlp4j.core.signal.ModelBatchPayload;
+import dev.nthings.otlp4j.codec.DomainRequestPayload;
+import dev.nthings.otlp4j.codec.Payloads;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import dev.nthings.otlp4j.model.TracesData;
@@ -60,12 +61,12 @@ class ReceiverComponentAdapterTest {
         var dispatchers = builder.dispatchers;
         assertThat(dispatchers).isNotNull();
         var result = dispatchers
-                .dispatch(new ModelBatchPayload<>(TRACES, new TracesData(List.of())))
+                .dispatch(Payloads.domain(TRACES, new TracesData(List.of())))
                 .toCompletableFuture()
                 .join();
 
         assertThat(result).isInstanceOf(DeliveryResult.Accepted.class);
-        assertThat(captured.get()).isInstanceOf(ModelBatchPayload.class);
+        assertThat(captured.get()).isInstanceOf(DomainRequestPayload.class);
         assertThat(captured.get().signal()).isEqualTo(TRACES);
         assertThat(adapter.port()).isEqualTo(STUB_PORT);
     }
@@ -80,7 +81,7 @@ class ReceiverComponentAdapterTest {
         // A metrics dispatch has no routed consumer, so the source reports no consumer rather than
         // routing into the (traces-only) bundle.
         var result = builder.dispatchers
-                .dispatch(new ModelBatchPayload<>(
+                .dispatch(Payloads.domain(
                         dev.nthings.otlp4j.core.signal.SignalDescriptor.METRICS,
                         new dev.nthings.otlp4j.model.MetricsData(List.of())))
                 .toCompletableFuture()

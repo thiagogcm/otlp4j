@@ -4,6 +4,10 @@
 @SuppressWarnings("module")
 module dev.nthings.otlp4j.transport.common {
     requires dev.nthings.otlp4j.model;
+    // The codec payload facade (Payloads) and the payload views the exporter facet and the
+    // convenience export build. Proto stays off this module's surface because Payloads and the
+    // payload types have proto-free signatures.
+    requires dev.nthings.otlp4j.codec;
     // The relocated config records expose the neutral core policies (ClientConfig.retry() is a
     // core RetryPolicy), and the component adapters and the receiver and exporter component
     // configs name core component, consumer, result, and signal types directly, so read core

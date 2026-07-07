@@ -5,6 +5,7 @@ import com.google.protobuf.MessageLite;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.result.Provenance;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
+import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import dev.nthings.otlp4j.codec.SignalCodec;
 import dev.nthings.otlp4j.codec.Transports;
 import dev.nthings.otlp4j.transport.common.ClientHeaders;
@@ -121,30 +122,30 @@ public final class HttpOtlpClient implements OtlpClient {
     }
 
     @Override
-    public <T> CompletionStage<DeliveryResult> export(
-            SignalDescriptor<T> signal, T batch, Provenance provenance) {
-        // Safe: endpoints is populated at construction with one entry per signal, keyed by descriptor
-        // identity, whose value type parameter is the same T carried by the signal.
-        @SuppressWarnings("unchecked")
-        var endpoint = (HttpEndpoint<T, ?, ?>) endpoints.get(signal);
+    public CompletionStage<DeliveryResult> export(TelemetryPayload payload, Provenance provenance) {
+        // endpoints is populated at construction with one entry per signal, keyed by descriptor
+        // identity, so the payload's signal selects the endpoint whose codec parses its response.
+        var endpoint = endpoints.get(payload.signal());
         // Double-deadline, belt-and-suspenders and intentional: the HttpRequest.timeout (in
         // request(...)) bounds each in-flight connection, while this orTimeout bounds the whole
         // async attempt (retry backoff and executor queueing included), so a stalled carrier
         // thread cannot outlive the caller's budget. A slow call is interrupted by whichever
         // fires first.
-        return CompletableFuture.supplyAsync(() -> send(endpoint, batch, provenance), executor)
+        return CompletableFuture.supplyAsync(() -> send(endpoint, payload, provenance), executor)
                 .orTimeout(config.timeout().toNanos(), TimeUnit.NANOSECONDS);
     }
 
-    /// Encodes `batch` for `endpoint` and sends it through Resilience4j retry. The request is built
-    /// once, outside the retry, and re-sent on each attempt; a 2xx response is parsed and mapped to
-    /// [DeliveryResult] attributed to `provenance`, any other outcome throws, mirroring the gRPC
-    /// client.
+    /// Writes `payload` for `endpoint` and sends it through Resilience4j retry. The request body is
+    /// serialised once, outside the retry, into a buffer presized from the payload's serialized size,
+    /// and re-sent on each attempt; a 2xx response is parsed and mapped to [DeliveryResult] attributed
+    /// to `provenance`, any other outcome throws, mirroring the gRPC client. For a pass-through
+    /// proto-backed payload the write is a direct proto serialisation with no domain-to-proto
+    /// re-encode.
     private <T, REQ extends MessageLite, RESP extends MessageLite> DeliveryResult send(
-            HttpEndpoint<T, REQ, RESP> endpoint, T batch, Provenance provenance) {
+            HttpEndpoint<T, REQ, RESP> endpoint, TelemetryPayload payload, Provenance provenance) {
         var codec = endpoint.codec();
-        var payload = codec.toProto(batch).toByteArray();
-        var body = compress ? gzip(payload) : payload;
+        var size = Math.toIntExact(payload.estimatedSerializedSize());
+        var body = compress ? gzipDirect(payload, size) : writeDirect(payload, size);
         var httpRequest = request(endpoint.uri(), body);
         return ResilienceRetries.execute(retry,
                 () -> sendOnce(endpoint.uri(), httpRequest, codec::parseResponse,
@@ -243,14 +244,81 @@ public final class HttpOtlpClient implements OtlpClient {
         }
     }
 
-    private static byte[] gzip(byte[] data) {
-        var out = new ByteArrayOutputStream(data.length);
+    /// Serialises `payload` into a single `byte[size]` and returns that same array, with no second
+    /// defensive copy. The backing array is sized to `estimatedSerializedSize()` up front, so the proto
+    /// writer fills it exactly; unlike `ByteArrayOutputStream`, whose `toByteArray()` is specified to
+    /// always return a fresh `Arrays.copyOf`, the fixed-buffer stream hands the filled array straight
+    /// to the body publisher. So the uncompressed path materialises exactly one request-body buffer.
+    ///
+    /// The buffer is exactly sized, so this relies on `estimatedSerializedSize()` being exact, its
+    /// documented contract. That coupling is verified rather than trusted: if `writeTo` emits fewer
+    /// bytes than declared the array would otherwise be POSTed padded with trailing NUL bytes, and if it
+    /// emits more the fixed buffer overruns. Both are turned into a loud [IllegalStateException] so a
+    /// non-conforming payload fails the export instead of silently corrupting the wire message, and
+    /// because it is not an [IOException] it is not misclassified as a retryable transport fault.
+    private static byte[] writeDirect(TelemetryPayload payload, int size) {
+        var body = new byte[size];
+        var out = new FixedBufferOutputStream(body);
+        try {
+            payload.writeTo(out);
+        } catch (IOException e) {
+            throw new UncheckedIOException("failed to serialize OTLP/HTTP request body", e);
+        } catch (IndexOutOfBoundsException e) {
+            throw new IllegalStateException(
+                    "TelemetryPayload wrote more than its estimatedSerializedSize() of " + size
+                            + " bytes; estimatedSerializedSize() must be exact",
+                    e);
+        }
+        if (out.written() != size) {
+            throw new IllegalStateException("TelemetryPayload wrote " + out.written()
+                    + " bytes but estimatedSerializedSize() reported " + size
+                    + "; estimatedSerializedSize() must be exact");
+        }
+        return body;
+    }
+
+    /// Serialises `payload` straight into a `GZIPOutputStream`, using `size` only as a capacity hint
+    /// for the backing buffer to avoid regrowth. The one copy inherent to compressed output (the
+    /// `toByteArray()` at the end) is unavoidable because the compressed length is not known ahead of
+    /// time; it is unchanged from the byte-array gzip helper this replaces.
+    private static byte[] gzipDirect(TelemetryPayload payload, int size) {
+        var out = new ByteArrayOutputStream(size);
         try (var gz = new GZIPOutputStream(out)) {
-            gz.write(data);
+            payload.writeTo(gz);
         } catch (IOException e) {
             throw new UncheckedIOException("failed to gzip OTLP/HTTP request body", e);
         }
         return out.toByteArray();
+    }
+
+    /// A minimal [java.io.OutputStream] over a fixed, presized backing array. It never grows and never
+    /// copies, so a proto message serialised into it fills the array in place and that same array is
+    /// handed to the body publisher. The array is sized to the message's serialized length up front,
+    /// so the writes never overrun it.
+    private static final class FixedBufferOutputStream extends java.io.OutputStream {
+
+        private final byte[] buffer;
+        private int position;
+
+        FixedBufferOutputStream(byte[] buffer) {
+            this.buffer = buffer;
+        }
+
+        @Override
+        public void write(int b) {
+            buffer[position++] = (byte) b;
+        }
+
+        @Override
+        public void write(byte[] b, int off, int len) {
+            System.arraycopy(b, off, buffer, position, len);
+            position += len;
+        }
+
+        /// Number of bytes written so far, used to verify the payload filled the presized buffer exactly.
+        int written() {
+            return position;
+        }
     }
 
     /// Interrupt-responsive teardown on a named shutdown carrier, bounded by `timeout`: drains the

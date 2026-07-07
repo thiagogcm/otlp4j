@@ -16,6 +16,24 @@ public final class LogsMapper {
 
     private LogsMapper() {}
 
+    // --- proto item count ---
+
+    /// Counts log records in a proto logs export request without decoding it to the domain, walking
+    /// the full resource then scope then record hierarchy so the count agrees with
+    /// `LogsData.logRecordCount`.
+    ///
+    /// @param request the proto logs export request
+    /// @return the total log record count
+    public static long itemCount(ExportLogsServiceRequest request) {
+        long count = 0;
+        for (var rl : request.getResourceLogsList()) {
+            for (var sl : rl.getScopeLogsList()) {
+                count += sl.getLogRecordsCount();
+            }
+        }
+        return count;
+    }
+
     // --- proto -> domain ---
 
     public static LogsData toDomain(ExportLogsServiceRequest request) {

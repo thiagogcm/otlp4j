@@ -14,8 +14,8 @@ import dev.nthings.otlp4j.core.component.StabilityLevel;
 import dev.nthings.otlp4j.core.consumer.ConsumeContext;
 import dev.nthings.otlp4j.core.consumer.ConsumerCapabilities;
 import dev.nthings.otlp4j.core.consumer.SignalConsumer;
+import dev.nthings.otlp4j.codec.Payloads;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
-import dev.nthings.otlp4j.core.signal.ModelBatchPayload;
 import dev.nthings.otlp4j.core.signal.SignalPair;
 import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import dev.nthings.otlp4j.model.Attributes;
@@ -107,7 +107,7 @@ public final class CountConnectorFactory implements ConnectorFactory<CountConnec
         public CompletionStage<DeliveryResult> consume(ConsumeContext context, TelemetryPayload data) {
             var count = data.itemCount();
             var metrics = deltaSum(count);
-            return next.consume(context, new ModelBatchPayload<>(METRICS, metrics));
+            return next.consume(context, Payloads.domain(METRICS, metrics));
         }
 
         /// A single-point DELTA sum over the window since the previous count, carrying `count`.

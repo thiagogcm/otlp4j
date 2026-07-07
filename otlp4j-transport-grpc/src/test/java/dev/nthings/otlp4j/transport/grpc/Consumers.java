@@ -7,7 +7,7 @@ import dev.nthings.otlp4j.core.consumer.ConsumerCapabilities;
 import dev.nthings.otlp4j.core.consumer.SignalConsumer;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.result.Provenance;
-import dev.nthings.otlp4j.core.signal.ModelBatchPayload;
+import dev.nthings.otlp4j.core.signal.PayloadView;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import java.util.concurrent.CompletableFuture;
@@ -49,7 +49,7 @@ final class Consumers {
     /// A consumer that records the decoded batch of `signal` and accepts.
     static <T> SignalConsumer<TelemetryPayload> record(SignalDescriptor<T> signal, AtomicReference<? super T> sink) {
         return of(p -> {
-            sink.set(signal.batchType().cast(((ModelBatchPayload<?>) p).batch()));
+            sink.set(signal.batchType().cast(p.view(PayloadView.DOMAIN_IMMUTABLE)));
             return DeliveryResult.accepted(PROV);
         });
     }

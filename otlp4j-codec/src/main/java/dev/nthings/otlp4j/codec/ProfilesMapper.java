@@ -19,6 +19,24 @@ public final class ProfilesMapper {
 
     private ProfilesMapper() {}
 
+    // --- proto item count ---
+
+    /// Counts profiles in a proto profiles export request without decoding it to the domain, walking
+    /// the full resource then scope then profile hierarchy so the count agrees with
+    /// `ProfilesData.profileCount`.
+    ///
+    /// @param request the proto profiles export request
+    /// @return the total profile count
+    public static long itemCount(ExportProfilesServiceRequest request) {
+        long count = 0;
+        for (var rp : request.getResourceProfilesList()) {
+            for (var sp : rp.getScopeProfilesList()) {
+                count += sp.getProfilesCount();
+            }
+        }
+        return count;
+    }
+
     // --- proto -> domain ---
 
     public static ProfilesData toDomain(ExportProfilesServiceRequest request) {

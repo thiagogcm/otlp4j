@@ -1,6 +1,6 @@
 package dev.nthings.otlp4j.service;
 
-import dev.nthings.otlp4j.core.signal.ModelBatchPayload;
+import dev.nthings.otlp4j.codec.Payloads;
 import static dev.nthings.otlp4j.core.signal.SignalDescriptor.METRICS;
 import static dev.nthings.otlp4j.core.signal.SignalDescriptor.TRACES;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -130,10 +130,10 @@ class ValueTypesTest {
     }
 
     @Test
-    void modelBatchPayloadRejectsNulls() {
-        assertThatThrownBy(() -> new ModelBatchPayload<>(null, new TracesData(List.of())))
+    void domainPayloadRejectsNulls() {
+        assertThatThrownBy(() -> Payloads.domain(null, new TracesData(List.of())))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new ModelBatchPayload<>(TRACES, null)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> Payloads.domain(TRACES, null)).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

@@ -13,7 +13,7 @@ import dev.nthings.otlp4j.core.result.DeliveryReason;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.result.Disposition;
 import dev.nthings.otlp4j.core.result.Provenance;
-import dev.nthings.otlp4j.core.signal.ModelBatchPayload;
+import dev.nthings.otlp4j.codec.Payloads;
 import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
@@ -35,8 +35,8 @@ class SignalSourceTest {
         return new SignalSource<>(TRACES, RECEIVER);
     }
 
-    private static ModelBatchPayload<TracesData> payload() {
-        return new ModelBatchPayload<>(TRACES, Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)));
+    private static TelemetryPayload payload() {
+        return Payloads.domain(TRACES, Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)));
     }
 
     private static DeliveryResult dispatch(SignalSource<TracesData> source) {
@@ -123,7 +123,7 @@ class SignalSourceTest {
         var source = source();
         source.attach(accepting(new AtomicInteger()));
         var result = source.dispatch(
-                new TestConsumeContext(), new ModelBatchPayload<>(TRACES, new TracesData(List.of())))
+                new TestConsumeContext(), Payloads.domain(TRACES, new TracesData(List.of())))
                 .toCompletableFuture().join();
         assertThat(result).isInstanceOf(DeliveryResult.Accepted.class);
     }

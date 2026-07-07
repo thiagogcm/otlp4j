@@ -32,6 +32,37 @@ public final class MetricsMapper {
 
     private MetricsMapper() {}
 
+    // --- proto item count ---
+
+    /// Counts metric data points in a proto metrics export request without decoding it to the domain,
+    /// walking the full resource then scope then metric hierarchy and summing each metric's data
+    /// points by its data oneof, so the count agrees with `MetricsData.dataPointCount`.
+    ///
+    /// @param request the proto metrics export request
+    /// @return the total data point count
+    public static long itemCount(ExportMetricsServiceRequest request) {
+        long count = 0;
+        for (var rm : request.getResourceMetricsList()) {
+            for (var sm : rm.getScopeMetricsList()) {
+                for (var metric : sm.getMetricsList()) {
+                    count += dataPointCount(metric);
+                }
+            }
+        }
+        return count;
+    }
+
+    private static long dataPointCount(io.opentelemetry.proto.metrics.v1.Metric metric) {
+        return switch (metric.getDataCase()) {
+            case GAUGE -> metric.getGauge().getDataPointsCount();
+            case SUM -> metric.getSum().getDataPointsCount();
+            case HISTOGRAM -> metric.getHistogram().getDataPointsCount();
+            case EXPONENTIAL_HISTOGRAM -> metric.getExponentialHistogram().getDataPointsCount();
+            case SUMMARY -> metric.getSummary().getDataPointsCount();
+            case DATA_NOT_SET -> 0L;
+        };
+    }
+
     // --- proto -> domain ---
 
     public static MetricsData toDomain(ExportMetricsServiceRequest request) {

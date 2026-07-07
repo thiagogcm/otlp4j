@@ -11,8 +11,9 @@ import dev.nthings.otlp4j.core.component.ShutdownContext;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.result.Disposition;
 import dev.nthings.otlp4j.core.result.Provenance;
-import dev.nthings.otlp4j.core.signal.ModelBatchPayload;
+import dev.nthings.otlp4j.codec.Payloads;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
+import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.spi.OtlpClient;
 import dev.nthings.otlp4j.telemetry.GatewayMetrics;
@@ -42,9 +43,8 @@ class ExporterComponentAdapterTest {
         volatile boolean reject;
 
         @Override
-        public <T> CompletionStage<DeliveryResult> export(
-                SignalDescriptor<T> signal, T batch, Provenance provenance) {
-            exported.set(signal);
+        public CompletionStage<DeliveryResult> export(TelemetryPayload payload, Provenance provenance) {
+            exported.set(payload.signal());
             return CompletableFuture.completedFuture(reject
                     ? DeliveryResult.retryable("downstream busy", provenance)
                     : DeliveryResult.accepted(provenance));
@@ -65,8 +65,8 @@ class ExporterComponentAdapterTest {
         return new ClientExporter(client, ID, "test-exporter", GatewayMetrics.noop());
     }
 
-    private static ModelBatchPayload<TracesData> tracePayload() {
-        return new ModelBatchPayload<>(TRACES, new TracesData(List.of()));
+    private static TelemetryPayload tracePayload() {
+        return Payloads.domain(TRACES, new TracesData(List.of()));
     }
 
     @DisplayName("forwards the payload's batch to the facet and reports acceptance")

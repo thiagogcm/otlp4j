@@ -1,6 +1,7 @@
 package dev.nthings.otlp4j.service;
 
-import dev.nthings.otlp4j.core.signal.ModelBatchPayload;
+import dev.nthings.otlp4j.codec.DomainRequestPayload;
+import dev.nthings.otlp4j.codec.Payloads;
 import static dev.nthings.otlp4j.core.signal.SignalDescriptor.TRACES;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -27,7 +28,7 @@ class HelpersTest {
 
     private final ConsumeContext ctx = new TestConsumeContext();
 
-    private final ModelBatchPayload<TracesData> payload = new ModelBatchPayload<>(TRACES, new TracesData(java.util.List.of()));
+    private final TelemetryPayload payload = Payloads.domain(TRACES, new TracesData(java.util.List.of()));
 
     private static SignalConsumer<TelemetryPayload> consumer(
             java.util.function.BiFunction<ConsumeContext, TelemetryPayload, CompletionStage<DeliveryResult>> body) {
@@ -125,7 +126,7 @@ class HelpersTest {
     void modelBatchPayloadReportsSignalAndCount() {
         assertThat(payload.signal()).isEqualTo(TRACES);
         assertThat(payload.itemCount()).isZero();
-        assertThat(payload.batch()).isInstanceOf(TracesData.class);
+        assertThat(((DomainRequestPayload<?, ?, ?>) payload).batch()).isInstanceOf(TracesData.class);
         assertThat(payload.toString()).contains("traces");
     }
 }

@@ -3,6 +3,8 @@ package dev.nthings.otlp4j.bench;
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.MessageLite;
 import dev.nthings.otlp4j.codec.SignalCodec;
+import java.io.IOException;
+import java.io.OutputStream;
 import java.util.concurrent.TimeUnit;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
@@ -19,12 +21,17 @@ import org.openjdk.jmh.annotations.Warmup;
 
 /// Isolates the pure marshalling cost the Phase 2 payload redesign targets.
 ///
-/// One measured operation parses a proto export request from wire bytes, decodes it to the domain
-/// model, re-encodes the domain model back to a proto request, and serializes it to bytes. That is
-/// exactly the parse plus toDomain plus toProto plus serialize round trip a transport performs per
-/// request, with no socket or thread involved, so a Phase 2 improvement can be attributed to the
-/// codec rather than the transport. It parameterizes on signal (traces, metrics, logs) and payload
-/// size (small and large).
+/// [#parseDecodeEncodeSerialize] parses a proto export request from wire bytes, decodes it to the
+/// domain model, re-encodes the domain model back to a proto request, and serializes it to bytes.
+/// That is the parse plus toDomain plus toProto plus serialize round trip a transport performed before
+/// Phase 2, with no socket or thread involved, so a Phase 2 improvement can be attributed to the codec
+/// rather than the transport. [#parseSerialize] parses the same wire bytes and serializes the parsed
+/// proto message straight back with no domain step in between, which is the codec-level shape of a
+/// Phase 2 same-protocol pass-through: a receiver-decoded request that an exporter writes unchanged.
+/// The delta between the two, on the same signal and size, is the codec-attributable Phase 2 win; the
+/// [ReceiveForwardExportBenchmark] `passthrough` versus `domainview` comparison confirms the same win
+/// end to end, across a real transport hop. Both benchmarks parameterize on signal (traces, metrics,
+/// logs) and payload size (small and large).
 @State(Scope.Benchmark)
 @BenchmarkMode({Mode.Throughput, Mode.AverageTime})
 @OutputTimeUnit(TimeUnit.MICROSECONDS)
@@ -66,7 +73,9 @@ public class CodecMarshallingBenchmark {
         }
     }
 
-    /// Parses, decodes, re-encodes, and serializes one request.
+    /// Parses, decodes, re-encodes, and serializes one request. The pre-Phase-2 domain round trip a
+    /// transport performed on every request, regardless of whether anything downstream touched the
+    /// domain.
     ///
     /// @return the re-serialized request bytes
     /// @throws InvalidProtocolBufferException if the pre-built bytes fail to parse
@@ -75,11 +84,56 @@ public class CodecMarshallingBenchmark {
         return marshalRoundTrip(codec, requestBytes);
     }
 
+    /// Parses one request and serializes the parsed proto message straight back, with no domain
+    /// materialisation. The codec-level shape of the Phase 2 same-protocol pass-through: what a
+    /// receiver decodes is exactly what an exporter writes.
+    ///
+    /// @return the re-serialized request bytes
+    /// @throws InvalidProtocolBufferException if the pre-built bytes fail to parse
+    /// @throws IOException                    if the write to the fixed buffer fails
+    @Benchmark
+    public byte[] parseSerialize() throws InvalidProtocolBufferException, IOException {
+        return parseThenWrite(codec, requestBytes);
+    }
+
     private static <T, R extends MessageLite, S extends MessageLite> byte[] marshalRoundTrip(
             SignalCodec<T, R, S> codec, byte[] bytes) throws InvalidProtocolBufferException {
         R request = codec.parseRequest(bytes);
         T domain = codec.toDomain(request);
         R reencoded = codec.toProto(domain);
         return reencoded.toByteArray();
+    }
+
+    private static <T, R extends MessageLite, S extends MessageLite> byte[] parseThenWrite(
+            SignalCodec<T, R, S> codec, byte[] bytes) throws InvalidProtocolBufferException, IOException {
+        R request = codec.parseRequest(bytes);
+        var body = new byte[request.getSerializedSize()];
+        request.writeTo(new FixedBufferOutputStream(body));
+        return body;
+    }
+
+    /// A fixed-capacity `OutputStream` over a preallocated, presized array, mirroring the direct-write
+    /// path `HttpOtlpClient` uses at the transport send boundary. Writing into a buffer sized exactly
+    /// to `getSerializedSize()` costs exactly one array allocation, unlike `ByteArrayOutputStream`,
+    /// whose `toByteArray()` always returns a fresh defensive copy.
+    private static final class FixedBufferOutputStream extends OutputStream {
+
+        private final byte[] buffer;
+        private int position;
+
+        FixedBufferOutputStream(byte[] buffer) {
+            this.buffer = buffer;
+        }
+
+        @Override
+        public void write(int b) {
+            buffer[position++] = (byte) b;
+        }
+
+        @Override
+        public void write(byte[] b, int off, int len) {
+            System.arraycopy(b, off, buffer, position, len);
+            position += len;
+        }
     }
 }

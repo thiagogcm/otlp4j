@@ -24,7 +24,8 @@ import dev.nthings.otlp4j.core.consumer.SignalConsumers;
 import dev.nthings.otlp4j.core.pipeline.PipelineId;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.result.Provenance;
-import dev.nthings.otlp4j.core.signal.ModelBatchPayload;
+import dev.nthings.otlp4j.codec.DomainRequestPayload;
+import dev.nthings.otlp4j.codec.Payloads;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import dev.nthings.otlp4j.model.InstrumentationScope;
@@ -97,7 +98,7 @@ class SeedFactoriesTest {
                 .build();
         runtime.start();
 
-        var result = deliver(recv, new ModelBatchPayload<>(TRACES, traces(1)));
+        var result = deliver(recv, Payloads.domain(TRACES, traces(1)));
 
         assertThat(result).isInstanceOf(DeliveryResult.Accepted.class);
         assertThat(received).hasSize(1);
@@ -121,7 +122,7 @@ class SeedFactoriesTest {
                 .build();
         runtime.start();
 
-        var result = deliver(recv, new ModelBatchPayload<>(TRACES, traces(1)));
+        var result = deliver(recv, Payloads.domain(TRACES, traces(1)));
 
         assertThat(result).isInstanceOf(DeliveryResult.Accepted.class);
         assertThat(received).isEmpty();
@@ -145,17 +146,17 @@ class SeedFactoriesTest {
                 .build();
         runtime.start();
 
-        var result = deliver(recv, new ModelBatchPayload<>(TRACES, traces(3)));
+        var result = deliver(recv, Payloads.domain(TRACES, traces(3)));
 
         assertThat(result).isInstanceOf(DeliveryResult.Accepted.class);
         assertThat(received).hasSize(1);
         assertThat(received.get(0).signal()).isEqualTo(METRICS);
-        var metrics = (MetricsData) ((ModelBatchPayload<?>) received.get(0)).batch();
+        var metrics = (MetricsData) ((DomainRequestPayload<?, ?, ?>) received.get(0)).batch();
         assertThat(metrics.resourceMetrics()).isNotEmpty();
         runtime.close();
     }
 
-    private static DeliveryResult deliver(CapturingReceiverFactory recv, ModelBatchPayload<TracesData> payload) {
+    private static DeliveryResult deliver(CapturingReceiverFactory recv, TelemetryPayload payload) {
         return tracesConsumer(recv.consumers()).consume(new TestContext(), payload).toCompletableFuture().join();
     }
 

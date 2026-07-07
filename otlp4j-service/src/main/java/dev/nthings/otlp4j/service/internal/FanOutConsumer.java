@@ -16,10 +16,11 @@ import java.util.concurrent.CompletionStage;
 /// the time it reaches the merge.
 ///
 /// A peer that declares it mutates the payload is, in the Collector fan-out rule, handed a defensive
-/// copy so it cannot corrupt a sibling's view. In the first milestone the payload the graph carries
-/// is an immutable model batch, so the shared instance is safe to hand to every peer and no copy is
-/// made; the fan-out node still reads each peer's mutation declaration, so the copy hook is exercised
-/// and drops in unchanged when the payload marker widens with a copy method in a later phase.
+/// copy so it cannot corrupt a sibling's view, through the payload's `copyForMutation` seam. In
+/// Phase 2 both payload backings are immutable, so `copyForMutation` returns the same share-safe
+/// instance and the copy is byte-for-byte identical to sharing; the deep copy arrives when a mutable
+/// payload mode ships, leaving this call site unchanged. A non-mutating peer, which every exporter
+/// is, always shares.
 ///
 /// @param <T> the payload type
 public final class FanOutConsumer<T extends dev.nthings.otlp4j.core.signal.TelemetryPayload>
@@ -48,8 +49,8 @@ public final class FanOutConsumer<T extends dev.nthings.otlp4j.core.signal.Telem
 
     @Override
     public ConsumerCapabilities capabilities() {
-        // The fan-out itself never mutates the shared payload; a mutating peer is isolated by a copy
-        // in a later phase, so upstream sees a non-mutating consumer here.
+        // The fan-out itself never mutates the shared payload; a mutating peer is isolated by the
+        // copyForMutation seam in consume, so upstream sees a non-mutating consumer here.
         return ConsumerCapabilities.nonMutating();
     }
 
@@ -57,10 +58,13 @@ public final class FanOutConsumer<T extends dev.nthings.otlp4j.core.signal.Telem
     public CompletionStage<DeliveryResult> consume(ConsumeContext context, T data) {
         var stages = new ArrayList<CompletionStage<DeliveryResult>>(peers.size());
         for (var peer : peers) {
-            // The first-milestone payload is immutable, so a declared-mutating peer is safe to hand
-            // the shared instance; the copy-before-mutating-peer seam is read in the constructor and
-            // drops in unchanged when the payload marker widens with a copy method in a later phase.
-            stages.add(peer.consume(context, data));
+            // Copy before handing the payload to a peer that declares it mutates, so it cannot corrupt
+            // a sibling's view. In Phase 2 both payload backings are immutable, so copyForMutation
+            // shares the same instance and this is identical to sharing; the cast is safe because
+            // copyForMutation returns a payload of the same runtime type this fan-out carries.
+            @SuppressWarnings("unchecked")
+            T forPeer = peer.capabilities().mutatesData() ? (T) data.copyForMutation() : data;
+            stages.add(peer.consume(context, forPeer));
         }
         var futures = new CompletableFuture<?>[stages.size()];
         for (var i = 0; i < stages.size(); i++) {

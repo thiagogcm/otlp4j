@@ -12,7 +12,6 @@ import dev.nthings.otlp4j.model.LogRecord;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
-import dev.nthings.otlp4j.model.Signal;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.testing.Fixtures;
@@ -20,7 +19,7 @@ import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/// Aggregation coverage for [SignalCodec]: each codec binds the right [Signal]; `toProto` →
+/// Aggregation coverage for [SignalCodec]: each codec binds the right [SignalDescriptor]; `toProto` →
 /// `parseRequest` → `toDomain` is an identity on a fixture; `deliveryResponse`/`deliveryResult`
 /// round-trip accepted and partial [DeliveryResult]s; and `values()` lists all four in wire order.
 @DisplayName("SignalCodec")
@@ -35,10 +34,10 @@ class SignalCodecTest {
         assertThat(SignalCodec.values())
                 .containsExactly(
                         SignalCodec.TRACES, SignalCodec.METRICS, SignalCodec.LOGS, SignalCodec.PROFILES);
-        assertThat(SignalCodec.TRACES.signal()).isEqualTo(Signal.TRACES);
-        assertThat(SignalCodec.METRICS.signal()).isEqualTo(Signal.METRICS);
-        assertThat(SignalCodec.LOGS.signal()).isEqualTo(Signal.LOGS);
-        assertThat(SignalCodec.PROFILES.signal()).isEqualTo(Signal.PROFILES);
+        assertThat(SignalCodec.TRACES.descriptor()).isEqualTo(SignalDescriptor.TRACES);
+        assertThat(SignalCodec.METRICS.descriptor()).isEqualTo(SignalDescriptor.METRICS);
+        assertThat(SignalCodec.LOGS.descriptor()).isEqualTo(SignalDescriptor.LOGS);
+        assertThat(SignalCodec.PROFILES.descriptor()).isEqualTo(SignalDescriptor.PROFILES);
     }
 
     @DisplayName("traces round-trip through toProto/parseRequest/toDomain and deliveryResponse/deliveryResult")

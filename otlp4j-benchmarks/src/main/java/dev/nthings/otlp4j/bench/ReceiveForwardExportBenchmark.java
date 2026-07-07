@@ -10,6 +10,8 @@ import dev.nthings.otlp4j.core.component.CreateContext;
 import dev.nthings.otlp4j.core.component.Exporter;
 import dev.nthings.otlp4j.core.component.ExporterFactory;
 import dev.nthings.otlp4j.core.component.NetworkBound;
+import dev.nthings.otlp4j.core.component.Processor;
+import dev.nthings.otlp4j.core.component.ProcessorFactory;
 import dev.nthings.otlp4j.core.component.ReceiverFactory;
 import dev.nthings.otlp4j.core.component.ShutdownContext;
 import dev.nthings.otlp4j.core.component.StabilityLevel;
@@ -17,12 +19,15 @@ import dev.nthings.otlp4j.core.consumer.ClientMetadata;
 import dev.nthings.otlp4j.core.consumer.ConsumeContext;
 import dev.nthings.otlp4j.core.consumer.ConsumerCapabilities;
 import dev.nthings.otlp4j.core.consumer.Deadline;
+import dev.nthings.otlp4j.core.consumer.SignalConsumer;
 import dev.nthings.otlp4j.core.pipeline.PipelineId;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.result.Provenance;
-import dev.nthings.otlp4j.core.signal.ModelBatchPayload;
+import dev.nthings.otlp4j.codec.Payloads;
+import dev.nthings.otlp4j.core.signal.PayloadView;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.core.signal.TelemetryPayload;
+import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.service.Gateway;
 import dev.nthings.otlp4j.service.GatewayRuntime;
 import dev.nthings.otlp4j.service.config.PipelineConfig;
@@ -59,9 +64,21 @@ import org.openjdk.jmh.annotations.Warmup;
 /// single-pipeline graph forwards it through an OTLP exporter to a backend receiver, and blocks until
 /// the backend has acknowledged. The path therefore exercises decode on receive, the forwarding
 /// graph, and encode on export, across two real OTLP hops. It parameterizes on transport protocol
-/// (gRPC and HTTP) and payload size (small and large), so the baseline captures the four combinations
-/// that matter for the Phase 2 efficiency claims. Run with the `gc` profiler enabled (`-prof gc`) to
-/// record the allocation rate and bytes-per-operation half of the deliverable.
+/// (gRPC and HTTP), payload size (small and large), and pipeline mode (`passthrough` and
+/// `domainview`), so the baseline captures the combinations that matter for the Phase 2 efficiency
+/// claims. Run with the `gc` profiler enabled (`-prof gc`) to record the allocation rate and
+/// bytes-per-operation half of the deliverable.
+///
+/// The `mode` parameter is the Phase 2 pass-through evidence. The gateway hop's receiver always
+/// decodes the wire bytes into a proto request and wraps it as a proto-backed payload
+/// (`SignalCodec.<signal>.proto(request)`), never a domain record, so `passthrough` (an empty
+/// processor list) forwards that proto-backed payload straight to the OTLP exporter without ever
+/// building a `TracesData`. `domainview` inserts one domain-view processor into the same gateway
+/// pipeline; it reads the payload through the interface-level `DOMAIN_IMMUTABLE` view, which forces
+/// exactly one `toDomain`, and re-emits a fresh domain-backed payload, which forces exactly one
+/// `toProto` when the OTLP exporter serialises it. Comparing `passthrough` against `domainview` on
+/// the same protocol and size isolates the allocation the payload redesign removes from a pipeline
+/// that never touches the domain.
 @State(Scope.Benchmark)
 @BenchmarkMode({Mode.Throughput, Mode.AverageTime})
 @OutputTimeUnit(TimeUnit.MILLISECONDS)
@@ -71,6 +88,7 @@ import org.openjdk.jmh.annotations.Warmup;
 public class ReceiveForwardExportBenchmark {
 
     private static final ComponentId RECV = ComponentId.parse("in");
+    private static final ComponentId PROC = ComponentId.parse("proc");
     private static final ComponentId SINK = ComponentId.parse("out");
     private static final ComponentId CLIENT = ComponentId.parse("client");
 
@@ -81,6 +99,13 @@ public class ReceiveForwardExportBenchmark {
     /// The payload size label; see [BenchmarkPayloads#itemCount(String)].
     @Param({"small", "large"})
     public String size;
+
+    /// The gateway pipeline shape. `passthrough` wires no processor, so the gateway hop forwards the
+    /// proto-backed payload the receiver decoded straight to the OTLP exporter. `domainview` wires one
+    /// domain-view processor, forcing exactly one `toDomain` on the way in and one `toProto` on the
+    /// way out. See the class Javadoc for what this isolates.
+    @Param({"passthrough", "domainview"})
+    public String mode;
 
     private ComponentContext base;
     private ConsumeContext context;
@@ -97,13 +122,13 @@ public class ReceiveForwardExportBenchmark {
     public void setUp() {
         base = new ComponentContext(GatewayMetrics.noop(), Clock.systemUTC());
         context = new BenchContext(base.clock());
-        payload = new ModelBatchPayload<>(TRACES, BenchmarkPayloads.traces(BenchmarkPayloads.itemCount(size)));
+        payload = Payloads.domain(TRACES, BenchmarkPayloads.traces(BenchmarkPayloads.itemCount(size)));
 
         backend = buildBackend(protocol);
         backend.start();
         var backendPort = boundPort(backend);
 
-        gateway = buildGateway(protocol, backendPort);
+        gateway = buildGateway(protocol, backendPort, mode);
         gateway.start();
         var gatewayPort = boundPort(gateway);
 
@@ -144,11 +169,21 @@ public class ReceiveForwardExportBenchmark {
                 .build();
     }
 
-    private static GatewayRuntime buildGateway(String protocol, int backendPort) {
-        return Gateway.builder()
+    private static GatewayRuntime buildGateway(String protocol, int backendPort, String mode) {
+        var assembler = Gateway.builder()
                 .receiver(RECV, receiverFactory(protocol), ephemeralReceiver(protocol))
-                .exporter(SINK, exporterFactory(protocol), OtlpExporterConfig.defaults(backendPort))
-                .pipeline(PipelineId.of(TRACES), new PipelineConfig(List.of(RECV), List.of(), List.of(SINK)))
+                .exporter(SINK, exporterFactory(protocol), OtlpExporterConfig.defaults(backendPort));
+        List<ComponentId> processors;
+        switch (mode) {
+            case "passthrough" -> processors = List.of();
+            case "domainview" -> {
+                assembler.processor(PROC, new DomainViewProcessorFactory(), EmptyConfig.INSTANCE);
+                processors = List.of(PROC);
+            }
+            default -> throw new IllegalArgumentException("unknown mode: " + mode);
+        }
+        return assembler
+                .pipeline(PipelineId.of(TRACES), new PipelineConfig(List.of(RECV), processors, List.of(SINK)))
                 .build();
     }
 
@@ -274,6 +309,90 @@ public class ReceiveForwardExportBenchmark {
         @Override
         public CompletionStage<DeliveryResult> consume(ConsumeContext ctx, T data) {
             return DeliveryResult.acceptedStage(provenance);
+        }
+
+        @Override
+        public CompletionStage<Void> start(ComponentContext ctx) {
+            return CompletableFuture.completedFuture(null);
+        }
+
+        @Override
+        public CompletionStage<Void> shutdown(ShutdownContext ctx) {
+            return CompletableFuture.completedFuture(null);
+        }
+    }
+
+    /// The `domainview` mode's one processor: it reads the payload through the interface-level
+    /// `DOMAIN_IMMUTABLE` view and re-emits the same batch as a fresh domain-backed payload. This is
+    /// the same shape as the seed `FunctionProcessorFactory` in `otlp4j-samples` with an identity
+    /// transform, kept as a local fixture here so the benchmark module does not take on a samples
+    /// dependency. It is hardcoded to traces because the benchmark wires only a traces pipeline.
+    private static final class DomainViewProcessorFactory implements ProcessorFactory<EmptyConfig> {
+
+        private final SignalDescriptor<TracesData> signal = TRACES;
+
+        @Override
+        public ComponentKind kind() {
+            return ComponentKind.PROCESSOR;
+        }
+
+        @Override
+        public StabilityLevel stability() {
+            return StabilityLevel.DEVELOPMENT;
+        }
+
+        @Override
+        public EmptyConfig defaultConfig() {
+            return EmptyConfig.INSTANCE;
+        }
+
+        @Override
+        public String type() {
+            return "domain-view";
+        }
+
+        @Override
+        public <T extends TelemetryPayload> Processor<T> create(
+                CreateContext ctx, EmptyConfig config, SignalDescriptor<T> reqSignal, SignalConsumer<T> next) {
+            if (!reqSignal.equals(signal)) {
+                throw new IllegalArgumentException(
+                        "domain-view processor operates on " + signal + " but was created for " + reqSignal);
+            }
+            var processor = new DomainViewProcessor(signal, payloadConsumer(next));
+            return castProcessor(processor);
+        }
+
+        @SuppressWarnings("unchecked")
+        private static SignalConsumer<TelemetryPayload> payloadConsumer(SignalConsumer<?> next) {
+            return (SignalConsumer<TelemetryPayload>) next;
+        }
+
+        @SuppressWarnings("unchecked")
+        private static <T extends TelemetryPayload> Processor<T> castProcessor(Processor<TelemetryPayload> processor) {
+            return (Processor<T>) (Processor<?>) processor;
+        }
+    }
+
+    private static final class DomainViewProcessor implements Processor<TelemetryPayload> {
+
+        private final SignalDescriptor<TracesData> signal;
+
+        private final SignalConsumer<TelemetryPayload> next;
+
+        DomainViewProcessor(SignalDescriptor<TracesData> signal, SignalConsumer<TelemetryPayload> next) {
+            this.signal = signal;
+            this.next = next;
+        }
+
+        @Override
+        public ConsumerCapabilities capabilities() {
+            return ConsumerCapabilities.nonMutating();
+        }
+
+        @Override
+        public CompletionStage<DeliveryResult> consume(ConsumeContext ctx, TelemetryPayload data) {
+            var batch = signal.batchType().cast(data.view(PayloadView.DOMAIN_IMMUTABLE));
+            return next.consume(ctx, Payloads.domain(signal, batch));
         }
 
         @Override

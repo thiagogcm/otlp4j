@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 
 import static dev.nthings.otlp4j.core.signal.SignalDescriptor.TRACES;
 
+import dev.nthings.otlp4j.codec.Payloads;
 import dev.nthings.otlp4j.config.ClientConfig;
 import dev.nthings.otlp4j.core.component.ComponentId;
 import dev.nthings.otlp4j.core.component.ComponentKind;
@@ -110,7 +111,7 @@ class OtlpClientLifecycleTest {
                 .setTimeout(Duration.ofSeconds(20))
                 .build());
         // Fire an export and leave it in flight; do not join it.
-        client.export(TRACES, new TracesData(List.of()), PROV);
+        client.export(Payloads.domain(TRACES, new TracesData(List.of())), PROV);
         assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
 
         var timeout = Duration.ofMillis(500);

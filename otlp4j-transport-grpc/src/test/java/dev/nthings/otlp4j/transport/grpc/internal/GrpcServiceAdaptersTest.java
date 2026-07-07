@@ -2,10 +2,6 @@ package dev.nthings.otlp4j.transport.grpc.internal;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import dev.nthings.otlp4j.model.LogsData;
-import dev.nthings.otlp4j.model.MetricsData;
-import dev.nthings.otlp4j.model.ProfilesData;
-import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.core.component.ComponentId;
 import dev.nthings.otlp4j.core.component.ComponentKind;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
@@ -19,9 +15,13 @@ import dev.nthings.otlp4j.testing.TransportFixtures;
 import dev.nthings.otlp4j.transport.common.AdmissionControl;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
+import io.opentelemetry.proto.collector.logs.v1.ExportLogsServiceRequest;
 import io.opentelemetry.proto.collector.logs.v1.ExportLogsServiceResponse;
+import io.opentelemetry.proto.collector.metrics.v1.ExportMetricsServiceRequest;
 import io.opentelemetry.proto.collector.metrics.v1.ExportMetricsServiceResponse;
+import io.opentelemetry.proto.collector.profiles.v1development.ExportProfilesServiceRequest;
 import io.opentelemetry.proto.collector.profiles.v1development.ExportProfilesServiceResponse;
+import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceRequest;
 import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceResponse;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -39,20 +39,20 @@ class GrpcServiceAdaptersTest {
     private static final Provenance PROV =
             new Provenance(ComponentId.parse("sink"), ComponentKind.EXPORTER, SignalDescriptor.TRACES);
 
-    @DisplayName("TraceServiceAdapter decodes the request and forwards it to the dispatcher")
+    @DisplayName("TraceServiceAdapter forwards the parsed request to the dispatcher")
     @Test
-    void traceAdapterDecodesTheRequestAndForwardsItToTheDispatcher() {
+    void traceAdapterForwardsTheParsedRequestToTheDispatcher() {
         var sent = TransportFixtures.richTraceData();
-        var received = new AtomicReference<TracesData>();
+        var received = new AtomicReference<ExportTraceServiceRequest>();
         var observer = new RecordingObserver<ExportTraceServiceResponse>();
 
-        new TraceServiceAdapter(traces -> {
-            received.set(traces);
+        new TraceServiceAdapter(request -> {
+            received.set(request);
             return CompletableFuture.completedStage(DeliveryResult.accepted(PROV));
         }, AdmissionControl.unlimited()).export(TraceMapper.toProto(sent), observer);
 
         observer.await();
-        assertThat(received.get()).isEqualTo(sent);
+        assertThat(received.get()).isEqualTo(TraceMapper.toProto(sent));
         assertThat(observer.completed).isTrue();
         assertThat(observer.error).isNull();
         assertThat(observer.values.getFirst().hasPartialSuccess()).isFalse();
@@ -178,13 +178,13 @@ class GrpcServiceAdaptersTest {
         assertThat(observer.completed).isTrue();
     }
 
-    @DisplayName("ProfilesServiceAdapter decodes the request and forwards it to the dispatcher")
+    @DisplayName("ProfilesServiceAdapter forwards the parsed request to the dispatcher")
     @Test
-    void profilesAdapterDecodesTheRequestAndForwardsItToTheDispatcher() {
-        var received = new AtomicReference<ProfilesData>();
+    void profilesAdapterForwardsTheParsedRequestToTheDispatcher() {
+        var received = new AtomicReference<ExportProfilesServiceRequest>();
         var observer = new RecordingObserver<ExportProfilesServiceResponse>();
-        new ProfilesServiceAdapter(profiles -> {
-            received.set(profiles);
+        new ProfilesServiceAdapter(request -> {
+            received.set(request);
             return CompletableFuture.completedStage(DeliveryResult.accepted(PROV));
         }, AdmissionControl.unlimited()).export(ProfilesMapper.toProto(TransportFixtures.profilesData()), observer);
         observer.await();
@@ -247,34 +247,34 @@ class GrpcServiceAdaptersTest {
         assertThat(status.getDescription()).isEqualTo("profiles boom");
     }
 
-    @DisplayName("MetricsServiceAdapter decodes a full-success request")
+    @DisplayName("MetricsServiceAdapter forwards a full-success request")
     @Test
-    void metricsAdapterDecodesAFullSuccessRequest() {
-        var received = new AtomicReference<MetricsData>();
+    void metricsAdapterForwardsAFullSuccessRequest() {
+        var received = new AtomicReference<ExportMetricsServiceRequest>();
         var observer = new RecordingObserver<ExportMetricsServiceResponse>();
         var sent = TransportFixtures.richMetricsData();
-        new MetricsServiceAdapter(metrics -> {
-            received.set(metrics);
+        new MetricsServiceAdapter(request -> {
+            received.set(request);
             return CompletableFuture.completedStage(DeliveryResult.accepted(PROV));
         }, AdmissionControl.unlimited()).export(MetricsMapper.toProto(sent), observer);
         observer.await();
-        assertThat(received.get()).isEqualTo(sent);
+        assertThat(received.get()).isEqualTo(MetricsMapper.toProto(sent));
         assertThat(observer.completed).isTrue();
         assertThat(observer.values.getFirst().hasPartialSuccess()).isFalse();
     }
 
-    @DisplayName("LogsServiceAdapter decodes a full-success request")
+    @DisplayName("LogsServiceAdapter forwards a full-success request")
     @Test
-    void logsAdapterDecodesAFullSuccessRequest() {
-        var received = new AtomicReference<LogsData>();
+    void logsAdapterForwardsAFullSuccessRequest() {
+        var received = new AtomicReference<ExportLogsServiceRequest>();
         var observer = new RecordingObserver<ExportLogsServiceResponse>();
         var sent = TransportFixtures.richLogsData();
-        new LogsServiceAdapter(logs -> {
-            received.set(logs);
+        new LogsServiceAdapter(request -> {
+            received.set(request);
             return CompletableFuture.completedStage(DeliveryResult.accepted(PROV));
         }, AdmissionControl.unlimited()).export(LogsMapper.toProto(sent), observer);
         observer.await();
-        assertThat(received.get()).isEqualTo(sent);
+        assertThat(received.get()).isEqualTo(LogsMapper.toProto(sent));
         assertThat(observer.completed).isTrue();
         assertThat(observer.values.getFirst().hasPartialSuccess()).isFalse();
     }

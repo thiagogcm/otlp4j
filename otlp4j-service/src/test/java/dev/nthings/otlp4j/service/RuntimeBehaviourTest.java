@@ -1,6 +1,6 @@
 package dev.nthings.otlp4j.service;
 
-import dev.nthings.otlp4j.core.signal.ModelBatchPayload;
+import dev.nthings.otlp4j.codec.Payloads;
 import static dev.nthings.otlp4j.core.signal.SignalDescriptor.METRICS;
 import static dev.nthings.otlp4j.core.signal.SignalDescriptor.TRACES;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -35,8 +35,8 @@ class RuntimeBehaviourTest {
 
     private final Fakes.Log log = new Fakes.Log();
 
-    private final ModelBatchPayload<TracesData> payload =
-            new ModelBatchPayload<>(TRACES, new TracesData(List.of()));
+    private final TelemetryPayload payload =
+            Payloads.domain(TRACES, new TracesData(List.of()));
 
     /// The core `SignalConsumers.consumer` is keyed by the payload type (`TelemetryPayload`) while the
     /// public `SignalDescriptor` constants are keyed by the model batch type (`TracesData`), so the

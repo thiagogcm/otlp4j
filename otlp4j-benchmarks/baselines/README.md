@@ -83,6 +83,7 @@ benchmark and, ideally, higher end-to-end throughput at unchanged allocation.
 | File | Date | JDK | Machine |
 | --- | --- | --- | --- |
 | `baseline-2026-07-06.json` | 2026-07-06 | Temurin 25.0.3+9 (OpenJDK 25 LTS) | Intel Core Ultra 9 185H, 22 logical cores, 16 GB RAM, Linux 6.18 WSL2 |
+| `phase2-2026-07-07.json` | 2026-07-07 | Temurin 25.0.3+9 (OpenJDK 25 LTS) | Intel Core Ultra 9 185H, 22 logical cores, 16 GB RAM, Linux 6.18 WSL2 |
 
 ### baseline-2026-07-06.json headline numbers
 
@@ -113,3 +114,105 @@ Codec marshalling (parse + toDomain + toProto + serialize, no transport):
 
 The full per-iteration data, error bars, and the `AverageTime`-mode allocation figures are in
 `baseline-2026-07-06.json`; the tables above are the headline throughput and allocation numbers.
+
+### phase2-2026-07-07.json headline numbers
+
+Captured on the same machine and JDK as `baseline-2026-07-06.json`, with the identical pinned
+`@Fork(1)`, `@Warmup(iterations = 3, time = 1)`, `@Measurement(iterations = 5, time = 1)` run
+parameters, so the two files are directly comparable. This run adds the Phase 2 measurements: a
+`mode` parameter (`passthrough` versus `domainview`) on `ReceiveForwardExportBenchmark`, and a
+`parseSerialize` method on `CodecMarshallingBenchmark` beside the unchanged `parseDecodeEncodeSerialize`
+round trip.
+
+Receive-forward-export (end-to-end, two real OTLP hops). `passthrough` wires no processor in the
+gateway pipeline, so the gateway hop forwards the proto-backed payload the receiver decoded straight
+to the OTLP exporter with no domain materialisation. `domainview` wires one domain-view processor, so
+the gateway hop pays for exactly one `toDomain` and one `toProto`, the same domain touch every hop
+paid for before Phase 2.
+
+| Protocol | Size | Mode | Throughput | Latency | Allocation |
+| --- | --- | --- | --- | --- | --- |
+| gRPC | small | passthrough | 0.981 ops/ms | 1.85 ms/op | 42.9 KB/op |
+| gRPC | small | domainview | 0.631 ops/ms | 1.53 ms/op | 49.8 KB/op |
+| gRPC | large | passthrough | 0.434 ops/ms | 2.32 ms/op | 1.97 MB/op |
+| gRPC | large | domainview | 0.433 ops/ms | 2.30 ms/op | 2.95 MB/op |
+| HTTP | small | passthrough | 0.893 ops/ms | 1.19 ms/op | 240 KB/op |
+| HTTP | small | domainview | 0.933 ops/ms | 1.36 ms/op | 244 KB/op |
+| HTTP | large | passthrough | 0.359 ops/ms | 2.16 ms/op | 2.92 MB/op |
+| HTTP | large | domainview | 0.350 ops/ms | 2.36 ms/op | 3.84 MB/op |
+
+Codec marshalling (no transport). `round-trip` is the unchanged `parseDecodeEncodeSerialize` domain
+path (parse, `toDomain`, `toProto`, serialize); `pass-through` is the new `parseSerialize` codec path
+(parse, serialize straight back, no domain step).
+
+| Signal | Size | Path | Throughput | Latency | Allocation |
+| --- | --- | --- | --- | --- | --- |
+| traces | small | round-trip | 0.512 ops/us | 2.00 us/op | 8.40 KB/op |
+| traces | small | pass-through | 0.761 ops/us | 1.30 us/op | 4.90 KB/op |
+| traces | large | round-trip | 0.0022 ops/us | 450 us/op | 1.98 MB/op |
+| traces | large | pass-through | 0.0034 ops/us | 272 us/op | 1.04 MB/op |
+| metrics | small | round-trip | 0.603 ops/us | 1.50 us/op | 7.06 KB/op |
+| metrics | small | pass-through | 0.936 ops/us | 1.06 us/op | 4.02 KB/op |
+| metrics | large | round-trip | 0.0032 ops/us | 245 us/op | 1.31 MB/op |
+| metrics | large | pass-through | 0.0053 ops/us | 158 us/op | 641 KB/op |
+| logs | small | round-trip | 0.512 ops/us | 1.50 us/op | 7.18 KB/op |
+| logs | small | pass-through | 0.892 ops/us | 1.12 us/op | 4.18 KB/op |
+| logs | large | round-trip | 0.0042 ops/us | 246 us/op | 1.24 MB/op |
+| logs | large | pass-through | 0.0058 ops/us | 171 us/op | 713 KB/op |
+
+The full per-iteration data, error bars, and the `AverageTime`-mode figures are in
+`phase2-2026-07-07.json`; the tables above are the headline throughput and allocation numbers.
+
+### Phase 2 versus the Phase 0 baseline: the pass-through allocation win
+
+Same-tuple comparison of `secondaryMetrics."gc.alloc.rate.norm".score` under `Mode = thrpt`, `phase2-2026-07-07.json`
+against `baseline-2026-07-06.json`. The `baseline-2026-07-06.json` row is the pre-Phase-2 shape: a
+domain batch built and re-encoded to proto at every hop, on both transports, because `ModelBatchPayload`
+always carried a domain record and the transports always called `toDomain` on receive and `toProto`
+on export.
+
+Receive-forward-export, allocation drop against the baseline:
+
+| Protocol | Size | Baseline | Phase 2 passthrough | Drop | Phase 2 domainview | Drop |
+| --- | --- | --- | --- | --- | --- | --- |
+| gRPC | small | 52.4 KB/op | 42.9 KB/op | 18% | 49.8 KB/op | 5% |
+| gRPC | large | 3.94 MB/op | 1.97 MB/op | 50% | 2.95 MB/op | 25% |
+| HTTP | small | 251 KB/op | 240 KB/op | 4% | 244 KB/op | 3% |
+| HTTP | large | 4.77 MB/op | 2.92 MB/op | 39% | 3.84 MB/op | 19% |
+
+Codec marshalling, allocation drop against the baseline (the `round-trip` column is the unchanged
+domain path, included to confirm Phase 2 introduced no regression there; the `pass-through` column is
+the new `parseSerialize` measurement):
+
+| Signal | Size | Baseline | Phase 2 round-trip | Change | Phase 2 pass-through | Drop |
+| --- | --- | --- | --- | --- | --- | --- |
+| traces | small | 8.40 KB/op | 8.40 KB/op | ~0% | 4.90 KB/op | 41% |
+| traces | large | 1.98 MB/op | 1.98 MB/op | ~0% | 1.04 MB/op | 48% |
+| metrics | small | 7.06 KB/op | 7.06 KB/op | ~0% | 4.02 KB/op | 43% |
+| metrics | large | 1.33 MB/op | 1.31 MB/op | -1% | 641 KB/op | 52% |
+| logs | small | 7.18 KB/op | 7.18 KB/op | ~0% | 4.18 KB/op | 42% |
+| logs | large | 1.29 MB/op | 1.24 MB/op | -4% | 713 KB/op | 45% |
+
+What the numbers show. The codec-attributable win is the cleanest signal: parsing a request and
+writing the same proto message straight back, with no domain step, allocates roughly 41 to 52 percent
+less than the parse-decode-encode-serialize round trip, on every signal and both sizes, and the
+unchanged round trip itself sits within measurement noise of the Phase 0 baseline, confirming the
+Phase 2 codec and payload changes carried no regression on the path nothing had asked to skip.
+
+The end-to-end win depends on the transport. On the large gRPC case, same-protocol pass-through
+allocates about half the Phase 0 baseline (1.97 MB/op against 3.94 MB/op), which matches removing one
+full decode-then-re-encode pair at the gateway hop, the exact quantity the payload redesign targets.
+The large HTTP case drops by about 39 percent rather than half, which confirms the section 7 design
+call precisely: the JDK `HttpClient` still requires one presized request-body `byte[]` regardless of
+representation, so HTTP pass-through removes the domain-to-proto re-encode but not a buffer, while
+gRPC's blocking stub carries no such requirement. The small-payload cases show a smaller absolute drop
+because fixed per-request overhead (connections, framing, JMH per-invocation bookkeeping) dominates a
+one-item batch, diluting the per-item allocation the redesign removes.
+
+The `domainview` row is not a regression signal, it is the isolating control: it forces the same one
+`toDomain` plus one `toProto` at the gateway hop that every pipeline paid for before Phase 2, and it
+still allocates less than the Phase 0 baseline (25 percent less on gRPC large, 19 percent less on HTTP
+large) because the backend hop's receiver no longer decodes to a domain record it will never read,
+regardless of what the gateway hop does. That backend-side laziness is a Phase 2 property every
+pipeline gets for free; `passthrough` adds the gateway hop's own laziness on top of it, which is the
+full pass-through win.

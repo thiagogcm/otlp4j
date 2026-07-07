@@ -24,6 +24,11 @@
             <groupId>dev.nthings.otlp4j</groupId>
             <artifactId>otlp4j-core</artifactId>
         </dependency>
+        <!-- The proto-free codec payload facade (Payloads) the seed processors emit through. -->
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-codec</artifactId>
+        </dependency>
         <!-- The service graph runtime the demo boots the gateway and the backend through. -->
         <dependency>
             <groupId>dev.nthings.otlp4j</groupId>

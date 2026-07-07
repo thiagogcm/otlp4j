@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.result.Provenance;
-import dev.nthings.otlp4j.core.signal.SignalDescriptor;
+import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.spi.OtlpClient;
 import dev.nthings.otlp4j.telemetry.LoggingGatewayMetrics;
@@ -35,8 +35,7 @@ class ExporterMetricsTest {
         }
 
         @Override
-        public <T> CompletionStage<DeliveryResult> export(
-                SignalDescriptor<T> signal, T batch, Provenance provenance) {
+        public CompletionStage<DeliveryResult> export(TelemetryPayload payload, Provenance provenance) {
             return result.apply(provenance);
         }
 

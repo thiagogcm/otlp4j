@@ -3,7 +3,9 @@ package dev.nthings.otlp4j.transport.grpc.internal;
 import com.google.protobuf.MessageLite;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.result.Provenance;
+import dev.nthings.otlp4j.core.signal.PayloadView;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
+import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import dev.nthings.otlp4j.codec.SignalCodec;
 import dev.nthings.otlp4j.codec.Transports;
 import dev.nthings.otlp4j.transport.common.ClientHeaders;
@@ -115,18 +117,16 @@ public final class GrpcOtlpClient implements OtlpClient {
     }
 
     @Override
-    public <T> CompletionStage<DeliveryResult> export(
-            SignalDescriptor<T> signal, T batch, Provenance provenance) {
-        // Safe: exports is populated at construction with one entry per signal, keyed by descriptor
-        // identity, whose value type parameter is the same T carried by the signal.
-        @SuppressWarnings("unchecked")
-        var export = (GrpcExport<T, ?, ?>) exports.get(signal);
+    public CompletionStage<DeliveryResult> export(TelemetryPayload payload, Provenance provenance) {
+        // exports is populated at construction with one entry per signal, keyed by descriptor
+        // identity, so the payload's signal selects the export whose REQ is that signal's request type.
+        var export = exports.get(payload.signal());
         // Double-deadline, belt-and-suspenders and intentional: the stub's withDeadlineAfter (in
         // call(...)) bounds each in-flight RPC, while this orTimeout bounds the whole async attempt
         // (retry backoff and executor queueing included), so a stalled carrier thread cannot
         // outlive the caller's budget. A slow call is interrupted by whichever fires first.
         return CompletableFuture.supplyAsync(
-                () -> ResilienceRetries.execute(retry, () -> export.result(batch, provenance)),
+                () -> ResilienceRetries.execute(retry, () -> export.result(payload, provenance)),
                 executor)
                 .orTimeout(config.timeout().toNanos(), TimeUnit.NANOSECONDS);
     }
@@ -137,8 +137,13 @@ public final class GrpcOtlpClient implements OtlpClient {
     private record GrpcExport<T, REQ extends MessageLite, RESP extends MessageLite>(
             SignalCodec<T, REQ, RESP> codec, Function<REQ, RESP> rpc) {
 
-        DeliveryResult result(T batch, Provenance provenance) {
-            return codec.deliveryResult(rpc.apply(codec.toProto(batch)), provenance);
+        DeliveryResult result(TelemetryPayload payload, Provenance provenance) {
+            // The payload's signal selected this export, so its PROTO_REQUEST view is this REQ. For a
+            // pass-through proto-backed payload the view is the carried message, so toProto never runs;
+            // the blocking stub serialises it straight to the wire with no intermediate byte[].
+            @SuppressWarnings("unchecked")
+            var request = (REQ) payload.view(PayloadView.PROTO_REQUEST);
+            return codec.deliveryResult(rpc.apply(request), provenance);
         }
     }
 
