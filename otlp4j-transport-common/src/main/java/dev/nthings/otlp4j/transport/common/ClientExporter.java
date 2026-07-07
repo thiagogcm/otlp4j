@@ -1,21 +1,19 @@
 package dev.nthings.otlp4j.transport.common;
 
-import dev.nthings.otlp4j.pipeline.LogsSink;
-import dev.nthings.otlp4j.pipeline.MetricsSink;
-import dev.nthings.otlp4j.pipeline.ProfilesSink;
-import dev.nthings.otlp4j.pipeline.Sink;
-import dev.nthings.otlp4j.pipeline.TracesSink;
-import dev.nthings.otlp4j.pipeline.SharedLifecycle;
-import dev.nthings.otlp4j.pipeline.OtlpExporter;
-import dev.nthings.otlp4j.model.ConsumeResult;
-import dev.nthings.otlp4j.model.LogsData;
-import dev.nthings.otlp4j.model.MetricsData;
-import dev.nthings.otlp4j.model.ProfilesData;
-import dev.nthings.otlp4j.model.Signal;
-import dev.nthings.otlp4j.model.TracesData;
+import dev.nthings.otlp4j.core.component.ComponentId;
+import dev.nthings.otlp4j.core.component.ComponentKind;
+import dev.nthings.otlp4j.core.consumer.ConsumeContext;
+import dev.nthings.otlp4j.core.consumer.ConsumerCapabilities;
+import dev.nthings.otlp4j.core.consumer.SignalConsumer;
+import dev.nthings.otlp4j.core.result.DeliveryResult;
+import dev.nthings.otlp4j.core.result.Provenance;
+import dev.nthings.otlp4j.core.signal.ModelBatchPayload;
+import dev.nthings.otlp4j.core.signal.SignalDescriptor;
+import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import dev.nthings.otlp4j.spi.OtlpClient;
 import dev.nthings.otlp4j.telemetry.GatewayMetrics;
 import java.lang.ref.Cleaner;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
@@ -29,23 +27,27 @@ import java.util.function.Consumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/// Shared [OtlpExporter] implementation that fans all four signal facets to a single [OtlpClient]
-/// and manages shutdown lifecycle. Used by gRPC and HTTP entry points.
+/// The shared multi-signal exporter runtime that fans all four signal facets to a single
+/// [OtlpClient] and manages shutdown lifecycle. Used by gRPC and HTTP entry points and wrapped for
+/// the graph by an `ExporterComponentAdapter`.
 ///
-/// Each facet is a lifecycle-bearing view: draining one facet drains the whole shared channel, so a
-/// pipeline auto-collects and drains the exporter through any attached facet with no extra ceremony.
+/// Each facet is a [SignalConsumer] over the shared channel: consuming a payload exports its batch
+/// through the client and returns a [DeliveryResult] attributed to this exporter's identity. Draining
+/// any facet drains the whole shared channel, so one exporter serves every signal that terminates at
+/// one endpoint.
 ///
-/// The channel is reference-counted: when several subscriptions each attach a facet of the same
-/// exporter, every subscription retains it once ([SharedLifecycle#retain]) and the channel closes
-/// only on the last release, so one subscription's shutdown cannot close it out from under another.
-///
-/// An exporter garbage-collected without [ClientExporter#shutdown] logs a warning
-/// instead of silently leaking its client channel.
-public final class ClientExporter implements OtlpExporter, SharedLifecycle {
+/// The channel is reference-counted: when several owners each retain the exporter, the channel closes
+/// only on the last release, so one owner's shutdown cannot close it out from under another. An
+/// exporter garbage-collected without [#shutdown(Duration)] logs a warning instead of silently
+/// leaking its client channel.
+public final class ClientExporter implements AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(ClientExporter.class);
 
-    /// Warns when an exporter is dropped without [ClientExporter#shutdown].
+    /// The grace applied by [#close()] when an exporter is drained through try-with-resources.
+    private static final Duration DEFAULT_GRACE = Duration.ofSeconds(10);
+
+    /// Warns when an exporter is dropped without [#shutdown(Duration)].
     private static final Cleaner CLEANER = Cleaner.create();
 
     private static final Consumer<String> DEFAULT_REPORTER = log::warn;
@@ -53,17 +55,13 @@ public final class ClientExporter implements OtlpExporter, SharedLifecycle {
     private final OtlpClient client;
     private final GatewayMetrics.LongCounter exportSuccess;
     private final GatewayMetrics.LongCounter exportFailure;
-    private final TracesFacet traces;
-    private final MetricsFacet metrics;
-    private final LogsFacet logs;
-    private final ProfilesFacet profiles;
 
-    /// Signal-keyed view of the four facets, backing the generic [#sink(Signal)] accessor. Populated
-    /// once at construction and never mutated, so the lookup in [#sink(Signal)] is provably typed.
-    private final Map<Signal<?>, Facet<?>> facets = new HashMap<>();
+    /// Signal-keyed view of the four facets, backing the [#consumer(SignalDescriptor)] accessor.
+    /// Populated once at construction and never mutated, so each lookup is provably typed.
+    private final Map<SignalDescriptor<?>, Facet<?>> facets = new HashMap<>();
 
-    /// Number of pipeline subscriptions currently sharing this exporter; the channel closes on the
-    /// release that brings it back to zero.
+    /// Number of owners currently sharing this exporter; the channel closes on the release that
+    /// brings it back to zero.
     private final AtomicInteger references = new AtomicInteger();
 
     /// Latches the one-time channel close, so the last release (or a direct shutdown) closes exactly once.
@@ -74,93 +72,103 @@ public final class ClientExporter implements OtlpExporter, SharedLifecycle {
 
     /// Creates an exporter over `client`, with no self-observability ([GatewayMetrics#noop]).
     /// `exporterType` labels it in the leak warning.
+    ///
+    /// @param client       the wire client the exporter delegates to
+    /// @param exporterType the exporter name used in the leak warning
     public ClientExporter(OtlpClient client, String exporterType) {
-        this(client, exporterType, GatewayMetrics.noop());
+        this(client, ComponentId.parse("otlp"), exporterType, GatewayMetrics.noop(), DEFAULT_REPORTER);
     }
 
     /// Creates an exporter over `client`, reporting per-signal export success/failure to `telemetry`.
-    /// `exporterType` labels it in the leak warning.
+    ///
+    /// @param client       the wire client the exporter delegates to
+    /// @param exporterType the exporter name used in the leak warning
+    /// @param telemetry    the registry the export counters report to
     public ClientExporter(OtlpClient client, String exporterType, GatewayMetrics telemetry) {
-        this(client, exporterType, telemetry, DEFAULT_REPORTER);
+        this(client, ComponentId.parse("otlp"), exporterType, telemetry, DEFAULT_REPORTER);
+    }
+
+    /// Creates an exporter over `client` attributed to `id`, reporting export counters to `telemetry`.
+    ///
+    /// @param client       the wire client the exporter delegates to
+    /// @param id           the exporter component identity attributed to every delivery result
+    /// @param exporterType the exporter name used in the leak warning
+    /// @param telemetry    the registry the export counters report to
+    public ClientExporter(OtlpClient client, ComponentId id, String exporterType, GatewayMetrics telemetry) {
+        this(client, id, exporterType, telemetry, DEFAULT_REPORTER);
     }
 
     /// Package-private: redirects the leak warning so a test can observe it without a logging backend.
     /// Reports no metrics ([GatewayMetrics#noop]).
     ClientExporter(OtlpClient client, String exporterType, Consumer<String> leakReporter) {
-        this(client, exporterType, GatewayMetrics.noop(), leakReporter);
+        this(client, ComponentId.parse("otlp"), exporterType, GatewayMetrics.noop(), leakReporter);
     }
 
     /// Package-private canonical constructor: `telemetry` receives the export counters, `leakReporter`
     /// the leak warning.
-    ClientExporter(OtlpClient client, String exporterType, GatewayMetrics telemetry,
+    ClientExporter(OtlpClient client, ComponentId id, String exporterType, GatewayMetrics telemetry,
             Consumer<String> leakReporter) {
         this.client = client;
         this.exportSuccess = telemetry.counter(
                 "otlp4j.exporter.export.success", "batches the endpoint acknowledged");
         this.exportFailure = telemetry.counter(
                 "otlp4j.exporter.export.failure", "batches the endpoint rejected or that failed to send");
-        this.traces = new TracesFacet();
-        this.metrics = new MetricsFacet();
-        this.logs = new LogsFacet();
-        this.profiles = new ProfilesFacet();
-        facets.put(Signal.TRACES, traces);
-        facets.put(Signal.METRICS, metrics);
-        facets.put(Signal.LOGS, logs);
-        facets.put(Signal.PROFILES, profiles);
+        for (SignalDescriptor<?> signal : SignalDescriptor.values()) {
+            facets.put(signal, new Facet<>(signal, id));
+        }
         this.leakWatch = new LeakWatch(exporterType, leakReporter);
         this.cleanable = CLEANER.register(this, leakWatch);
     }
 
-    @Override
-    public <T> Sink<T> sink(Signal<T> signal) {
-        // The map is keyed by Signal identity and each entry's Facet<?> was created with that same
-        // signal, so the value's element type is exactly T.
-        @SuppressWarnings("unchecked")
-        var facet = (Sink<T>) facets.get(signal);
-        return facet;
+    /// The facet that exports `signal`, typed as a [SignalConsumer] over the payload marker.
+    ///
+    /// @param signal the signal to export
+    /// @return the per-signal facet
+    public SignalConsumer<TelemetryPayload> consumer(SignalDescriptor<?> signal) {
+        return facets.get(signal);
     }
 
-    @Override
-    public TracesSink traces() {
-        return traces;
+    /// Exports one `batch` of `signal` through the shared channel under a default delivery context,
+    /// the convenience the standalone exporter offers callers that hold a batch rather than a graph
+    /// payload.
+    ///
+    /// @param signal the signal to export
+    /// @param batch  the domain batch
+    /// @param <T>    the domain batch type
+    /// @return a stage completing with the delivery result
+    public <T> CompletionStage<DeliveryResult> export(SignalDescriptor<T> signal, T batch) {
+        return consumer(signal).consume(
+                new ReceiverConsumeContext(Clock.systemUTC()), new ModelBatchPayload<>(signal, batch));
     }
 
-    @Override
-    public MetricsSink metrics() {
-        return metrics;
-    }
-
-    @Override
-    public LogsSink logs() {
-        return logs;
-    }
-
-    @Override
-    public ProfilesSink profiles() {
-        return profiles;
-    }
-
-    @Override
+    /// Flushes any buffered exports; a no-op, since the exporter does not buffer.
+    ///
+    /// @param timeout the flush deadline
+    /// @return a completed stage
     public CompletionStage<Void> forceFlush(Duration timeout) {
         return CompletableFuture.completedFuture(null);
     }
 
-    @Override
+    /// Retains one owner's stake in the shared channel; the channel closes only on the matching
+    /// [#release()].
     public void retain() {
         references.incrementAndGet();
     }
 
-    @Override
+    /// Drops one owner's stake without draining; floors at zero. The leak watch remains the safety
+    /// net if every owner releases and none shuts the channel down.
     public void release() {
-        // Drop one owner's stake without draining; floors at zero. The Cleaner leak-watch remains the
-        // safety net if every owner releases and none shuts the channel down.
         references.updateAndGet(n -> n > 0 ? n - 1 : 0);
     }
 
-    @Override
+    /// Drains the shared channel within `timeout`, closing it only on the release that brings the
+    /// reference count back to zero.
+    ///
+    /// @param timeout the drain deadline
+    /// @return a stage that completes when teardown finishes
     public CompletionStage<Void> shutdown(Duration timeout) {
-        // Close the channel only on the last release; a direct, un-retained shutdown (facet used
-        // outside a pipeline, or close()) floors the counter at zero and closes.
+        // Close the channel only on the last release; a direct, un-retained shutdown floors the
+        // counter at zero and closes.
         if (references.updateAndGet(n -> n > 0 ? n - 1 : 0) > 0) {
             return CompletableFuture.completedFuture(null);
         }
@@ -192,71 +200,55 @@ public final class ClientExporter implements OtlpExporter, SharedLifecycle {
                 });
     }
 
-    /// A lifecycle-bearing view of one signal: `retain`/`shutdown` count against the whole exporter,
-    /// since every facet shares its channel. `consume` exports through the shared client via the
-    /// carried [Signal]; the four subclasses exist only to carry the marker sink type.
-    private abstract class Facet<T> implements SharedLifecycle, Sink<T> {
-        final Signal<T> signal;
+    /// Drains the shared channel with the default grace, swallowing and warning on a teardown failure
+    /// so a throw during try-with-resources cannot mask the primary exception.
+    @Override
+    public void close() {
+        try {
+            shutdown(DEFAULT_GRACE).toCompletableFuture().join();
+        } catch (RuntimeException e) {
+            log.warn("exporter close failed", e);
+        }
+    }
 
-        Facet(Signal<T> signal) {
+    /// A [SignalConsumer] view of one signal: consuming a payload exports its batch through the shared
+    /// client and returns a [DeliveryResult] attributed to this exporter for that signal.
+    ///
+    /// @param <T> the domain batch type
+    private final class Facet<T> implements SignalConsumer<TelemetryPayload> {
+
+        private final SignalDescriptor<T> signal;
+        private final Provenance provenance;
+
+        Facet(SignalDescriptor<T> signal, ComponentId id) {
             this.signal = signal;
+            this.provenance = new Provenance(id, ComponentKind.EXPORTER, signal);
         }
 
         @Override
-        public CompletionStage<ConsumeResult> consume(T batch) {
+        public ConsumerCapabilities capabilities() {
+            return ConsumerCapabilities.nonMutating();
+        }
+
+        @Override
+        public CompletionStage<DeliveryResult> consume(ConsumeContext context, TelemetryPayload data) {
+            // The payload's signal is this facet's signal, so its batch is the domain type the
+            // descriptor identifies.
+            var batch = signal.batchType().cast(((ModelBatchPayload<?>) data).batch());
             // Feed the export counters off the outcome without altering the returned stage: a failed
             // stage or a Rejected result counts as a failure, anything else as a success.
-            return client.export(signal.batch(batch)).whenComplete((result, failure) -> {
-                if (failure != null || result instanceof ConsumeResult.Rejected) {
+            return client.export(signal, batch, provenance).whenComplete((result, failure) -> {
+                if (failure != null || result instanceof DeliveryResult.Rejected) {
                     exportFailure.add(1);
                 } else {
                     exportSuccess.add(1);
                 }
             });
         }
-
-        @Override
-        public void retain() {
-            ClientExporter.this.retain();
-        }
-
-        @Override
-        public void release() {
-            ClientExporter.this.release();
-        }
-
-        @Override
-        public CompletionStage<Void> shutdown(Duration timeout) {
-            return ClientExporter.this.shutdown(timeout);
-        }
     }
 
-    private final class TracesFacet extends Facet<TracesData> implements TracesSink {
-        TracesFacet() {
-            super(Signal.TRACES);
-        }
-    }
-
-    private final class MetricsFacet extends Facet<MetricsData> implements MetricsSink {
-        MetricsFacet() {
-            super(Signal.METRICS);
-        }
-    }
-
-    private final class LogsFacet extends Facet<LogsData> implements LogsSink {
-        LogsFacet() {
-            super(Signal.LOGS);
-        }
-    }
-
-    private final class ProfilesFacet extends Facet<ProfilesData> implements ProfilesSink {
-        ProfilesFacet() {
-            super(Signal.PROFILES);
-        }
-    }
-
-    /// [Cleaner] action that warns when the exporter is garbage-collected without [ClientExporter#shutdown].
-    /// Holds no reference back to the exporter.
+    /// [Cleaner] action that warns when the exporter is garbage-collected without
+    /// [ClientExporter#shutdown]. Holds no reference back to the exporter.
     static final class LeakWatch implements Runnable {
 
         private final String exporterType;
@@ -272,10 +264,9 @@ public final class ClientExporter implements OtlpExporter, SharedLifecycle {
         public void run() {
             if (!closed) {
                 reporter.accept(exporterType + " was garbage-collected before shutdown(); its OTLP "
-                        + "client channel leaked. Attach a facet to a pipeline, which drains it on "
-                        + "shutdown; register it with Stage.owns(exporter) when it is hidden behind a "
-                        + "connector or lambda; or close it directly when a facet is used outside a "
-                        + "pipeline.");
+                        + "client channel leaked. Drain it through the graph runtime, retain and "
+                        + "release it around a shared use, or close it directly when it is used "
+                        + "standalone.");
             }
         }
     }

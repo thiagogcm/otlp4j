@@ -1,16 +1,27 @@
 package dev.nthings.otlp4j.transport.common;
 
+import static dev.nthings.otlp4j.core.signal.SignalDescriptor.TRACES;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import dev.nthings.otlp4j.pipeline.TracesSink;
-import dev.nthings.otlp4j.model.ConsumeResult;
-import dev.nthings.otlp4j.model.Signal;
+import dev.nthings.otlp4j.core.component.ComponentId;
+import dev.nthings.otlp4j.core.component.ComponentKind;
+import dev.nthings.otlp4j.core.consumer.ConsumeContext;
+import dev.nthings.otlp4j.core.consumer.ConsumerCapabilities;
+import dev.nthings.otlp4j.core.consumer.SignalConsumer;
+import dev.nthings.otlp4j.core.result.DeliveryReason;
+import dev.nthings.otlp4j.core.result.DeliveryResult;
+import dev.nthings.otlp4j.core.result.Disposition;
+import dev.nthings.otlp4j.core.result.Provenance;
+import dev.nthings.otlp4j.core.signal.ModelBatchPayload;
+import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import dev.nthings.otlp4j.model.Span;
+import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.testing.Fixtures;
-import java.time.Duration;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -18,96 +29,118 @@ import org.junit.jupiter.api.Test;
 @DisplayName("SignalSource")
 class SignalSourceTest {
 
-    @DisplayName("dispatch returns a retryable rejection when no consumer is attached")
+    private static final ComponentId RECEIVER = ComponentId.parse("otlp/in");
+
+    private static SignalSource<TracesData> source() {
+        return new SignalSource<>(TRACES, RECEIVER);
+    }
+
+    private static ModelBatchPayload<TracesData> payload() {
+        return new ModelBatchPayload<>(TRACES, Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)));
+    }
+
+    private static DeliveryResult dispatch(SignalSource<TracesData> source) {
+        return source.dispatch(new TestConsumeContext(), payload()).toCompletableFuture().join();
+    }
+
+    @DisplayName("dispatch returns a retryable NO_CONSUMER rejection when no consumer is attached")
     @Test
-    void dispatchWithoutSinkReturnsRetryableRejected() {
-        var source = new SignalSource<>(Signal.TRACES);
-        var result = source.dispatch(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
-                .toCompletableFuture().join();
-        assertThat(result).isInstanceOfSatisfying(ConsumeResult.Rejected.class, rejected -> {
-            assertThat(rejected.message())
-                    .contains("no consumer attached for TracesData")
-                    .contains("discard()");
-            assertThat(rejected.cause()).isNull();
+    void dispatchWithoutConsumerReturnsNoConsumer() {
+        var result = dispatch(source());
+        assertThat(result).isInstanceOfSatisfying(DeliveryResult.Rejected.class, rejected -> {
+            assertThat(rejected.disposition()).isEqualTo(Disposition.RETRYABLE);
+            assertThat(rejected.reason()).isEqualTo(DeliveryReason.NO_CONSUMER);
+            assertThat(rejected.message()).contains("no consumer attached for TracesData");
         });
     }
 
-    @DisplayName("discard explicitly accepts and drops batches")
+    @DisplayName("dispatch invokes the attached consumer once per payload")
     @Test
-    void discardAcceptsAndDropsBatches() {
-        var source = new SignalSource<>(Signal.TRACES);
-        var discard = source.discard();
-        try {
-            var result = source.dispatch(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
-                    .toCompletableFuture().join();
-            assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
-        } finally {
-            discard.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
-        }
-    }
-
-    @DisplayName("dispatch invokes the attached consumer once per batch")
-    @Test
-    void dispatchInvokesAttachedSink() {
-        var source = new SignalSource<>(Signal.TRACES);
+    void dispatchInvokesAttachedConsumer() {
+        var source = source();
         var hits = new AtomicInteger();
-        TracesSink c = traces -> {
-            hits.incrementAndGet();
-            return ConsumeResult.acceptedStage();
-        };
-        var sub = source.subscribe(c);
-        try {
-            source.dispatch(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER))).toCompletableFuture().join();
-            source.dispatch(Fixtures.traceData(Fixtures.span("b", Span.Kind.SERVER))).toCompletableFuture().join();
-        } finally {
-            sub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
-        }
+        source.attach(accepting(hits));
+
+        assertThat(dispatch(source)).isInstanceOf(DeliveryResult.Accepted.class);
+        dispatch(source);
         assertThat(hits.get()).isEqualTo(2);
     }
 
-    @DisplayName("subscribe rejects a second concurrent subscription")
+    @DisplayName("attach rejects a second consumer")
     @Test
-    void doubleSubscribeRejected() {
-        var source = new SignalSource<>(Signal.TRACES);
-        var sub = source.subscribe(traces -> ConsumeResult.acceptedStage());
-        try {
-            assertThatThrownBy(() -> source.subscribe(traces -> ConsumeResult.acceptedStage()))
-                    .isInstanceOf(IllegalStateException.class);
-        } finally {
-            sub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
-        }
+    void doubleAttachRejected() {
+        var source = source();
+        source.attach(accepting(new AtomicInteger()));
+        assertThatThrownBy(() -> source.attach(accepting(new AtomicInteger())))
+                .isInstanceOf(IllegalStateException.class);
     }
 
-    @DisplayName("dispatch propagates a synchronous subscriber throw verbatim (transport-level failure)")
+    @DisplayName("dispatch propagates a synchronous consumer throw verbatim (transport-level failure)")
     @Test
-    void dispatchPropagatesSinkException() {
-        var source = new SignalSource<>(Signal.TRACES);
-        TracesSink c = traces -> { throw new RuntimeException("boom"); };
-        var sub = source.subscribe(c);
-        try {
-            assertThatThrownBy(() ->
-                    source.dispatch(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER))))
+    void dispatchPropagatesConsumerException() {
+        var source = source();
+        source.attach(new SignalConsumer<>() {
+            @Override
+            public ConsumerCapabilities capabilities() {
+                return ConsumerCapabilities.nonMutating();
+            }
+
+            @Override
+            public CompletionStage<DeliveryResult> consume(ConsumeContext context, TelemetryPayload data) {
+                throw new RuntimeException("boom");
+            }
+        });
+        assertThatThrownBy(() -> source.dispatch(new TestConsumeContext(), payload()))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessageContaining("boom");
-        } finally {
-            sub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
-        }
     }
 
-    @DisplayName("dispatch propagates an asynchronous subscriber failure verbatim (transport-level failure)")
+    @DisplayName("dispatch propagates an asynchronous consumer failure verbatim (transport-level failure)")
     @Test
-    void dispatchPropagatesAsyncSinkFailure() {
-        var source = new SignalSource<>(Signal.TRACES);
-        TracesSink c = traces -> CompletableFuture.failedFuture(new IllegalStateException("async boom"));
-        var sub = source.subscribe(c);
-        try {
-            var stage = source.dispatch(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)));
-            assertThatThrownBy(() -> stage.toCompletableFuture().join())
+    void dispatchPropagatesAsyncConsumerFailure() {
+        var source = source();
+        source.attach(new SignalConsumer<>() {
+            @Override
+            public ConsumerCapabilities capabilities() {
+                return ConsumerCapabilities.nonMutating();
+            }
+
+            @Override
+            public CompletionStage<DeliveryResult> consume(ConsumeContext context, TelemetryPayload data) {
+                return CompletableFuture.failedFuture(new IllegalStateException("async boom"));
+            }
+        });
+        var stage = source.dispatch(new TestConsumeContext(), payload());
+        assertThatThrownBy(() -> stage.toCompletableFuture().join())
                 .isInstanceOf(CompletionException.class)
                 .hasRootCauseInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("async boom");
-        } finally {
-            sub.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
-        }
+    }
+
+    @DisplayName("dispatch keeps the empty payload path exercised")
+    @Test
+    void emptyPayloadStillDispatches() {
+        var source = source();
+        source.attach(accepting(new AtomicInteger()));
+        var result = source.dispatch(
+                new TestConsumeContext(), new ModelBatchPayload<>(TRACES, new TracesData(List.of())))
+                .toCompletableFuture().join();
+        assertThat(result).isInstanceOf(DeliveryResult.Accepted.class);
+    }
+
+    private static SignalConsumer<TelemetryPayload> accepting(AtomicInteger hits) {
+        var provenance = new Provenance(RECEIVER, ComponentKind.EXPORTER, TRACES);
+        return new SignalConsumer<>() {
+            @Override
+            public ConsumerCapabilities capabilities() {
+                return ConsumerCapabilities.nonMutating();
+            }
+
+            @Override
+            public CompletionStage<DeliveryResult> consume(ConsumeContext context, TelemetryPayload data) {
+                hits.incrementAndGet();
+                return DeliveryResult.acceptedStage(provenance);
+            }
+        };
     }
 }

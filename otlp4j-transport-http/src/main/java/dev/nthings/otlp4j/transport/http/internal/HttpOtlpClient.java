@@ -2,9 +2,9 @@ package dev.nthings.otlp4j.transport.http.internal;
 
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.MessageLite;
-import dev.nthings.otlp4j.model.ConsumeResult;
-import dev.nthings.otlp4j.model.Signal;
-import dev.nthings.otlp4j.model.SignalBatch;
+import dev.nthings.otlp4j.core.result.DeliveryResult;
+import dev.nthings.otlp4j.core.result.Provenance;
+import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.codec.SignalCodec;
 import dev.nthings.otlp4j.codec.Transports;
 import dev.nthings.otlp4j.transport.common.ClientHeaders;
@@ -12,7 +12,7 @@ import dev.nthings.otlp4j.config.ClientConfig;
 import dev.nthings.otlp4j.config.Compression;
 import dev.nthings.otlp4j.spi.OtlpClient;
 import dev.nthings.otlp4j.config.Tls;
-import dev.nthings.otlp4j.transport.common.ResilienceRetries;
+import dev.nthings.otlp4j.transport.common.internal.ResilienceRetries;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -64,7 +64,7 @@ public final class HttpOtlpClient implements OtlpClient {
     private final ClientConfig config;
     private final HttpClient http;
     private final boolean compress;
-    private final Map<Signal<?>, HttpEndpoint<?, ?, ?>> endpoints = new LinkedHashMap<>();
+    private final Map<SignalDescriptor<?>, HttpEndpoint<?, ?, ?>> endpoints = new LinkedHashMap<>();
     private final ExecutorService executor;
     private final Retry retry;
 
@@ -78,13 +78,13 @@ public final class HttpOtlpClient implements OtlpClient {
         // Per-signal endpoint binding: each entry pairs the resolved request URI with its
         // SignalCodec. The PROFILES path stays the /v1development oddball because it is read
         // straight from OtlpHttp.PROFILES_PATH, never templated from the signal name.
-        endpoints.put(Signal.TRACES, new HttpEndpoint<>(
+        endpoints.put(SignalDescriptor.TRACES, new HttpEndpoint<>(
                 URI.create(base + OtlpHttp.TRACES_PATH), SignalCodec.TRACES));
-        endpoints.put(Signal.METRICS, new HttpEndpoint<>(
+        endpoints.put(SignalDescriptor.METRICS, new HttpEndpoint<>(
                 URI.create(base + OtlpHttp.METRICS_PATH), SignalCodec.METRICS));
-        endpoints.put(Signal.LOGS, new HttpEndpoint<>(
+        endpoints.put(SignalDescriptor.LOGS, new HttpEndpoint<>(
                 URI.create(base + OtlpHttp.LOGS_PATH), SignalCodec.LOGS));
-        endpoints.put(Signal.PROFILES, new HttpEndpoint<>(
+        endpoints.put(SignalDescriptor.PROFILES, new HttpEndpoint<>(
                 URI.create(base + OtlpHttp.PROFILES_PATH), SignalCodec.PROFILES));
 
         var explicitConnect = config.connectTimeout();
@@ -121,35 +121,38 @@ public final class HttpOtlpClient implements OtlpClient {
     }
 
     @Override
-    public <T> CompletionStage<ConsumeResult> export(SignalBatch<T> batch) {
-        // Safe: endpoints is populated at construction with one entry per Signal, keyed by identity,
-        // whose value type parameter is the same T carried by the batch's signal.
+    public <T> CompletionStage<DeliveryResult> export(
+            SignalDescriptor<T> signal, T batch, Provenance provenance) {
+        // Safe: endpoints is populated at construction with one entry per signal, keyed by descriptor
+        // identity, whose value type parameter is the same T carried by the signal.
         @SuppressWarnings("unchecked")
-        var endpoint = (HttpEndpoint<T, ?, ?>) endpoints.get(batch.signal());
+        var endpoint = (HttpEndpoint<T, ?, ?>) endpoints.get(signal);
         // Double-deadline, belt-and-suspenders and intentional: the HttpRequest.timeout (in
         // request(...)) bounds each in-flight connection, while this orTimeout bounds the whole
         // async attempt (retry backoff and executor queueing included), so a stalled carrier
         // thread cannot outlive the caller's budget. A slow call is interrupted by whichever
         // fires first.
-        return CompletableFuture.supplyAsync(() -> send(endpoint, batch.batch()), executor)
+        return CompletableFuture.supplyAsync(() -> send(endpoint, batch, provenance), executor)
                 .orTimeout(config.timeout().toNanos(), TimeUnit.NANOSECONDS);
     }
 
     /// Encodes `batch` for `endpoint` and sends it through Resilience4j retry. The request is built
     /// once, outside the retry, and re-sent on each attempt; a 2xx response is parsed and mapped to
-    /// [ConsumeResult], any other outcome throws, mirroring the gRPC client.
-    private <T, REQ extends MessageLite, RESP extends MessageLite> ConsumeResult send(
-            HttpEndpoint<T, REQ, RESP> endpoint, T batch) {
+    /// [DeliveryResult] attributed to `provenance`, any other outcome throws, mirroring the gRPC
+    /// client.
+    private <T, REQ extends MessageLite, RESP extends MessageLite> DeliveryResult send(
+            HttpEndpoint<T, REQ, RESP> endpoint, T batch, Provenance provenance) {
         var codec = endpoint.codec();
         var payload = codec.toProto(batch).toByteArray();
         var body = compress ? gzip(payload) : payload;
         var httpRequest = request(endpoint.uri(), body);
         return ResilienceRetries.execute(retry,
-                () -> sendOnce(endpoint.uri(), httpRequest, codec::parseResponse, codec::result));
+                () -> sendOnce(endpoint.uri(), httpRequest, codec::parseResponse,
+                        resp -> codec.deliveryResult(resp, provenance)));
     }
 
     /// Test accessor: the resolved request URI bound to `signal`.
-    URI uri(Signal<?> signal) {
+    URI uri(SignalDescriptor<?> signal) {
         return endpoints.get(signal).uri();
     }
 
@@ -159,8 +162,8 @@ public final class HttpOtlpClient implements OtlpClient {
             URI uri, SignalCodec<T, REQ, RESP> codec) {
     }
 
-    private <RESP> ConsumeResult sendOnce(
-            URI uri, HttpRequest httpRequest, ProtoParser<RESP> parse, Function<RESP, ConsumeResult> toResult) {
+    private <RESP> DeliveryResult sendOnce(
+            URI uri, HttpRequest httpRequest, ProtoParser<RESP> parse, Function<RESP, DeliveryResult> toResult) {
         HttpResponse<byte[]> response;
         try {
             response = http.send(httpRequest, HttpResponse.BodyHandlers.ofByteArray());

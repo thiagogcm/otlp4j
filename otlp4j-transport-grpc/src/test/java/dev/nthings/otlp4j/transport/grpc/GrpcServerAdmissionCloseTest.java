@@ -3,8 +3,8 @@ package dev.nthings.otlp4j.transport.grpc;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.nthings.otlp4j.config.ServerConfig;
-import dev.nthings.otlp4j.model.ConsumeResult;
-import dev.nthings.otlp4j.model.SignalBatch;
+import dev.nthings.otlp4j.core.result.DeliveryResult;
+import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import dev.nthings.otlp4j.spi.Dispatchers;
 import dev.nthings.otlp4j.telemetry.GatewayMetrics;
 import dev.nthings.otlp4j.transport.grpc.internal.GrpcOtlpServer;
@@ -24,8 +24,8 @@ class GrpcServerAdmissionCloseTest {
 
     private static final Dispatchers NO_OP = new Dispatchers() {
         @Override
-        public <T> CompletionStage<ConsumeResult> dispatch(SignalBatch<T> batch) {
-            return CompletableFuture.completedStage(ConsumeResult.accepted());
+        public CompletionStage<DeliveryResult> dispatch(TelemetryPayload payload) {
+            return CompletableFuture.completedStage(DeliveryResult.accepted(Consumers.PROV));
         }
     };
 

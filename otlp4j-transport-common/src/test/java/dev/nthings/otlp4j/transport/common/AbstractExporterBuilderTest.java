@@ -4,11 +4,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.nthings.otlp4j.config.ClientConfig;
+import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.config.Compression;
 import dev.nthings.otlp4j.config.Tls;
+import dev.nthings.otlp4j.core.policy.BackoffPolicy;
+import dev.nthings.otlp4j.core.policy.RetryPolicy;
 import dev.nthings.otlp4j.spi.OtlpClient;
 import dev.nthings.otlp4j.telemetry.LoggingGatewayMetrics;
-import io.github.resilience4j.retry.RetryConfig;
 import java.time.Duration;
 import java.util.Map;
 import java.util.function.Supplier;
@@ -46,7 +48,8 @@ class AbstractExporterBuilderTest {
     @Test
     void sharedSettersLandOnConfig() {
         var tls = Tls.systemTrust();
-        var retry = RetryConfig.custom().maxAttempts(2).waitDuration(Duration.ofMillis(10)).build();
+        var retry = new RetryPolicy(
+                2, new BackoffPolicy(Duration.ofMillis(10), 1.0, 0.0, Duration.ofMillis(10)), true);
         Supplier<Map<String, String>> supplier = () -> Map.of("x-rotating", "live");
         var builder = new TestBuilder();
         try (var exporter = builder
@@ -56,9 +59,9 @@ class AbstractExporterBuilderTest {
                 .addHeader("authorization", "Bearer x")
                 .setHeaders(supplier)
                 .setCompression(Compression.GZIP)
-                .setRetryConfig(retry)
+                .setRetryPolicy(retry)
                 .build()) {
-            assertThat(exporter.traces()).isNotNull();
+            assertThat(exporter.consumer(SignalDescriptor.TRACES)).isNotNull();
         }
         var c = builder.captured;
         assertThat(c).isNotNull();
@@ -127,7 +130,7 @@ class AbstractExporterBuilderTest {
     void telemetryKnobChainableAndNullRejected() {
         var builder = new TestBuilder();
         try (var exporter = builder.telemetry(new LoggingGatewayMetrics()).build()) {
-            assertThat(exporter.traces()).isNotNull();
+            assertThat(exporter.consumer(SignalDescriptor.TRACES)).isNotNull();
         }
         assertThatThrownBy(() -> new TestBuilder().telemetry(null))
                 .isInstanceOf(NullPointerException.class);
@@ -138,7 +141,7 @@ class AbstractExporterBuilderTest {
     void fromEnvironmentSmoke() {
         var builder = new TestBuilder();
         try (var exporter = builder.fromEnvironment().build()) {
-            assertThat(exporter.logs()).isNotNull();
+            assertThat(exporter.consumer(SignalDescriptor.LOGS)).isNotNull();
         }
         assertThat(builder.captured).isNotNull();
     }

@@ -18,13 +18,15 @@
         shared with the gRPC transport via otlp4j-codec.</description>
 
     <dependencies>
-        <dependency>
-            <groupId>dev.nthings.otlp4j</groupId>
-            <artifactId>otlp4j-api</artifactId>
-        </dependency>
+        <!-- otlp4j-transport-common transitively supplies otlp4j-model on the compile path. -->
         <dependency>
             <groupId>dev.nthings.otlp4j</groupId>
             <artifactId>otlp4j-transport-common</artifactId>
+        </dependency>
+        <!-- The graph factories implement the core component and signal contracts. -->
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-core</artifactId>
         </dependency>
         <dependency>
             <groupId>dev.nthings.otlp4j</groupId>
@@ -49,6 +51,12 @@
         <dependency>
             <groupId>dev.nthings.otlp4j</groupId>
             <artifactId>otlp4j-testing</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- The receiver and exporter factories are tested through a real service graph runtime. -->
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-service</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>

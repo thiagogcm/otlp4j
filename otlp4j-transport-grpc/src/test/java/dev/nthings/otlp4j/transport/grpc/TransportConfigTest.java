@@ -3,14 +3,17 @@ package dev.nthings.otlp4j.transport.grpc;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import static dev.nthings.otlp4j.core.signal.SignalDescriptor.TRACES;
+
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
-import dev.nthings.otlp4j.model.ConsumeResult;
-import dev.nthings.otlp4j.pipeline.OtlpExporter;
-import dev.nthings.otlp4j.receiver.Receiver;
+import dev.nthings.otlp4j.core.result.DeliveryResult;
+import dev.nthings.otlp4j.transport.common.ClientExporter;
+import dev.nthings.otlp4j.transport.common.ServerReceiver;
 import dev.nthings.otlp4j.config.ClientConfig;
 import dev.nthings.otlp4j.config.Compression;
-import io.github.resilience4j.retry.RetryConfig;
+import dev.nthings.otlp4j.core.policy.BackoffPolicy;
+import dev.nthings.otlp4j.core.policy.RetryPolicy;
 import dev.nthings.otlp4j.config.ServerConfig;
 import dev.nthings.otlp4j.config.Tls;
 import dev.nthings.otlp4j.testing.Fixtures;
@@ -67,7 +70,7 @@ class TransportConfigTest {
             Metadata.Key.of("grpc-retry-pushback-ms", Metadata.ASCII_STRING_MARSHALLER);
 
     private final List<AutoCloseable> closeables = new ArrayList<>();
-    private final List<Receiver> receivers = new ArrayList<>();
+    private final List<ServerReceiver> receivers = new ArrayList<>();
     private Server rawServer;
 
     @AfterEach
@@ -102,9 +105,9 @@ class TransportConfigTest {
                 .addHeader("x-otlp-api-key", "secret")
                 .build());
 
-        var result = exporter.traces().consume(traces()).toCompletableFuture().join();
+        var result = exporter.export(TRACES, traces()).toCompletableFuture().join();
 
-        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(result).isInstanceOf(DeliveryResult.Accepted.class);
         assertThat(capture.headers.get().get(API_KEY)).isEqualTo("secret");
     }
 
@@ -118,7 +121,7 @@ class TransportConfigTest {
                 .setCompression(Compression.GZIP)
                 .build());
 
-        exporter.traces().consume(traces()).toCompletableFuture().join();
+        exporter.export(TRACES, traces()).toCompletableFuture().join();
 
         assertThat(capture.headers.get().get(GRPC_ENCODING)).isEqualTo("gzip");
     }
@@ -130,7 +133,7 @@ class TransportConfigTest {
         var port = startRawServer(capture);
         var exporter = exporter(ClientConfig.builder().setEndpoint("localhost", port).build());
 
-        exporter.traces().consume(traces()).toCompletableFuture().join();
+        exporter.export(TRACES, traces()).toCompletableFuture().join();
 
         assertThat(capture.headers.get().get(GRPC_ENCODING)).isNotEqualTo("gzip");
     }
@@ -143,12 +146,12 @@ class TransportConfigTest {
         var exporter = exporter(ClientConfig.builder()
                 .setEndpoint("localhost", port)
                 .setTimeout(Duration.ofSeconds(10))
-                .setRetryConfig(RetryConfig.custom().maxAttempts(3).waitDuration(Duration.ofMillis(50)).build())
+                .setRetryPolicy(new RetryPolicy(3, new BackoffPolicy(Duration.ofMillis(50), 1.0, 0.0, Duration.ofMillis(50)), true))
                 .build());
 
-        var result = exporter.traces().consume(traces()).toCompletableFuture().join();
+        var result = exporter.export(TRACES, traces()).toCompletableFuture().join();
 
-        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(result).isInstanceOf(DeliveryResult.Accepted.class);
         assertThat(flaky.calls.get()).isEqualTo(3);
     }
 
@@ -162,9 +165,9 @@ class TransportConfigTest {
                 .setTimeout(Duration.ofSeconds(10))
                 .build());
 
-        var result = exporter.traces().consume(traces()).toCompletableFuture().join();
+        var result = exporter.export(TRACES, traces()).toCompletableFuture().join();
 
-        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(result).isInstanceOf(DeliveryResult.Accepted.class);
         assertThat(flaky.calls.get()).isEqualTo(2);
     }
 
@@ -176,12 +179,12 @@ class TransportConfigTest {
         var exporter = exporter(ClientConfig.builder()
                 .setEndpoint("localhost", port)
                 .setTimeout(Duration.ofSeconds(10))
-                .setRetryConfig(RetryConfig.custom().maxAttempts(2).waitDuration(Duration.ofMillis(1)).build())
+                .setRetryPolicy(new RetryPolicy(2, new BackoffPolicy(Duration.ofMillis(1), 1.0, 0.0, Duration.ofMillis(1)), true))
                 .build());
 
-        var result = exporter.traces().consume(traces()).toCompletableFuture().join();
+        var result = exporter.export(TRACES, traces()).toCompletableFuture().join();
 
-        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(result).isInstanceOf(DeliveryResult.Accepted.class);
         assertThat(flaky.calls.get()).isEqualTo(2);
     }
 
@@ -193,15 +196,15 @@ class TransportConfigTest {
         var exporter = exporter(ClientConfig.builder()
                 .setEndpoint("localhost", port)
                 .setTimeout(Duration.ofSeconds(5))
-                .setRetryConfig(RetryConfig.custom().maxAttempts(2).waitDuration(Duration.ofMillis(1)).build())
+                .setRetryPolicy(new RetryPolicy(2, new BackoffPolicy(Duration.ofMillis(1), 1.0, 0.0, Duration.ofMillis(1)), true))
                 .build());
 
-        assertThatThrownBy(() -> exporter.traces().consume(traces()).toCompletableFuture().join())
+        assertThatThrownBy(() -> exporter.export(TRACES, traces()).toCompletableFuture().join())
                 .isInstanceOf(CompletionException.class);
         assertThat(flaky.calls.get()).isEqualTo(1);
     }
 
-    @DisplayName("Does not retry when RetryConfig.custom().maxAttempts(1).build() is set")
+    @DisplayName("Does not retry when a RetryPolicy with maxAttempts of 1 is set")
     @Test
     void doesNotRetryWhenPolicyNone() {
         var flaky = new FlakyInterceptor(1); // fails the only attempt
@@ -209,10 +212,10 @@ class TransportConfigTest {
         var exporter = exporter(ClientConfig.builder()
                 .setEndpoint("localhost", port)
                 .setTimeout(Duration.ofSeconds(5))
-                .setRetryConfig(RetryConfig.custom().maxAttempts(1).build())
+                .setRetryPolicy(new RetryPolicy(1, BackoffPolicy.defaults(), true))
                 .build());
 
-        assertThatThrownBy(() -> exporter.traces().consume(traces()).toCompletableFuture().join())
+        assertThatThrownBy(() -> exporter.export(TRACES, traces()).toCompletableFuture().join())
                 .isInstanceOf(CompletionException.class);
         assertThat(flaky.calls.get()).isEqualTo(1);
     }
@@ -221,10 +224,7 @@ class TransportConfigTest {
     @Test
     void roundTripsOverTls() {
         var received = new AtomicReference<TracesData>();
-        var receiver = startReceiver(serverTls(), OtlpGrpcReceiver.builder().onTraces(t -> {
-            received.set(t);
-            return ConsumeResult.acceptedStage();
-        }));
+        var receiver = startReceiver(serverTls(), OtlpGrpcReceiver.builder().route(TRACES, Consumers.record(TRACES, received)));
         var exporter = exporter(ClientConfig.builder()
                 .setEndpoint("localhost", receiver.port())
                 .setTls(Tls.trust(resource("/tls/server.crt")))
@@ -232,9 +232,9 @@ class TransportConfigTest {
                 .build());
 
         var sent = traces();
-        var result = exporter.traces().consume(sent).toCompletableFuture().join();
+        var result = exporter.export(TRACES, sent).toCompletableFuture().join();
 
-        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(result).isInstanceOf(DeliveryResult.Accepted.class);
         assertThat(received.get()).isEqualTo(sent);
     }
 
@@ -242,13 +242,13 @@ class TransportConfigTest {
     @Test
     void plaintextClientFailsAgainstTlsServer() {
         var receiver = startReceiver(serverTls(),
-                OtlpGrpcReceiver.builder().onTraces(t -> ConsumeResult.acceptedStage()));
+                OtlpGrpcReceiver.builder().route(TRACES, Consumers.accepting()));
         var exporter = exporter(ClientConfig.builder()
                 .setEndpoint("localhost", receiver.port())
                 .setTimeout(Duration.ofSeconds(3))
                 .build());
 
-        assertThatThrownBy(() -> exporter.traces().consume(traces()).toCompletableFuture().join())
+        assertThatThrownBy(() -> exporter.export(TRACES, traces()).toCompletableFuture().join())
                 .isInstanceOf(CompletionException.class);
     }
 
@@ -272,7 +272,7 @@ class TransportConfigTest {
     void rejectsSystemTrustForServer() {
         var receiver = OtlpGrpcReceiver.builder()
                 .setConfig(ServerConfig.builder().setPort(0).setTls(Tls.systemTrust()).build())
-                .onTraces(t -> ConsumeResult.acceptedStage())
+                .route(TRACES, Consumers.accepting())
                 .build();
         receivers.add(receiver);
 
@@ -292,7 +292,7 @@ class TransportConfigTest {
                         .setPort(0)
                         .setTls(Tls.sslContext(sslContext, trustManager))
                         .build())
-                .onTraces(t -> ConsumeResult.acceptedStage())
+                .route(TRACES, Consumers.accepting())
                 .build();
         receivers.add(receiver);
 
@@ -309,7 +309,7 @@ class TransportConfigTest {
                         .setPort(0)
                         .setTls(Tls.trust(bytes("/tls/server.crt")))
                         .build())
-                .onTraces(t -> ConsumeResult.acceptedStage())
+                .route(TRACES, Consumers.accepting())
                 .build();
         receivers.add(receiver);
 
@@ -321,10 +321,11 @@ class TransportConfigTest {
     @DisplayName("OtlpGrpcReceiver builder builds a startable plaintext receiver")
     @Test
     void builderBuildsStartablePlaintextReceiver() {
-        var receiver = OtlpGrpcReceiver.builder().ephemeralPort().build();
+        var receiver = OtlpGrpcReceiver.builder().ephemeralPort()
+                .route(TRACES, Consumers.accepting())
+                .build();
         receivers.add(receiver);
         receiver.start();
-        closeables.add(receiver.traces().discard());
 
         assertThat(receiver.port()).isPositive();
         var exporter = exporter(ClientConfig.builder()
@@ -332,8 +333,8 @@ class TransportConfigTest {
                 .setTimeout(Duration.ofSeconds(3))
                 .build());
 
-        var result = exporter.traces().consume(traces()).toCompletableFuture().join();
-        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        var result = exporter.export(TRACES, traces()).toCompletableFuture().join();
+        assertThat(result).isInstanceOf(DeliveryResult.Accepted.class);
     }
 
     @DisplayName("Builder keeps TLS when port() is set after transport()")
@@ -342,7 +343,7 @@ class TransportConfigTest {
         var receiver = OtlpGrpcReceiver.builder()
                 .setConfig(serverTls())
                 .setPort(0)
-                .onTraces(t -> ConsumeResult.acceptedStage())
+                .route(TRACES, Consumers.accepting())
                 .build();
         receivers.add(receiver);
         receiver.start();
@@ -352,7 +353,7 @@ class TransportConfigTest {
                 .setEndpoint("localhost", receiver.port())
                 .setTimeout(Duration.ofSeconds(3))
                 .build());
-        assertThatThrownBy(() -> plaintext.traces().consume(traces()).toCompletableFuture().join())
+        assertThatThrownBy(() -> plaintext.export(TRACES, traces()).toCompletableFuture().join())
                 .isInstanceOf(CompletionException.class);
     }
 
@@ -361,7 +362,7 @@ class TransportConfigTest {
     void specificBindHostBindsThatInterface() {
         var receiver = OtlpGrpcReceiver.builder()
                 .setConfig(ServerConfig.builder().setBindHost("127.0.0.1").setPort(0).build())
-                .onTraces(t -> ConsumeResult.acceptedStage())
+                .route(TRACES, Consumers.accepting())
                 .build();
         receivers.add(receiver);
 
@@ -390,10 +391,7 @@ class TransportConfigTest {
                 .setPort(0)
                 .setTls(Tls.custom(bytes("/tls/server.crt"), bytes("/tls/server.key"), null))
                 .build();
-        var receiver = startReceiver(serverConfig, OtlpGrpcReceiver.builder().onTraces(t -> {
-            received.set(t);
-            return ConsumeResult.acceptedStage();
-        }));
+        var receiver = startReceiver(serverConfig, OtlpGrpcReceiver.builder().route(TRACES, Consumers.record(TRACES, received)));
         var exporter = exporter(ClientConfig.builder()
                 .setEndpoint("localhost", receiver.port())
                 .setTls(Tls.trust(bytes("/tls/server.crt")))
@@ -401,9 +399,9 @@ class TransportConfigTest {
                 .build());
 
         var sent = traces();
-        var result = exporter.traces().consume(sent).toCompletableFuture().join();
+        var result = exporter.export(TRACES, sent).toCompletableFuture().join();
 
-        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(result).isInstanceOf(DeliveryResult.Accepted.class);
         assertThat(received.get()).isEqualTo(sent);
     }
 
@@ -411,10 +409,7 @@ class TransportConfigTest {
     @Test
     void roundTripsOverInMemoryMutualTls() throws Exception {
         var received = new AtomicReference<TracesData>();
-        var receiver = startReceiver(serverTls(), OtlpGrpcReceiver.builder().onTraces(t -> {
-            received.set(t);
-            return ConsumeResult.acceptedStage();
-        }));
+        var receiver = startReceiver(serverTls(), OtlpGrpcReceiver.builder().route(TRACES, Consumers.record(TRACES, received)));
         // Reuse the server material as a client identity: the server does not require client auth,
         // so it is accepted while exercising the in-memory keyManager path.
         var exporter = exporter(ClientConfig.builder()
@@ -424,9 +419,9 @@ class TransportConfigTest {
                 .build());
 
         var sent = traces();
-        var result = exporter.traces().consume(sent).toCompletableFuture().join();
+        var result = exporter.export(TRACES, sent).toCompletableFuture().join();
 
-        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(result).isInstanceOf(DeliveryResult.Accepted.class);
         assertThat(received.get()).isEqualTo(sent);
     }
 
@@ -434,10 +429,7 @@ class TransportConfigTest {
     @Test
     void roundTripsOverSslContextTrustManager() throws Exception {
         var received = new AtomicReference<TracesData>();
-        var receiver = startReceiver(serverTls(), OtlpGrpcReceiver.builder().onTraces(t -> {
-            received.set(t);
-            return ConsumeResult.acceptedStage();
-        }));
+        var receiver = startReceiver(serverTls(), OtlpGrpcReceiver.builder().route(TRACES, Consumers.record(TRACES, received)));
         var trustManager = trustManagerFor(resource("/tls/server.crt"));
         var sslContext = SSLContext.getInstance("TLS");
         sslContext.init(null, new TrustManager[] {trustManager}, null);
@@ -448,9 +440,9 @@ class TransportConfigTest {
                 .build());
 
         var sent = traces();
-        var result = exporter.traces().consume(sent).toCompletableFuture().join();
+        var result = exporter.export(TRACES, sent).toCompletableFuture().join();
 
-        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(result).isInstanceOf(DeliveryResult.Accepted.class);
         assertThat(received.get()).isEqualTo(sent);
     }
 
@@ -465,10 +457,10 @@ class TransportConfigTest {
                 .setHeaders(() -> Map.of("x-otlp-api-key", "token-" + counter.incrementAndGet()))
                 .build());
 
-        exporter.traces().consume(traces()).toCompletableFuture().join();
+        exporter.export(TRACES, traces()).toCompletableFuture().join();
         assertThat(capture.headers.get().get(API_KEY)).isEqualTo("token-1");
 
-        exporter.traces().consume(traces()).toCompletableFuture().join();
+        exporter.export(TRACES, traces()).toCompletableFuture().join();
         assertThat(capture.headers.get().get(API_KEY)).isEqualTo("token-2");
     }
 
@@ -481,13 +473,13 @@ class TransportConfigTest {
                 .build();
     }
 
-    private Receiver startReceiver(ServerConfig config, OtlpGrpcReceiver.Builder builder) {
+    private ServerReceiver startReceiver(ServerConfig config, OtlpGrpcReceiver.Builder builder) {
         var receiver = builder.setConfig(config).build();
         receivers.add(receiver);
         return receiver.start();
     }
 
-    private OtlpExporter exporter(ClientConfig config) {
+    private ClientExporter exporter(ClientConfig config) {
         var exporter = OtlpGrpcExporter.builder().setConfig(config).build();
         closeables.add(exporter);
         return exporter;

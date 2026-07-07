@@ -2,7 +2,6 @@ package dev.nthings.otlp4j.codec;
 
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
-import dev.nthings.otlp4j.model.ConsumeResult;
 import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceRequest;
 import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceResponse;
 import io.opentelemetry.proto.trace.v1.ResourceSpans;
@@ -92,11 +91,16 @@ public final class TraceMapper {
                 Span.Status.Code.fromNumber(status.getCodeValue()), status.getMessage());
     }
 
-    /// Interprets an OTLP trace export response as a [ConsumeResult].
-    public static ConsumeResult result(ExportTraceServiceResponse response) {
+    /// Interprets an OTLP trace export response as a [dev.nthings.otlp4j.core.result.DeliveryResult].
+    ///
+    /// @param response   the trace export response
+    /// @param provenance the provenance to attribute the result to
+    /// @return the delivery result
+    public static dev.nthings.otlp4j.core.result.DeliveryResult deliveryResult(
+            ExportTraceServiceResponse response, dev.nthings.otlp4j.core.result.Provenance provenance) {
         var partial = response.getPartialSuccess();
-        return CommonMapper.result(
-                response.hasPartialSuccess(), partial.getRejectedSpans(), partial.getErrorMessage());
+        return CommonMapper.deliveryResult(
+                response.hasPartialSuccess(), partial.getRejectedSpans(), partial.getErrorMessage(), provenance);
     }
 
     // --- domain -> proto ---

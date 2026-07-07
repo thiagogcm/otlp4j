@@ -3,9 +3,11 @@ package dev.nthings.otlp4j.transport.grpc.internal;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
-import dev.nthings.otlp4j.model.Signal;
 import dev.nthings.otlp4j.model.TracesData;
-import dev.nthings.otlp4j.model.ConsumeResult;
+import dev.nthings.otlp4j.core.result.DeliveryResult;
+import dev.nthings.otlp4j.core.signal.ModelBatchPayload;
+import dev.nthings.otlp4j.core.signal.SignalDescriptor;
+import dev.nthings.otlp4j.codec.DeliveryResultStatuses;
 import dev.nthings.otlp4j.codec.SignalCodec;
 import com.google.protobuf.MessageLite;
 import dev.nthings.otlp4j.spi.Dispatchers;
@@ -33,15 +35,15 @@ import org.slf4j.LoggerFactory;
 
 /// Builds gRPC services that decode OTLP requests and dispatch to per-signal handlers.
 ///
-/// The [ConsumeResult] to gRPC status contract drives client retries:
+/// The [DeliveryResult] to gRPC status contract drives client retries:
 ///
-/// - [ConsumeResult.Accepted] / [ConsumeResult.Partial] -> normal OTLP
+/// - [DeliveryResult.Accepted] / [DeliveryResult.Partial] -> normal OTLP
 ///   response with appropriate `partial_success`.
-/// - A retryable [ConsumeResult.Rejected] -> gRPC `UNAVAILABLE`. Use for
+/// - A retryable [DeliveryResult.Rejected] -> gRPC `UNAVAILABLE`. Use for
 ///   back-pressure such as a full queue. A `retryAfter` hint is emitted as
 ///   the `grpc-retry-pushback-ms` trailer, which the bundled client folds
 ///   into its retry intervals.
-/// - A permanent [ConsumeResult.Rejected] -> gRPC `INTERNAL`. Use for a
+/// - A permanent [DeliveryResult.Rejected] -> gRPC `INTERNAL`. Use for a
 ///   deterministic fault such as content filtering, so the client does not
 ///   waste retries on a permanently unreachable outcome.
 ///
@@ -58,10 +60,14 @@ final class GrpcServiceAdapters {
     /// signal's dispatcher, gated by the shared admission control.
     public static List<BindableService> create(Dispatchers dispatchers, AdmissionControl admission) {
         return List.of(
-                new TraceServiceAdapter(t -> dispatchers.dispatch(Signal.TRACES.batch(t)), admission),
-                new MetricsServiceAdapter(m -> dispatchers.dispatch(Signal.METRICS.batch(m)), admission),
-                new LogsServiceAdapter(l -> dispatchers.dispatch(Signal.LOGS.batch(l)), admission),
-                new ProfilesServiceAdapter(p -> dispatchers.dispatch(Signal.PROFILES.batch(p)), admission));
+                new TraceServiceAdapter(
+                        t -> dispatchers.dispatch(new ModelBatchPayload<>(SignalDescriptor.TRACES, t)), admission),
+                new MetricsServiceAdapter(
+                        m -> dispatchers.dispatch(new ModelBatchPayload<>(SignalDescriptor.METRICS, m)), admission),
+                new LogsServiceAdapter(
+                        l -> dispatchers.dispatch(new ModelBatchPayload<>(SignalDescriptor.LOGS, l)), admission),
+                new ProfilesServiceAdapter(
+                        p -> dispatchers.dispatch(new ModelBatchPayload<>(SignalDescriptor.PROFILES, p)), admission));
     }
 
     /// Decodes `request` and dispatches to the signal handler, holding an admission permit for
@@ -73,8 +79,8 @@ final class GrpcServiceAdapters {
             REQ request,
             StreamObserver<RESP> observer,
             Function<REQ, SIG> toDomain,
-            Function<SIG, CompletionStage<ConsumeResult>> dispatcher,
-            Function<ConsumeResult, RESP> asResponse,
+            Function<SIG, CompletionStage<DeliveryResult>> dispatcher,
+            Function<DeliveryResult, RESP> asResponse,
             AdmissionControl admission) {
         // Lazy sizing: getSerializedSize walks the whole message, so it runs only when a limit
         // is configured.
@@ -83,7 +89,7 @@ final class GrpcServiceAdapters {
             observer.onError(atCapacity(admission));
             return;
         }
-        CompletionStage<ConsumeResult> stage;
+        CompletionStage<DeliveryResult> stage;
         try {
             stage = dispatcher.apply(toDomain.apply(request));
         } catch (RuntimeException e) {
@@ -104,12 +110,12 @@ final class GrpcServiceAdapters {
                 .asRuntimeException(GrpcPushback.pushbackTrailers(admission.retryAfterHint()));
     }
 
-    /// Asynchronously consumes the result, mapping [ConsumeResult] to a gRPC
+    /// Asynchronously consumes the result, mapping [DeliveryResult] to a gRPC
     /// response or to an INTERNAL error.
     static <SIG, RESP> void respond(
             StreamObserver<RESP> observer,
-            CompletionStage<ConsumeResult> stage,
-            Function<ConsumeResult, RESP> mapResult) {
+            CompletionStage<DeliveryResult> stage,
+            Function<DeliveryResult, RESP> mapResult) {
         stage.whenComplete((result, error) -> {
             if (error != null) {
                 log.warn("dispatcher failed; responding with gRPC INTERNAL", error);
@@ -119,15 +125,15 @@ final class GrpcServiceAdapters {
                         .asRuntimeException());
                 return;
             }
-            if (result instanceof ConsumeResult.Rejected(var retryable, var message, var cause, var retryAfter)) {
-                var status = retryable ? Status.UNAVAILABLE : Status.INTERNAL;
-                if (cause != null) {
-                    status = status.withCause(cause);
+            if (result instanceof DeliveryResult.Rejected rejected) {
+                var status = DeliveryResultStatuses.isRetryable(rejected) ? Status.UNAVAILABLE : Status.INTERNAL;
+                if (rejected.cause() != null) {
+                    status = status.withCause(rejected.cause());
                 }
                 log.warn("dispatcher rejected the whole batch; responding with gRPC {}: {}",
-                        status.getCode(), message);
-                observer.onError(status.withDescription(message)
-                        .asRuntimeException(GrpcPushback.pushbackTrailers(retryAfter)));
+                        status.getCode(), rejected.message());
+                observer.onError(status.withDescription(rejected.message())
+                        .asRuntimeException(GrpcPushback.pushbackTrailers(rejected.retryAfter())));
                 return;
             }
             try {
@@ -145,10 +151,10 @@ final class GrpcServiceAdapters {
 
 final class TraceServiceAdapter extends TraceServiceGrpc.TraceServiceImplBase {
 
-    private final Function<TracesData, CompletionStage<ConsumeResult>> dispatcher;
+    private final Function<TracesData, CompletionStage<DeliveryResult>> dispatcher;
     private final AdmissionControl admission;
 
-    TraceServiceAdapter(Function<TracesData, CompletionStage<ConsumeResult>> dispatcher, AdmissionControl admission) {
+    TraceServiceAdapter(Function<TracesData, CompletionStage<DeliveryResult>> dispatcher, AdmissionControl admission) {
         this.dispatcher = dispatcher;
         this.admission = admission;
     }
@@ -158,16 +164,17 @@ final class TraceServiceAdapter extends TraceServiceGrpc.TraceServiceImplBase {
             ExportTraceServiceRequest request,
             StreamObserver<ExportTraceServiceResponse> observer) {
         GrpcServiceAdapters.dispatch(
-                request, observer, SignalCodec.TRACES::toDomain, dispatcher, SignalCodec.TRACES::response, admission);
+                request, observer, SignalCodec.TRACES::toDomain, dispatcher,
+                SignalCodec.TRACES::deliveryResponse, admission);
     }
 }
 
 final class MetricsServiceAdapter extends MetricsServiceGrpc.MetricsServiceImplBase {
 
-    private final Function<MetricsData, CompletionStage<ConsumeResult>> dispatcher;
+    private final Function<MetricsData, CompletionStage<DeliveryResult>> dispatcher;
     private final AdmissionControl admission;
 
-    MetricsServiceAdapter(Function<MetricsData, CompletionStage<ConsumeResult>> dispatcher, AdmissionControl admission) {
+    MetricsServiceAdapter(Function<MetricsData, CompletionStage<DeliveryResult>> dispatcher, AdmissionControl admission) {
         this.dispatcher = dispatcher;
         this.admission = admission;
     }
@@ -177,16 +184,17 @@ final class MetricsServiceAdapter extends MetricsServiceGrpc.MetricsServiceImplB
             ExportMetricsServiceRequest request,
             StreamObserver<ExportMetricsServiceResponse> observer) {
         GrpcServiceAdapters.dispatch(
-                request, observer, SignalCodec.METRICS::toDomain, dispatcher, SignalCodec.METRICS::response, admission);
+                request, observer, SignalCodec.METRICS::toDomain, dispatcher,
+                SignalCodec.METRICS::deliveryResponse, admission);
     }
 }
 
 final class LogsServiceAdapter extends LogsServiceGrpc.LogsServiceImplBase {
 
-    private final Function<LogsData, CompletionStage<ConsumeResult>> dispatcher;
+    private final Function<LogsData, CompletionStage<DeliveryResult>> dispatcher;
     private final AdmissionControl admission;
 
-    LogsServiceAdapter(Function<LogsData, CompletionStage<ConsumeResult>> dispatcher, AdmissionControl admission) {
+    LogsServiceAdapter(Function<LogsData, CompletionStage<DeliveryResult>> dispatcher, AdmissionControl admission) {
         this.dispatcher = dispatcher;
         this.admission = admission;
     }
@@ -196,16 +204,17 @@ final class LogsServiceAdapter extends LogsServiceGrpc.LogsServiceImplBase {
             ExportLogsServiceRequest request,
             StreamObserver<ExportLogsServiceResponse> observer) {
         GrpcServiceAdapters.dispatch(
-                request, observer, SignalCodec.LOGS::toDomain, dispatcher, SignalCodec.LOGS::response, admission);
+                request, observer, SignalCodec.LOGS::toDomain, dispatcher,
+                SignalCodec.LOGS::deliveryResponse, admission);
     }
 }
 
 final class ProfilesServiceAdapter extends ProfilesServiceGrpc.ProfilesServiceImplBase {
 
-    private final Function<ProfilesData, CompletionStage<ConsumeResult>> dispatcher;
+    private final Function<ProfilesData, CompletionStage<DeliveryResult>> dispatcher;
     private final AdmissionControl admission;
 
-    ProfilesServiceAdapter(Function<ProfilesData, CompletionStage<ConsumeResult>> dispatcher, AdmissionControl admission) {
+    ProfilesServiceAdapter(Function<ProfilesData, CompletionStage<DeliveryResult>> dispatcher, AdmissionControl admission) {
         this.dispatcher = dispatcher;
         this.admission = admission;
     }
@@ -215,6 +224,7 @@ final class ProfilesServiceAdapter extends ProfilesServiceGrpc.ProfilesServiceIm
             ExportProfilesServiceRequest request,
             StreamObserver<ExportProfilesServiceResponse> observer) {
         GrpcServiceAdapters.dispatch(
-                request, observer, SignalCodec.PROFILES::toDomain, dispatcher, SignalCodec.PROFILES::response, admission);
+                request, observer, SignalCodec.PROFILES::toDomain, dispatcher,
+                SignalCodec.PROFILES::deliveryResponse, admission);
     }
 }

@@ -5,7 +5,7 @@ import dev.nthings.otlp4j.model.AttributeValue;
 import dev.nthings.otlp4j.model.Attributes;
 import dev.nthings.otlp4j.model.InstrumentationScope;
 import dev.nthings.otlp4j.model.Resource;
-import dev.nthings.otlp4j.model.ConsumeResult;
+import dev.nthings.otlp4j.core.result.DeliveryResult;
 import io.opentelemetry.proto.common.v1.AnyValue;
 import io.opentelemetry.proto.common.v1.ArrayValue;
 import io.opentelemetry.proto.common.v1.KeyValue;
@@ -32,21 +32,28 @@ final class CommonMapper {
         return bytes.isEmpty() ? "" : HEX.formatHex(bytes.toByteArray());
     }
 
-    /// Interprets an OTLP export partial-success as a [ConsumeResult]. Shared by
-    /// all four signal mappers.
+    /// Interprets an OTLP export partial-success as a [DeliveryResult], attributing the outcome to
+    /// `provenance`. Shared by all four signal mappers.
     ///
-    /// Zero rejected count with non-empty message is [ConsumeResult.Rejected]; positive
-    /// count is [ConsumeResult.Partial]; anything else is accepted.
-    public static <T> ConsumeResult result(
-            boolean hasPartialSuccess, long rejectedItems, String errorMessage) {
+    /// Zero rejected count with a non-empty message is a retryable rejection; a positive count is a
+    /// partial; anything else is accepted.
+    ///
+    /// @param hasPartialSuccess whether the response carried a partial-success message
+    /// @param rejectedItems     the rejected item count
+    /// @param errorMessage      the partial-success error message
+    /// @param provenance        the provenance to attribute the result to
+    /// @return the delivery result
+    public static DeliveryResult deliveryResult(
+            boolean hasPartialSuccess, long rejectedItems, String errorMessage,
+            dev.nthings.otlp4j.core.result.Provenance provenance) {
         if (!hasPartialSuccess || (rejectedItems == 0 && errorMessage.isEmpty())) {
-            return ConsumeResult.accepted();
+            return DeliveryResult.accepted(provenance);
         }
         if (rejectedItems == 0) {
             // Zero items rejected but a message present: a server-side issue worth retrying.
-            return ConsumeResult.retryable(errorMessage);
+            return DeliveryResult.retryable(errorMessage, provenance);
         }
-        return ConsumeResult.partial(rejectedItems, errorMessage);
+        return DeliveryResult.partial(rejectedItems, errorMessage, provenance);
     }
 
     public static Attributes attributes(List<KeyValue> keyValues) {

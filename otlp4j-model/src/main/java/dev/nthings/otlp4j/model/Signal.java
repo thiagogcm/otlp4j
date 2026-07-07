@@ -81,11 +81,6 @@ public final class Signal<T> {
         return empty.get();
     }
 
-    /// Pairs a batch with this signal. Shorthand for `new SignalBatch<>(this, batch)`.
-    public SignalBatch<T> batch(T batch) {
-        return new SignalBatch<>(this, batch);
-    }
-
     /// The four signals, in wire order (traces, metrics, logs, profiles).
     public static List<Signal<?>> values() {
         return VALUES;

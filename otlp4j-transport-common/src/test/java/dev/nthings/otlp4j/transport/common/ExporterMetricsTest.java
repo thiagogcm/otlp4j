@@ -1,16 +1,19 @@
 package dev.nthings.otlp4j.transport.common;
 
+import static dev.nthings.otlp4j.core.signal.SignalDescriptor.TRACES;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import dev.nthings.otlp4j.model.ConsumeResult;
+import dev.nthings.otlp4j.core.result.DeliveryResult;
+import dev.nthings.otlp4j.core.result.Provenance;
+import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.model.Span;
-import dev.nthings.otlp4j.model.SignalBatch;
 import dev.nthings.otlp4j.spi.OtlpClient;
 import dev.nthings.otlp4j.telemetry.LoggingGatewayMetrics;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.function.Function;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -22,16 +25,19 @@ class ExporterMetricsTest {
     private static final String SUCCESS = "otlp4j.exporter.export.success";
     private static final String FAILURE = "otlp4j.exporter.export.failure";
 
+    /// Test client whose export outcome is derived from the provenance the facet passes in, so each
+    /// result is attributed correctly while remaining fully configurable.
     private static final class FixedClient implements OtlpClient {
-        private final CompletionStage<ConsumeResult> result;
+        private final Function<Provenance, CompletionStage<DeliveryResult>> result;
 
-        FixedClient(CompletionStage<ConsumeResult> result) {
+        FixedClient(Function<Provenance, CompletionStage<DeliveryResult>> result) {
             this.result = result;
         }
 
         @Override
-        public <T> CompletionStage<ConsumeResult> export(SignalBatch<T> batch) {
-            return result;
+        public <T> CompletionStage<DeliveryResult> export(
+                SignalDescriptor<T> signal, T batch, Provenance provenance) {
+            return result.apply(provenance);
         }
 
         @Override
@@ -42,8 +48,7 @@ class ExporterMetricsTest {
 
     private void exportOne(OtlpClient client, LoggingGatewayMetrics registry) {
         try (var exporter = new ClientExporter(client, "test", registry)) {
-            exporter.traces()
-                    .consume(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
+            exporter.export(TRACES, Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)))
                     .toCompletableFuture().handle((v, t) -> null).join();
         }
     }
@@ -52,7 +57,7 @@ class ExporterMetricsTest {
     @Test
     void acknowledgedExportCountsSuccess() {
         var registry = new LoggingGatewayMetrics();
-        exportOne(new FixedClient(ConsumeResult.acceptedStage()), registry);
+        exportOne(new FixedClient(p -> CompletableFuture.completedStage(DeliveryResult.accepted(p))), registry);
         assertThat(registry.counterValue(SUCCESS)).isEqualTo(1);
         assertThat(registry.counterValue(FAILURE)).isZero();
     }
@@ -61,8 +66,8 @@ class ExporterMetricsTest {
     @Test
     void rejectedResultCountsFailure() {
         var registry = new LoggingGatewayMetrics();
-        exportOne(new FixedClient(CompletableFuture.completedStage(
-                ConsumeResult.retryable("endpoint at capacity"))), registry);
+        exportOne(new FixedClient(p -> CompletableFuture.completedStage(
+                DeliveryResult.retryable("endpoint at capacity", p))), registry);
         assertThat(registry.counterValue(FAILURE)).isEqualTo(1);
         assertThat(registry.counterValue(SUCCESS)).isZero();
     }
@@ -71,7 +76,7 @@ class ExporterMetricsTest {
     @Test
     void failedStageCountsFailure() {
         var registry = new LoggingGatewayMetrics();
-        exportOne(new FixedClient(CompletableFuture.failedFuture(new RuntimeException("boom"))), registry);
+        exportOne(new FixedClient(p -> CompletableFuture.failedFuture(new RuntimeException("boom"))), registry);
         assertThat(registry.counterValue(FAILURE)).isEqualTo(1);
         assertThat(registry.counterValue(SUCCESS)).isZero();
     }

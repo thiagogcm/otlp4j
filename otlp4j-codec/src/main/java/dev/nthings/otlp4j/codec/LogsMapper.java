@@ -2,7 +2,6 @@ package dev.nthings.otlp4j.codec;
 
 import dev.nthings.otlp4j.model.LogRecord;
 import dev.nthings.otlp4j.model.LogsData;
-import dev.nthings.otlp4j.model.ConsumeResult;
 import io.opentelemetry.proto.collector.logs.v1.ExportLogsServiceRequest;
 import io.opentelemetry.proto.collector.logs.v1.ExportLogsServiceResponse;
 import io.opentelemetry.proto.logs.v1.SeverityNumber;
@@ -60,11 +59,16 @@ public final class LogsMapper {
                 record.getEventName());
     }
 
-    /// Interprets an OTLP logs export response as a [ConsumeResult].
-    public static ConsumeResult result(ExportLogsServiceResponse response) {
+    /// Interprets an OTLP logs export response as a [dev.nthings.otlp4j.core.result.DeliveryResult].
+    ///
+    /// @param response   the logs export response
+    /// @param provenance the provenance to attribute the result to
+    /// @return the delivery result
+    public static dev.nthings.otlp4j.core.result.DeliveryResult deliveryResult(
+            ExportLogsServiceResponse response, dev.nthings.otlp4j.core.result.Provenance provenance) {
         var partial = response.getPartialSuccess();
-        return CommonMapper.result(
-                response.hasPartialSuccess(), partial.getRejectedLogRecords(), partial.getErrorMessage());
+        return CommonMapper.deliveryResult(
+                response.hasPartialSuccess(), partial.getRejectedLogRecords(), partial.getErrorMessage(), provenance);
     }
 
     // --- domain -> proto ---

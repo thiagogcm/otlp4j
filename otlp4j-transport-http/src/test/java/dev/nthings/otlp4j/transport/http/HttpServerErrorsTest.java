@@ -1,9 +1,12 @@
 package dev.nthings.otlp4j.transport.http;
 
+import static dev.nthings.otlp4j.core.signal.SignalDescriptor.LOGS;
+import static dev.nthings.otlp4j.core.signal.SignalDescriptor.METRICS;
+import static dev.nthings.otlp4j.core.signal.SignalDescriptor.TRACES;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import dev.nthings.otlp4j.model.ConsumeResult;
-import dev.nthings.otlp4j.receiver.Receiver;
+import dev.nthings.otlp4j.core.result.DeliveryResult;
+import dev.nthings.otlp4j.transport.common.ServerReceiver;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -26,7 +29,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 @DisplayName("OTLP/HTTP server error mapping")
 class HttpServerErrorsTest {
 
-    private final List<Receiver> receivers = new ArrayList<>();
+    private final List<ServerReceiver> receivers = new ArrayList<>();
     private final HttpClient client = HttpClient.newHttpClient();
 
     @AfterEach
@@ -168,8 +171,8 @@ class HttpServerErrorsTest {
     @Test
     void throttledRejectionCarriesRetryAfter() throws Exception {
         var receiver = OtlpHttpReceiver.builder().ephemeralPort()
-                .onTraces(t -> CompletableFuture.completedFuture(
-                        ConsumeResult.throttled(Duration.ofSeconds(2), "at capacity")))
+                .route(TRACES, Consumers.of(p ->
+                        DeliveryResult.throttled(Duration.ofSeconds(2), "at capacity", Consumers.PROV)))
                 .build()
                 .start();
         receivers.add(receiver);
@@ -184,7 +187,7 @@ class HttpServerErrorsTest {
     @Test
     void retryableRejectionWithoutHintHasNoRetryAfter() throws Exception {
         var receiver = OtlpHttpReceiver.builder().ephemeralPort()
-                .onTraces(t -> CompletableFuture.completedFuture(ConsumeResult.retryable("queue full")))
+                .route(TRACES, Consumers.of(p -> DeliveryResult.retryable("queue full", Consumers.PROV)))
                 .build()
                 .start();
         receivers.add(receiver);
@@ -199,14 +202,11 @@ class HttpServerErrorsTest {
     @Test
     void admissionControlRejectsWith429ThenRecovers() throws Exception {
         var entered = new java.util.concurrent.CountDownLatch(1);
-        var gate = new CompletableFuture<ConsumeResult>();
+        var gate = new CompletableFuture<DeliveryResult>();
         var receiver = OtlpHttpReceiver.builder().ephemeralPort()
                 .setMaxInFlightRequests(1)
                 .setThrottleRetryAfter(Duration.ofSeconds(3))
-                .onTraces(t -> {
-                    entered.countDown();
-                    return gate;
-                })
+                .route(TRACES, Consumers.gated(entered::countDown, gate))
                 .build()
                 .start();
         receivers.add(receiver);
@@ -220,7 +220,7 @@ class HttpServerErrorsTest {
         assertThat(second.statusCode()).isEqualTo(429);
         assertThat(second.headers().firstValue("Retry-After")).hasValue("3");
 
-        gate.complete(ConsumeResult.accepted());
+        gate.complete(DeliveryResult.accepted(Consumers.PROV));
         assertThat(first.join().statusCode()).isEqualTo(200);
         var third = client.send(request, HttpResponse.BodyHandlers.ofString());
         assertThat(third.statusCode()).isEqualTo(200);
@@ -230,13 +230,10 @@ class HttpServerErrorsTest {
     @Test
     void admissionRejectionWithoutHintHasNoRetryAfter() throws Exception {
         var entered = new java.util.concurrent.CountDownLatch(1);
-        var gate = new CompletableFuture<ConsumeResult>();
+        var gate = new CompletableFuture<DeliveryResult>();
         var receiver = OtlpHttpReceiver.builder().ephemeralPort()
                 .setMaxInFlightRequests(1)
-                .onTraces(t -> {
-                    entered.countDown();
-                    return gate;
-                })
+                .route(TRACES, Consumers.gated(entered::countDown, gate))
                 .build()
                 .start();
         receivers.add(receiver);
@@ -249,7 +246,7 @@ class HttpServerErrorsTest {
         assertThat(second.statusCode()).isEqualTo(429);
         assertThat(second.headers().firstValue("Retry-After")).isEmpty();
 
-        gate.complete(ConsumeResult.accepted());
+        gate.complete(DeliveryResult.accepted(Consumers.PROV));
         assertThat(first.join().statusCode()).isEqualTo(200);
     }
 
@@ -263,9 +260,9 @@ class HttpServerErrorsTest {
 
     private int startReceiver(OtlpHttpReceiver.Builder builder) {
         var receiver = builder.ephemeralPort()
-                .onTraces(t -> ConsumeResult.acceptedStage())
-                .onMetrics(m -> ConsumeResult.acceptedStage())
-                .onLogs(l -> ConsumeResult.acceptedStage())
+                .route(TRACES, Consumers.accepting())
+                .route(METRICS, Consumers.accepting())
+                .route(LOGS, Consumers.accepting())
                 .build()
                 .start();
         receivers.add(receiver);

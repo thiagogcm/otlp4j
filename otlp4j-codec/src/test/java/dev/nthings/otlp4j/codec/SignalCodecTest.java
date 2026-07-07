@@ -3,7 +3,11 @@ package dev.nthings.otlp4j.codec;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.google.protobuf.MessageLite;
-import dev.nthings.otlp4j.model.ConsumeResult;
+import dev.nthings.otlp4j.core.component.ComponentId;
+import dev.nthings.otlp4j.core.component.ComponentKind;
+import dev.nthings.otlp4j.core.result.DeliveryResult;
+import dev.nthings.otlp4j.core.result.Provenance;
+import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.model.LogRecord;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
@@ -17,10 +21,13 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /// Aggregation coverage for [SignalCodec]: each codec binds the right [Signal]; `toProto` →
-/// `parseRequest` → `toDomain` is an identity on a fixture; `response`/`result` round-trip accepted
-/// and partial [ConsumeResult]s; and `values()` lists all four in wire order.
+/// `parseRequest` → `toDomain` is an identity on a fixture; `deliveryResponse`/`deliveryResult`
+/// round-trip accepted and partial [DeliveryResult]s; and `values()` lists all four in wire order.
 @DisplayName("SignalCodec")
 class SignalCodecTest {
+
+    private static final Provenance PROV =
+            new Provenance(new ComponentId("otlp", "e"), ComponentKind.EXPORTER, SignalDescriptor.TRACES);
 
     @DisplayName("values() lists the four codecs bound to their signals in wire order")
     @Test
@@ -34,7 +41,7 @@ class SignalCodecTest {
         assertThat(SignalCodec.PROFILES.signal()).isEqualTo(Signal.PROFILES);
     }
 
-    @DisplayName("traces round-trip through toProto/parseRequest/toDomain and response/result")
+    @DisplayName("traces round-trip through toProto/parseRequest/toDomain and deliveryResponse/deliveryResult")
     @Test
     void tracesCodec() {
         TracesData fixture = Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER));
@@ -42,7 +49,7 @@ class SignalCodecTest {
         assertResponseRoundTrip(SignalCodec.TRACES);
     }
 
-    @DisplayName("metrics round-trip through toProto/parseRequest/toDomain and response/result")
+    @DisplayName("metrics round-trip through toProto/parseRequest/toDomain and deliveryResponse/deliveryResult")
     @Test
     void metricsCodec() {
         MetricsData fixture = Fixtures.metricsData(Fixtures.metric("a"));
@@ -50,7 +57,7 @@ class SignalCodecTest {
         assertResponseRoundTrip(SignalCodec.METRICS);
     }
 
-    @DisplayName("logs round-trip through toProto/parseRequest/toDomain and response/result")
+    @DisplayName("logs round-trip through toProto/parseRequest/toDomain and deliveryResponse/deliveryResult")
     @Test
     void logsCodec() {
         LogsData fixture = Fixtures.logsData(Fixtures.logRecord("a", LogRecord.Severity.INFO));
@@ -58,7 +65,7 @@ class SignalCodecTest {
         assertResponseRoundTrip(SignalCodec.LOGS);
     }
 
-    @DisplayName("profiles round-trip through toProto/parseRequest/toDomain and response/result")
+    @DisplayName("profiles round-trip through toProto/parseRequest/toDomain and deliveryResponse/deliveryResult")
     @Test
     void profilesCodec() {
         ProfilesData fixture = Fixtures.profilesData(Fixtures.profile("01"));
@@ -68,7 +75,7 @@ class SignalCodecTest {
 
     /// Exercises the full `toProto` → wire-encode → `parseRequest` → `toDomain` chain and asserts a
     /// stable fixed point: re-encoding the decoded batch reproduces the original wire bytes. This is
-    /// signal-uniform — traces/metrics/logs also round-trip at the domain level, but profiles
+    /// signal-uniform: traces/metrics/logs also round-trip at the domain level, but profiles
     /// forward opaquely (a scalar-only profile materializes its `rawProfile` on the first `toProto`),
     /// so the byte fixed point is the invariant all four share. `parseRequest` reconstructs the same
     /// proto it was handed.
@@ -90,20 +97,22 @@ class SignalCodecTest {
         }
     }
 
-    /// `response` builds a proto message a peer would send; `result` (directly and after a wire
-    /// round-trip via `parseResponse`) must recover the original [ConsumeResult] shape.
+    /// `deliveryResponse` builds a proto message a peer would send; `deliveryResult` (directly and
+    /// after a wire round-trip via `parseResponse`) must recover the original [DeliveryResult]
+    /// shape, attributed to the same [Provenance] passed back in on decode.
     private static <T, REQ extends MessageLite, RESP extends MessageLite> void assertResponseRoundTrip(
             SignalCodec<T, REQ, RESP> codec) {
         try {
-            RESP accepted = codec.response(ConsumeResult.accepted());
-            assertThat(codec.result(accepted)).isEqualTo(ConsumeResult.accepted());
-            assertThat(codec.result(codec.parseResponse(accepted.toByteArray())))
-                    .isEqualTo(ConsumeResult.accepted());
+            RESP accepted = codec.deliveryResponse(DeliveryResult.accepted(PROV));
+            assertThat(codec.deliveryResult(accepted, PROV)).isEqualTo(DeliveryResult.accepted(PROV));
+            assertThat(codec.deliveryResult(codec.parseResponse(accepted.toByteArray()), PROV))
+                    .isEqualTo(DeliveryResult.accepted(PROV));
 
-            RESP partial = codec.response(ConsumeResult.partial(2, "rejected"));
-            assertThat(codec.result(partial)).isEqualTo(ConsumeResult.partial(2, "rejected"));
-            assertThat(codec.result(codec.parseResponse(partial.toByteArray())))
-                    .isEqualTo(ConsumeResult.partial(2, "rejected"));
+            RESP partial = codec.deliveryResponse(DeliveryResult.partial(2, "rejected", PROV));
+            assertThat(codec.deliveryResult(partial, PROV))
+                    .isEqualTo(DeliveryResult.partial(2, "rejected", PROV));
+            assertThat(codec.deliveryResult(codec.parseResponse(partial.toByteArray()), PROV))
+                    .isEqualTo(DeliveryResult.partial(2, "rejected", PROV));
         } catch (Exception e) {
             throw new AssertionError(e);
         }

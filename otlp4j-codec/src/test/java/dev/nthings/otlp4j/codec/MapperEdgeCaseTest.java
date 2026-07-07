@@ -3,10 +3,14 @@ package dev.nthings.otlp4j.codec;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import dev.nthings.otlp4j.core.component.ComponentId;
+import dev.nthings.otlp4j.core.component.ComponentKind;
+import dev.nthings.otlp4j.core.result.DeliveryResult;
+import dev.nthings.otlp4j.core.result.Provenance;
+import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.model.Attributes;
 import dev.nthings.otlp4j.model.ExponentialHistogramPoint;
 import dev.nthings.otlp4j.model.Metric;
-import dev.nthings.otlp4j.model.ConsumeResult;
 import dev.nthings.otlp4j.testing.Fixtures;
 import io.opentelemetry.proto.collector.logs.v1.ExportLogsPartialSuccess;
 import io.opentelemetry.proto.collector.logs.v1.ExportLogsServiceResponse;
@@ -29,6 +33,9 @@ import org.junit.jupiter.api.Test;
 /// White-box unit tests for mapper behaviour that the round-trip properties cannot express.
 @DisplayName("Mapper edge cases")
 class MapperEdgeCaseTest {
+
+    private static final Provenance PROV =
+            new Provenance(new ComponentId("otlp", "e"), ComponentKind.EXPORTER, SignalDescriptor.TRACES);
 
     @DisplayName("ExponentialHistogram bucket offset survives round-trip with empty counts")
     @Test
@@ -90,136 +97,136 @@ class MapperEdgeCaseTest {
         assertThat(roundTripped.hasData()).isFalse();
     }
 
-    @DisplayName("TraceMapper.result reads rejected count and message from partial_success")
+    @DisplayName("TraceMapper.deliveryResult reads rejected count and message from partial_success")
     @Test
-    void traceResultReadsThePartialSuccessFields() {
+    void traceDeliveryResultReadsThePartialSuccessFields() {
         var response = ExportTraceServiceResponse.newBuilder()
                 .setPartialSuccess(ExportTracePartialSuccess.newBuilder()
                         .setRejectedSpans(2)
                         .setErrorMessage("2 spans malformed"))
                 .build();
 
-        var result = TraceMapper.result(response);
+        var result = TraceMapper.deliveryResult(response, PROV);
 
-        assertThat(result).isInstanceOf(ConsumeResult.Partial.class);
-        var p = (ConsumeResult.Partial) result;
+        assertThat(result).isInstanceOf(DeliveryResult.Partial.class);
+        var p = (DeliveryResult.Partial) result;
         assertThat(p.rejectedItems()).isEqualTo(2);
         assertThat(p.message()).isEqualTo("2 spans malformed");
     }
 
-    @DisplayName("TraceMapper.result with no partial_success is Accepted")
+    @DisplayName("TraceMapper.deliveryResult with no partial_success is Accepted")
     @Test
-    void traceResultWithNoPartialSuccessIsAccepted() {
-        assertThat(TraceMapper.result(ExportTraceServiceResponse.getDefaultInstance()))
-                .isInstanceOf(ConsumeResult.Accepted.class);
+    void traceDeliveryResultWithNoPartialSuccessIsAccepted() {
+        assertThat(TraceMapper.deliveryResult(ExportTraceServiceResponse.getDefaultInstance(), PROV))
+                .isInstanceOf(DeliveryResult.Accepted.class);
     }
 
-    @DisplayName("LogsMapper.result maps partial_success to Accepted, Partial, or Rejected")
+    @DisplayName("LogsMapper.deliveryResult maps partial_success to Accepted, Partial, or Rejected")
     @Test
-    void logsResultDecisionTable() {
-        assertThat(LogsMapper.result(ExportLogsServiceResponse.getDefaultInstance()))
+    void logsDeliveryResultDecisionTable() {
+        assertThat(LogsMapper.deliveryResult(ExportLogsServiceResponse.getDefaultInstance(), PROV))
                 .as("no partial_success block -> accepted")
-                .isInstanceOf(ConsumeResult.Accepted.class);
+                .isInstanceOf(DeliveryResult.Accepted.class);
 
-        assertThat(LogsMapper.result(ExportLogsServiceResponse.newBuilder()
+        assertThat(LogsMapper.deliveryResult(ExportLogsServiceResponse.newBuilder()
                         .setPartialSuccess(ExportLogsPartialSuccess.getDefaultInstance())
-                        .build()))
+                        .build(), PROV))
                 .as("empty partial_success block -> accepted")
-                .isInstanceOf(ConsumeResult.Accepted.class);
+                .isInstanceOf(DeliveryResult.Accepted.class);
 
-        var withCount = LogsMapper.result(ExportLogsServiceResponse.newBuilder()
+        var withCount = LogsMapper.deliveryResult(ExportLogsServiceResponse.newBuilder()
                 .setPartialSuccess(ExportLogsPartialSuccess.newBuilder()
                         .setRejectedLogRecords(3)
                         .setErrorMessage("3 records rejected"))
-                .build());
-        assertThat(withCount).isInstanceOf(ConsumeResult.Partial.class);
-        var p = (ConsumeResult.Partial) withCount;
+                .build(), PROV);
+        assertThat(withCount).isInstanceOf(DeliveryResult.Partial.class);
+        var p = (DeliveryResult.Partial) withCount;
         assertThat(p.rejectedItems()).isEqualTo(3);
         assertThat(p.message()).isEqualTo("3 records rejected");
 
-        var messageOnly = LogsMapper.result(ExportLogsServiceResponse.newBuilder()
+        var messageOnly = LogsMapper.deliveryResult(ExportLogsServiceResponse.newBuilder()
                 .setPartialSuccess(ExportLogsPartialSuccess.newBuilder()
                         .setErrorMessage("log warning"))
-                .build());
-        assertThat(messageOnly).isInstanceOf(ConsumeResult.Rejected.class);
-        var r = (ConsumeResult.Rejected) messageOnly;
+                .build(), PROV);
+        assertThat(messageOnly).isInstanceOf(DeliveryResult.Rejected.class);
+        var r = (DeliveryResult.Rejected) messageOnly;
         assertThat(r.message()).isEqualTo("log warning");
     }
 
-    @DisplayName("TraceMapper.result with empty partial_success block is Accepted")
+    @DisplayName("TraceMapper.deliveryResult with empty partial_success block is Accepted")
     @Test
-    void traceResultWithAnEmptyPartialSuccessBlockIsAccepted() {
+    void traceDeliveryResultWithAnEmptyPartialSuccessBlockIsAccepted() {
         var response = ExportTraceServiceResponse.newBuilder()
                 .setPartialSuccess(ExportTracePartialSuccess.getDefaultInstance())
                 .build();
-        assertThat(TraceMapper.result(response)).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(TraceMapper.deliveryResult(response, PROV)).isInstanceOf(DeliveryResult.Accepted.class);
     }
 
-    @DisplayName("TraceMapper.result with message only and zero count is Rejected")
+    @DisplayName("TraceMapper.deliveryResult with message only and zero count is Rejected")
     @Test
-    void traceResultWithAMessageOnlyIsRejected() {
+    void traceDeliveryResultWithAMessageOnlyIsRejected() {
         var response = ExportTraceServiceResponse.newBuilder()
                 .setPartialSuccess(ExportTracePartialSuccess.newBuilder()
                         .setErrorMessage("warning: clock skew detected"))
                 .build();
 
-        var result = TraceMapper.result(response);
-        assertThat(result).isInstanceOf(ConsumeResult.Rejected.class);
-        assertThat(((ConsumeResult.Rejected) result).message()).isEqualTo("warning: clock skew detected");
+        var result = TraceMapper.deliveryResult(response, PROV);
+        assertThat(result).isInstanceOf(DeliveryResult.Rejected.class);
+        assertThat(((DeliveryResult.Rejected) result).message()).isEqualTo("warning: clock skew detected");
     }
 
-    @DisplayName("MetricsMapper.result maps partial_success to Accepted, Partial, or Rejected")
+    @DisplayName("MetricsMapper.deliveryResult maps partial_success to Accepted, Partial, or Rejected")
     @Test
-    void metricsResultDecisionTable() {
-        assertThat(MetricsMapper.result(ExportMetricsServiceResponse.getDefaultInstance()))
-                .isInstanceOf(ConsumeResult.Accepted.class);
+    void metricsDeliveryResultDecisionTable() {
+        assertThat(MetricsMapper.deliveryResult(ExportMetricsServiceResponse.getDefaultInstance(), PROV))
+                .isInstanceOf(DeliveryResult.Accepted.class);
 
-        assertThat(MetricsMapper.result(ExportMetricsServiceResponse.newBuilder()
+        assertThat(MetricsMapper.deliveryResult(ExportMetricsServiceResponse.newBuilder()
                         .setPartialSuccess(ExportMetricsPartialSuccess.getDefaultInstance())
-                        .build()))
-                .isInstanceOf(ConsumeResult.Accepted.class);
+                        .build(), PROV))
+                .isInstanceOf(DeliveryResult.Accepted.class);
 
-        var withCount = MetricsMapper.result(ExportMetricsServiceResponse.newBuilder()
+        var withCount = MetricsMapper.deliveryResult(ExportMetricsServiceResponse.newBuilder()
                 .setPartialSuccess(ExportMetricsPartialSuccess.newBuilder()
                         .setRejectedDataPoints(7)
                         .setErrorMessage("7 points rejected"))
-                .build());
-        assertThat(withCount).isInstanceOf(ConsumeResult.Partial.class);
-        var p = (ConsumeResult.Partial) withCount;
+                .build(), PROV);
+        assertThat(withCount).isInstanceOf(DeliveryResult.Partial.class);
+        var p = (DeliveryResult.Partial) withCount;
         assertThat(p.rejectedItems()).isEqualTo(7);
         assertThat(p.message()).isEqualTo("7 points rejected");
 
-        var messageOnly = MetricsMapper.result(ExportMetricsServiceResponse.newBuilder()
+        var messageOnly = MetricsMapper.deliveryResult(ExportMetricsServiceResponse.newBuilder()
                 .setPartialSuccess(ExportMetricsPartialSuccess.newBuilder()
                         .setErrorMessage("metadata warning"))
-                .build());
-        assertThat(messageOnly).isInstanceOf(ConsumeResult.Rejected.class);
+                .build(), PROV);
+        assertThat(messageOnly).isInstanceOf(DeliveryResult.Rejected.class);
     }
 
-    @DisplayName("ProfilesMapper.result maps partial_success to Accepted, Partial, or Rejected")
+    @DisplayName("ProfilesMapper.deliveryResult maps partial_success to Accepted, Partial, or Rejected")
     @Test
-    void profilesResultDecisionTable() {
-        assertThat(ProfilesMapper.result(ExportProfilesServiceResponse.getDefaultInstance()))
-                .isInstanceOf(ConsumeResult.Accepted.class);
+    void profilesDeliveryResultDecisionTable() {
+        assertThat(ProfilesMapper.deliveryResult(ExportProfilesServiceResponse.getDefaultInstance(), PROV))
+                .isInstanceOf(DeliveryResult.Accepted.class);
 
-        assertThat(ProfilesMapper.result(ExportProfilesServiceResponse.newBuilder()
+        assertThat(ProfilesMapper.deliveryResult(ExportProfilesServiceResponse.newBuilder()
                         .setPartialSuccess(ExportProfilesPartialSuccess.getDefaultInstance())
-                        .build()))
-                .isInstanceOf(ConsumeResult.Accepted.class);
+                        .build(), PROV))
+                .isInstanceOf(DeliveryResult.Accepted.class);
 
-        var withCount = ProfilesMapper.result(ExportProfilesServiceResponse.newBuilder()
+        var withCount = ProfilesMapper.deliveryResult(ExportProfilesServiceResponse.newBuilder()
                 .setPartialSuccess(ExportProfilesPartialSuccess.newBuilder()
                         .setRejectedProfiles(4)
                         .setErrorMessage("4 profiles rejected"))
-                .build());
-        assertThat(withCount).isInstanceOf(ConsumeResult.Partial.class);
-        var p = (ConsumeResult.Partial) withCount;
+                .build(), PROV);
+        assertThat(withCount).isInstanceOf(DeliveryResult.Partial.class);
+        var p = (DeliveryResult.Partial) withCount;
         assertThat(p.rejectedItems()).isEqualTo(4);
 
-        var messageOnly = ProfilesMapper.result(ExportProfilesServiceResponse.newBuilder()
+        var messageOnly = ProfilesMapper.deliveryResult(ExportProfilesServiceResponse.newBuilder()
                 .setPartialSuccess(ExportProfilesPartialSuccess.newBuilder()
                         .setErrorMessage("profiles warning"))
-                .build());
-        assertThat(messageOnly).isInstanceOf(ConsumeResult.Rejected.class);
+                .build(), PROV);
+        assertThat(messageOnly).isInstanceOf(DeliveryResult.Rejected.class);
     }
 }

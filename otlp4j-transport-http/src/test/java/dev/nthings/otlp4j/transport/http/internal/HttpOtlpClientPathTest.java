@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.nthings.otlp4j.config.ClientConfig;
 import dev.nthings.otlp4j.config.Tls;
-import dev.nthings.otlp4j.model.Signal;
+import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import java.net.URI;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -14,7 +14,7 @@ import org.junit.jupiter.api.Test;
 @DisplayName("OTLP/HTTP client endpoint path prefix")
 class HttpOtlpClientPathTest {
 
-    private static URI signalUri(ClientConfig config, Signal<?> signal) {
+    private static URI signalUri(ClientConfig config, SignalDescriptor<?> signal) {
         try (var client = new HttpOtlpClient(config)) {
             return client.uri(signal);
         }
@@ -29,9 +29,9 @@ class HttpOtlpClientPathTest {
                 .setPath("/otlp")
                 .build();
 
-        assertThat(signalUri(config, Signal.TRACES))
+        assertThat(signalUri(config, SignalDescriptor.TRACES))
                 .isEqualTo(URI.create("https://collector:4318/otlp/v1/traces"));
-        assertThat(signalUri(config, Signal.PROFILES))
+        assertThat(signalUri(config, SignalDescriptor.PROFILES))
                 .isEqualTo(URI.create("https://collector:4318/otlp/v1development/profiles"));
     }
 
@@ -40,7 +40,7 @@ class HttpOtlpClientPathTest {
     void noPrefix() {
         var config = ClientConfig.builder().setEndpoint("collector", 4318).build();
 
-        assertThat(signalUri(config, Signal.TRACES))
+        assertThat(signalUri(config, SignalDescriptor.TRACES))
                 .isEqualTo(URI.create("http://collector:4318/v1/traces"));
     }
 }

@@ -1,55 +1,63 @@
 package dev.nthings.otlp4j.transport.common;
 
-import dev.nthings.otlp4j.model.Signal;
-import dev.nthings.otlp4j.model.SignalBatch;
+import dev.nthings.otlp4j.core.signal.SignalDescriptor;
+import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import dev.nthings.otlp4j.receiver.TapOptions;
-import dev.nthings.otlp4j.receiver.TelemetryTap;
 import dev.nthings.otlp4j.telemetry.GatewayMetrics;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.Flow;
 import java.util.concurrent.atomic.LongAdder;
 
-/// [TelemetryTap] implementation backed by per-signal [MulticastPublisher]s.
-final class ReceiverTap implements TelemetryTap, AutoCloseable {
+/// The receiver's live telemetry tap: one [MulticastPublisher] per signal, mirroring every accepted
+/// [TelemetryPayload] to any side-channel subscribers without back-pressuring the acknowledgement
+/// path. Overflow drops feed the shared `otlp4j.receiver.tap.dropped` counter. A receiver-runtime
+/// internal; it is not part of the graph runtime's public contract surface in Phase 1, so a subscriber
+/// accessor is not exposed on the core surface yet, but the receiver still mirrors accepted traffic and
+/// reports its drop counter through it.
+final class ReceiverTap implements AutoCloseable {
 
     private final LongAdder drops = new LongAdder();
-    private final Map<Signal<?>, MulticastPublisher<?>> publishers = new LinkedHashMap<>();
+    private final Map<SignalDescriptor<?>, MulticastPublisher<TelemetryPayload>> publishers = new LinkedHashMap<>();
 
     ReceiverTap(GatewayMetrics telemetry) {
         var dropped = telemetry.counter(
                 "otlp4j.receiver.tap.dropped", "telemetry items dropped by a tap subscriber's overflow");
-        for (Signal<?> signal : Signal.values()) {
+        for (SignalDescriptor<?> signal : SignalDescriptor.values()) {
             publishers.put(signal, new MulticastPublisher<>(drops, dropped));
         }
     }
 
-    /// The publisher for `signal`. The map is keyed by [Signal] identity and each entry was created
-    /// for that signal, so the value's element type is exactly the signal's batch type.
-    private <T> MulticastPublisher<T> publisherFor(Signal<T> signal) {
-        @SuppressWarnings("unchecked")
-        var publisher = (MulticastPublisher<T>) publishers.get(signal);
-        return publisher;
+    /// Live payloads of `signal` under [TapOptions#defaults()].
+    ///
+    /// @param signal the signal to observe
+    /// @return the tap publisher for that signal
+    Flow.Publisher<TelemetryPayload> publisher(SignalDescriptor<?> signal) {
+        return publishers.get(signal);
     }
 
-    @Override
-    public <T> Flow.Publisher<T> publisher(Signal<T> signal) {
-        return publisherFor(signal);
-    }
-
-    @Override
-    public <T> Flow.Publisher<T> publisher(Signal<T> signal, TapOptions options) {
-        var publisher = publisherFor(signal);
+    /// Live payloads of `signal`; `options` bind to the next subscription.
+    ///
+    /// @param signal  the signal to observe
+    /// @param options the buffer and overflow policy bound to the next subscription
+    /// @return the tap publisher for that signal
+    Flow.Publisher<TelemetryPayload> publisher(SignalDescriptor<?> signal, TapOptions options) {
+        var publisher = publishers.get(signal);
         return subscriber -> publisher.subscribe(subscriber, options);
     }
 
-    @Override
-    public long droppedCount() {
+    /// Total number of payloads dropped across every tap publisher since the receiver started.
+    ///
+    /// @return the drop count
+    long droppedCount() {
         return drops.sum();
     }
 
-    public <T> void publish(SignalBatch<T> batch) {
-        publisherFor(batch.signal()).publish(batch.batch());
+    /// Publishes `payload` to its signal's tap subscribers.
+    ///
+    /// @param payload the accepted payload to mirror
+    void publish(TelemetryPayload payload) {
+        publishers.get(payload.signal()).publish(payload);
     }
 
     @Override

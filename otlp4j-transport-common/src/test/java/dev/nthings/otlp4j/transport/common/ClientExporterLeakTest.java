@@ -28,7 +28,7 @@ class ClientExporterLeakTest {
         assertThat(captured.get(0))
                 .contains("com.example.DemoExporter")
                 .contains("shutdown()")
-                .contains("Stage.owns(exporter)");
+                .contains("graph runtime");
     }
 
     @DisplayName("stays quiet once the exporter has been shut down")

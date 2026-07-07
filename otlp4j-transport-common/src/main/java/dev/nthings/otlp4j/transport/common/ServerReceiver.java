@@ -1,90 +1,85 @@
 package dev.nthings.otlp4j.transport.common;
 
-import dev.nthings.otlp4j.pipeline.Sink;
-import dev.nthings.otlp4j.pipeline.Source;
-import dev.nthings.otlp4j.model.ConsumeResult;
-import dev.nthings.otlp4j.model.LogsData;
-import dev.nthings.otlp4j.model.MetricsData;
-import dev.nthings.otlp4j.model.ProfilesData;
-import dev.nthings.otlp4j.model.Signal;
-import dev.nthings.otlp4j.model.SignalBatch;
-import dev.nthings.otlp4j.model.TracesData;
-import dev.nthings.otlp4j.receiver.Receiver;
-import dev.nthings.otlp4j.receiver.TelemetryTap;
+import dev.nthings.otlp4j.core.component.ComponentId;
+import dev.nthings.otlp4j.core.consumer.SignalConsumer;
+import dev.nthings.otlp4j.core.result.DeliveryResult;
+import dev.nthings.otlp4j.core.signal.SignalDescriptor;
+import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import dev.nthings.otlp4j.spi.Dispatchers;
 import dev.nthings.otlp4j.spi.OtlpServer;
 import dev.nthings.otlp4j.telemetry.GatewayMetrics;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Function;
-import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/// Shared [Receiver] implementation backed by a transport [OtlpServer]. Exposes per-signal
-/// [Source]s and a [TelemetryTap], dispatches decoded batches to subscribers while mirroring
-/// to the tap. gRPC and HTTP entry points compose one of these.
-public final class ServerReceiver implements Receiver, Dispatchers {
+/// The transport-neutral receiver runtime backed by a transport [OtlpServer]. It holds one
+/// [SignalSource] per signal, routes each decoded [TelemetryPayload] the server hands it into the
+/// graph consumer attached for that signal, and returns the graph's [DeliveryResult] to the transport
+/// verbatim. Alongside routing it mirrors every accepted payload to a live [ReceiverTap] side-channel,
+/// which never back-pressures the acknowledgement path and feeds the `otlp4j.receiver.tap.dropped`
+/// counter. gRPC and HTTP entry points compose one of these through their receiver builders, and the
+/// graph reaches it through a `ReceiverComponentAdapter`.
+public final class ServerReceiver implements Dispatchers {
 
     private static final Logger log = LoggerFactory.getLogger(ServerReceiver.class);
 
-    private final Map<Signal<?>, SignalSource<?>> sources = new LinkedHashMap<>();
+    private final Map<SignalDescriptor<?>, SignalSource<?>> sources = new LinkedHashMap<>();
     private final ReceiverTap tap;
     private final OtlpServer server;
     private final String transportName;
+    private final Clock clock;
 
-    /// Builds dispatch wiring, then asks `serverFactory` for the transport server bound to it.
-    /// `transportName` (e.g. `OTLP/gRPC`) is used only for log messages. `telemetry` feeds the tap's
-    /// `otlp4j.receiver.tap.dropped` counter.
+    /// Builds the per-signal routing and the telemetry tap, attaches the routed graph consumers, then
+    /// asks `serverFactory` for the transport server bound to it. `transportName` (e.g. `OTLP/gRPC`) is
+    /// used only for log messages; `id` attributes the no-consumer rejections; `clock` stamps each
+    /// consume deadline; `telemetry` feeds the tap's `otlp4j.receiver.tap.dropped` counter.
+    ///
+    /// @param transportName the transport name used in log messages
+    /// @param id            the receiver component identity, attributed to no-consumer rejections
+    /// @param clock         the clock stamping each consume deadline
+    /// @param telemetry     the self-observability registry the tap's drop counter reports to
+    /// @param serverFactory builds the transport server bound to this dispatcher
+    /// @param routes        the routed graph consumers, keyed by the signal each serves
     public ServerReceiver(
             String transportName,
+            ComponentId id,
+            Clock clock,
+            GatewayMetrics telemetry,
             Function<Dispatchers, OtlpServer> serverFactory,
-            @Nullable Sink<? super TracesData> onTraces,
-            @Nullable Sink<? super MetricsData> onMetrics,
-            @Nullable Sink<? super LogsData> onLogs,
-            @Nullable Sink<? super ProfilesData> onProfiles,
-            GatewayMetrics telemetry) {
+            Map<SignalDescriptor<?>, SignalConsumer<TelemetryPayload>> routes) {
         this.transportName = transportName;
+        this.clock = clock;
         this.tap = new ReceiverTap(telemetry);
-        for (Signal<?> signal : Signal.values()) {
-            sources.put(signal, new SignalSource<>(signal));
+        for (SignalDescriptor<?> signal : SignalDescriptor.values()) {
+            sources.put(signal, new SignalSource<>(signal, id));
         }
+        routes.forEach(this::attach);
         this.server = serverFactory.apply(this);
-        subscribeIfPresent(Signal.TRACES, onTraces);
-        subscribeIfPresent(Signal.METRICS, onMetrics);
-        subscribeIfPresent(Signal.LOGS, onLogs);
-        subscribeIfPresent(Signal.PROFILES, onProfiles);
     }
 
-    /// The source for `signal`. The map is keyed by [Signal] identity and each entry was created for
-    /// that signal, so the value's element type is exactly the signal's batch type.
-    private <T> SignalSource<T> sourceFor(Signal<T> signal) {
+    private <T> SignalSource<T> sourceFor(SignalDescriptor<T> signal) {
+        // The map is keyed by SignalDescriptor identity and each entry was created for that signal,
+        // so the value's batch type is exactly the signal's batch type.
         @SuppressWarnings("unchecked")
         var source = (SignalSource<T>) sources.get(signal);
         return source;
     }
 
-    private <T> void subscribeIfPresent(Signal<T> signal, @Nullable Sink<? super T> sink) {
-        if (sink != null) {
-            sourceFor(signal).subscribe(sink);
-        }
+    private void attach(SignalDescriptor<?> signal, SignalConsumer<TelemetryPayload> consumer) {
+        sourceFor(signal).attach(consumer);
     }
 
-    @Override
-    public <T> Source<T> source(Signal<T> signal) {
-        return sourceFor(signal);
-    }
-
-    @Override
-    public TelemetryTap tap() { return tap; }
-
-    @Override
-    public Receiver start() {
-        // Starts the underlying transport; throws [UncheckedIOException] if bind fails.
+    /// Starts the underlying transport; throws [UncheckedIOException] if the bind fails.
+    ///
+    /// @return this receiver
+    public ServerReceiver start() {
         try {
             server.start();
         } catch (IOException e) {
@@ -94,29 +89,36 @@ public final class ServerReceiver implements Receiver, Dispatchers {
         return this;
     }
 
-    @Override
+    /// The port the underlying transport is bound to; 0 before [#start] completes.
+    ///
+    /// @return the bound port
     public int port() {
         return server.port();
     }
 
-    @Override
+    /// Drains in-flight requests and stops the transport within `timeout`, then closes the tap. The
+    /// tap is closed after the drain so payloads accepted while draining are still mirrored.
+    ///
+    /// @param timeout the drain deadline
+    /// @return a stage that completes when teardown finishes
     public CompletionStage<Void> shutdown(Duration timeout) {
-        // Graceful: drain server first, then close tap. Closing it up front makes
-        // [MulticastPublisher#publish] early-return, dropping telemetry accepted during drain.
         return server.shutdown(timeout).whenComplete((v, t) -> tap.close());
     }
 
-    @Override
+    /// Forcibly stops the transport, returning promptly. Nothing further is accepted, so the tap is
+    /// detached immediately.
+    ///
+    /// @return a stage that completes when the forceful teardown finishes
     public CompletionStage<Void> shutdownNow() {
-        // Forceful: nothing further is accepted, so detach subscribers immediately.
         tap.close();
         return server.shutdownNow();
     }
 
     @Override
-    public <T> CompletionStage<ConsumeResult> dispatch(SignalBatch<T> batch) {
-        // Tap before source, matching the former per-signal dispatchX order exactly.
-        tap.publish(batch);
-        return sourceFor(batch.signal()).dispatch(batch.batch());
+    public CompletionStage<DeliveryResult> dispatch(TelemetryPayload payload) {
+        // Mirror to the tap before routing, so a side-channel observer sees exactly what is admitted;
+        // the tap never back-pressures, so it cannot delay the acknowledgement the consumer produces.
+        tap.publish(payload);
+        return sourceFor(payload.signal()).dispatch(new ReceiverConsumeContext(clock), payload);
     }
 }

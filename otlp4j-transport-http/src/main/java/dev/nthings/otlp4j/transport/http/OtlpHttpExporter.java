@@ -2,16 +2,16 @@ package dev.nthings.otlp4j.transport.http;
 
 import dev.nthings.otlp4j.config.ClientConfig;
 import dev.nthings.otlp4j.config.Tls;
-import dev.nthings.otlp4j.pipeline.OtlpExporter;
 import dev.nthings.otlp4j.spi.OtlpClient;
 import dev.nthings.otlp4j.transport.common.AbstractExporterBuilder;
+import dev.nthings.otlp4j.transport.common.ClientExporter;
 import dev.nthings.otlp4j.transport.http.internal.HttpOtlpClient;
 import java.time.Duration;
 
-/// Builds [OtlpExporter]s that send typed telemetry to an OTLP/HTTP endpoint.
+/// Builds [ClientExporter]s that send typed telemetry to an OTLP/HTTP endpoint.
 ///
 /// One exporter handles all four signals via per-signal facets; flush/drain/shutdown live on the
-/// returned [OtlpExporter]. Each signal is POSTed to its standard path
+/// returned [ClientExporter]. Each signal is POSTed to its standard path
 /// (`/v1/traces`, `/v1/metrics`, `/v1/logs`, `/v1development/profiles`) under the configured
 /// `host:port`, with the scheme chosen by [Tls]. The default endpoint is `localhost:4318`.
 public final class OtlpHttpExporter {
@@ -25,14 +25,14 @@ public final class OtlpHttpExporter {
         return new Builder();
     }
 
-    /// Convenience factory: builds and returns a ready-to-use [OtlpExporter].
-    public static OtlpExporter to(String host, int port) {
+    /// Convenience factory: builds and returns a ready-to-use [ClientExporter].
+    public static ClientExporter to(String host, int port) {
         return builder().setEndpoint(host, port).build();
     }
 
     /// Builds from the standard `OTEL_EXPORTER_OTLP_*` variables.
     /// Equivalent to `builder().fromEnvironment().build()`.
-    public static OtlpExporter fromEnvironment() {
+    public static ClientExporter fromEnvironment() {
         return builder().fromEnvironment().build();
     }
 

@@ -1,5 +1,9 @@
 package dev.nthings.otlp4j.transport.http;
 
+import static dev.nthings.otlp4j.core.signal.SignalDescriptor.LOGS;
+import static dev.nthings.otlp4j.core.signal.SignalDescriptor.METRICS;
+import static dev.nthings.otlp4j.core.signal.SignalDescriptor.PROFILES;
+import static dev.nthings.otlp4j.core.signal.SignalDescriptor.TRACES;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -9,18 +13,16 @@ import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
-import dev.nthings.otlp4j.model.ConsumeResult;
-import dev.nthings.otlp4j.pipeline.OtlpExporter;
-import dev.nthings.otlp4j.receiver.Receiver;
-import dev.nthings.otlp4j.pipeline.Pipeline;
-import dev.nthings.otlp4j.pipeline.ops.Transforms;
 import dev.nthings.otlp4j.config.Compression;
-import io.github.resilience4j.retry.RetryConfig;
+import dev.nthings.otlp4j.core.policy.BackoffPolicy;
+import dev.nthings.otlp4j.core.policy.RetryPolicy;
+import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.testing.Fixtures;
+import dev.nthings.otlp4j.transport.common.ClientExporter;
+import dev.nthings.otlp4j.transport.common.ServerReceiver;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -35,7 +37,7 @@ import org.junit.jupiter.api.Timeout;
 @DisplayName("OTLP/HTTP transport")
 class HttpTransportTest {
 
-    private final List<Receiver> receivers = new ArrayList<>();
+    private final List<ServerReceiver> receivers = new ArrayList<>();
     private final List<AutoCloseable> closeables = new ArrayList<>();
 
     @AfterEach
@@ -58,15 +60,12 @@ class HttpTransportTest {
     @Test
     void roundTripsRichTraceDataLosslessly() {
         var received = new AtomicReference<TracesData>();
-        var receiver = startReceiver(OtlpHttpReceiver.builder().onTraces(traces -> {
-            received.set(traces);
-            return ConsumeResult.acceptedStage();
-        }));
+        var receiver = startReceiver(OtlpHttpReceiver.builder().route(TRACES, Consumers.record(TRACES, received)));
         var sent = TransportFixtures.richTraceData();
 
-        var result = exporterTo(receiver).traces().consume(sent).toCompletableFuture().join();
+        var result = exporterTo(receiver).export(TRACES, sent).toCompletableFuture().join();
 
-        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(result).isInstanceOf(DeliveryResult.Accepted.class);
         assertThat(received.get()).isEqualTo(sent);
     }
 
@@ -74,15 +73,12 @@ class HttpTransportTest {
     @Test
     void roundTripsRichMetricsDataLosslessly() {
         var received = new AtomicReference<MetricsData>();
-        var receiver = startReceiver(OtlpHttpReceiver.builder().onMetrics(metrics -> {
-            received.set(metrics);
-            return ConsumeResult.acceptedStage();
-        }));
+        var receiver = startReceiver(OtlpHttpReceiver.builder().route(METRICS, Consumers.record(METRICS, received)));
         var sent = TransportFixtures.richMetricsData();
 
-        var result = exporterTo(receiver).metrics().consume(sent).toCompletableFuture().join();
+        var result = exporterTo(receiver).export(METRICS, sent).toCompletableFuture().join();
 
-        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(result).isInstanceOf(DeliveryResult.Accepted.class);
         assertThat(received.get()).isEqualTo(sent);
     }
 
@@ -90,15 +86,12 @@ class HttpTransportTest {
     @Test
     void roundTripsRichLogsDataLosslessly() {
         var received = new AtomicReference<LogsData>();
-        var receiver = startReceiver(OtlpHttpReceiver.builder().onLogs(logs -> {
-            received.set(logs);
-            return ConsumeResult.acceptedStage();
-        }));
+        var receiver = startReceiver(OtlpHttpReceiver.builder().route(LOGS, Consumers.record(LOGS, received)));
         var sent = TransportFixtures.richLogsData();
 
-        var result = exporterTo(receiver).logs().consume(sent).toCompletableFuture().join();
+        var result = exporterTo(receiver).export(LOGS, sent).toCompletableFuture().join();
 
-        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(result).isInstanceOf(DeliveryResult.Accepted.class);
         assertThat(received.get()).isEqualTo(sent);
     }
 
@@ -106,15 +99,12 @@ class HttpTransportTest {
     @Test
     void roundTripsProfilesData() {
         var received = new AtomicReference<ProfilesData>();
-        var receiver = startReceiver(OtlpHttpReceiver.builder().onProfiles(profiles -> {
-            received.set(profiles);
-            return ConsumeResult.acceptedStage();
-        }));
+        var receiver = startReceiver(OtlpHttpReceiver.builder().route(PROFILES, Consumers.record(PROFILES, received)));
         var sent = TransportFixtures.profilesData();
 
-        var result = exporterTo(receiver).profiles().consume(sent).toCompletableFuture().join();
+        var result = exporterTo(receiver).export(PROFILES, sent).toCompletableFuture().join();
 
-        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(result).isInstanceOf(DeliveryResult.Accepted.class);
         var sentProfile = sent.profiles().getFirst();
         var recvProfile = received.get().profiles().getFirst();
         assertThat(recvProfile.profileId()).isEqualTo(sentProfile.profileId());
@@ -126,53 +116,50 @@ class HttpTransportTest {
     @Test
     void propagatesPartialSuccessForEverySignal() {
         var traceReceiver = startReceiver(OtlpHttpReceiver.builder()
-                .onTraces(t -> CompletableFuture.completedStage(
-                        ConsumeResult.partial(2L, "2 spans malformed"))));
+                .route(TRACES, Consumers.partial(2L, "2 spans malformed")));
         var metricsReceiver = startReceiver(OtlpHttpReceiver.builder()
-                .onMetrics(m -> CompletableFuture.completedStage(
-                        ConsumeResult.partial(5L, "5 data points rejected"))));
+                .route(METRICS, Consumers.partial(5L, "5 data points rejected")));
         var logsReceiver = startReceiver(OtlpHttpReceiver.builder()
-                .onLogs(l -> CompletableFuture.completedStage(
-                        ConsumeResult.partial(3L, "3 log records rejected"))));
+                .route(LOGS, Consumers.partial(3L, "3 log records rejected")));
 
-        var traceResult = exporterTo(traceReceiver).traces()
-                .consume(Fixtures.traceData(Fixtures.span("op", Span.Kind.INTERNAL))).toCompletableFuture().join();
-        var metricResult = exporterTo(metricsReceiver).metrics()
-                .consume(new MetricsData(List.of())).toCompletableFuture().join();
-        var logResult = exporterTo(logsReceiver).logs()
-                .consume(new LogsData(List.of())).toCompletableFuture().join();
+        var traceResult = exporterTo(traceReceiver)
+                .export(TRACES, Fixtures.traceData(Fixtures.span("op", Span.Kind.INTERNAL)))
+                .toCompletableFuture().join();
+        var metricResult = exporterTo(metricsReceiver)
+                .export(METRICS, new MetricsData(List.of())).toCompletableFuture().join();
+        var logResult = exporterTo(logsReceiver)
+                .export(LOGS, new LogsData(List.of())).toCompletableFuture().join();
 
-        assertThat(traceResult).isInstanceOf(ConsumeResult.Partial.class);
-        assertThat(((ConsumeResult.Partial) traceResult).rejectedItems()).isEqualTo(2L);
-        assertThat(metricResult).isInstanceOf(ConsumeResult.Partial.class);
-        assertThat(((ConsumeResult.Partial) metricResult).rejectedItems()).isEqualTo(5L);
-        assertThat(logResult).isInstanceOf(ConsumeResult.Partial.class);
-        assertThat(((ConsumeResult.Partial) logResult).rejectedItems()).isEqualTo(3L);
+        assertThat(traceResult).isInstanceOf(DeliveryResult.Partial.class);
+        assertThat(((DeliveryResult.Partial) traceResult).rejectedItems()).isEqualTo(2L);
+        assertThat(metricResult).isInstanceOf(DeliveryResult.Partial.class);
+        assertThat(((DeliveryResult.Partial) metricResult).rejectedItems()).isEqualTo(5L);
+        assertThat(logResult).isInstanceOf(DeliveryResult.Partial.class);
+        assertThat(((DeliveryResult.Partial) logResult).rejectedItems()).isEqualTo(3L);
     }
 
-    @DisplayName("A synchronously throwing dispatcher becomes a transport error (HTTP 500)")
+    @DisplayName("A synchronously throwing consumer becomes a transport error (HTTP 500)")
     @Test
-    void throwingDispatcherBecomesATransportError() {
-        var receiver = startReceiver(OtlpHttpReceiver.builder().onTraces(traces -> {
-            throw new IllegalStateException("handler boom");
-        }));
+    void throwingConsumerBecomesATransportError() {
+        var receiver = startReceiver(OtlpHttpReceiver.builder()
+                .route(TRACES, Consumers.throwing(new IllegalStateException("handler boom"))));
         var exporter = exporterTo(receiver);
         var traces = Fixtures.traceData(Fixtures.span("op", Span.Kind.INTERNAL));
 
-        assertThatThrownBy(() -> exporter.traces().consume(traces).toCompletableFuture().join())
+        assertThatThrownBy(() -> exporter.export(TRACES, traces).toCompletableFuture().join())
                 .isInstanceOf(CompletionException.class)
                 .hasMessageContaining("handler boom");
     }
 
-    @DisplayName("A failed-stage dispatcher becomes a transport error (HTTP 500)")
+    @DisplayName("A failed-stage consumer becomes a transport error (HTTP 500)")
     @Test
-    void failedStageDispatcherBecomesATransportError() {
+    void failedStageConsumerBecomesATransportError() {
         var receiver = startReceiver(OtlpHttpReceiver.builder()
-                .onTraces(traces -> CompletableFuture.failedStage(new IllegalStateException("async boom"))));
+                .route(TRACES, Consumers.failing(new IllegalStateException("async boom"))));
         var exporter = exporterTo(receiver);
         var traces = Fixtures.traceData(Fixtures.span("op", Span.Kind.INTERNAL));
 
-        assertThatThrownBy(() -> exporter.traces().consume(traces).toCompletableFuture().join())
+        assertThatThrownBy(() -> exporter.export(TRACES, traces).toCompletableFuture().join())
                 .isInstanceOf(CompletionException.class)
                 .hasMessageContaining("async boom");
     }
@@ -181,11 +168,11 @@ class HttpTransportTest {
     @Test
     void rejectedWithoutCauseSurfacesAs503() {
         var receiver = startReceiver(OtlpHttpReceiver.builder()
-                .onTraces(traces -> CompletableFuture.completedStage(ConsumeResult.retryable("queue full"))));
+                .route(TRACES, Consumers.of(p -> DeliveryResult.retryable("queue full", Consumers.PROV))));
         var exporter = exporterTo(receiver);
 
-        assertThatThrownBy(() -> exporter.traces()
-                .consume(TransportFixtures.richTraceData()).toCompletableFuture().join())
+        assertThatThrownBy(() -> exporter.export(TRACES, TransportFixtures.richTraceData())
+                .toCompletableFuture().join())
                 .isInstanceOf(CompletionException.class)
                 .hasMessageContaining("503")
                 .hasMessageContaining("queue full");
@@ -194,25 +181,25 @@ class HttpTransportTest {
     @DisplayName("A permanent whole-batch Rejected surfaces as a 500 error")
     @Test
     void rejectedWithCauseSurfacesAs500() {
-        var receiver = startReceiver(OtlpHttpReceiver.builder().onTraces(traces -> CompletableFuture.completedStage(
-                ConsumeResult.permanent("dropped by policy", new IllegalStateException("disallowed")))));
+        var receiver = startReceiver(OtlpHttpReceiver.builder().route(TRACES, Consumers.of(
+                p -> DeliveryResult.permanent("dropped by policy", new IllegalStateException("disallowed"), Consumers.PROV))));
         var exporter = exporterTo(receiver);
 
-        assertThatThrownBy(() -> exporter.traces()
-                .consume(TransportFixtures.richTraceData()).toCompletableFuture().join())
+        assertThatThrownBy(() -> exporter.export(TRACES, TransportFixtures.richTraceData())
+                .toCompletableFuture().join())
                 .isInstanceOf(CompletionException.class)
                 .hasMessageContaining("500")
                 .hasMessageContaining("dropped by policy");
     }
 
-    @DisplayName("An unattached source surfaces as a retryable 503 error")
+    @DisplayName("An unrouted signal surfaces as a retryable 503 error")
     @Test
-    void unattachedSourceSurfacesAs503() {
+    void unroutedSignalSurfacesAs503() {
         var receiver = startReceiver(OtlpHttpReceiver.builder());
         var exporter = exporterTo(receiver);
 
-        assertThatThrownBy(() -> exporter.traces()
-                .consume(TransportFixtures.richTraceData()).toCompletableFuture().join())
+        assertThatThrownBy(() -> exporter.export(TRACES, TransportFixtures.richTraceData())
+                .toCompletableFuture().join())
                 .isInstanceOf(CompletionException.class)
                 .hasMessageContaining("503")
                 .hasMessageContaining("no consumer attached for TracesData");
@@ -222,10 +209,7 @@ class HttpTransportTest {
     @Test
     void roundTripsWithGzipCompression() {
         var received = new AtomicReference<TracesData>();
-        var receiver = startReceiver(OtlpHttpReceiver.builder().onTraces(traces -> {
-            received.set(traces);
-            return ConsumeResult.acceptedStage();
-        }));
+        var receiver = startReceiver(OtlpHttpReceiver.builder().route(TRACES, Consumers.record(TRACES, received)));
         var exporter = OtlpHttpExporter.builder()
                 .setEndpoint("localhost", receiver.port())
                 .setCompression(Compression.GZIP)
@@ -234,9 +218,9 @@ class HttpTransportTest {
         closeables.add(exporter);
         var sent = TransportFixtures.richTraceData();
 
-        var result = exporter.traces().consume(sent).toCompletableFuture().join();
+        var result = exporter.export(TRACES, sent).toCompletableFuture().join();
 
-        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(result).isInstanceOf(DeliveryResult.Accepted.class);
         assertThat(received.get()).isEqualTo(sent);
     }
 
@@ -244,63 +228,27 @@ class HttpTransportTest {
     @Test
     void retriesRetryableStatusThenSucceeds() {
         var calls = new AtomicInteger();
-        var receiver = startReceiver(OtlpHttpReceiver.builder().onTraces(traces -> {
-            if (calls.incrementAndGet() < 3) {
-                return CompletableFuture.completedStage(ConsumeResult.retryable("warming up"));
-            }
-            return ConsumeResult.acceptedStage();
-        }));
+        var receiver = startReceiver(OtlpHttpReceiver.builder().route(TRACES, Consumers.of(p ->
+                calls.incrementAndGet() < 3
+                        ? DeliveryResult.retryable("warming up", Consumers.PROV)
+                        : DeliveryResult.accepted(Consumers.PROV))));
         var exporter = OtlpHttpExporter.builder()
                 .setEndpoint("localhost", receiver.port())
-                .setRetryConfig(RetryConfig.custom().maxAttempts(3).waitDuration(Duration.ofMillis(1)).build())
+                .setRetryPolicy(new RetryPolicy(3, new BackoffPolicy(Duration.ofMillis(1), 1.0, 0.0, Duration.ofMillis(1)), true))
                 .setTimeout(Duration.ofSeconds(5))
                 .build();
         closeables.add(exporter);
 
-        var result = exporter.traces()
-                .consume(TransportFixtures.richTraceData()).toCompletableFuture().join();
+        var result = exporter.export(TRACES, TransportFixtures.richTraceData()).toCompletableFuture().join();
 
-        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(result).isInstanceOf(DeliveryResult.Accepted.class);
         assertThat(calls.get()).isEqualTo(3);
-    }
-
-    @DisplayName("End-to-end receive, filter, export Pipeline keeps only SERVER spans")
-    @Test
-    void endToEndReceiveFilterExportPipeline() {
-        var terminalCapture = new AtomicReference<TracesData>();
-        var terminal = startReceiver(OtlpHttpReceiver.builder().onTraces(traces -> {
-            terminalCapture.set(traces);
-            return ConsumeResult.acceptedStage();
-        }));
-        var gateway = startReceiver(OtlpHttpReceiver.builder());
-
-        try (var terminalExporter = exporterTo(terminal)) {
-            var sub = Pipeline.from(gateway.traces())
-                    .transform(Transforms.keepSpansWhere(span -> span.kind() == Span.Kind.SERVER))
-                    .filter(t -> !t.spans().isEmpty())
-                    .to(terminalExporter.traces());
-
-            try (var gatewayClient = exporterTo(gateway)) {
-                var result = gatewayClient.traces().consume(Fixtures.traceData(
-                        Fixtures.span("internal-op", Span.Kind.INTERNAL),
-                        Fixtures.span("GET /cart", Span.Kind.SERVER),
-                        Fixtures.span("GET /checkout", Span.Kind.SERVER)))
-                        .toCompletableFuture().join();
-                assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
-            }
-            sub.shutdown(Duration.ofSeconds(2)).toCompletableFuture().join();
-        }
-        assertThat(terminalCapture.get()).isNotNull();
-        assertThat(terminalCapture.get().spans())
-                .hasSize(2)
-                .allMatch(span -> span.kind() == Span.Kind.SERVER);
     }
 
     @DisplayName("Rejects starting a receiver twice")
     @Test
     void rejectsStartingAReceiverTwice() {
-        var receiver = startReceiver(OtlpHttpReceiver.builder()
-                .onTraces(t -> ConsumeResult.acceptedStage()));
+        var receiver = startReceiver(OtlpHttpReceiver.builder().route(TRACES, Consumers.accepting()));
 
         assertThatThrownBy(receiver::start)
                 .isInstanceOf(IllegalStateException.class)
@@ -312,7 +260,7 @@ class HttpTransportTest {
     void portIsZeroBeforeStart() {
         var receiver = OtlpHttpReceiver.builder()
                 .ephemeralPort()
-                .onTraces(t -> ConsumeResult.acceptedStage())
+                .route(TRACES, Consumers.accepting())
                 .build();
         try {
             assertThat(receiver.port()).isZero();
@@ -327,39 +275,36 @@ class HttpTransportTest {
         var received = new AtomicReference<TracesData>();
         var receiver = startReceiver(OtlpHttpReceiver.builder()
                 .setMaxInboundMessageSizeBytes(8 * 1024 * 1024)
-                .onTraces(traces -> {
-                    received.set(traces);
-                    return ConsumeResult.acceptedStage();
-                }));
+                .route(TRACES, Consumers.record(TRACES, received)));
         var exporter = OtlpHttpExporter.builder()
                 .setEndpoint("localhost", receiver.port())
                 .setCompression(Compression.GZIP)
-                .setRetryConfig(RetryConfig.custom().maxAttempts(3).waitDuration(Duration.ofMillis(50)).build())
+                .setRetryPolicy(new RetryPolicy(3, new BackoffPolicy(Duration.ofMillis(50), 1.0, 0.0, Duration.ofMillis(50)), true))
                 .setTimeout(Duration.ofSeconds(5))
                 .build();
         closeables.add(exporter);
         var sent = TransportFixtures.richTraceData();
 
-        var result = exporter.traces().consume(sent).toCompletableFuture().join();
+        var result = exporter.export(TRACES, sent).toCompletableFuture().join();
 
-        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(result).isInstanceOf(DeliveryResult.Accepted.class);
         assertThat(received.get()).isEqualTo(sent);
     }
 
-    private Receiver startReceiver(OtlpHttpReceiver.Builder builder) {
+    private ServerReceiver startReceiver(OtlpHttpReceiver.Builder builder) {
         var receiver = builder.ephemeralPort().build();
         receivers.add(receiver);
         return receiver.start();
     }
 
-    private OtlpExporter exporterTo(Receiver receiver) {
+    private ClientExporter exporterTo(ServerReceiver receiver) {
         // These tests exercise request/response mechanics and error mapping, not retry; disable
         // retries so a retryable rejection surfaces immediately rather than being retried to the
         // budget. Retry behaviour has dedicated coverage in HttpTransportConfigTest.
         var exporter = OtlpHttpExporter.builder()
                 .setEndpoint("localhost", receiver.port())
                 .setTimeout(Duration.ofSeconds(5))
-                .setRetryConfig(RetryConfig.custom().maxAttempts(1).build())
+                .setRetryPolicy(new RetryPolicy(1, BackoffPolicy.defaults(), true))
                 .build();
         closeables.add(exporter);
         return exporter;

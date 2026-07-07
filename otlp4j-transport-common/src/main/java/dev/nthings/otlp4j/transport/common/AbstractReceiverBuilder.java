@@ -2,26 +2,24 @@ package dev.nthings.otlp4j.transport.common;
 
 import dev.nthings.otlp4j.config.ServerConfig;
 import dev.nthings.otlp4j.config.Tls;
-import dev.nthings.otlp4j.model.LogsData;
-import dev.nthings.otlp4j.model.MetricsData;
-import dev.nthings.otlp4j.model.ProfilesData;
-import dev.nthings.otlp4j.model.TracesData;
-import dev.nthings.otlp4j.pipeline.Sink;
-import dev.nthings.otlp4j.receiver.Receiver;
-import dev.nthings.otlp4j.receiver.TelemetryTap;
+import dev.nthings.otlp4j.core.component.ComponentId;
+import dev.nthings.otlp4j.core.consumer.SignalConsumer;
+import dev.nthings.otlp4j.core.signal.SignalDescriptor;
+import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import dev.nthings.otlp4j.spi.Dispatchers;
 import dev.nthings.otlp4j.spi.OtlpServer;
 import dev.nthings.otlp4j.telemetry.GatewayMetrics;
+import java.time.Clock;
 import java.time.Duration;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Executor;
-import org.jspecify.annotations.Nullable;
 
 /// Shared builder base for OTLP receiver entry points. Holds the [ServerConfig.Builder] every
-/// transport delegates to, the optional per-signal sinks, and the fluent setters common to all
+/// transport delegates to, the routed graph consumers, and the fluent setters common to all
 /// transports; a concrete builder supplies the wire server via [#newServer] and adds
-/// transport-specific knobs through [#config()]. [#build()] wraps the server in a
-/// [ServerReceiver].
+/// transport-specific knobs through [#config()]. [#build()] wraps the server in a [ServerReceiver].
 ///
 /// @param <B> the concrete builder type (self-type), so shared setters return the subtype and
 ///            fluent chains keep their transport-specific methods available
@@ -29,10 +27,9 @@ public abstract class AbstractReceiverBuilder<B extends AbstractReceiverBuilder<
 
     private ServerConfig.Builder config;
     private final String transportName;
-    private @Nullable Sink<? super TracesData>   traces;
-    private @Nullable Sink<? super MetricsData>  metrics;
-    private @Nullable Sink<? super LogsData>     logs;
-    private @Nullable Sink<? super ProfilesData> profiles;
+    private final Map<SignalDescriptor<?>, SignalConsumer<TelemetryPayload>> routes = new LinkedHashMap<>();
+    private ComponentId id = ComponentId.parse("otlp");
+    private Clock clock = Clock.systemUTC();
     private GatewayMetrics gatewayMetrics = GatewayMetrics.noop();
 
     /// Seeds the base with the transport's default config (e.g. the HTTP entry point pre-sets
@@ -98,7 +95,8 @@ public abstract class AbstractReceiverBuilder<B extends AbstractReceiverBuilder<
         return self();
     }
 
-    /// Binds an ephemeral port (port `0`); read the actual port from [Receiver#port()].
+    /// Binds an ephemeral port (port `0`); read the actual port from the built [ServerReceiver]'s
+    /// `port()`.
     ///
     /// @return this builder
     public final B ephemeralPort() {
@@ -182,47 +180,40 @@ public abstract class AbstractReceiverBuilder<B extends AbstractReceiverBuilder<
         return self();
     }
 
-    /// Attaches the traces sink the receiver dispatches to.
+    /// Routes `consumer` as the graph consumer for `signal`. The built receiver dispatches every
+    /// decoded payload of that signal to it. A second route for the same signal replaces the first.
     ///
-    /// @param sink the traces sink
+    /// @param signal   the signal to route
+    /// @param consumer the graph consumer for that signal
     /// @return this builder
-    public final B onTraces(Sink<? super TracesData> sink) {
-        this.traces = sink;
+    public final B route(SignalDescriptor<?> signal, SignalConsumer<TelemetryPayload> consumer) {
+        routes.put(Objects.requireNonNull(signal, "signal"), Objects.requireNonNull(consumer, "consumer"));
         return self();
     }
 
-    /// Attaches the metrics sink the receiver dispatches to.
+    /// Sets the receiver component identity, attributed to no-consumer rejections. Defaults to the
+    /// `otlp` type with no name.
     ///
-    /// @param sink the metrics sink
+    /// @param id the receiver component identity
     /// @return this builder
-    public final B onMetrics(Sink<? super MetricsData> sink) {
-        this.metrics = sink;
+    public final B componentId(ComponentId id) {
+        this.id = Objects.requireNonNull(id, "id");
         return self();
     }
 
-    /// Attaches the logs sink the receiver dispatches to.
+    /// Sets the clock that stamps each consume deadline. Defaults to the system UTC clock.
     ///
-    /// @param sink the logs sink
+    /// @param clock the clock
     /// @return this builder
-    public final B onLogs(Sink<? super LogsData> sink) {
-        this.logs = sink;
-        return self();
-    }
-
-    /// Attaches the profiles sink the receiver dispatches to.
-    ///
-    /// @param sink the profiles sink
-    /// @return this builder
-    public final B onProfiles(Sink<? super ProfilesData> sink) {
-        this.profiles = sink;
+    public final B clock(Clock clock) {
+        this.clock = Objects.requireNonNull(clock, "clock");
         return self();
     }
 
     /// Sets the [GatewayMetrics] registry the receiver reports to (default [GatewayMetrics#noop]).
-    /// Named `telemetry` rather than `metrics` because the per-signal OTLP metrics sink already owns
-    /// [#onMetrics]; this knob is the gateway's self-observability, feeding the admission and tap
-    /// instruments. Threaded into the transport server (admission health) and the [TelemetryTap]
-    /// (`otlp4j.receiver.tap.dropped`).
+    /// Named `telemetry` rather than `metrics` because the per-signal OTLP metrics consumer is the
+    /// routed graph consumer; this knob is the gateway's self-observability, threaded into the
+    /// transport server so admission reports its health.
     ///
     /// @param telemetry the self-observability registry
     /// @return this builder
@@ -231,13 +222,13 @@ public abstract class AbstractReceiverBuilder<B extends AbstractReceiverBuilder<
         return self();
     }
 
-    /// Builds the receiver: finishes the config, asks the transport for its server, and wraps it
-    /// in a [ServerReceiver] with any attached sinks subscribed.
+    /// Builds the receiver: finishes the config, asks the transport for its server, and wraps it in a
+    /// [ServerReceiver] with the routed graph consumers attached.
     ///
-    /// @return the receiver; call [Receiver#start()] to bind the transport
-    public final Receiver build() {
+    /// @return the receiver; call [ServerReceiver#start()] to bind the transport
+    public final ServerReceiver build() {
         var built = config.build();
-        return new ServerReceiver(transportName, disp -> newServer(built, disp, gatewayMetrics),
-                traces, metrics, logs, profiles, gatewayMetrics);
+        return new ServerReceiver(transportName, id, clock, gatewayMetrics,
+                disp -> newServer(built, disp, gatewayMetrics), routes);
     }
 }

@@ -1,13 +1,14 @@
 package dev.nthings.otlp4j.transport.common;
 
-import dev.nthings.otlp4j.pipeline.ops.OverflowPolicy;
+import dev.nthings.otlp4j.core.policy.OverflowPolicy;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
-import dev.nthings.otlp4j.model.Signal;
+import dev.nthings.otlp4j.core.signal.ModelBatchPayload;
+import dev.nthings.otlp4j.core.signal.SignalDescriptor;
+import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import dev.nthings.otlp4j.model.Span;
-import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.receiver.TapOptions;
 import dev.nthings.otlp4j.testing.Fixtures;
 import dev.nthings.otlp4j.testing.FlowSubscribers;
@@ -28,11 +29,12 @@ class TapAndMulticastEdgesTest {
     void receiverTapMulticastsToEverySubscriber() {
         var tap = new ReceiverTap(dev.nthings.otlp4j.telemetry.GatewayMetrics.noop());
         try {
-            var first = new CopyOnWriteArrayList<TracesData>();
-            var second = new CopyOnWriteArrayList<TracesData>();
-            tap.traces().subscribe(FlowSubscribers.recording(first));
-            tap.traces().subscribe(FlowSubscribers.recording(second));
-            tap.publish(Signal.TRACES.batch(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER))));
+            var first = new CopyOnWriteArrayList<TelemetryPayload>();
+            var second = new CopyOnWriteArrayList<TelemetryPayload>();
+            tap.publisher(SignalDescriptor.TRACES).subscribe(FlowSubscribers.recording(first));
+            tap.publisher(SignalDescriptor.TRACES).subscribe(FlowSubscribers.recording(second));
+            tap.publish(new ModelBatchPayload<>(
+                    SignalDescriptor.TRACES, Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER))));
             await().atMost(Duration.ofSeconds(2)).until(() -> first.size() >= 1 && second.size() >= 1);
             assertThat(first).hasSize(1);
             assertThat(second).hasSize(1);
@@ -46,9 +48,11 @@ class TapAndMulticastEdgesTest {
     void droppedCountIncrementsWhenSubscriberStalls() {
         var tap = new ReceiverTap(dev.nthings.otlp4j.telemetry.GatewayMetrics.noop());
         try {
-            tap.traces(new TapOptions(OverflowPolicy.DROP_NEWEST, 1)).subscribe(FlowSubscribers.noOp());
+            tap.publisher(SignalDescriptor.TRACES, new TapOptions(OverflowPolicy.DROP_NEWEST, 1))
+                    .subscribe(FlowSubscribers.noOp());
             for (var i = 0; i < 50; i++) {
-                tap.publish(Signal.TRACES.batch(Fixtures.traceData(Fixtures.span("s" + i, Span.Kind.SERVER))));
+                tap.publish(new ModelBatchPayload<>(
+                        SignalDescriptor.TRACES, Fixtures.traceData(Fixtures.span("s" + i, Span.Kind.SERVER))));
             }
             assertThat(tap.droppedCount()).isGreaterThan(0L);
         } finally {

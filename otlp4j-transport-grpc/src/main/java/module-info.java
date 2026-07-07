@@ -3,7 +3,8 @@
 /// deployment never carries Netty.
 module dev.nthings.otlp4j.transport.grpc {
     requires dev.nthings.otlp4j.model;
-    requires transitive dev.nthings.otlp4j.api;
+    // The graph factories name the core component and signal contracts directly.
+    requires dev.nthings.otlp4j.core;
     requires transitive dev.nthings.otlp4j.transport.common;
     requires dev.nthings.otlp4j.codec;
     requires dev.nthings.otlp4j.proto;

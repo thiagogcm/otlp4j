@@ -3,12 +3,19 @@ package dev.nthings.otlp4j.transport.grpc.internal;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 
+import static dev.nthings.otlp4j.core.signal.SignalDescriptor.TRACES;
+
 import dev.nthings.otlp4j.config.ClientConfig;
-import dev.nthings.otlp4j.model.ConsumeResult;
-import dev.nthings.otlp4j.model.Signal;
-import dev.nthings.otlp4j.model.SignalBatch;
+import dev.nthings.otlp4j.core.component.ComponentId;
+import dev.nthings.otlp4j.core.component.ComponentKind;
+import dev.nthings.otlp4j.core.consumer.ConsumeContext;
+import dev.nthings.otlp4j.core.consumer.ConsumerCapabilities;
+import dev.nthings.otlp4j.core.consumer.SignalConsumer;
+import dev.nthings.otlp4j.core.result.DeliveryResult;
+import dev.nthings.otlp4j.core.result.Provenance;
+import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import dev.nthings.otlp4j.model.TracesData;
-import dev.nthings.otlp4j.receiver.Receiver;
+import dev.nthings.otlp4j.transport.common.ServerReceiver;
 import dev.nthings.otlp4j.transport.grpc.OtlpGrpcReceiver;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -27,14 +34,17 @@ import org.junit.jupiter.api.Timeout;
 @DisplayName("OtlpClient lifecycle (gRPC)")
 class OtlpClientLifecycleTest {
 
-    private final List<Receiver> receivers = new ArrayList<>();
-    private final List<CompletableFuture<ConsumeResult>> gates = new ArrayList<>();
+    private static final Provenance PROV =
+            new Provenance(ComponentId.parse("sink"), ComponentKind.EXPORTER, TRACES);
+
+    private final List<ServerReceiver> receivers = new ArrayList<>();
+    private final List<CompletableFuture<DeliveryResult>> gates = new ArrayList<>();
 
     @AfterEach
     void teardown() {
         // Release any held server-side handlers first so a blocked in-flight export can unwind.
         for (var gate : gates) {
-            gate.complete(ConsumeResult.accepted());
+            gate.complete(DeliveryResult.accepted(PROV));
         }
         for (var receiver : receivers) {
             try {
@@ -72,13 +82,23 @@ class OtlpClientLifecycleTest {
         // export is what turns this into a real regression guard for the bounded, remaining-budget
         // teardown: a drain that ignored the budget would hang here for the full 20s client timeout.
         var entered = new CountDownLatch(1);
-        var gate = new CompletableFuture<ConsumeResult>();
+        var gate = new CompletableFuture<DeliveryResult>();
         gates.add(gate);
+        SignalConsumer<TelemetryPayload> gated = new SignalConsumer<>() {
+            @Override
+            public ConsumerCapabilities capabilities() {
+                return ConsumerCapabilities.nonMutating();
+            }
+
+            @Override
+            public java.util.concurrent.CompletionStage<DeliveryResult> consume(
+                    ConsumeContext context, TelemetryPayload data) {
+                entered.countDown();
+                return gate;
+            }
+        };
         var receiver = OtlpGrpcReceiver.builder().ephemeralPort()
-                .onTraces(traces -> {
-                    entered.countDown();
-                    return gate;
-                })
+                .route(TRACES, gated)
                 .build()
                 .start();
         receivers.add(receiver);
@@ -90,7 +110,7 @@ class OtlpClientLifecycleTest {
                 .setTimeout(Duration.ofSeconds(20))
                 .build());
         // Fire an export and leave it in flight; do not join it.
-        client.export(new SignalBatch<>(Signal.TRACES, new TracesData(List.of())));
+        client.export(TRACES, new TracesData(List.of()), PROV);
         assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
 
         var timeout = Duration.ofMillis(500);

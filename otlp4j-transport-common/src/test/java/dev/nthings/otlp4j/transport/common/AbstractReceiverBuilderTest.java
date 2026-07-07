@@ -2,10 +2,19 @@ package dev.nthings.otlp4j.transport.common;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import static dev.nthings.otlp4j.core.signal.SignalDescriptor.TRACES;
+
 import dev.nthings.otlp4j.config.ServerConfig;
 import dev.nthings.otlp4j.config.Tls;
-import dev.nthings.otlp4j.model.ConsumeResult;
-import dev.nthings.otlp4j.model.Signal;
+import dev.nthings.otlp4j.core.component.ComponentKind;
+import dev.nthings.otlp4j.core.consumer.ConsumeContext;
+import dev.nthings.otlp4j.core.consumer.ConsumerCapabilities;
+import dev.nthings.otlp4j.core.consumer.SignalConsumer;
+import dev.nthings.otlp4j.core.result.DeliveryResult;
+import dev.nthings.otlp4j.core.result.Disposition;
+import dev.nthings.otlp4j.core.result.Provenance;
+import dev.nthings.otlp4j.core.signal.ModelBatchPayload;
+import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.spi.Dispatchers;
@@ -126,39 +135,55 @@ class AbstractReceiverBuilderTest {
         assertThat(replaced.captured.port()).isEqualTo(9999);
     }
 
-    @DisplayName("onTraces sink is subscribed: dispatching a batch reaches it")
+    @DisplayName("a routed consumer is reached: dispatching a payload reaches it")
     @Test
-    void sinkWiringDispatches() {
-        var seen = new AtomicReference<TracesData>();
+    void consumerRoutingDispatches() {
+        var seen = new AtomicReference<TelemetryPayload>();
         var builder = new TestBuilder();
-        var receiver = builder.onTraces(batch -> {
-            seen.set(batch);
-            return ConsumeResult.acceptedStage();
-        }).build();
+        var receiver = builder.route(TRACES, recording(seen)).build();
 
         var batch = Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER));
+        var payload = new ModelBatchPayload<>(TRACES, batch);
         assertThat(builder.dispatchers).isNotNull();
-        var result = builder.dispatchers.dispatch(Signal.TRACES.batch(batch)).toCompletableFuture().join();
+        var result = builder.dispatchers.dispatch(payload).toCompletableFuture().join();
 
-        assertThat(result).isEqualTo(ConsumeResult.accepted());
-        assertThat(seen.get()).isSameAs(batch);
-        receiver.close();
+        assertThat(result).isInstanceOf(DeliveryResult.Accepted.class);
+        assertThat(seen.get()).isSameAs(payload);
+        receiver.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
     }
 
-    @DisplayName("an unattached signal rejects retryably until a sink subscribes")
+    @DisplayName("an unrouted signal rejects retryably until a consumer is routed")
     @Test
-    void unattachedSignalRejectsRetryably() {
+    void unroutedSignalRejectsRetryably() {
         var builder = new TestBuilder();
         var receiver = builder.build();
 
         assertThat(builder.dispatchers).isNotNull();
         var result = builder.dispatchers
-                .dispatch(Signal.TRACES.batch(Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER))))
+                .dispatch(new ModelBatchPayload<>(
+                        TRACES, Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER))))
                 .toCompletableFuture()
                 .join();
 
-        assertThat(result).isInstanceOf(ConsumeResult.Rejected.class);
-        assertThat(((ConsumeResult.Rejected) result).retryable()).isTrue();
-        receiver.close();
+        assertThat(result).isInstanceOf(DeliveryResult.Rejected.class);
+        assertThat(((DeliveryResult.Rejected) result).disposition()).isEqualTo(Disposition.RETRYABLE);
+        receiver.shutdown(Duration.ofSeconds(1)).toCompletableFuture().join();
+    }
+
+    private static SignalConsumer<TelemetryPayload> recording(AtomicReference<TelemetryPayload> seen) {
+        var provenance = new Provenance(
+                dev.nthings.otlp4j.core.component.ComponentId.parse("sink"), ComponentKind.EXPORTER, TRACES);
+        return new SignalConsumer<>() {
+            @Override
+            public ConsumerCapabilities capabilities() {
+                return ConsumerCapabilities.nonMutating();
+            }
+
+            @Override
+            public CompletionStage<DeliveryResult> consume(ConsumeContext context, TelemetryPayload data) {
+                seen.set(data);
+                return DeliveryResult.acceptedStage(provenance);
+            }
+        };
     }
 }

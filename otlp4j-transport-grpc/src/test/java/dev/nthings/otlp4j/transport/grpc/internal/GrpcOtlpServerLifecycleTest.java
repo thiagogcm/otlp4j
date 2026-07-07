@@ -4,8 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import dev.nthings.otlp4j.model.ConsumeResult;
-import dev.nthings.otlp4j.model.SignalBatch;
+import dev.nthings.otlp4j.core.component.ComponentId;
+import dev.nthings.otlp4j.core.component.ComponentKind;
+import dev.nthings.otlp4j.core.result.DeliveryResult;
+import dev.nthings.otlp4j.core.result.Provenance;
+import dev.nthings.otlp4j.core.signal.SignalDescriptor;
+import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import dev.nthings.otlp4j.spi.Dispatchers;
 import dev.nthings.otlp4j.config.ServerConfig;
 import dev.nthings.otlp4j.config.Tls;
@@ -22,10 +26,13 @@ import org.junit.jupiter.api.Timeout;
 @DisplayName("GrpcOtlpServer lifecycle")
 class GrpcOtlpServerLifecycleTest {
 
+    private static final Provenance PROV =
+            new Provenance(ComponentId.parse("sink"), ComponentKind.EXPORTER, SignalDescriptor.TRACES);
+
     private static final Dispatchers NO_OP = new Dispatchers() {
         @Override
-        public <T> CompletionStage<ConsumeResult> dispatch(SignalBatch<T> batch) {
-            return CompletableFuture.completedStage(ConsumeResult.accepted());
+        public CompletionStage<DeliveryResult> dispatch(TelemetryPayload payload) {
+            return CompletableFuture.completedStage(DeliveryResult.accepted(PROV));
         }
     };
 

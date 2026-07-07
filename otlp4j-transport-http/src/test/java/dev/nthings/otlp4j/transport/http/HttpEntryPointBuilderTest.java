@@ -1,13 +1,17 @@
 package dev.nthings.otlp4j.transport.http;
 
+import static dev.nthings.otlp4j.core.signal.SignalDescriptor.LOGS;
+import static dev.nthings.otlp4j.core.signal.SignalDescriptor.METRICS;
+import static dev.nthings.otlp4j.core.signal.SignalDescriptor.PROFILES;
+import static dev.nthings.otlp4j.core.signal.SignalDescriptor.TRACES;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.nthings.otlp4j.config.ClientConfig;
 import dev.nthings.otlp4j.config.Compression;
-import io.github.resilience4j.retry.RetryConfig;
+import dev.nthings.otlp4j.core.policy.BackoffPolicy;
+import dev.nthings.otlp4j.core.policy.RetryPolicy;
 import dev.nthings.otlp4j.config.ServerConfig;
 import dev.nthings.otlp4j.config.Tls;
-import dev.nthings.otlp4j.model.ConsumeResult;
 import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.Executors;
@@ -33,12 +37,12 @@ class HttpEntryPointBuilderTest {
                 .setHeaders(Map.of("x-tenant", "acme"))
                 .setHeaders(() -> Map.of("x-rotating", "live"))
                 .setCompression(Compression.GZIP)
-                .setRetryConfig(RetryConfig.custom().maxAttempts(3).waitDuration(Duration.ofMillis(50)).build())
+                .setRetryPolicy(new RetryPolicy(3, new BackoffPolicy(Duration.ofMillis(50), 1.0, 0.0, Duration.ofMillis(50)), true))
                 .build()) {
-            assertThat(exporter.traces()).isNotNull();
-            assertThat(exporter.metrics()).isNotNull();
-            assertThat(exporter.logs()).isNotNull();
-            assertThat(exporter.profiles()).isNotNull();
+            assertThat(exporter.consumer(TRACES)).isNotNull();
+            assertThat(exporter.consumer(METRICS)).isNotNull();
+            assertThat(exporter.consumer(LOGS)).isNotNull();
+            assertThat(exporter.consumer(PROFILES)).isNotNull();
         }
     }
 
@@ -47,10 +51,10 @@ class HttpEntryPointBuilderTest {
     void exporterFromConfigAndConvenience() {
         var config = ClientConfig.builder().setEndpoint("h", 4318).build();
         try (var fromConfig = OtlpHttpExporter.builder().setConfig(config).build()) {
-            assertThat(fromConfig.traces()).isNotNull();
+            assertThat(fromConfig.consumer(TRACES)).isNotNull();
         }
         try (var convenience = OtlpHttpExporter.to("h", 4318)) {
-            assertThat(convenience.traces()).isNotNull();
+            assertThat(convenience.consumer(TRACES)).isNotNull();
         }
     }
 
@@ -58,7 +62,7 @@ class HttpEntryPointBuilderTest {
     @Test
     void exporterFromEnvironmentFactory() {
         try (var exporter = OtlpHttpExporter.fromEnvironment()) {
-            assertThat(exporter.traces()).isNotNull();
+            assertThat(exporter.consumer(TRACES)).isNotNull();
         }
     }
 
@@ -75,10 +79,10 @@ class HttpEntryPointBuilderTest {
                 .setMaxInboundMessageSizeBytes(1024)
                 .setHandshakeTimeout(Duration.ofSeconds(5))
                 .setServerExecutor(executor)
-                .onTraces(t -> ConsumeResult.acceptedStage())
-                .onMetrics(m -> ConsumeResult.acceptedStage())
-                .onLogs(l -> ConsumeResult.acceptedStage())
-                .onProfiles(p -> ConsumeResult.acceptedStage())
+                .route(TRACES, Consumers.accepting())
+                .route(METRICS, Consumers.accepting())
+                .route(LOGS, Consumers.accepting())
+                .route(PROFILES, Consumers.accepting())
                 .build();
         assertThat(receiver.port()).isZero(); // never started
         executor.shutdown();

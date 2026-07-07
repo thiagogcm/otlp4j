@@ -15,9 +15,10 @@
     <modules>
         <module>otlp4j-model</module>
         <module>otlp4j-proto</module>
-        <module>otlp4j-api</module>
+        <module>otlp4j-core</module>
         <module>otlp4j-codec</module>
         <module>otlp4j-transport-common</module>
+        <module>otlp4j-service</module>
         <module>otlp4j-transport-grpc</module>
         <module>otlp4j-transport-http</module>
         <module>otlp4j-samples</module>
@@ -47,6 +48,10 @@
         <assertj.version>3.27.7</assertj.version>
         <awaitility.version>4.3.0</awaitility.version>
         <resilience4j.version>2.4.0</resilience4j.version>
+        <!-- A real explicit module (module org.jgrapht.core, verified against the jar's
+             module-info.class), consumed internally by otlp4j-service; no org.jgrapht type ever
+             appears in an exported signature. -->
+        <jgrapht.version>1.5.2</jgrapht.version>
         <!-- JMH is used only by the otlp4j-benchmarks module, which builds solely under the
              `bench` profile and never in the default reactor. Pinned here so the module POM
              stays version-free. -->
@@ -82,7 +87,7 @@
             </dependency>
             <dependency>
                 <groupId>dev.nthings.otlp4j</groupId>
-                <artifactId>otlp4j-api</artifactId>
+                <artifactId>otlp4j-core</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -93,6 +98,11 @@
             <dependency>
                 <groupId>dev.nthings.otlp4j</groupId>
                 <artifactId>otlp4j-transport-common</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>dev.nthings.otlp4j</groupId>
+                <artifactId>otlp4j-service</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -172,6 +182,13 @@
                 <groupId>org.jspecify</groupId>
                 <artifactId>jspecify</artifactId>
                 <version>${jspecify.version}</version>
+            </dependency>
+            <!-- Internal graph representation for otlp4j-service only; see the jgrapht.version
+                 comment above for the module posture. -->
+            <dependency>
+                <groupId>org.jgrapht</groupId>
+                <artifactId>jgrapht-core</artifactId>
+                <version>${jgrapht.version}</version>
             </dependency>
             <dependency>
                 <groupId>ch.qos.logback</groupId>
@@ -295,8 +312,8 @@
                     <version>${jacoco-maven-plugin.version}</version>
                     <!-- Shared coverage floor for the `check` goal: a one-directional ratchet.
                          Only read by modules that opt in with a `check-coverage` execution
-                         (otlp4j-model/api/codec/transport). The report and prepare-agent goals
-                         ignore these rules. -->
+                         (otlp4j-model/core/codec/transport-common/service/transport-grpc/
+                         transport-http). The report and prepare-agent goals ignore these rules. -->
                     <configuration>
                         <rules>
                             <rule>

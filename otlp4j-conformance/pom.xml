@@ -29,6 +29,19 @@
          seam implementation and the harness need directly so the classpath is self-contained. The
          JUnit, AssertJ and Awaitility test dependencies are inherited from the parent POM. -->
     <dependencies>
+        <!-- The core contracts and the service graph runtime the bootstrap seam now boots the
+             gateway through: it builds a GatewayConfig, starts a GatewayRuntime, and reads the
+             receiver's bound port through the core NetworkBound capability. -->
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-service</artifactId>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>dev.nthings.otlp4j</groupId>
             <artifactId>otlp4j-transport-grpc</artifactId>

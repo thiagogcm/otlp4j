@@ -1,16 +1,17 @@
 package dev.nthings.otlp4j.transport.http;
 
 import dev.nthings.otlp4j.config.ServerConfig;
-import dev.nthings.otlp4j.receiver.Receiver;
 import dev.nthings.otlp4j.spi.Dispatchers;
 import dev.nthings.otlp4j.spi.OtlpServer;
 import dev.nthings.otlp4j.telemetry.GatewayMetrics;
 import dev.nthings.otlp4j.transport.common.AbstractReceiverBuilder;
+import dev.nthings.otlp4j.transport.common.ServerReceiver;
 import dev.nthings.otlp4j.transport.http.internal.HttpOtlpServer;
 
-/// Builds [Receiver]s that accept OTLP/HTTP requests and dispatch to per-signal sinks.
+/// Builds [ServerReceiver]s that accept OTLP/HTTP requests and dispatch to the routed graph
+/// consumers.
 ///
-/// Call [Receiver#start()] on the built receiver to bind the transport. The default bind is
+/// Call [ServerReceiver#start()] on the built receiver to bind the transport. The default bind is
 /// `localhost:4318` with plaintext.
 public final class OtlpHttpReceiver {
 
@@ -23,7 +24,7 @@ public final class OtlpHttpReceiver {
         return new Builder();
     }
 
-    /// Builder for an OTLP/HTTP [Receiver]. Defaults bind `localhost:4318` with plaintext
+    /// Builder for an OTLP/HTTP [ServerReceiver]. Defaults bind `localhost:4318` with plaintext
     /// transport; the shared knobs live on [AbstractReceiverBuilder].
     public static final class Builder extends AbstractReceiverBuilder<Builder> {
 

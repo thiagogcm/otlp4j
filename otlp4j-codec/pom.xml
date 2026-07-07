@@ -31,6 +31,11 @@
             <groupId>dev.nthings.otlp4j</groupId>
             <artifactId>otlp4j-proto</artifactId>
         </dependency>
+        <!-- The DeliveryResult type the response mapping is built around. -->
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-core</artifactId>
+        </dependency>
 
         <!-- Shared OTLP test fixtures (Fixtures, TransportFixtures). -->
         <dependency>
@@ -53,10 +58,9 @@
                             <goal>check</goal>
                         </goals>
                         <configuration>
-                            <!-- Mappers are gated by this module's round-trip suites; SignalResponses
-                                 and Transports are exercised by the transport suites + aggregate. -->
+                            <!-- Mappers are gated by this module's round-trip suites; Transports is
+                                 exercised by the transport suites + aggregate. -->
                             <excludes>
-                                <exclude>dev/nthings/otlp4j/codec/SignalResponses*</exclude>
                                 <exclude>dev/nthings/otlp4j/codec/Transports*</exclude>
                             </excludes>
                         </configuration>

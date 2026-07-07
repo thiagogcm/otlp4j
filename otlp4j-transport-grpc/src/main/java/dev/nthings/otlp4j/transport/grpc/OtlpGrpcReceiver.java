@@ -1,16 +1,17 @@
 package dev.nthings.otlp4j.transport.grpc;
 
 import dev.nthings.otlp4j.config.ServerConfig;
-import dev.nthings.otlp4j.receiver.Receiver;
 import dev.nthings.otlp4j.spi.Dispatchers;
 import dev.nthings.otlp4j.spi.OtlpServer;
 import dev.nthings.otlp4j.telemetry.GatewayMetrics;
 import dev.nthings.otlp4j.transport.common.AbstractReceiverBuilder;
+import dev.nthings.otlp4j.transport.common.ServerReceiver;
 import dev.nthings.otlp4j.transport.grpc.internal.GrpcOtlpServer;
 
-/// Builds [Receiver]s that accept OTLP/gRPC requests and dispatch to per-signal sinks.
+/// Builds [ServerReceiver]s that accept OTLP/gRPC requests and dispatch to the routed graph
+/// consumers.
 ///
-/// Call [Receiver#start()] on the built receiver to bind the transport. The default bind is
+/// Call [ServerReceiver#start()] on the built receiver to bind the transport. The default bind is
 /// `localhost:4317`.
 public final class OtlpGrpcReceiver {
 
@@ -20,7 +21,7 @@ public final class OtlpGrpcReceiver {
         return new Builder();
     }
 
-    /// Builder for an OTLP/gRPC [Receiver]. Defaults bind `localhost:4317` with plaintext
+    /// Builder for an OTLP/gRPC [ServerReceiver]. Defaults bind `localhost:4317` with plaintext
     /// transport; the shared knobs live on [AbstractReceiverBuilder].
     public static final class Builder extends AbstractReceiverBuilder<Builder> {
 

@@ -3,10 +3,10 @@ package dev.nthings.otlp4j.transport.common;
 import dev.nthings.otlp4j.config.ClientConfig;
 import dev.nthings.otlp4j.config.Compression;
 import dev.nthings.otlp4j.config.Tls;
-import dev.nthings.otlp4j.pipeline.OtlpExporter;
+import dev.nthings.otlp4j.core.component.ComponentId;
+import dev.nthings.otlp4j.core.policy.RetryPolicy;
 import dev.nthings.otlp4j.spi.OtlpClient;
 import dev.nthings.otlp4j.telemetry.GatewayMetrics;
-import io.github.resilience4j.retry.RetryConfig;
 import java.time.Duration;
 import java.util.Map;
 import java.util.Objects;
@@ -23,6 +23,7 @@ public abstract class AbstractExporterBuilder<B extends AbstractExporterBuilder<
 
     private ClientConfig.Builder config;
     private final String exporterType;
+    private ComponentId id = ComponentId.parse("otlp");
     private GatewayMetrics gatewayMetrics = GatewayMetrics.noop();
 
     /// Seeds the base with the transport's default config (e.g. the HTTP entry point pre-sets
@@ -161,14 +162,14 @@ public abstract class AbstractExporterBuilder<B extends AbstractExporterBuilder<
         return self();
     }
 
-    /// Sets the Resilience4j retry configuration. Defaults to
-    /// [ClientConfig#defaultRetryConfig()]; pass a config with `maxAttempts(1)` to disable
-    /// retries.
+    /// Sets the neutral retry policy. Defaults to [ClientConfig#defaultRetryPolicy()]; pass a policy
+    /// with `maxAttempts` of `1` to disable retries. The transport translates this policy to its
+    /// internal resilience library.
     ///
-    /// @param retry the retry configuration
+    /// @param retry the retry policy
     /// @return this builder
-    public final B setRetryConfig(RetryConfig retry) {
-        config.setRetryConfig(retry);
+    public final B setRetryPolicy(RetryPolicy retry) {
+        config.setRetryPolicy(retry);
         return self();
     }
 
@@ -184,11 +185,21 @@ public abstract class AbstractExporterBuilder<B extends AbstractExporterBuilder<
         return self();
     }
 
+    /// Sets the exporter component identity, attributed to every delivery result. Defaults to the
+    /// `otlp` type with no name.
+    ///
+    /// @param id the exporter component identity
+    /// @return this builder
+    public final B componentId(ComponentId id) {
+        this.id = Objects.requireNonNull(id, "id");
+        return self();
+    }
+
     /// Builds the exporter: finishes the config, asks the transport for its client, and wraps it
     /// in a [ClientExporter].
     ///
     /// @return the ready-to-use exporter
-    public final OtlpExporter build() {
-        return new ClientExporter(newClient(config.build()), exporterType, gatewayMetrics);
+    public final ClientExporter build() {
+        return new ClientExporter(newClient(config.build()), id, exporterType, gatewayMetrics);
     }
 }

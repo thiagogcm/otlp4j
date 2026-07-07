@@ -6,8 +6,9 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 import dev.nthings.otlp4j.transport.common.AdmissionControl;
-import dev.nthings.otlp4j.model.ConsumeResult;
-import dev.nthings.otlp4j.codec.DeliveryResults;
+import dev.nthings.otlp4j.core.result.DeliveryResult;
+import dev.nthings.otlp4j.core.signal.ModelBatchPayload;
+import dev.nthings.otlp4j.codec.DeliveryResultStatuses;
 import dev.nthings.otlp4j.codec.SignalCodec;
 import dev.nthings.otlp4j.spi.Dispatchers;
 import java.io.ByteArrayOutputStream;
@@ -28,9 +29,9 @@ import org.slf4j.LoggerFactory;
 /// binary-protobuf export requests and dispatching to per-signal handlers.
 ///
 /// The response contract mirrors the gRPC adapters:
-/// - [ConsumeResult.Accepted] / [ConsumeResult.Partial] -> `200` with the
+/// - [DeliveryResult.Accepted] / [DeliveryResult.Partial] -> `200` with the
 ///   protobuf response (partial success carries rejected count and message).
-/// - A retryable [ConsumeResult.Rejected] -> `503` (with a `Retry-After` header when the
+/// - A retryable [DeliveryResult.Rejected] -> `503` (with a `Retry-After` header when the
 ///   rejection carries a retry-after hint); a permanent one -> `500`.
 /// - Malformed body -> `400`, oversized -> `413`, non-POST -> `405`, dispatcher error -> `500`.
 /// - A `Content-Type` other than `application/x-protobuf` -> `415` (an absent header is
@@ -70,16 +71,16 @@ final class HttpExchangeHandlers {
             AdmissionControl admission) {
         return exchange -> handle(exchange,
                 codec::parseRequest, codec::toDomain,
-                batch -> dispatchers.dispatch(codec.signal().batch(batch)),
-                codec::response, maxBytes, admission);
+                batch -> dispatchers.dispatch(new ModelBatchPayload<>(codec.descriptor(), batch)),
+                codec::deliveryResponse, maxBytes, admission);
     }
 
     private static <REQ, SIG> void handle(
             HttpExchange exchange,
             ProtoParser<REQ> parse,
             Function<REQ, SIG> toDomain,
-            Function<SIG, CompletionStage<ConsumeResult>> dispatcher,
-            Function<ConsumeResult, ? extends MessageLite> asResponse,
+            Function<SIG, CompletionStage<DeliveryResult>> dispatcher,
+            Function<DeliveryResult, ? extends MessageLite> asResponse,
             int maxBytes,
             AdmissionControl admission) throws IOException {
         try {
@@ -114,7 +115,7 @@ final class HttpExchangeHandlers {
                 var hint = admission.retryAfterHint();
                 if (hint != null) {
                     exchange.getResponseHeaders().add("Retry-After",
-                            Long.toString(DeliveryResults.retryAfterSeconds(hint)));
+                            Long.toString(DeliveryResultStatuses.retryAfterSeconds(hint)));
                 }
                 log.warn("receiver at capacity ({} requests / {} bytes in flight); responding 429",
                         admission.inFlightRequests(), admission.inFlightBytes());
@@ -135,8 +136,8 @@ final class HttpExchangeHandlers {
             HttpExchange exchange,
             ProtoParser<REQ> parse,
             Function<REQ, SIG> toDomain,
-            Function<SIG, CompletionStage<ConsumeResult>> dispatcher,
-            Function<ConsumeResult, ? extends MessageLite> asResponse,
+            Function<SIG, CompletionStage<DeliveryResult>> dispatcher,
+            Function<DeliveryResult, ? extends MessageLite> asResponse,
             byte[] payload) throws IOException {
         REQ request;
         try {
@@ -146,7 +147,7 @@ final class HttpExchangeHandlers {
             return;
         }
 
-        ConsumeResult result;
+        DeliveryResult result;
         try {
             result = dispatcher.apply(toDomain.apply(request)).toCompletableFuture().join();
         } catch (CompletionException e) {
@@ -160,9 +161,9 @@ final class HttpExchangeHandlers {
             return;
         }
 
-        if (result instanceof ConsumeResult.Rejected rejected) {
-            var status = DeliveryResults.httpStatus(rejected);
-            DeliveryResults.retryAfterSeconds(rejected).ifPresent(
+        if (result instanceof DeliveryResult.Rejected rejected) {
+            var status = DeliveryResultStatuses.httpStatus(rejected);
+            DeliveryResultStatuses.retryAfterSeconds(rejected).ifPresent(
                     seconds -> exchange.getResponseHeaders().add("Retry-After", Long.toString(seconds)));
             log.warn("OTLP/HTTP dispatcher rejected the whole batch; responding {}: {}",
                     status, rejected.message());

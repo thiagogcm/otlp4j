@@ -51,9 +51,21 @@
             <groupId>dev.nthings.otlp4j</groupId>
             <artifactId>otlp4j-model</artifactId>
         </dependency>
+        <!-- The core component, signal, policy, and result contracts the graph benchmark names. -->
         <dependency>
             <groupId>dev.nthings.otlp4j</groupId>
-            <artifactId>otlp4j-api</artifactId>
+            <artifactId>otlp4j-core</artifactId>
+        </dependency>
+        <!-- The service graph runtime the benchmark boots the gateway and the backend through. -->
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-service</artifactId>
+        </dependency>
+        <!-- The neutral OTLP receiver and exporter configs the benchmark hands to the transport
+             factories. -->
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-transport-common</artifactId>
         </dependency>
         <dependency>
             <groupId>dev.nthings.otlp4j</groupId>

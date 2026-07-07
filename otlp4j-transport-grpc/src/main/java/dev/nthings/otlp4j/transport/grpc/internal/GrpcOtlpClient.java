@@ -1,9 +1,9 @@
 package dev.nthings.otlp4j.transport.grpc.internal;
 
 import com.google.protobuf.MessageLite;
-import dev.nthings.otlp4j.model.ConsumeResult;
-import dev.nthings.otlp4j.model.Signal;
-import dev.nthings.otlp4j.model.SignalBatch;
+import dev.nthings.otlp4j.core.result.DeliveryResult;
+import dev.nthings.otlp4j.core.result.Provenance;
+import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.codec.SignalCodec;
 import dev.nthings.otlp4j.codec.Transports;
 import dev.nthings.otlp4j.transport.common.ClientHeaders;
@@ -11,7 +11,7 @@ import dev.nthings.otlp4j.config.ClientConfig;
 import dev.nthings.otlp4j.config.Compression;
 import dev.nthings.otlp4j.spi.OtlpClient;
 import dev.nthings.otlp4j.config.Tls;
-import dev.nthings.otlp4j.transport.common.ResilienceRetries;
+import dev.nthings.otlp4j.transport.common.internal.ResilienceRetries;
 import io.grpc.CallOptions;
 import io.grpc.Channel;
 import io.grpc.ChannelCredentials;
@@ -74,7 +74,7 @@ public final class GrpcOtlpClient implements OtlpClient {
     private final boolean compress;
     private final ExecutorService executor;
     private final Retry retry;
-    private final Map<Signal<?>, GrpcExport<?, ?, ?>> exports = new HashMap<>();
+    private final Map<SignalDescriptor<?>, GrpcExport<?, ?, ?>> exports = new HashMap<>();
 
     public GrpcOtlpClient(ClientConfig config) {
         this.config = config;
@@ -102,42 +102,43 @@ public final class GrpcOtlpClient implements OtlpClient {
 
         // Per-signal binding: each entry pairs a SignalCodec with the blocking-stub RPC. Populated
         // once here so export() is a single map lookup instead of four typed methods.
-        exports.put(Signal.TRACES, new GrpcExport<>(
+        exports.put(SignalDescriptor.TRACES, new GrpcExport<>(
                 SignalCodec.TRACES, request -> call(traceStub).export(request)));
-        exports.put(Signal.METRICS, new GrpcExport<>(
+        exports.put(SignalDescriptor.METRICS, new GrpcExport<>(
                 SignalCodec.METRICS, request -> call(metricsStub).export(request)));
-        exports.put(Signal.LOGS, new GrpcExport<>(
+        exports.put(SignalDescriptor.LOGS, new GrpcExport<>(
                 SignalCodec.LOGS, request -> call(logsStub).export(request)));
-        exports.put(Signal.PROFILES, new GrpcExport<>(
+        exports.put(SignalDescriptor.PROFILES, new GrpcExport<>(
                 SignalCodec.PROFILES, request -> call(profilesStub).export(request)));
 
         log.debug("opened OTLP/gRPC channel to {}:{}", config.host(), config.port());
     }
 
     @Override
-    public <T> CompletionStage<ConsumeResult> export(SignalBatch<T> batch) {
-        // Safe: exports is populated at construction with one entry per Signal, keyed by identity,
-        // whose value type parameter is the same T carried by the batch's signal.
+    public <T> CompletionStage<DeliveryResult> export(
+            SignalDescriptor<T> signal, T batch, Provenance provenance) {
+        // Safe: exports is populated at construction with one entry per signal, keyed by descriptor
+        // identity, whose value type parameter is the same T carried by the signal.
         @SuppressWarnings("unchecked")
-        var export = (GrpcExport<T, ?, ?>) exports.get(batch.signal());
+        var export = (GrpcExport<T, ?, ?>) exports.get(signal);
         // Double-deadline, belt-and-suspenders and intentional: the stub's withDeadlineAfter (in
         // call(...)) bounds each in-flight RPC, while this orTimeout bounds the whole async attempt
         // (retry backoff and executor queueing included), so a stalled carrier thread cannot
         // outlive the caller's budget. A slow call is interrupted by whichever fires first.
         return CompletableFuture.supplyAsync(
-                () -> ResilienceRetries.execute(retry, () -> export.result(batch.batch())),
+                () -> ResilienceRetries.execute(retry, () -> export.result(batch, provenance)),
                 executor)
                 .orTimeout(config.timeout().toNanos(), TimeUnit.NANOSECONDS);
     }
 
     /// Binds a [SignalCodec] to its blocking-stub RPC for one signal: encodes the batch, invokes the
-    /// unary RPC, and interprets the response as a [ConsumeResult]. The four gRPC stubs stay
+    /// unary RPC, and interprets the response as a [DeliveryResult]. The four gRPC stubs stay
     /// gRPC-specific, so this wrapper is transport-local.
     private record GrpcExport<T, REQ extends MessageLite, RESP extends MessageLite>(
             SignalCodec<T, REQ, RESP> codec, Function<REQ, RESP> rpc) {
 
-        ConsumeResult result(T batch) {
-            return codec.result(rpc.apply(codec.toProto(batch)));
+        DeliveryResult result(T batch, Provenance provenance) {
+            return codec.deliveryResult(rpc.apply(codec.toProto(batch)), provenance);
         }
     }
 

@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>dev.nthings.otlp4j</groupId>
+        <artifactId>otlp4j-parent</artifactId>
+        <version>${revision}</version>
+    </parent>
+
+    <artifactId>otlp4j-service</artifactId>
+    <name>otlp4j-service</name>
+    <description>The otlp4j graph runtime: the declarative gateway configuration model, the
+        JGraphT-backed service graph builder, validation diagnostics, and the started gateway
+        runtime that replaces the fluent pipeline's discovered lifecycle with a declared one. JPMS
+        module dev.nthings.otlp4j.service - depends only on otlp4j-core; no transport module is a
+        dependency and none depends on this module. This module ships the complete component registry,
+        service graph, gateway builder, and started gateway runtime.</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-core</artifactId>
+        </dependency>
+        <!-- Logging facade for the runtime's shutdown, rollback, and flush warnings. -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
+        <!-- Internal graph representation only; no org.jgrapht type appears in any exported
+             signature of this module. -->
+        <dependency>
+            <groupId>org.jgrapht</groupId>
+            <artifactId>jgrapht-core</artifactId>
+        </dependency>
+        <!-- Nullness contracts are part of the public API; keep them visible to consumers. -->
+        <dependency>
+            <groupId>org.jspecify</groupId>
+            <artifactId>jspecify</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Opt in to the shared coverage floor (rules defined in the parent POM). -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>check-coverage</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

@@ -45,15 +45,6 @@ class SignalTest {
         assertThat(Signal.PROFILES.empty().profileCount()).isZero();
     }
 
-    @DisplayName("batch() pairs a batch with its signal")
-    @Test
-    void batchPairsWithSignal() {
-        var traces = traceData("a");
-        var pair = Signal.TRACES.batch(traces);
-        assertThat(pair.signal()).isEqualTo(Signal.TRACES);
-        assertThat(pair.batch()).isEqualTo(traces);
-    }
-
     @DisplayName("TRACES merges resource groups and counts spans")
     @Test
     void tracesMergeAndCount() {

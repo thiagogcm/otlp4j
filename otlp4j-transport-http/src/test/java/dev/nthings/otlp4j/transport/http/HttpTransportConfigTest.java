@@ -5,17 +5,23 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.sun.net.httpserver.HttpServer;
 import dev.nthings.otlp4j.testing.TransportFixtures;
+import static dev.nthings.otlp4j.core.signal.SignalDescriptor.LOGS;
+import static dev.nthings.otlp4j.core.signal.SignalDescriptor.METRICS;
+import static dev.nthings.otlp4j.core.signal.SignalDescriptor.PROFILES;
+import static dev.nthings.otlp4j.core.signal.SignalDescriptor.TRACES;
+
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
-import dev.nthings.otlp4j.model.ConsumeResult;
-import dev.nthings.otlp4j.pipeline.OtlpExporter;
-import dev.nthings.otlp4j.receiver.Receiver;
+import dev.nthings.otlp4j.core.result.DeliveryResult;
+import dev.nthings.otlp4j.transport.common.ClientExporter;
+import dev.nthings.otlp4j.transport.common.ServerReceiver;
 import dev.nthings.otlp4j.config.ClientConfig;
 import dev.nthings.otlp4j.config.Compression;
 import dev.nthings.otlp4j.config.ServerConfig;
 import dev.nthings.otlp4j.config.Tls;
+import dev.nthings.otlp4j.core.policy.BackoffPolicy;
+import dev.nthings.otlp4j.core.policy.RetryPolicy;
 import dev.nthings.otlp4j.testing.Fixtures;
-import io.github.resilience4j.retry.RetryConfig;
 import java.io.InputStream;
 import java.net.InetSocketAddress;
 import java.nio.file.Files;
@@ -52,7 +58,7 @@ import org.junit.jupiter.api.Timeout;
 class HttpTransportConfigTest {
 
     private final List<AutoCloseable> closeables = new ArrayList<>();
-    private final List<Receiver> receivers = new ArrayList<>();
+    private final List<ServerReceiver> receivers = new ArrayList<>();
     private HttpServer rawServer;
 
     @AfterEach
@@ -79,10 +85,10 @@ class HttpTransportConfigTest {
         var port = startRawServer(captured);
         var exporter = exporter(ClientConfig.builder().setEndpoint("localhost", port).build());
 
-        exporter.traces().consume(TransportFixtures.richTraceData()).toCompletableFuture().join();
-        exporter.metrics().consume(TransportFixtures.richMetricsData()).toCompletableFuture().join();
-        exporter.logs().consume(TransportFixtures.richLogsData()).toCompletableFuture().join();
-        exporter.profiles().consume(TransportFixtures.profilesData()).toCompletableFuture().join();
+        exporter.export(TRACES, TransportFixtures.richTraceData()).toCompletableFuture().join();
+        exporter.export(METRICS, TransportFixtures.richMetricsData()).toCompletableFuture().join();
+        exporter.export(LOGS, TransportFixtures.richLogsData()).toCompletableFuture().join();
+        exporter.export(PROFILES, TransportFixtures.profilesData()).toCompletableFuture().join();
 
         assertThat(captured).extracting(Captured::path)
                 .containsExactlyInAnyOrder("/v1/traces", "/v1/metrics", "/v1/logs", "/v1development/profiles");
@@ -101,7 +107,7 @@ class HttpTransportConfigTest {
                 .addHeader("x-otlp-api-key", "secret")
                 .build());
 
-        exporter.traces().consume(traces()).toCompletableFuture().join();
+        exporter.export(TRACES, traces()).toCompletableFuture().join();
 
         assertThat(captured).singleElement().satisfies(c ->
                 assertThat(c.apiKey()).isEqualTo("secret"));
@@ -117,7 +123,7 @@ class HttpTransportConfigTest {
                 .setCompression(Compression.GZIP)
                 .build());
 
-        exporter.traces().consume(TransportFixtures.richTraceData()).toCompletableFuture().join();
+        exporter.export(TRACES, TransportFixtures.richTraceData()).toCompletableFuture().join();
 
         assertThat(captured).singleElement().satisfies(c -> {
             assertThat(c.contentEncoding()).isEqualTo("gzip");
@@ -129,10 +135,7 @@ class HttpTransportConfigTest {
     @Test
     void roundTripsOverTls() {
         var received = new java.util.concurrent.atomic.AtomicReference<TracesData>();
-        var receiver = startReceiver(serverTls(), OtlpHttpReceiver.builder().onTraces(t -> {
-            received.set(t);
-            return ConsumeResult.acceptedStage();
-        }));
+        var receiver = startReceiver(serverTls(), OtlpHttpReceiver.builder().route(TRACES, Consumers.record(TRACES, received)));
         var exporter = exporter(ClientConfig.builder()
                 .setEndpoint("localhost", receiver.port())
                 .setTls(Tls.trust(resource("/tls/server.crt")))
@@ -140,9 +143,9 @@ class HttpTransportConfigTest {
                 .build());
 
         var sent = traces();
-        var result = exporter.traces().consume(sent).toCompletableFuture().join();
+        var result = exporter.export(TRACES, sent).toCompletableFuture().join();
 
-        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(result).isInstanceOf(DeliveryResult.Accepted.class);
         assertThat(received.get()).isEqualTo(sent);
     }
 
@@ -150,13 +153,13 @@ class HttpTransportConfigTest {
     @Test
     void plaintextClientFailsAgainstTlsServer() {
         var receiver = startReceiver(serverTls(),
-                OtlpHttpReceiver.builder().onTraces(t -> ConsumeResult.acceptedStage()));
+                OtlpHttpReceiver.builder().route(TRACES, Consumers.accepting()));
         var exporter = exporter(ClientConfig.builder()
                 .setEndpoint("localhost", receiver.port())
                 .setTimeout(Duration.ofSeconds(3))
                 .build());
 
-        assertThatThrownBy(() -> exporter.traces().consume(traces()).toCompletableFuture().join())
+        assertThatThrownBy(() -> exporter.export(TRACES, traces()).toCompletableFuture().join())
                 .isInstanceOf(CompletionException.class);
     }
 
@@ -186,7 +189,7 @@ class HttpTransportConfigTest {
     void rejectsSystemTrustForServer() {
         var receiver = OtlpHttpReceiver.builder()
                 .setConfig(ServerConfig.builder().setPort(0).setTls(Tls.systemTrust()).build())
-                .onTraces(t -> ConsumeResult.acceptedStage())
+                .route(TRACES, Consumers.accepting())
                 .build();
         receivers.add(receiver);
 
@@ -203,7 +206,7 @@ class HttpTransportConfigTest {
                         .setPort(0)
                         .setTls(Tls.custom(resource("/tls/server.crt"), null, null))
                         .build())
-                .onTraces(t -> ConsumeResult.acceptedStage())
+                .route(TRACES, Consumers.accepting())
                 .build();
         receivers.add(receiver);
 
@@ -223,7 +226,7 @@ class HttpTransportConfigTest {
                         .setPort(0)
                         .setTls(Tls.sslContext(sslContext, trustManager))
                         .build())
-                .onTraces(t -> ConsumeResult.acceptedStage())
+                .route(TRACES, Consumers.accepting())
                 .build();
         receivers.add(receiver);
 
@@ -240,7 +243,7 @@ class HttpTransportConfigTest {
                         .setPort(0)
                         .setTls(Tls.trust(bytes("/tls/server.crt")))
                         .build())
-                .onTraces(t -> ConsumeResult.acceptedStage())
+                .route(TRACES, Consumers.accepting())
                 .build();
         receivers.add(receiver);
 
@@ -267,7 +270,7 @@ class HttpTransportConfigTest {
     void specificBindHostBindsThatInterface() {
         var receiver = OtlpHttpReceiver.builder()
                 .setConfig(ServerConfig.builder().setBindHost("127.0.0.1").setPort(0).build())
-                .onTraces(t -> ConsumeResult.acceptedStage())
+                .route(TRACES, Consumers.accepting())
                 .build();
         receivers.add(receiver);
 
@@ -285,12 +288,12 @@ class HttpTransportConfigTest {
 
         var exporter = OtlpHttpExporter.builder()
                 .setEndpoint("localhost", deadPort)
-                .setRetryConfig(RetryConfig.custom().maxAttempts(2).waitDuration(Duration.ofMillis(1)).build())
+                .setRetryPolicy(new RetryPolicy(2, new BackoffPolicy(Duration.ofMillis(1), 1.0, 0.0, Duration.ofMillis(1)), true))
                 .setTimeout(Duration.ofSeconds(2))
                 .build();
         closeables.add(exporter);
 
-        assertThatThrownBy(() -> exporter.traces().consume(traces()).toCompletableFuture().join())
+        assertThatThrownBy(() -> exporter.export(TRACES, traces()).toCompletableFuture().join())
                 .isInstanceOf(CompletionException.class);
     }
 
@@ -301,13 +304,13 @@ class HttpTransportConfigTest {
         var port = startRetryAfterServer(calls, "0");
         var exporter = exporter(ClientConfig.builder()
                 .setEndpoint("localhost", port)
-                .setRetryConfig(RetryConfig.custom().maxAttempts(2).waitDuration(Duration.ofMillis(1)).build())
+                .setRetryPolicy(new RetryPolicy(2, new BackoffPolicy(Duration.ofMillis(1), 1.0, 0.0, Duration.ofMillis(1)), true))
                 .setTimeout(Duration.ofSeconds(5))
                 .build());
 
-        var result = exporter.traces().consume(traces()).toCompletableFuture().join();
+        var result = exporter.export(TRACES, traces()).toCompletableFuture().join();
 
-        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(result).isInstanceOf(DeliveryResult.Accepted.class);
         assertThat(calls.get()).isEqualTo(2);
     }
 
@@ -318,13 +321,13 @@ class HttpTransportConfigTest {
         var port = startRetryAfterServer(calls, "-1");
         var exporter = exporter(ClientConfig.builder()
                 .setEndpoint("localhost", port)
-                .setRetryConfig(RetryConfig.custom().maxAttempts(2).waitDuration(Duration.ofMillis(1)).build())
+                .setRetryPolicy(new RetryPolicy(2, new BackoffPolicy(Duration.ofMillis(1), 1.0, 0.0, Duration.ofMillis(1)), true))
                 .setTimeout(Duration.ofSeconds(5))
                 .build());
 
-        var result = exporter.traces().consume(traces()).toCompletableFuture().join();
+        var result = exporter.export(TRACES, traces()).toCompletableFuture().join();
 
-        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(result).isInstanceOf(DeliveryResult.Accepted.class);
         assertThat(calls.get()).isEqualTo(2);
     }
 
@@ -335,13 +338,13 @@ class HttpTransportConfigTest {
         var port = startRetryAfterServer(calls, "not-a-date");
         var exporter = exporter(ClientConfig.builder()
                 .setEndpoint("localhost", port)
-                .setRetryConfig(RetryConfig.custom().maxAttempts(2).waitDuration(Duration.ofMillis(1)).build())
+                .setRetryPolicy(new RetryPolicy(2, new BackoffPolicy(Duration.ofMillis(1), 1.0, 0.0, Duration.ofMillis(1)), true))
                 .setTimeout(Duration.ofSeconds(5))
                 .build());
 
-        var result = exporter.traces().consume(traces()).toCompletableFuture().join();
+        var result = exporter.export(TRACES, traces()).toCompletableFuture().join();
 
-        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(result).isInstanceOf(DeliveryResult.Accepted.class);
         assertThat(calls.get()).isEqualTo(2);
     }
 
@@ -353,10 +356,7 @@ class HttpTransportConfigTest {
                 .setPort(0)
                 .setTls(Tls.custom(bytes("/tls/server.crt"), bytes("/tls/server.key"), null))
                 .build();
-        var receiver = startReceiver(serverConfig, OtlpHttpReceiver.builder().onTraces(t -> {
-            received.set(t);
-            return ConsumeResult.acceptedStage();
-        }));
+        var receiver = startReceiver(serverConfig, OtlpHttpReceiver.builder().route(TRACES, Consumers.record(TRACES, received)));
         var exporter = exporter(ClientConfig.builder()
                 .setEndpoint("localhost", receiver.port())
                 .setTls(Tls.trust(bytes("/tls/server.crt")))
@@ -364,9 +364,9 @@ class HttpTransportConfigTest {
                 .build());
 
         var sent = traces();
-        var result = exporter.traces().consume(sent).toCompletableFuture().join();
+        var result = exporter.export(TRACES, sent).toCompletableFuture().join();
 
-        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(result).isInstanceOf(DeliveryResult.Accepted.class);
         assertThat(received.get()).isEqualTo(sent);
     }
 
@@ -374,10 +374,7 @@ class HttpTransportConfigTest {
     @Test
     void roundTripsOverSslContext() throws Exception {
         var received = new AtomicReference<TracesData>();
-        var receiver = startReceiver(serverTls(), OtlpHttpReceiver.builder().onTraces(t -> {
-            received.set(t);
-            return ConsumeResult.acceptedStage();
-        }));
+        var receiver = startReceiver(serverTls(), OtlpHttpReceiver.builder().route(TRACES, Consumers.record(TRACES, received)));
         var trustManager = trustManagerFor(resource("/tls/server.crt"));
         var sslContext = SSLContext.getInstance("TLS");
         sslContext.init(null, new TrustManager[] {trustManager}, null);
@@ -388,9 +385,9 @@ class HttpTransportConfigTest {
                 .build());
 
         var sent = traces();
-        var result = exporter.traces().consume(sent).toCompletableFuture().join();
+        var result = exporter.export(TRACES, sent).toCompletableFuture().join();
 
-        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(result).isInstanceOf(DeliveryResult.Accepted.class);
         assertThat(received.get()).isEqualTo(sent);
     }
 
@@ -405,8 +402,8 @@ class HttpTransportConfigTest {
                 .setHeaders(() -> Map.of("x-otlp-api-key", "token-" + counter.incrementAndGet()))
                 .build());
 
-        exporter.traces().consume(traces()).toCompletableFuture().join();
-        exporter.traces().consume(traces()).toCompletableFuture().join();
+        exporter.export(TRACES, traces()).toCompletableFuture().join();
+        exporter.export(TRACES, traces()).toCompletableFuture().join();
 
         assertThat(captured).extracting(Captured::apiKey).containsExactly("token-1", "token-2");
     }
@@ -421,19 +418,19 @@ class HttpTransportConfigTest {
                 .setConnectTimeout(Duration.ofSeconds(3))
                 .build());
 
-        var result = exporter.traces().consume(traces()).toCompletableFuture().join();
+        var result = exporter.export(TRACES, traces()).toCompletableFuture().join();
 
-        assertThat(result).isInstanceOf(ConsumeResult.Accepted.class);
+        assertThat(result).isInstanceOf(DeliveryResult.Accepted.class);
         assertThat(captured).hasSize(1);
     }
 
-    private Receiver startReceiver(ServerConfig config, OtlpHttpReceiver.Builder builder) {
+    private ServerReceiver startReceiver(ServerConfig config, OtlpHttpReceiver.Builder builder) {
         var receiver = builder.setConfig(config).build();
         receivers.add(receiver);
         return receiver.start();
     }
 
-    private OtlpExporter exporter(ClientConfig config) {
+    private ClientExporter exporter(ClientConfig config) {
         var exporter = OtlpHttpExporter.builder().setConfig(config).build();
         closeables.add(exporter);
         return exporter;

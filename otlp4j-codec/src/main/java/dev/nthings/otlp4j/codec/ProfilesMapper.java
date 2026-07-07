@@ -2,7 +2,6 @@ package dev.nthings.otlp4j.codec;
 
 import com.google.protobuf.InvalidProtocolBufferException;
 import dev.nthings.otlp4j.model.ProfilesData;
-import dev.nthings.otlp4j.model.ConsumeResult;
 import io.opentelemetry.proto.collector.profiles.v1development.ExportProfilesServiceRequest;
 import io.opentelemetry.proto.collector.profiles.v1development.ExportProfilesServiceResponse;
 import io.opentelemetry.proto.profiles.v1development.ProfilesDictionary;
@@ -67,11 +66,17 @@ public final class ProfilesMapper {
                 profile.toByteArray());
     }
 
-    /// Interprets an OTLP profiles export response as a [ConsumeResult].
-    public static ConsumeResult result(ExportProfilesServiceResponse response) {
+    /// Interprets an OTLP profiles export response as a
+    /// [dev.nthings.otlp4j.core.result.DeliveryResult].
+    ///
+    /// @param response   the profiles export response
+    /// @param provenance the provenance to attribute the result to
+    /// @return the delivery result
+    public static dev.nthings.otlp4j.core.result.DeliveryResult deliveryResult(
+            ExportProfilesServiceResponse response, dev.nthings.otlp4j.core.result.Provenance provenance) {
         var partial = response.getPartialSuccess();
-        return CommonMapper.result(
-                response.hasPartialSuccess(), partial.getRejectedProfiles(), partial.getErrorMessage());
+        return CommonMapper.deliveryResult(
+                response.hasPartialSuccess(), partial.getRejectedProfiles(), partial.getErrorMessage(), provenance);
     }
 
     // --- domain -> proto ---

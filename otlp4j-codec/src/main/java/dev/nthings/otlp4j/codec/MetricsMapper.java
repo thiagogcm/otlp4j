@@ -7,7 +7,6 @@ import dev.nthings.otlp4j.model.Metric;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.NumberPoint;
 import dev.nthings.otlp4j.model.SummaryPoint;
-import dev.nthings.otlp4j.model.ConsumeResult;
 import io.opentelemetry.proto.collector.metrics.v1.ExportMetricsServiceRequest;
 import io.opentelemetry.proto.collector.metrics.v1.ExportMetricsServiceResponse;
 import io.opentelemetry.proto.metrics.v1.AggregationTemporality;
@@ -218,11 +217,17 @@ public final class MetricsMapper {
         return result;
     }
 
-    /// Interprets an OTLP metrics export response as a [ConsumeResult].
-    public static ConsumeResult result(ExportMetricsServiceResponse response) {
+    /// Interprets an OTLP metrics export response as a
+    /// [dev.nthings.otlp4j.core.result.DeliveryResult].
+    ///
+    /// @param response   the metrics export response
+    /// @param provenance the provenance to attribute the result to
+    /// @return the delivery result
+    public static dev.nthings.otlp4j.core.result.DeliveryResult deliveryResult(
+            ExportMetricsServiceResponse response, dev.nthings.otlp4j.core.result.Provenance provenance) {
         var partial = response.getPartialSuccess();
-        return CommonMapper.result(
-                response.hasPartialSuccess(), partial.getRejectedDataPoints(), partial.getErrorMessage());
+        return CommonMapper.deliveryResult(
+                response.hasPartialSuccess(), partial.getRejectedDataPoints(), partial.getErrorMessage(), provenance);
     }
 
     // --- domain -> proto ---
