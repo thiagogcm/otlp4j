@@ -8,9 +8,10 @@ package dev.nthings.otlp4j.core.signal;
 /// Phase 2 ships two views. [#PROTO_REQUEST] yields the signal's generated OTLP export-request
 /// message as an opaque `Object`, which only codec and transport code casts. [#DOMAIN_IMMUTABLE]
 /// yields the signal's immutable domain batch as an opaque `Object`, which a caller narrows through
-/// `payload.signal().batchType().cast(...)`. Two further views are reserved for later phases and are
-/// added as new constants only: a routing-metadata view for the routing processors and a raw-bytes
-/// view behind benchmark evidence.
+/// `payload.signal().batchType().cast(...)`. Phase 5 adds [#ROUTING_METADATA], the cheap proto-free
+/// routing surface the routing and filtering processors read without materialising the domain. One
+/// further view, a raw-bytes view behind benchmark evidence, remains reserved for a later phase and is
+/// added as a new constant only.
 ///
 /// The type parameter `V` documents the return type at the call site (`Object` for both shipped
 /// views) and leaves room for a strongly typed future view without touching the
@@ -29,14 +30,21 @@ public final class PayloadView<V> {
     /// request and cached.
     public static final PayloadView<Object> DOMAIN_IMMUTABLE = new PayloadView<>("DOMAIN_IMMUTABLE");
 
+    /// The cheap, proto-free routing surface, a [RoutingMetadata] over the payload's resource-level
+    /// attributes, signal, and item count. A proto-backed payload answers this by reading only the
+    /// top-level resource wrappers, never decoding spans, data points, or log records, so a routing
+    /// or filtering processor keys on a resource attribute without forcing domain materialisation.
+    public static final PayloadView<RoutingMetadata> ROUTING_METADATA =
+            new PayloadView<>("ROUTING_METADATA");
+
     private final String name;
 
     private PayloadView(String name) {
         this.name = name;
     }
 
-    /// The view name (`PROTO_REQUEST` or `DOMAIN_IMMUTABLE`), for diagnostics and for the
-    /// unknown-view failure message.
+    /// The view name (`PROTO_REQUEST`, `DOMAIN_IMMUTABLE`, or `ROUTING_METADATA`), for diagnostics and
+    /// for the unknown-view failure message.
     ///
     /// @return the view name
     @Override

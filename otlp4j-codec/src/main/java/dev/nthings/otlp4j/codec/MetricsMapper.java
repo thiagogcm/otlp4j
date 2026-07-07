@@ -1,5 +1,6 @@
 package dev.nthings.otlp4j.codec;
 
+import dev.nthings.otlp4j.model.Attributes;
 import dev.nthings.otlp4j.model.Exemplar;
 import dev.nthings.otlp4j.model.ExponentialHistogramPoint;
 import dev.nthings.otlp4j.model.HistogramPoint;
@@ -50,6 +51,34 @@ public final class MetricsMapper {
             }
         }
         return count;
+    }
+
+    /// The resource-level attributes of a domain metrics batch, one entry per resource in wire order.
+    /// Reads only the resource wrappers, so it never touches the metrics or data points, which is what
+    /// lets the routing-metadata view answer a routing question without walking the payload.
+    ///
+    /// @param batch the domain metrics batch
+    /// @return the per-resource attributes in wire order
+    static List<Attributes> resourceAttributes(MetricsData batch) {
+        var result = new ArrayList<Attributes>(batch.resourceMetrics().size());
+        for (var rm : batch.resourceMetrics()) {
+            result.add(rm.resource().attributes());
+        }
+        return result;
+    }
+
+    /// The resource-level attributes of a proto metrics export request, one entry per resource in wire
+    /// order. Converts only the top-level resource attribute lists through [CommonMapper#attributes],
+    /// so the metrics and data points are never decoded and no domain batch is materialised.
+    ///
+    /// @param request the proto metrics export request
+    /// @return the per-resource attributes in wire order
+    static List<Attributes> protoResourceAttributes(ExportMetricsServiceRequest request) {
+        var result = new ArrayList<Attributes>(request.getResourceMetricsCount());
+        for (var rm : request.getResourceMetricsList()) {
+            result.add(CommonMapper.attributes(rm.getResource().getAttributesList()));
+        }
+        return result;
     }
 
     private static long dataPointCount(io.opentelemetry.proto.metrics.v1.Metric metric) {

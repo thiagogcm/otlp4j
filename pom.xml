@@ -20,6 +20,7 @@
         <module>otlp4j-transport-common</module>
         <module>otlp4j-service</module>
         <module>otlp4j-transport-otlp</module>
+        <module>otlp4j-components</module>
         <module>otlp4j-samples</module>
         <module>otlp4j-testing</module>
         <module>otlp4j-conformance</module>
@@ -118,6 +119,11 @@
             <dependency>
                 <groupId>dev.nthings.otlp4j</groupId>
                 <artifactId>otlp4j-transport-otlp</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>dev.nthings.otlp4j</groupId>
+                <artifactId>otlp4j-components</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -334,7 +340,7 @@
                     <version>${jacoco-maven-plugin.version}</version>
                     <!-- Shared coverage floor for the `check` goal: a one-directional ratchet.
                          Only read by modules that opt in with a `check-coverage` execution
-                         (otlp4j-model/core/codec/transport-common/service/transport-otlp).
+                         (otlp4j-model/core/codec/transport-common/service/transport-otlp/components).
                          The report and prepare-agent goals ignore these rules. -->
                     <configuration>
                         <rules>

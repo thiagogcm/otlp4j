@@ -57,6 +57,10 @@
         </dependency>
         <dependency>
             <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-components</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
             <artifactId>otlp4j-samples</artifactId>
         </dependency>
         <!-- The black-box conformance runner: its jacoco.exec attributes the cross-module wire

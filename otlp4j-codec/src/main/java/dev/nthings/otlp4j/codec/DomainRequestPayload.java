@@ -83,7 +83,9 @@ public final class DomainRequestPayload<T, REQ extends MessageLite, RESP extends
 
     /// Returns the requested representation. [PayloadView#DOMAIN_IMMUTABLE] is the carried batch at
     /// zero cost; [PayloadView#PROTO_REQUEST] is the proto request, materialised and cached on first
-    /// request. Any other view fails closed with an `IllegalArgumentException` naming the view.
+    /// request; [PayloadView#ROUTING_METADATA] is the cheap routing surface read from only the domain
+    /// batch's resource wrappers. Any other view fails closed with an `IllegalArgumentException`
+    /// naming the view.
     ///
     /// @param view the requested view
     /// @param <V>  the view's return type
@@ -96,6 +98,9 @@ public final class DomainRequestPayload<T, REQ extends MessageLite, RESP extends
         }
         if (view == PayloadView.PROTO_REQUEST) {
             return (V) protoRequest();
+        }
+        if (view == PayloadView.ROUTING_METADATA) {
+            return (V) codec.routingMetadata(batch);
         }
         throw new IllegalArgumentException("unsupported payload view: " + view);
     }

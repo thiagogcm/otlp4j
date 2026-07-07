@@ -1,5 +1,6 @@
 package dev.nthings.otlp4j.codec;
 
+import dev.nthings.otlp4j.model.Attributes;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
 import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceRequest;
@@ -10,6 +11,7 @@ import io.opentelemetry.proto.trace.v1.Span.Event;
 import io.opentelemetry.proto.trace.v1.Span.Link;
 import io.opentelemetry.proto.trace.v1.Span.SpanKind;
 import java.util.ArrayList;
+import java.util.List;
 
 /// Maps OTLP trace types between proto and domain, in both directions.
 ///
@@ -33,6 +35,34 @@ public final class TraceMapper {
             }
         }
         return count;
+    }
+
+    /// The resource-level attributes of a domain traces batch, one entry per resource in wire order.
+    /// Reads only the resource wrappers, so it never touches the spans, which is what lets the
+    /// routing-metadata view answer a routing question without walking the payload.
+    ///
+    /// @param batch the domain traces batch
+    /// @return the per-resource attributes in wire order
+    static List<Attributes> resourceAttributes(TracesData batch) {
+        var result = new ArrayList<Attributes>(batch.resourceSpans().size());
+        for (var rs : batch.resourceSpans()) {
+            result.add(rs.resource().attributes());
+        }
+        return result;
+    }
+
+    /// The resource-level attributes of a proto traces export request, one entry per resource in wire
+    /// order. Converts only the top-level resource attribute lists through [CommonMapper#attributes],
+    /// so the spans are never decoded and no domain batch is materialised.
+    ///
+    /// @param request the proto traces export request
+    /// @return the per-resource attributes in wire order
+    static List<Attributes> protoResourceAttributes(ExportTraceServiceRequest request) {
+        var result = new ArrayList<Attributes>(request.getResourceSpansCount());
+        for (var rs : request.getResourceSpansList()) {
+            result.add(CommonMapper.attributes(rs.getResource().getAttributesList()));
+        }
+        return result;
     }
 
     // --- proto -> domain ---

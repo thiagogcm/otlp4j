@@ -4,8 +4,10 @@ import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.MessageLite;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.result.Provenance;
+import dev.nthings.otlp4j.core.signal.RoutingMetadata;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.core.signal.TelemetryPayload;
+import dev.nthings.otlp4j.model.Attributes;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
@@ -41,6 +43,7 @@ public final class SignalCodec<T, REQ extends MessageLite, RESP extends MessageL
     public static final SignalCodec<TracesData, ExportTraceServiceRequest, ExportTraceServiceResponse> TRACES =
             new SignalCodec<>(SignalDescriptor.TRACES,
                     TraceMapper::toDomain, TraceMapper::toProto, TraceMapper::itemCount,
+                    TraceMapper::resourceAttributes, TraceMapper::protoResourceAttributes,
                     TraceMapper::deliveryResult, DeliveryResultResponses::traces,
                     ExportTraceServiceRequest::parseFrom, ExportTraceServiceResponse::parseFrom);
 
@@ -48,6 +51,7 @@ public final class SignalCodec<T, REQ extends MessageLite, RESP extends MessageL
     public static final SignalCodec<MetricsData, ExportMetricsServiceRequest, ExportMetricsServiceResponse> METRICS =
             new SignalCodec<>(SignalDescriptor.METRICS,
                     MetricsMapper::toDomain, MetricsMapper::toProto, MetricsMapper::itemCount,
+                    MetricsMapper::resourceAttributes, MetricsMapper::protoResourceAttributes,
                     MetricsMapper::deliveryResult, DeliveryResultResponses::metrics,
                     ExportMetricsServiceRequest::parseFrom, ExportMetricsServiceResponse::parseFrom);
 
@@ -55,6 +59,7 @@ public final class SignalCodec<T, REQ extends MessageLite, RESP extends MessageL
     public static final SignalCodec<LogsData, ExportLogsServiceRequest, ExportLogsServiceResponse> LOGS =
             new SignalCodec<>(SignalDescriptor.LOGS,
                     LogsMapper::toDomain, LogsMapper::toProto, LogsMapper::itemCount,
+                    LogsMapper::resourceAttributes, LogsMapper::protoResourceAttributes,
                     LogsMapper::deliveryResult, DeliveryResultResponses::logs,
                     ExportLogsServiceRequest::parseFrom, ExportLogsServiceResponse::parseFrom);
 
@@ -62,6 +67,7 @@ public final class SignalCodec<T, REQ extends MessageLite, RESP extends MessageL
     public static final SignalCodec<ProfilesData, ExportProfilesServiceRequest, ExportProfilesServiceResponse> PROFILES =
             new SignalCodec<>(SignalDescriptor.PROFILES,
                     ProfilesMapper::toDomain, ProfilesMapper::toProto, ProfilesMapper::itemCount,
+                    ProfilesMapper::resourceAttributes, ProfilesMapper::protoResourceAttributes,
                     ProfilesMapper::deliveryResult, DeliveryResultResponses::profiles,
                     ExportProfilesServiceRequest::parseFrom, ExportProfilesServiceResponse::parseFrom);
 
@@ -71,6 +77,8 @@ public final class SignalCodec<T, REQ extends MessageLite, RESP extends MessageL
     private final Function<REQ, T> toDomain;
     private final Function<T, REQ> toProto;
     private final ToLongFunction<REQ> protoItemCount;
+    private final Function<T, List<Attributes>> domainResourceAttributes;
+    private final Function<REQ, List<Attributes>> protoResourceAttributes;
     private final BiFunction<RESP, Provenance, DeliveryResult> deliveryResult;
     private final Function<DeliveryResult, RESP> deliveryResponse;
     private final Parse<REQ> parseRequest;
@@ -79,6 +87,8 @@ public final class SignalCodec<T, REQ extends MessageLite, RESP extends MessageL
     private SignalCodec(SignalDescriptor<T> descriptor,
                         Function<REQ, T> toDomain, Function<T, REQ> toProto,
                         ToLongFunction<REQ> protoItemCount,
+                        Function<T, List<Attributes>> domainResourceAttributes,
+                        Function<REQ, List<Attributes>> protoResourceAttributes,
                         BiFunction<RESP, Provenance, DeliveryResult> deliveryResult,
                         Function<DeliveryResult, RESP> deliveryResponse,
                         Parse<REQ> parseRequest, Parse<RESP> parseResponse) {
@@ -86,6 +96,8 @@ public final class SignalCodec<T, REQ extends MessageLite, RESP extends MessageL
         this.toDomain = toDomain;
         this.toProto = toProto;
         this.protoItemCount = protoItemCount;
+        this.domainResourceAttributes = domainResourceAttributes;
+        this.protoResourceAttributes = protoResourceAttributes;
         this.deliveryResult = deliveryResult;
         this.deliveryResponse = deliveryResponse;
         this.parseRequest = parseRequest;
@@ -135,6 +147,28 @@ public final class SignalCodec<T, REQ extends MessageLite, RESP extends MessageL
     /// @return the item count
     public long protoItemCount(REQ request) {
         return protoItemCount.applyAsLong(request);
+    }
+
+    /// Builds the proto-free routing surface for a domain batch by reading only its resource wrappers.
+    /// No proto request is materialised. Backs [DomainRequestPayload]'s `ROUTING_METADATA` view.
+    ///
+    /// @param batch the domain batch
+    /// @return the routing metadata
+    RoutingMetadata routingMetadata(T batch) {
+        return new RoutingMetadataView(
+                descriptor, descriptor.itemCount(batch), domainResourceAttributes.apply(batch));
+    }
+
+    /// Builds the proto-free routing surface for a proto export request by converting only its
+    /// top-level resource attribute lists. Spans, data points, log records, and profiles are never
+    /// decoded, so no domain batch is materialised. Backs [ProtoRequestPayload]'s `ROUTING_METADATA`
+    /// view.
+    ///
+    /// @param request the proto export request
+    /// @return the routing metadata
+    RoutingMetadata protoRoutingMetadata(REQ request) {
+        return new RoutingMetadataView(
+                descriptor, protoItemCount(request), protoResourceAttributes.apply(request));
     }
 
     /// Interprets a proto export response as a [DeliveryResult] attributed to `provenance`.

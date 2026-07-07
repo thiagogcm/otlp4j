@@ -8,7 +8,7 @@
 /// typed config so the config is checked against its factory at compile time. A
 /// [dev.nthings.otlp4j.service.config.ComponentRegistry] over a config answers the existence and
 /// signal-support queries validation asks, consulting the optional
-/// [dev.nthings.otlp4j.service.config.SignalSupport] capability a factory may declare.
+/// [dev.nthings.otlp4j.core.component.SignalSupport] capability a factory may declare.
 @NullMarked
 package dev.nthings.otlp4j.service.config;
 

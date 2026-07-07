@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>dev.nthings.otlp4j</groupId>
+        <artifactId>otlp4j-parent</artifactId>
+        <version>${revision}</version>
+    </parent>
+
+    <artifactId>otlp4j-components</artifactId>
+    <name>otlp4j-components</name>
+    <description>The built-in gateway components: the batch processor and its reusable bounded delivery
+        queue, the memory limiter, the routing and filtering processors, the deriving connector helper,
+        and the built-in authenticator extensions. JPMS module dev.nthings.otlp4j.components, depending
+        only on otlp4j-core and otlp4j-codec, so no transport, wire, or graph library appears on its
+        surface. The internal delivery queue and match engine live in a package that is not
+        exported.</description>
+
+    <dependencies>
+        <!-- The component, consumer, signal, result, and policy contracts every built-in component
+             implements, plus the relocated SignalSupport and the config-binding SPI. -->
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-core</artifactId>
+        </dependency>
+        <!-- The proto-free codec payload facade (Payloads.domain) the batch processor emits merged and
+             split batches through; its public surface names only core types, so no proto leaks here. -->
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-codec</artifactId>
+        </dependency>
+        <!-- Reached transitively through core, but declared for clarity: the domain batch records the
+             signal descriptors merge and split. -->
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-model</artifactId>
+        </dependency>
+        <!-- Logging facade only; no backend bound here. -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
+        <!-- Nullness contracts on the internal delivery-queue types; compile-only. -->
+        <dependency>
+            <groupId>org.jspecify</groupId>
+            <artifactId>jspecify</artifactId>
+        </dependency>
+
+        <!-- Shared domain test-data factories (Fixtures). -->
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-testing</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- The graph runtime the later graph-integration harness drives a built-in component through;
+             no production surface names it. -->
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-service</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Opt in to the shared coverage floor (rules defined in the parent POM). -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>check-coverage</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

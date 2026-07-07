@@ -1,6 +1,7 @@
 package dev.nthings.otlp4j.service.config;
 
 import dev.nthings.otlp4j.core.component.ComponentId;
+import dev.nthings.otlp4j.core.component.SignalSupport;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import java.util.Map;
 import org.jspecify.annotations.Nullable;

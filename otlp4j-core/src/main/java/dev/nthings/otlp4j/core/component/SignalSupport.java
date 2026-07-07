@@ -1,4 +1,4 @@
-package dev.nthings.otlp4j.service.config;
+package dev.nthings.otlp4j.core.component;
 
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 
@@ -11,6 +11,11 @@ import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 /// gap for the other three kinds without widening the core contracts: a factory that supports only a
 /// subset of the four signals implements it, and the validator consults it. A factory that does not
 /// implement it is treated as supporting every signal, which matches the generic `create` signature.
+///
+/// This capability lives in core so a built-in factory in a module that does not require the service
+/// graph can declare it, while the service-side registry still consults it through an `instanceof`
+/// check. Relocating it here from the service module is what lets the batch processor factory declare
+/// its honest profiles exclusion from the component module.
 public interface SignalSupport {
 
     /// Whether the component this factory produces supports `signal`.
