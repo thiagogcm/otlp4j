@@ -9,6 +9,7 @@ import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import dev.nthings.otlp4j.codec.SignalCodec;
 import dev.nthings.otlp4j.codec.Transports;
 import dev.nthings.otlp4j.transport.common.ClientHeaders;
+import dev.nthings.otlp4j.transport.common.ExporterMetrics;
 import dev.nthings.otlp4j.config.ClientConfig;
 import dev.nthings.otlp4j.config.Compression;
 import dev.nthings.otlp4j.spi.OtlpClient;
@@ -69,7 +70,13 @@ public final class HttpOtlpClient implements OtlpClient {
     private final ExecutorService executor;
     private final Retry retry;
 
+    /// Standalone and lifecycle-test constructor: no exporter metrics, so retry attempts are counted
+    /// against the shared no-op instance. The live builder path uses the two-arg constructor.
     public HttpOtlpClient(ClientConfig config) {
+        this(config, ExporterMetrics.noop());
+    }
+
+    public HttpOtlpClient(ClientConfig config, ExporterMetrics metrics) {
         this.config = config;
         this.compress = config.compression() == Compression.GZIP;
 
@@ -112,6 +119,9 @@ public final class HttpOtlpClient implements OtlpClient {
                 config.retry(),
                 HttpOtlpClient::isRetryable,
                 HttpOtlpClient::retryAfter);
+        // Count each scheduled retry through the exporter's single instrument owner. The listener runs
+        // on the export virtual thread; GatewayMetrics implementations are required to be thread-safe.
+        this.retry.getEventPublisher().onRetry(event -> metrics.recordRetry());
         log.debug("created OTLP/HTTP client for {}", base);
     }
 
@@ -127,12 +137,12 @@ public final class HttpOtlpClient implements OtlpClient {
         // identity, so the payload's signal selects the endpoint whose codec parses its response.
         var endpoint = endpoints.get(payload.signal());
         // Double-deadline, belt-and-suspenders and intentional: the HttpRequest.timeout (in
-        // request(...)) bounds each in-flight connection, while this orTimeout bounds the whole
-        // async attempt (retry backoff and executor queueing included), so a stalled carrier
-        // thread cannot outlive the caller's budget. A slow call is interrupted by whichever
-        // fires first.
+        // request(...)) bounds each in-flight connection on the per-attempt deadline, while this
+        // orTimeout bounds the whole async retrying delivery (retry backoff and executor queueing
+        // included) on the total budget, so a stalled carrier thread cannot outlive the caller's
+        // budget. A slow call is interrupted by whichever fires first.
         return CompletableFuture.supplyAsync(() -> send(endpoint, payload, provenance), executor)
-                .orTimeout(config.timeout().toNanos(), TimeUnit.NANOSECONDS);
+                .orTimeout(config.totalTimeout().toNanos(), TimeUnit.NANOSECONDS);
     }
 
     /// Writes `payload` for `endpoint` and sends it through Resilience4j retry. The request body is

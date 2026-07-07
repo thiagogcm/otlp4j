@@ -33,6 +33,19 @@
             <artifactId>otlp4j-model</artifactId>
         </dependency>
 
+        <!-- The policy semantics suite under dev.nthings.otlp4j.testing.policy names the neutral
+             RetryPolicy, BackoffPolicy, and TimeoutPolicy records directly, so it compiles against
+             core. Optional, like the junit/assertj/awaitility deps below, because the suite classes
+             are exercised only in the declaring module and in otlp4j-conformance, which declares core
+             itself; core stays off the many model/api test builds that consume this jar and never
+             touch the suite. Acyclic: core depends only on model, so testing stays upstream of the
+             transports. -->
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-core</artifactId>
+            <optional>true</optional>
+        </dependency>
+
         <!-- The wire clients build OTLP request/response protos with the generated builders and
              drive the generated blocking stubs directly, so they name proto and gRPC types. -->
         <dependency>

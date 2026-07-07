@@ -19,8 +19,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import org.junit.jupiter.api.Test;
 
-/// Unit tests for the standalone service helpers: the delivery boundary normalization, the exporter
-/// metrics counters, and the interim payload carrier.
+/// Unit tests for the standalone service helpers: the delivery boundary normalization and the interim
+/// payload carrier.
 class HelpersTest {
 
     private static final Provenance PROV =
@@ -99,27 +99,6 @@ class HelpersTest {
                 .toCompletableFuture()
                 .join();
         assertThat(result).isInstanceOf(DeliveryResult.Rejected.class);
-    }
-
-    @Test
-    void exporterMetricsCountSuccessAndFailure() {
-        var metrics = new RecordingMetrics();
-        var helper = new ExporterMetricsHelper(metrics);
-
-        helper.observe(DeliveryResult.acceptedStage(PROV)).toCompletableFuture().join();
-        helper.observe(CompletableFuture.completedFuture(DeliveryResult.partial(3, "some", PROV)))
-                .toCompletableFuture()
-                .join();
-        helper.observe(CompletableFuture.completedFuture(DeliveryResult.permanent("no", PROV)))
-                .toCompletableFuture()
-                .join();
-        helper.observe(CompletableFuture.failedFuture(new IllegalStateException("boom")))
-                .exceptionally(t -> null)
-                .toCompletableFuture()
-                .join();
-
-        assertThat(metrics.value(ExporterMetricsHelper.SUCCESS_COUNTER)).isEqualTo(2);
-        assertThat(metrics.value(ExporterMetricsHelper.FAILURE_COUNTER)).isEqualTo(2);
     }
 
     @Test

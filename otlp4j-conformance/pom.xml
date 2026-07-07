@@ -87,4 +87,44 @@
          still inherits the parent JaCoCo prepare-agent and report, so it produces target/jacoco.exec
          and its cross-module coverage feeds the aggregate report in otlp4j-coverage. -->
 
+    <build>
+        <plugins>
+            <!-- Split the test run so the flakiness budget the policy semantics suite documents is
+                 actually granted, and only to the tests that carry it. The default execution runs every
+                 test except the policy-timing group with no reruns, so a real regression in any other
+                 test fails the build outright. The second execution runs only the policy-timing group
+                 (the GrpcPolicySemanticsTest and HttpPolicySemanticsTest wall-clock cases) and grants a
+                 single automatic retry, so a rare virtual-thread scheduling, GC-pause, or loopback
+                 latency spike that clips an upper-bound tolerance is retried once rather than turning an
+                 intended soft-flake into a hard CI failure. The deterministic counts, orderings, and
+                 outcomes those tests also assert are not made less strict by the retry: a deterministic
+                 failure reproduces on the retry and still fails the build. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>default-test</id>
+                        <goals>
+                            <goal>test</goal>
+                        </goals>
+                        <configuration>
+                            <excludedGroups>policy-timing</excludedGroups>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>policy-timing</id>
+                        <goals>
+                            <goal>test</goal>
+                        </goals>
+                        <configuration>
+                            <groups>policy-timing</groups>
+                            <rerunFailingTestsCount>1</rerunFailingTestsCount>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
 </project>

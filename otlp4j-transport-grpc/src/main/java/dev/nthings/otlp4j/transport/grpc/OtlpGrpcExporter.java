@@ -4,6 +4,7 @@ import dev.nthings.otlp4j.config.ClientConfig;
 import dev.nthings.otlp4j.spi.OtlpClient;
 import dev.nthings.otlp4j.transport.common.AbstractExporterBuilder;
 import dev.nthings.otlp4j.transport.common.ClientExporter;
+import dev.nthings.otlp4j.transport.common.ExporterMetrics;
 import dev.nthings.otlp4j.transport.grpc.internal.GrpcOtlpClient;
 
 /// Builds [ClientExporter]s that send typed telemetry to an OTLP/gRPC endpoint.
@@ -43,8 +44,8 @@ public final class OtlpGrpcExporter {
         }
 
         @Override
-        protected OtlpClient newClient(ClientConfig config) {
-            return new GrpcOtlpClient(config);
+        protected OtlpClient newClient(ClientConfig config, ExporterMetrics metrics) {
+            return new GrpcOtlpClient(config, metrics);
         }
     }
 }

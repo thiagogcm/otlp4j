@@ -9,6 +9,7 @@ import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import dev.nthings.otlp4j.codec.SignalCodec;
 import dev.nthings.otlp4j.codec.Transports;
 import dev.nthings.otlp4j.transport.common.ClientHeaders;
+import dev.nthings.otlp4j.transport.common.ExporterMetrics;
 import dev.nthings.otlp4j.config.ClientConfig;
 import dev.nthings.otlp4j.config.Compression;
 import dev.nthings.otlp4j.spi.OtlpClient;
@@ -78,7 +79,13 @@ public final class GrpcOtlpClient implements OtlpClient {
     private final Retry retry;
     private final Map<SignalDescriptor<?>, GrpcExport<?, ?, ?>> exports = new HashMap<>();
 
+    /// Standalone and lifecycle-test constructor: no exporter metrics, so retry attempts are counted
+    /// against the shared no-op instance. The live builder path uses the two-arg constructor.
     public GrpcOtlpClient(ClientConfig config) {
+        this(config, ExporterMetrics.noop());
+    }
+
+    public GrpcOtlpClient(ClientConfig config, ExporterMetrics metrics) {
         this.config = config;
         this.compress = config.compression() == Compression.GZIP;
 
@@ -101,6 +108,9 @@ public final class GrpcOtlpClient implements OtlpClient {
                 config.retry(),
                 GrpcOtlpClient::isRetryable,
                 GrpcOtlpClient::retryAfter);
+        // Count each scheduled retry through the exporter's single instrument owner. The listener runs
+        // on the export virtual thread; GatewayMetrics implementations are required to be thread-safe.
+        this.retry.getEventPublisher().onRetry(event -> metrics.recordRetry());
 
         // Per-signal binding: each entry pairs a SignalCodec with the blocking-stub RPC. Populated
         // once here so export() is a single map lookup instead of four typed methods.
@@ -122,13 +132,14 @@ public final class GrpcOtlpClient implements OtlpClient {
         // identity, so the payload's signal selects the export whose REQ is that signal's request type.
         var export = exports.get(payload.signal());
         // Double-deadline, belt-and-suspenders and intentional: the stub's withDeadlineAfter (in
-        // call(...)) bounds each in-flight RPC, while this orTimeout bounds the whole async attempt
-        // (retry backoff and executor queueing included), so a stalled carrier thread cannot
-        // outlive the caller's budget. A slow call is interrupted by whichever fires first.
+        // call(...)) bounds each in-flight RPC on the per-attempt deadline, while this orTimeout bounds
+        // the whole async retrying delivery (retry backoff and executor queueing included) on the total
+        // budget, so a stalled carrier thread cannot outlive the caller's budget. A slow call is
+        // interrupted by whichever fires first.
         return CompletableFuture.supplyAsync(
                 () -> ResilienceRetries.execute(retry, () -> export.result(payload, provenance)),
                 executor)
-                .orTimeout(config.timeout().toNanos(), TimeUnit.NANOSECONDS);
+                .orTimeout(config.totalTimeout().toNanos(), TimeUnit.NANOSECONDS);
     }
 
     /// Binds a [SignalCodec] to its blocking-stub RPC for one signal: encodes the batch, invokes the

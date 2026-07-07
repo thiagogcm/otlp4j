@@ -53,8 +53,7 @@ public final class ClientExporter implements AutoCloseable {
     private static final Consumer<String> DEFAULT_REPORTER = log::warn;
 
     private final OtlpClient client;
-    private final GatewayMetrics.LongCounter exportSuccess;
-    private final GatewayMetrics.LongCounter exportFailure;
+    private final ExporterMetrics metrics;
 
     /// Signal-keyed view of the four facets, backing the [#consumer(SignalDescriptor)] accessor.
     /// Populated once at construction and never mutated, so each lookup is provably typed.
@@ -104,15 +103,27 @@ public final class ClientExporter implements AutoCloseable {
         this(client, ComponentId.parse("otlp"), exporterType, GatewayMetrics.noop(), leakReporter);
     }
 
-    /// Package-private canonical constructor: `telemetry` receives the export counters, `leakReporter`
-    /// the leak warning.
+    /// Package-private: wraps `telemetry` into a fresh [ExporterMetrics] and delegates to the canonical
+    /// constructor. Retained so the direct-construction test paths that hand in a [GatewayMetrics] stay
+    /// green; the live builder path uses the [ExporterMetrics]-accepting constructor with its single
+    /// shared instance.
     ClientExporter(OtlpClient client, ComponentId id, String exporterType, GatewayMetrics telemetry,
             Consumer<String> leakReporter) {
+        this(client, id, exporterType, ExporterMetrics.from(telemetry), leakReporter);
+    }
+
+    /// Package-private: builds an exporter over the builder's single shared [ExporterMetrics] with the
+    /// default leak reporter.
+    ClientExporter(OtlpClient client, ComponentId id, String exporterType, ExporterMetrics metrics) {
+        this(client, id, exporterType, metrics, DEFAULT_REPORTER);
+    }
+
+    /// Package-private canonical constructor: `metrics` is the single instrument owner the send boundary
+    /// writes through, `leakReporter` receives the leak warning.
+    ClientExporter(OtlpClient client, ComponentId id, String exporterType, ExporterMetrics metrics,
+            Consumer<String> leakReporter) {
         this.client = client;
-        this.exportSuccess = telemetry.counter(
-                "otlp4j.exporter.export.success", "batches the endpoint acknowledged");
-        this.exportFailure = telemetry.counter(
-                "otlp4j.exporter.export.failure", "batches the endpoint rejected or that failed to send");
+        this.metrics = metrics;
         for (SignalDescriptor<?> signal : SignalDescriptor.values()) {
             facets.put(signal, new Facet<>(signal, id));
         }
@@ -234,15 +245,12 @@ public final class ClientExporter implements AutoCloseable {
         public CompletionStage<DeliveryResult> consume(ConsumeContext context, TelemetryPayload data) {
             // Forward the payload as is: the client reads its wire representation directly, so a
             // pass-through proto-backed payload is never decoded to the domain here.
-            // Feed the export counters off the outcome without altering the returned stage: a failed
-            // stage or a Rejected result counts as a failure, anything else as a success.
-            return client.export(data, provenance).whenComplete((result, failure) -> {
-                if (failure != null || result instanceof DeliveryResult.Rejected) {
-                    exportFailure.add(1);
-                } else {
-                    exportSuccess.add(1);
-                }
-            });
+            // Time the send around the client call and feed every boundary-visible instrument through
+            // the single owner without altering the returned stage. recordSend classifies the outcome:
+            // a failed stage or a Rejected result counts as a failure, anything else as a success.
+            long startNanos = System.nanoTime();
+            return client.export(data, provenance).whenComplete((result, failure) ->
+                    metrics.recordSend(data, System.nanoTime() - startNanos, result, failure));
         }
     }
 

@@ -5,6 +5,7 @@ import dev.nthings.otlp4j.config.Tls;
 import dev.nthings.otlp4j.spi.OtlpClient;
 import dev.nthings.otlp4j.transport.common.AbstractExporterBuilder;
 import dev.nthings.otlp4j.transport.common.ClientExporter;
+import dev.nthings.otlp4j.transport.common.ExporterMetrics;
 import dev.nthings.otlp4j.transport.http.internal.HttpOtlpClient;
 import java.time.Duration;
 
@@ -69,8 +70,8 @@ public final class OtlpHttpExporter {
         }
 
         @Override
-        protected OtlpClient newClient(ClientConfig config) {
-            return new HttpOtlpClient(config);
+        protected OtlpClient newClient(ClientConfig config, ExporterMetrics metrics) {
+            return new HttpOtlpClient(config, metrics);
         }
     }
 }

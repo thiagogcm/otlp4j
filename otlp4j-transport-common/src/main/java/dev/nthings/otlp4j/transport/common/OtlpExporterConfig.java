@@ -20,9 +20,9 @@ import org.jspecify.annotations.Nullable;
 /// [ClientConfig] through [#toClientConfig()], where the neutral policies are handed to the legacy
 /// transport client, which is the single place the resilience library is still named.
 ///
-/// The [TimeoutPolicy]'s per-attempt bound maps onto the legacy client's single per-export deadline;
-/// its total bound is carried for the exporter runtime a later phase brings and is not yet consumed
-/// by the legacy client, whose own retry loop bounds each attempt independently.
+/// The [TimeoutPolicy]'s per-attempt bound maps onto the legacy client's per-attempt deadline, bounding
+/// each in-flight RPC or connection, and its total bound maps onto the client's total budget, bounding
+/// the whole retrying delivery end to end.
 ///
 /// @param host           the endpoint host
 /// @param port           the endpoint port
@@ -95,8 +95,9 @@ public record OtlpExporterConfig(
 
     /// Translates this neutral config into the internal transport [ClientConfig]: the endpoint, path,
     /// TLS, headers, and compression map across directly, the [RetryPolicy] is carried as the
-    /// client's neutral retry policy (the transport translates it internally), and the
-    /// [TimeoutPolicy]'s per-attempt bound becomes the client's per-export deadline.
+    /// client's neutral retry policy (the transport translates it internally), the [TimeoutPolicy]'s
+    /// per-attempt bound becomes the client's per-attempt deadline, and its total bound becomes the
+    /// client's total budget.
     ///
     /// @return the equivalent client config
     public ClientConfig toClientConfig() {
@@ -107,7 +108,8 @@ public record OtlpExporterConfig(
                 .setHeaders(headers)
                 .setCompression(compression)
                 .setRetryPolicy(retry)
-                .setTimeout(timeout.perAttempt());
+                .setTimeout(timeout.perAttempt())
+                .setTotalTimeout(timeout.total());
         if (connectTimeout != null) {
             b.setConnectTimeout(connectTimeout);
         }

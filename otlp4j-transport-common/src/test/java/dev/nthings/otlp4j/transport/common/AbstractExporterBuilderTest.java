@@ -38,7 +38,7 @@ class AbstractExporterBuilderTest {
         }
 
         @Override
-        protected OtlpClient newClient(ClientConfig config) {
+        protected OtlpClient newClient(ClientConfig config, ExporterMetrics metrics) {
             this.captured = config;
             return new RecordingOtlpClient();
         }

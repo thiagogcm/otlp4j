@@ -383,6 +383,33 @@ class TransportConfigTest {
                 .hasMessageContaining("mutual-TLS");
     }
 
+    @DisplayName("Client config carries a distinct total budget and defaults it to the per-attempt deadline")
+    @Test
+    void clientConfigCarriesPerAttemptAndTotalTimeout() {
+        var distinct = ClientConfig.builder()
+                .setEndpoint("localhost", 4317)
+                .setTimeout(Duration.ofSeconds(2))
+                .setTotalTimeout(Duration.ofSeconds(9))
+                .build();
+        assertThat(distinct.timeout()).isEqualTo(Duration.ofSeconds(2));
+        assertThat(distinct.totalTimeout()).isEqualTo(Duration.ofSeconds(9));
+
+        // Unset, the total budget falls back to the per-attempt deadline (the legacy single-deadline
+        // behaviour).
+        var defaulted = ClientConfig.builder()
+                .setEndpoint("localhost", 4317)
+                .setTimeout(Duration.ofSeconds(4))
+                .build();
+        assertThat(defaulted.totalTimeout()).isEqualTo(Duration.ofSeconds(4));
+
+        assertThatThrownBy(() -> ClientConfig.builder()
+                        .setTimeout(Duration.ofSeconds(5))
+                        .setTotalTimeout(Duration.ofSeconds(1))
+                        .build())
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("totalTimeout");
+    }
+
     @DisplayName("Round-trips TracesData over in-memory (byte[]) TLS")
     @Test
     void roundTripsOverInMemoryTls() throws Exception {

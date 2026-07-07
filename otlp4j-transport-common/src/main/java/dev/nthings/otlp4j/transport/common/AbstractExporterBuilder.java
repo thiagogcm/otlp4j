@@ -41,11 +41,14 @@ public abstract class AbstractExporterBuilder<B extends AbstractExporterBuilder<
     /// @return this builder as the self-type
     protected abstract B self();
 
-    /// Creates the wire client the built exporter delegates to.
+    /// Creates the wire client the built exporter delegates to. The client is handed the exporter's
+    /// single [ExporterMetrics] so it can count retry attempts, the one datum observable only inside its
+    /// retry loop; the same instance backs the [ClientExporter] send boundary.
     ///
-    /// @param config the finished transport config
+    /// @param config  the finished transport config
+    /// @param metrics the exporter's single instrument owner
     /// @return the transport client
-    protected abstract OtlpClient newClient(ClientConfig config);
+    protected abstract OtlpClient newClient(ClientConfig config, ExporterMetrics metrics);
 
     /// The live config builder, for transport-specific setters (e.g. the HTTP `setPath`).
     ///
@@ -200,6 +203,8 @@ public abstract class AbstractExporterBuilder<B extends AbstractExporterBuilder<
     ///
     /// @return the ready-to-use exporter
     public final ClientExporter build() {
-        return new ClientExporter(newClient(config.build()), id, exporterType, gatewayMetrics);
+        var metrics = ExporterMetrics.from(gatewayMetrics);
+        var client = newClient(config.build(), metrics);
+        return new ClientExporter(client, id, exporterType, metrics);
     }
 }

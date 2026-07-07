@@ -8,9 +8,9 @@
 /// [dev.nthings.otlp4j.service.GatewayRuntime]. The runtime starts extensions first and the data path
 /// in reverse topological order, rolls back on a start failure, and shuts down in forward topological
 /// order. [dev.nthings.otlp4j.service.GraphNodeBoundary] normalizes every component invocation into a
-/// delivery result, [dev.nthings.otlp4j.service.ExporterMetricsHelper] counts the exporter send
-/// boundary, and [dev.nthings.otlp4j.core.signal.TelemetryPayload] is the carrier the graph moves,
-/// materialised by the codec payloads that carry either the decoded proto request or the domain batch.
+/// delivery result, and [dev.nthings.otlp4j.core.signal.TelemetryPayload] is the carrier the graph
+/// moves, materialised by the codec payloads that carry either the decoded proto request or the domain
+/// batch.
 @NullMarked
 package dev.nthings.otlp4j.service;
 

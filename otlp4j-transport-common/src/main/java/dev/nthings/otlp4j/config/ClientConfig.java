@@ -20,6 +20,11 @@ import org.jspecify.annotations.Nullable;
 /// prefix (e.g. `/otlp`) prepended to the per-signal paths; gRPC ignores it.
 /// `headerSupplier`, when set, is evaluated per export and overlays the static `headers`.
 /// `connectTimeout`, when set, bounds connection setup on OTLP/HTTP (gRPC ignores it).
+///
+/// `timeout` is the per-attempt deadline bounding each in-flight RPC or connection, while
+/// `totalTimeout` is the total budget bounding the whole retrying delivery end to end. Unset,
+/// `totalTimeout` falls back to `timeout`, which reproduces the single-deadline behaviour. It must be
+/// greater than or equal to `timeout`.
 public record ClientConfig(
         String host,
         int port,
@@ -30,7 +35,8 @@ public record ClientConfig(
         Compression compression,
         RetryPolicy retry,
         @Nullable Supplier<Map<String, String>> headerSupplier,
-        @Nullable Duration connectTimeout) {
+        @Nullable Duration connectTimeout,
+        Duration totalTimeout) {
 
     private static final RetryPolicy DEFAULT_RETRY = RetryPolicy.defaults();
 
@@ -40,6 +46,7 @@ public record ClientConfig(
         Objects.requireNonNull(tls, "tls");
         Objects.requireNonNull(compression, "compression");
         Objects.requireNonNull(retry, "retry");
+        Objects.requireNonNull(totalTimeout, "totalTimeout");
         headers = headers == null ? Map.of() : Collections.unmodifiableMap(new LinkedHashMap<>(headers));
         Headers.requireValid(headers);
         path = normalizePath(path);
@@ -51,6 +58,9 @@ public record ClientConfig(
         }
         if (connectTimeout != null && (connectTimeout.isZero() || connectTimeout.isNegative())) {
             throw new IllegalArgumentException("connectTimeout must be > 0");
+        }
+        if (totalTimeout.compareTo(timeout) < 0) {
+            throw new IllegalArgumentException("totalTimeout must be >= timeout");
         }
     }
 
@@ -95,6 +105,7 @@ public record ClientConfig(
         b.portExplicit = true;
         b.timeout = timeout;
         b.timeoutExplicit = true;
+        b.totalTimeout = totalTimeout;
         b.tls = tls;
         b.tlsExplicit = true;
         b.headers.putAll(headers);
@@ -150,6 +161,7 @@ public record ClientConfig(
         private String host = "localhost";
         private int port = 4317;
         private Duration timeout = Duration.ofSeconds(10);
+        private @Nullable Duration totalTimeout = null;
         private Tls tls = Tls.disabled();
         private final Map<String, String> headers = new LinkedHashMap<>();
         private Compression compression = Compression.NONE;
@@ -218,6 +230,14 @@ public record ClientConfig(
         public Builder setTimeout(Duration timeout) {
             this.timeout = timeout;
             this.timeoutExplicit = true;
+            return this;
+        }
+
+        /// Bounds the whole retrying delivery end to end. Unset, it falls back to [#setTimeout],
+        /// reproducing the single-deadline behaviour. Must be greater than or equal to the per-attempt
+        /// [#setTimeout].
+        public Builder setTotalTimeout(Duration totalTimeout) {
+            this.totalTimeout = totalTimeout;
             return this;
         }
 
@@ -319,7 +339,8 @@ public record ClientConfig(
                 OtlpEnv.applyTo(this, env);
             }
             return new ClientConfig(
-                    host, port, path, timeout, tls, headers, compression, retry, headerSupplier, connectTimeout);
+                    host, port, path, timeout, tls, headers, compression, retry, headerSupplier, connectTimeout,
+                    totalTimeout == null ? timeout : totalTimeout);
         }
     }
 }

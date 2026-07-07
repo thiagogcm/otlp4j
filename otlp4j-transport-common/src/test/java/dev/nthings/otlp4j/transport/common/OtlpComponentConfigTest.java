@@ -30,6 +30,7 @@ class OtlpComponentConfigTest {
         assertThat(client.host()).isEqualTo("localhost");
         assertThat(client.port()).isEqualTo(4317);
         assertThat(client.timeout()).isEqualTo(Duration.ofSeconds(10));
+        assertThat(client.totalTimeout()).isEqualTo(Duration.ofSeconds(10));
         assertThat(client.retry()).isEqualTo(RetryPolicy.defaults());
     }
 
@@ -57,6 +58,7 @@ class OtlpComponentConfigTest {
         assertThat(client.headers()).containsEntry("authorization", "Bearer t");
         assertThat(client.retry()).isEqualTo(retry);
         assertThat(client.timeout()).isEqualTo(Duration.ofSeconds(3));
+        assertThat(client.totalTimeout()).isEqualTo(Duration.ofSeconds(15));
         assertThat(client.connectTimeout()).isEqualTo(Duration.ofSeconds(2));
     }
 
