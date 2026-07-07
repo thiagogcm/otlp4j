@@ -5,7 +5,7 @@
 otlp4j is a JPMS-modular Java library for receiving, processing, and exporting [OpenTelemetry Protocol (OTLP)](https://opentelemetry.io/docs/specs/otlp/) telemetry.
 It is best used as an OTLP gateway/pipeline inside JVM applications and services, with immutable Java records and typed asynchronous APIs; generated Protobuf and gRPC types remain inside the transport modules.
 
-The project is currently experimental `0.1.0-SNAPSHOT` and requires JDK 25. Its built-in transports carry OTLP over **gRPC** and **HTTP** (binary protobuf, `application/x-protobuf`) for traces, metrics, logs, and experimental profiles, over plaintext or TLS, with authentication headers, gzip compression, and retries. The HTTP transport uses only the JDK (`java.net.http` client, `jdk.httpserver` server), no extra dependencies.
+The project is currently experimental `0.1.0-SNAPSHOT` and requires JDK 25. Its built-in transport carries OTLP over **gRPC** and **HTTP** (binary protobuf, `application/x-protobuf`) for traces, metrics, logs, and experimental profiles, over plaintext or TLS, with authentication headers, gzip compression, and retries. The gRPC and HTTP wires are served by one consolidated transport module (`otlp4j-transport-otlp`, on Armeria).
 
 > [!WARNING] This project was developed with the assistance of AI agents and has not undergone thorough testing. Please report any issues you encounter.
 
@@ -27,7 +27,7 @@ The `Span`, `Metric`, and `LogRecord` builders in otlp4j are OTLP model-construc
 - Independent `Flow.Publisher` streams for live telemetry observation
 - Opt-in `OTEL_EXPORTER_OTLP_*` exporter configuration via `fromEnvironment()` (builder or static factory), including fail-fast `OTEL_EXPORTER_OTLP_PROTOCOL` validation
 - Self-observability via a pluggable `GatewayMetrics` SPI: counters and gauges for batcher drops, admission rejections, tap drops, and export outcomes, with a no-op default and a logging sample adapter
-- Separate gRPC and HTTP transport modules, selected by the exporter/receiver class you instantiate, behind a small `OtlpClient`/`OtlpServer` SPI, both symmetric `Lifecycle` resources
+- One consolidated OTLP transport module carrying both gRPC and HTTP, behind a small `OtlpClient`/`OtlpServer` SPI, both symmetric `Lifecycle` resources
 
 ## Use from Maven
 
@@ -37,17 +37,17 @@ The snapshot coordinates are intended for a local reactor build. Install them fi
 ./mvnw -B install
 ```
 
-Compile against the public API and add the transport you want: `otlp4j-transport-grpc` for OTLP/gRPC, `otlp4j-transport-http` for OTLP/HTTP, or both. Each transport depends on `otlp4j-api`, and your code instantiates its `Otlp{Grpc,Http}Exporter`/`Otlp{Grpc,Http}Receiver` directly, so the transport is a compile dependency rather than runtime-only:
+Compile against the public core and add the consolidated OTLP transport, which carries both OTLP/gRPC and OTLP/HTTP; your code instantiates its `OtlpArmeria{Grpc,Http}{Receiver,Exporter}Factory` (or the `OtlpArmeriaReceiver`/`OtlpArmeriaExporter` builders) directly, so the transport is a compile dependency rather than runtime-only:
 
 ```xml
 <dependency>
   <groupId>dev.nthings.otlp4j</groupId>
-  <artifactId>otlp4j-api</artifactId>
+  <artifactId>otlp4j-core</artifactId>
   <version>0.1.0-SNAPSHOT</version>
 </dependency>
 <dependency>
   <groupId>dev.nthings.otlp4j</groupId>
-  <artifactId>otlp4j-transport-grpc</artifactId>
+  <artifactId>otlp4j-transport-otlp</artifactId>
   <version>0.1.0-SNAPSHOT</version>
 </dependency>
 ```
@@ -108,12 +108,12 @@ Wiring.builder()
 | Module                  | Role                                                                                                   |
 | ----------------------- | ------------------------------------------------------------------------------------------------------ |
 | `otlp4j-model`          | JDK-only OTLP domain records                                                                           |
-| `otlp4j-api`            | Public core, pipelines, transforms, batching, connectors, exporters/receivers, configuration, self-observability (`GatewayMetrics`), and transport SPI contracts |
-| `otlp4j-codec`          | Internal model⇄proto marshalling, qualified-exported to the two transports                             |
-| `otlp4j-proto`          | Generated OTLP messages and gRPC services, qualified-exported to the codec and transports              |
-| `otlp4j-transport-common` | Shared transport layer: `ClientExporter`/`ServerReceiver` wrap an `OtlpClient`/`OtlpServer` into the user-facing exporter/receiver, plus admission control and the entry-point builder bases |
-| `otlp4j-transport-grpc` | OTLP/gRPC exporter and receiver (`OtlpGrpcExporter`/`OtlpGrpcReceiver`), on gRPC + Netty               |
-| `otlp4j-transport-http` | OTLP/HTTP exporter and receiver (`OtlpHttpExporter`/`OtlpHttpReceiver`), JDK-only                      |
+| `otlp4j-core`           | Public core, pipelines, transforms, batching, connectors, component contracts, configuration, self-observability (`GatewayMetrics`) |
+| `otlp4j-codec`          | Internal model⇄proto marshalling, qualified-exported to the transport                                  |
+| `otlp4j-proto`          | Generated OTLP messages and gRPC services, qualified-exported to the codec and transport               |
+| `otlp4j-transport-common` | Shared transport layer: `ClientExporter`/`ServerReceiver` wrap an `OtlpClient`/`OtlpServer` into the user-facing exporter/receiver, plus admission control, the neutral transport configs, and the entry-point builder bases |
+| `otlp4j-service`        | Component graph and gateway runtime that wires receivers, pipelines, and exporters                     |
+| `otlp4j-transport-otlp` | Consolidated OTLP/gRPC and OTLP/HTTP exporter and receiver (`OtlpArmeriaExporter`/`OtlpArmeriaReceiver`), on Armeria |
 | `otlp4j-samples`        | Executable end-to-end example                                                                          |
 | `otlp4j-testing`        | Shared reactor test fixtures                                                                           |
 | `otlp4j-coverage`       | Aggregate JaCoCo report                                                                                |

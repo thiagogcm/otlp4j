@@ -34,10 +34,10 @@ import dev.nthings.otlp4j.service.config.PipelineConfig;
 import dev.nthings.otlp4j.telemetry.GatewayMetrics;
 import dev.nthings.otlp4j.transport.common.OtlpExporterConfig;
 import dev.nthings.otlp4j.transport.common.OtlpReceiverConfig;
-import dev.nthings.otlp4j.transport.grpc.OtlpGrpcExporterFactory;
-import dev.nthings.otlp4j.transport.grpc.OtlpGrpcReceiverFactory;
-import dev.nthings.otlp4j.transport.http.OtlpHttpExporterFactory;
-import dev.nthings.otlp4j.transport.http.OtlpHttpReceiverFactory;
+import dev.nthings.otlp4j.transport.otlp.OtlpArmeriaGrpcExporterFactory;
+import dev.nthings.otlp4j.transport.otlp.OtlpArmeriaGrpcReceiverFactory;
+import dev.nthings.otlp4j.transport.otlp.OtlpArmeriaHttpExporterFactory;
+import dev.nthings.otlp4j.transport.otlp.OtlpArmeriaHttpReceiverFactory;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
@@ -63,11 +63,18 @@ import org.openjdk.jmh.annotations.Warmup;
 /// One measured operation exports a traces batch from a client exporter to a gateway receiver, whose
 /// single-pipeline graph forwards it through an OTLP exporter to a backend receiver, and blocks until
 /// the backend has acknowledged. The path therefore exercises decode on receive, the forwarding
-/// graph, and encode on export, across two real OTLP hops. It parameterizes on transport protocol
-/// (gRPC and HTTP), payload size (small and large), and pipeline mode (`passthrough` and
+/// graph, and encode on export, across two real OTLP hops. It parameterizes on transport backend
+/// (`ARMERIA`, the single production transport now that the legacy transports are deleted), transport
+/// protocol (gRPC and HTTP), payload size (small and large), and pipeline mode (`passthrough` and
 /// `domainview`), so the baseline captures the combinations that matter for the Phase 2 efficiency
-/// claims. Run with the `gc` profiler enabled (`-prof gc`) to record the allocation rate and
-/// bytes-per-operation half of the deliverable.
+/// claims and the Phase 4 transport parity gate. Run with the `gc` profiler enabled (`-prof gc`) to
+/// record the allocation rate and bytes-per-operation half of the deliverable.
+///
+/// The `transport` parameter recorded the Phase 4 parity evidence. It now has the single value
+/// `ARMERIA`, which wires the consolidated `otlp4j-transport-otlp` receivers and exporters; the
+/// committed legacy baseline JSON is retained for history. Both hops (the gateway receiver and the
+/// OTLP exporter it forwards through, plus the standalone client exporter) use the same backend within
+/// one measured operation.
 ///
 /// The `mode` parameter is the Phase 2 pass-through evidence. The gateway hop's receiver always
 /// decodes the wire bytes into a proto request and wraps it as a proto-backed payload
@@ -92,7 +99,13 @@ public class ReceiveForwardExportBenchmark {
     private static final ComponentId SINK = ComponentId.parse("out");
     private static final ComponentId CLIENT = ComponentId.parse("client");
 
-    /// The transport both hops use.
+    /// The transport implementation both hops use. Now that the legacy transports are deleted this
+    /// has a single value, the consolidated Armeria transport; the committed legacy baseline JSON is
+    /// kept for history. See the class Javadoc for what this isolates.
+    @Param({"ARMERIA"})
+    public String transport;
+
+    /// The wire protocol both hops use.
     @Param({"GRPC", "HTTP"})
     public String protocol;
 
@@ -124,15 +137,15 @@ public class ReceiveForwardExportBenchmark {
         context = new BenchContext(base.clock());
         payload = Payloads.domain(TRACES, BenchmarkPayloads.traces(BenchmarkPayloads.itemCount(size)));
 
-        backend = buildBackend(protocol);
+        backend = buildBackend(transport, protocol);
         backend.start();
         var backendPort = boundPort(backend);
 
-        gateway = buildGateway(protocol, backendPort, mode);
+        gateway = buildGateway(transport, protocol, backendPort, mode);
         gateway.start();
         var gatewayPort = boundPort(gateway);
 
-        client = buildClient(protocol, gatewayPort);
+        client = buildClient(transport, protocol, gatewayPort);
         client.start(base).toCompletableFuture().join();
     }
 
@@ -161,18 +174,18 @@ public class ReceiveForwardExportBenchmark {
 
     // ---- graph assembly --------------------------------------------------------------------------
 
-    private static GatewayRuntime buildBackend(String protocol) {
+    private static GatewayRuntime buildBackend(String transport, String protocol) {
         return Gateway.builder()
-                .receiver(RECV, receiverFactory(protocol), ephemeralReceiver(protocol))
+                .receiver(RECV, receiverFactory(transport, protocol), ephemeralReceiver(transport, protocol))
                 .exporter(SINK, new AcceptingExporterFactory(), EmptyConfig.INSTANCE)
                 .pipeline(PipelineId.of(TRACES), new PipelineConfig(List.of(RECV), List.of(), List.of(SINK)))
                 .build();
     }
 
-    private static GatewayRuntime buildGateway(String protocol, int backendPort, String mode) {
+    private static GatewayRuntime buildGateway(String transport, String protocol, int backendPort, String mode) {
         var assembler = Gateway.builder()
-                .receiver(RECV, receiverFactory(protocol), ephemeralReceiver(protocol))
-                .exporter(SINK, exporterFactory(protocol), OtlpExporterConfig.defaults(backendPort));
+                .receiver(RECV, receiverFactory(transport, protocol), ephemeralReceiver(transport, protocol))
+                .exporter(SINK, exporterFactory(transport, protocol), OtlpExporterConfig.defaults(backendPort));
         List<ComponentId> processors;
         switch (mode) {
             case "passthrough" -> processors = List.of();
@@ -187,32 +200,42 @@ public class ReceiveForwardExportBenchmark {
                 .build();
     }
 
-    private Exporter<TelemetryPayload> buildClient(String protocol, int gatewayPort) {
+    private Exporter<TelemetryPayload> buildClient(String transport, String protocol, int gatewayPort) {
         var ctx = new CreateContext(CLIENT, base);
-        return exporterFactory(protocol).create(ctx, OtlpExporterConfig.defaults(gatewayPort), tracesDescriptor());
+        return exporterFactory(transport, protocol)
+                .create(ctx, OtlpExporterConfig.defaults(gatewayPort), tracesDescriptor());
     }
 
-    private static ReceiverFactory<OtlpReceiverConfig> receiverFactory(String protocol) {
-        return switch (protocol) {
-            case "GRPC" -> new OtlpGrpcReceiverFactory();
-            case "HTTP" -> new OtlpHttpReceiverFactory();
-            default -> throw new IllegalArgumentException("unknown protocol: " + protocol);
+    /// Selects the receiver factory for a `transport` x `protocol` cell. `ARMERIA` selects the
+    /// consolidated `otlp4j-transport-otlp` factories, the single production transport.
+    private static ReceiverFactory<OtlpReceiverConfig> receiverFactory(String transport, String protocol) {
+        return switch (transport) {
+            case "ARMERIA" -> switch (protocol) {
+                case "GRPC" -> new OtlpArmeriaGrpcReceiverFactory();
+                case "HTTP" -> new OtlpArmeriaHttpReceiverFactory();
+                default -> throw new IllegalArgumentException("unknown protocol: " + protocol);
+            };
+            default -> throw new IllegalArgumentException("unknown transport: " + transport);
         };
     }
 
-    private static ExporterFactory<OtlpExporterConfig> exporterFactory(String protocol) {
-        return switch (protocol) {
-            case "GRPC" -> new OtlpGrpcExporterFactory();
-            case "HTTP" -> new OtlpHttpExporterFactory();
-            default -> throw new IllegalArgumentException("unknown protocol: " + protocol);
+    /// Selects the exporter factory for a `transport` x `protocol` cell. See [#receiverFactory].
+    private static ExporterFactory<OtlpExporterConfig> exporterFactory(String transport, String protocol) {
+        return switch (transport) {
+            case "ARMERIA" -> switch (protocol) {
+                case "GRPC" -> new OtlpArmeriaGrpcExporterFactory();
+                case "HTTP" -> new OtlpArmeriaHttpExporterFactory();
+                default -> throw new IllegalArgumentException("unknown protocol: " + protocol);
+            };
+            default -> throw new IllegalArgumentException("unknown transport: " + transport);
         };
     }
 
-    private static OtlpReceiverConfig ephemeralReceiver(String protocol) {
-        var port = "GRPC".equals(protocol)
-                ? OtlpGrpcReceiverFactory.DEFAULT_PORT
-                : OtlpHttpReceiverFactory.DEFAULT_PORT;
-        return OtlpReceiverConfig.defaults(port).withEphemeralPort();
+    /// The chosen factory's own [ReceiverFactory#defaultConfig()] already carries the right
+    /// conventional port for the `transport` x `protocol` cell (4317 for gRPC, 4318 for HTTP), so it
+    /// only needs to be rebound to an ephemeral one for the benchmark.
+    private static OtlpReceiverConfig ephemeralReceiver(String transport, String protocol) {
+        return receiverFactory(transport, protocol).defaultConfig().withEphemeralPort();
     }
 
     private static int boundPort(GatewayRuntime runtime) {

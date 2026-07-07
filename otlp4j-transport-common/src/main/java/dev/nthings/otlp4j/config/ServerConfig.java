@@ -11,8 +11,8 @@ import org.jspecify.annotations.Nullable;
 /// admission limits (in-flight requests and decoded bytes across every connection, with an
 /// optional throttle retry-after hint), handshake deadline, and optional server executor. Defaults
 /// match gRPC's own. The handshake deadline bounds only the transport/TLS handshake - not a slow
-/// request body or idle connection. The gRPC-only per-connection concurrency cap is a knob on
-/// `OtlpGrpcReceiver.Builder` / `GrpcOtlpServer`, not a shared config field (HTTP has no equivalent).
+/// request body or idle connection. The gRPC-only per-connection concurrency cap is handled by the
+/// transport's own runtime, not a shared config field (HTTP has no equivalent).
 ///
 /// Compression is asymmetric: the server transparently decodes gzip requests but response
 /// compression is not configured (OTLP responses are negligible). gzip is selected by the

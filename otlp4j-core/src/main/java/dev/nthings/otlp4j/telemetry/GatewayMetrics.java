@@ -6,7 +6,7 @@ import java.util.function.LongSupplier;
 /// depth, drops, drain failures, admission rejections, and export success/failure. The [#noop]
 /// default costs nothing; [LoggingGatewayMetrics] or an OpenTelemetry-SDK adapter turns the
 /// instruments into real metrics. Reaches components through the component context handed in at
-/// start, and through the transport entry-point builders (`OtlpGrpc*`/`OtlpHttp*`
+/// start, and through the transport entry-point builders (`OtlpArmeria*`
 /// `.telemetry(...)`); defaults to [#noop].
 ///
 /// Instrument names are namespaced `otlp4j.*` and stable across releases. Implementations must be

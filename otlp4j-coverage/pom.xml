@@ -53,11 +53,7 @@
         </dependency>
         <dependency>
             <groupId>dev.nthings.otlp4j</groupId>
-            <artifactId>otlp4j-transport-grpc</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>dev.nthings.otlp4j</groupId>
-            <artifactId>otlp4j-transport-http</artifactId>
+            <artifactId>otlp4j-transport-otlp</artifactId>
         </dependency>
         <dependency>
             <groupId>dev.nthings.otlp4j</groupId>

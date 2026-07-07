@@ -8,8 +8,7 @@ import dev.nthings.otlp4j.core.policy.TimeoutPolicy;
 import dev.nthings.otlp4j.transport.common.AbstractExporterBuilder;
 import dev.nthings.otlp4j.transport.common.ClientExporter;
 import dev.nthings.otlp4j.transport.common.OtlpExporterConfig;
-import dev.nthings.otlp4j.transport.grpc.OtlpGrpcExporter;
-import dev.nthings.otlp4j.transport.http.OtlpHttpExporter;
+import dev.nthings.otlp4j.transport.otlp.OtlpArmeriaExporter;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -38,7 +37,8 @@ import org.junit.jupiter.api.Test;
 /// Locks the negative space of the exporter runtime: the public surface never names a Resilience4j
 /// type, no sending queue, circuit breaker, or bulkhead type exists anywhere in the exporter modules,
 /// the exporter config surface exposes only the neutral retry and timeout policies, and neither
-/// transport-common nor the two bundled transports carry a transitive Resilience4j module requirement.
+/// transport-common nor the consolidated transport carries a transitive Resilience4j module
+/// requirement.
 /// Every check reads the compiled classes and module descriptors directly rather than trusting a hand
 /// written inventory, so a future change that reintroduces any of these shapes fails this test instead
 /// of drifting past review unnoticed.
@@ -53,14 +53,13 @@ final class ExporterRuntimeNegativeSpaceTest {
 
     private static final String RESILIENCE4J_PREFIX = "io.github.resilience4j";
 
-    /// The packages the exporter runtime exports, per the module descriptors of transport-common,
-    /// transport-grpc, and transport-http. This is the whole public exporter surface a caller can see.
+    /// The packages the exporter runtime exports, per the module descriptors of transport-common and
+    /// the consolidated transport-otlp. This is the whole public exporter surface a caller can see.
     private static final List<String> EXPORTED_EXPORTER_PACKAGES = List.of(
             "dev.nthings.otlp4j.config",
             "dev.nthings.otlp4j.spi",
             "dev.nthings.otlp4j.transport.common",
-            "dev.nthings.otlp4j.transport.grpc",
-            "dev.nthings.otlp4j.transport.http");
+            "dev.nthings.otlp4j.transport.otlp");
 
     /// Concept names that must never appear as a type's simple name anywhere in the exporter runtime,
     /// public or internal: a sending queue, a circuit breaker, and a bulkhead are the negative space
@@ -72,7 +71,7 @@ final class ExporterRuntimeNegativeSpaceTest {
     /// module's compiled classes root for the whole-module class scan and to locate its
     /// `module-info.class` for the transitive requirement guard.
     private static final List<Class<?>> EXPORTER_RUNTIME_MODULE_REPRESENTATIVES =
-            List.of(ClientExporter.class, OtlpGrpcExporter.class, OtlpHttpExporter.class);
+            List.of(ClientExporter.class, OtlpArmeriaExporter.class);
 
     @DisplayName("no public exporter type's signature names a Resilience4j type")
     @Test
@@ -151,16 +150,10 @@ final class ExporterRuntimeNegativeSpaceTest {
         assertNoTransitiveResilience4jRequirement(ClientExporter.class);
     }
 
-    @DisplayName("transport-grpc carries no transitive Resilience4j module requirement")
+    @DisplayName("transport-otlp carries no transitive Resilience4j module requirement")
     @Test
-    void transportGrpcHasNoTransitiveResilience4jRequirement() {
-        assertNoTransitiveResilience4jRequirement(OtlpGrpcExporter.class);
-    }
-
-    @DisplayName("transport-http carries no transitive Resilience4j module requirement")
-    @Test
-    void transportHttpHasNoTransitiveResilience4jRequirement() {
-        assertNoTransitiveResilience4jRequirement(OtlpHttpExporter.class);
+    void transportOtlpHasNoTransitiveResilience4jRequirement() {
+        assertNoTransitiveResilience4jRequirement(OtlpArmeriaExporter.class);
     }
 
     private static void assertNoTransitiveResilience4jRequirement(Class<?> representative) {

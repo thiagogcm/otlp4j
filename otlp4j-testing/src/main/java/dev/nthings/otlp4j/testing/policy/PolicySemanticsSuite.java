@@ -17,12 +17,12 @@ import org.junit.jupiter.api.Test;
 /// The reusable exporter policy semantics suite, driven entirely through the [PolicyExporterUnderTest]
 /// seam and the neutral vocabulary in this package. Each case pins one aspect of how the neutral
 /// RetryPolicy, BackoffPolicy, and TimeoutPolicy behave when a real exporter drives a programmed server,
-/// and runs on both legacy transports. A concrete runner in otlp4j-conformance subclasses this and
-/// supplies the seam; this class names no transport, client, or config type.
+/// and runs on the consolidated Armeria transport. A concrete runner in otlp4j-conformance subclasses
+/// this and supplies the seam; this class names no transport, client, or config type.
 ///
 /// The exact backoff and folding arithmetic is pinned deterministically elsewhere (the
-/// `ResilienceRetriesTest` unit test asserts computed interval values off the Resilience4j event
-/// publisher with 1ms base waits). This suite proves the same behaviour is actually wired end to end
+/// `ArmeriaRetryPolicyTest` unit test in the transport module asserts the retry rule and backoff
+/// translation with tiny base waits). This suite proves the same behaviour is actually wired end to end
 /// over a real transport and a real server: it asserts relative magnitude and ordering, not exact
 /// milliseconds. Every case fixes an explicit, tiny backoff so no case silently runs the one-second
 /// default. The load-bearing assertions are the deterministic attempt counts, orderings, and outcomes,
@@ -75,7 +75,7 @@ public abstract class PolicySemanticsSuite {
         assertThat(obs.attempts()).isEqualTo(3);
         assertThat(obs.outcome()).isEqualTo(Outcome.ACCEPTED);
         // Three attempts means exactly two retries beyond the first, emitted through the real client's
-        // Resilience4j retry listener into the exporter's retry counter.
+        // retry listener into the exporter's retry counter.
         assertThat(obs.retries()).isEqualTo(2);
     }
 

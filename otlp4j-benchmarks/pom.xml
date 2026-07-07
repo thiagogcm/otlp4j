@@ -31,13 +31,11 @@
          OTLP/gRPC and OTLP/HTTP receivers and exporters, marshals through the codec, and builds
          domain payloads with the model builders and the otlp4j-testing fixtures. -->
     <dependencies>
+        <!-- The consolidated Armeria transport, the single production transport the benchmark boots
+             both hops through. -->
         <dependency>
             <groupId>dev.nthings.otlp4j</groupId>
-            <artifactId>otlp4j-transport-grpc</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>dev.nthings.otlp4j</groupId>
-            <artifactId>otlp4j-transport-http</artifactId>
+            <artifactId>otlp4j-transport-otlp</artifactId>
         </dependency>
         <dependency>
             <groupId>dev.nthings.otlp4j</groupId>

@@ -10,7 +10,7 @@ import java.util.concurrent.CompletionStage;
 /// Transport-side client used by exporters.
 ///
 /// Asynchronous so callers can fan out without spawning threads themselves. Application code
-/// normally uses `OtlpGrpcExporter` rather than this SPI directly.
+/// normally uses `OtlpArmeriaExporter` rather than this SPI directly.
 ///
 /// The client speaks the graph delivery vocabulary directly: an export completes with a
 /// [DeliveryResult] carrying the given [Provenance], or fails its stage exceptionally on a transport

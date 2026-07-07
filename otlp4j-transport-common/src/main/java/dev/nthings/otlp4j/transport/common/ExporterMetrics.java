@@ -46,12 +46,15 @@ public final class ExporterMetrics {
                 "otlp4j.exporter.export.retries", "retry attempts beyond the first across all exports");
     }
 
-    /// Builds an instrument owner backed by `telemetry`, registering all six counters once.
+    /// Builds an instrument owner backed by `telemetry`, registering all six counters once. When
+    /// `telemetry` is the shared [GatewayMetrics#noop] registry the shared [#noop] owner is returned,
+    /// so the wire client's `metrics == noop()` guard can short-circuit the retry-accounting context
+    /// read when self-observability is disabled.
     ///
     /// @param telemetry the registry the counters report to
     /// @return the instrument owner
     public static ExporterMetrics from(GatewayMetrics telemetry) {
-        return new ExporterMetrics(telemetry);
+        return telemetry == GatewayMetrics.noop() ? NOOP : new ExporterMetrics(telemetry);
     }
 
     /// The shared no-op instrument owner, backed by [GatewayMetrics#noop]. Used by a wire client
@@ -86,8 +89,8 @@ public final class ExporterMetrics {
         }
     }
 
-    /// Records one retry attempt beyond the first. Called from the wire client's Resilience4j retry
-    /// event listener, once per scheduled retry.
+    /// Records one retry attempt beyond the first. Called from the wire client's retry event listener,
+    /// once per scheduled retry.
     public void recordRetry() {
         retries.add(1);
     }

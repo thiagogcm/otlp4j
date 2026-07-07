@@ -33,7 +33,8 @@ import org.jspecify.annotations.Nullable;
 /// `OTEL_EXPORTER_OTLP_PROTOCOL` is recognized for fail-fast spec-compatibility validation only:
 /// `grpc` and `http/protobuf` are accepted, `http/json` and any other value are rejected with
 /// [IllegalArgumentException]. It does NOT select the transport; that remains the entry point the
-/// caller chose (`OtlpGrpcExporter` vs `OtlpHttpExporter`). Validating it here means a value that
+/// caller chose (`OtlpArmeriaExporter.grpcBuilder()` vs `OtlpArmeriaExporter.httpBuilder()`).
+/// Validating it here means a value that
 /// conflicts with this gateway's protobuf-only stance (see finding F12 in
 /// `docs/otlp4j-report.md`) fails fast instead of being silently ignored.
 final class OtlpEnv {

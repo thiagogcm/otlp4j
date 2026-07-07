@@ -1,6 +1,6 @@
 # End-to-end sample
 
-`OtlpE2eDemo` exercises the public API and the bundled OTLP/gRPC transport together. The sample compiles against `otlp4j-api` (the pipeline DSL) and `otlp4j-transport-grpc` (the concrete `OtlpGrpcExporter`/`OtlpGrpcReceiver`); it never imports the generated proto or gRPC stub types, which stay encapsulated in `otlp4j-proto`.
+`OtlpE2eDemo` exercises the public API and the bundled OTLP/gRPC transport together. The sample builds its component graph on `otlp4j-core` and `otlp4j-service`, and wires the consolidated Armeria transport through `otlp4j-transport-otlp` (the `OtlpArmeriaGrpcReceiverFactory`/`OtlpArmeriaGrpcExporterFactory` and the neutral `OtlpReceiverConfig`/`OtlpExporterConfig` from `otlp4j-transport-common`); it never imports the generated proto or gRPC stub types, which stay encapsulated in `otlp4j-proto`.
 
 ## Scenario
 

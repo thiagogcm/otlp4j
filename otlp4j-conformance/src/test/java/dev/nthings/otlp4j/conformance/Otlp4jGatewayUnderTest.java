@@ -30,8 +30,8 @@ import dev.nthings.otlp4j.testing.conformance.Scenario;
 import dev.nthings.otlp4j.testing.conformance.TlsMode;
 import dev.nthings.otlp4j.testing.conformance.TlsTestMaterial;
 import dev.nthings.otlp4j.transport.common.OtlpReceiverConfig;
-import dev.nthings.otlp4j.transport.grpc.OtlpGrpcReceiverFactory;
-import dev.nthings.otlp4j.transport.http.OtlpHttpReceiverFactory;
+import dev.nthings.otlp4j.transport.otlp.OtlpArmeriaGrpcReceiverFactory;
+import dev.nthings.otlp4j.transport.otlp.OtlpArmeriaHttpReceiverFactory;
 import java.net.URI;
 import java.time.Duration;
 import java.util.List;
@@ -83,9 +83,11 @@ public final class Otlp4jGatewayUnderTest implements GatewayUnderTest {
     }
 
     /// Boots a gateway on the single requested transport, bound to an ephemeral loopback port and
-    /// configured by the scenario. This is the concrete factory the two abstract suites reach
-    /// through their protected `boot` method; it is a static method on the implementation, not on
-    /// the seam, so the suites never name this type.
+    /// configured by the scenario. This is the concrete factory the two abstract suites reach through
+    /// their protected `boot` method; it is a static method on the implementation, not on the seam, so
+    /// the suites never name this type. It boots the consolidated Armeria transport, the only
+    /// production transport; everything else in the seam (the programmed terminal exporter, the graph
+    /// assembly, the port readback, and the TLS material) is transport-agnostic.
     ///
     /// @param scenario the neutral scenario to configure the gateway with
     /// @param protocol the single transport to boot
@@ -94,8 +96,8 @@ public final class Otlp4jGatewayUnderTest implements GatewayUnderTest {
         var heldRequest = new AtomicReference<Held>();
         var heldRequestArmed = new CountDownLatch(1);
         ReceiverFactory<OtlpReceiverConfig> receiverFactory = switch (protocol) {
-            case HTTP -> new OtlpHttpReceiverFactory();
-            case GRPC -> new OtlpGrpcReceiverFactory();
+            case HTTP -> new OtlpArmeriaHttpReceiverFactory();
+            case GRPC -> new OtlpArmeriaGrpcReceiverFactory();
         };
         var exporterFactory = new ProgrammedExporterFactory(scenario, heldRequest, heldRequestArmed);
 

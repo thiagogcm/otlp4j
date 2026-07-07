@@ -42,14 +42,13 @@
             <artifactId>otlp4j-service</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- The consolidated Armeria transport, the single production transport the conformance and
+             policy suites run against. Kept on the same classpath as the grpc-netty test fixtures in
+             otlp4j-testing deliberately: the root netty-bom pin reconciles Armeria's Netty 4.2.x line
+             with those fixtures, verified by the suites staying green here. -->
         <dependency>
             <groupId>dev.nthings.otlp4j</groupId>
-            <artifactId>otlp4j-transport-grpc</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>dev.nthings.otlp4j</groupId>
-            <artifactId>otlp4j-transport-http</artifactId>
+            <artifactId>otlp4j-transport-otlp</artifactId>
             <scope>test</scope>
         </dependency>
         <!-- The reusable conformance suites, wire clients, seam interface and TLS material. Its
@@ -93,8 +92,9 @@
                  actually granted, and only to the tests that carry it. The default execution runs every
                  test except the policy-timing group with no reruns, so a real regression in any other
                  test fails the build outright. The second execution runs only the policy-timing group
-                 (the GrpcPolicySemanticsTest and HttpPolicySemanticsTest wall-clock cases) and grants a
-                 single automatic retry, so a rare virtual-thread scheduling, GC-pause, or loopback
+                 (the ArmeriaGrpcPolicySemanticsTest and ArmeriaHttpPolicySemanticsTest wall-clock
+                 cases) and grants a single automatic retry, so a rare virtual-thread scheduling,
+                 GC-pause, or loopback
                  latency spike that clips an upper-bound tolerance is retried once rather than turning an
                  intended soft-flake into a hard CI failure. The deterministic counts, orderings, and
                  outcomes those tests also assert are not made less strict by the retry: a deterministic

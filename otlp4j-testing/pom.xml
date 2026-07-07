@@ -21,9 +21,9 @@
          facade), so this is the single non-optional compile dependency. The conformance harness
          under dev.nthings.otlp4j.testing.conformance adds the further compile dependencies below,
          all marked optional so they do not propagate to the many modules that consume this jar in
-         test scope and never touch the harness. Optional here is load-bearing: a transport-http
-         test build must not gain Netty transitively, and a model or api test build must not gain
-         proto or gRPC transitively. The declaring module still compiles the harness against them.
+         test scope and never touch the harness. Optional here is load-bearing: a downstream test
+         build must not gain Netty transitively, and a model test build must not gain proto or gRPC
+         transitively. The declaring module still compiles the harness against them.
          This module has no module-info.java and must keep it that way: it stays on the classpath so
          the harness can read otlp4j-proto's packages, which the proto module exports only qualified
          to the codec and the two transports. -->

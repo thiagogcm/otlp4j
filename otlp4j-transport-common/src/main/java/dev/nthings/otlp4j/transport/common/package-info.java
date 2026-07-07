@@ -1,7 +1,7 @@
-/// Shared transport layer for the bundled OTLP transports. [ClientExporter] and
+/// Shared transport layer for the consolidated OTLP transport. [ClientExporter] and
 /// [ServerReceiver] are composition primitives that entry points build on, plus
-/// package-private dispatch and tap plumbing. Most callers use the `OtlpGrpc*` /
-/// `OtlpHttp*` entry points instead.
+/// package-private dispatch and tap plumbing. Most callers use the `OtlpArmeria*`
+/// entry points instead.
 ///
 /// [ClientExporter] adapts any `OtlpClient` into an `OtlpExporter`; [ServerReceiver]
 /// adapts any `OtlpServer` into a `Receiver`, so custom wire transports can reuse

@@ -2,8 +2,8 @@
 ///
 /// Implement [OtlpClient] (export) and [OtlpServer] (receive) to supply a custom transport; a
 /// receiver hands its server the per-signal [Dispatchers] to invoke. User-facing configuration lives
- /// in `config`; most callers use the protocol modules' `OtlpGrpcExporter` /
-/// `OtlpHttpExporter` and `OtlpGrpcReceiver` / `OtlpHttpReceiver` rather than these contracts.
+ /// in `config`; most callers use the transport module's `OtlpArmeriaExporter` and
+/// `OtlpArmeriaReceiver` rather than these contracts.
 @NullMarked
 package dev.nthings.otlp4j.spi;
 

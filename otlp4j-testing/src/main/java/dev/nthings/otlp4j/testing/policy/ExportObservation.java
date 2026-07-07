@@ -14,7 +14,7 @@ import org.jspecify.annotations.Nullable;
 /// Attempts and gaps come from the programmed server's recorded per-attempt arrival timestamps; the
 /// outcome is derived from the settled caller stage by the classification rule in [#classify]; the
 /// retry count is read from the exporter's `otlp4j.exporter.export.retries` instrument, which the real
-/// wire client feeds from its Resilience4j retry listener, so a case can pin that wiring end to end.
+/// wire client feeds from its retry listener, so a case can pin that wiring end to end.
 ///
 /// @param attempts         the number of attempts that reached the server
 /// @param interAttemptGaps the gaps between consecutive attempt arrivals, one fewer than `attempts`
@@ -80,8 +80,8 @@ public record ExportObservation(
     /// 3. Any other exceptional stage is a transport rejection. If `attempts == maxAttempts` the error
     ///    was retryable and the attempts were exhausted, so it is `RETRYABLE_REJECTED`; if
     ///    `attempts < maxAttempts` the retry predicate stopped a non-retryable error at the first
-    ///    attempt, so it is `PERMANENT_REJECTED`. This matches Resilience4j's own attempt semantics and
-    ///    holds identically for both transports.
+    ///    attempt, so it is `PERMANENT_REJECTED`. This matches the retrying client's own attempt
+    ///    semantics and holds identically for both protocols.
     ///
     /// @param result      the delivery result, or null on a failure
     /// @param failure     the throwable, or null on a returned result

@@ -19,8 +19,7 @@
         <module>otlp4j-codec</module>
         <module>otlp4j-transport-common</module>
         <module>otlp4j-service</module>
-        <module>otlp4j-transport-grpc</module>
-        <module>otlp4j-transport-http</module>
+        <module>otlp4j-transport-otlp</module>
         <module>otlp4j-samples</module>
         <module>otlp4j-testing</module>
         <module>otlp4j-conformance</module>
@@ -41,13 +40,24 @@
 
         <protobuf.version>4.35.1</protobuf.version>
         <grpc.version>1.82.0</grpc.version>
+        <!-- com.google.rpc.Status / RetryInfo, used directly by the consolidated transport for the
+             grpc-status-details-bin RetryInfo trailer. Not managed by grpc-bom, so it is pinned here to
+             the version grpc-protobuf 1.82.0 resolves transitively. -->
+        <proto-google-common-protos.version>2.64.1</proto-google-common-protos.version>
+        <armeria.version>1.40.0</armeria.version>
+        <!-- Netty is pinned explicitly and permanently. Neither grpc-bom nor armeria-bom manages any
+             io.netty artifact, so wherever both grpc-netty (Netty 4.1.x) and Armeria (Netty 4.2.x)
+             reach one module (otlp4j-conformance, otlp4j-benchmarks, and permanently the grpc-netty
+             test fixtures in otlp4j-testing) nearest-wins mediation would otherwise pick grpc-netty's
+             older line. Importing netty-bom forces the whole aggregate to Armeria's validated line;
+             grpc-netty 1.82.0 runs correctly on it. -->
+        <netty.version>4.2.15.Final</netty.version>
         <slf4j.version>2.0.18</slf4j.version>
         <logback.version>1.5.34</logback.version>
         <jspecify.version>1.0.0</jspecify.version>
         <junit.version>6.1.0</junit.version>
         <assertj.version>3.27.7</assertj.version>
         <awaitility.version>4.3.0</awaitility.version>
-        <resilience4j.version>2.4.0</resilience4j.version>
         <!-- A real explicit module (module org.jgrapht.core, verified against the jar's
              module-info.class), consumed internally by otlp4j-service; no org.jgrapht type ever
              appears in an exported signature. -->
@@ -107,12 +117,7 @@
             </dependency>
             <dependency>
                 <groupId>dev.nthings.otlp4j</groupId>
-                <artifactId>otlp4j-transport-grpc</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>dev.nthings.otlp4j</groupId>
-                <artifactId>otlp4j-transport-http</artifactId>
+                <artifactId>otlp4j-transport-otlp</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -146,17 +151,34 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
+            <!-- Not part of grpc-bom; pinned to the version grpc-protobuf resolves transitively. -->
             <dependency>
-                <groupId>org.junit</groupId>
-                <artifactId>junit-bom</artifactId>
-                <version>${junit.version}</version>
+                <groupId>com.google.api.grpc</groupId>
+                <artifactId>proto-google-common-protos</artifactId>
+                <version>${proto-google-common-protos.version}</version>
+            </dependency>
+            <!-- Imported after protobuf-bom and grpc-bom so nearest-definition keeps protobuf
+                 4.35.1 and grpc 1.82.0 under Armeria (runtime-verified in the Phase 4 spike). -->
+            <dependency>
+                <groupId>com.linecorp.armeria</groupId>
+                <artifactId>armeria-bom</artifactId>
+                <version>${armeria.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <!-- Permanent Netty pin: forces the whole Netty aggregate to Armeria's validated line
+                 wherever grpc-netty and Armeria meet. See the netty.version property comment. -->
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-bom</artifactId>
+                <version>${netty.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
             <dependency>
-                <groupId>io.github.resilience4j</groupId>
-                <artifactId>resilience4j-bom</artifactId>
-                <version>${resilience4j.version}</version>
+                <groupId>org.junit</groupId>
+                <artifactId>junit-bom</artifactId>
+                <version>${junit.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -312,8 +334,8 @@
                     <version>${jacoco-maven-plugin.version}</version>
                     <!-- Shared coverage floor for the `check` goal: a one-directional ratchet.
                          Only read by modules that opt in with a `check-coverage` execution
-                         (otlp4j-model/core/codec/transport-common/service/transport-grpc/
-                         transport-http). The report and prepare-agent goals ignore these rules. -->
+                         (otlp4j-model/core/codec/transport-common/service/transport-otlp).
+                         The report and prepare-agent goals ignore these rules. -->
                     <configuration>
                         <rules>
                             <rule>

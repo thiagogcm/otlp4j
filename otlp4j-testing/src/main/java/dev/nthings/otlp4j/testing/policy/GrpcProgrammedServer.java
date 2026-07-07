@@ -27,11 +27,11 @@ import java.util.concurrent.TimeUnit;
 /// The policy suite drives one signal (traces), so only the trace service is served.
 final class GrpcProgrammedServer extends ProgrammedOtlpServer {
 
-    /// The gRPC server-pushback trailer name. This must stay byte-identical to
-    /// `dev.nthings.otlp4j.transport.grpc.internal.GrpcPushback.PUSHBACK_MS`, which is a package-private
-    /// constant in a module that sits below otlp4j-testing in the dependency graph and so cannot be
-    /// referenced here. A rename of the wire value is therefore a deliberate two-place edit; grep for
-    /// this literal to find both.
+    /// The gRPC server-pushback trailer name, the standard OTLP `grpc-retry-pushback-ms` wire trailer.
+    /// The consolidated transport reads and writes the same trailer through its own internal constant,
+    /// which sits below otlp4j-testing in the dependency graph and so cannot be referenced here. A
+    /// rename of the wire value is therefore a deliberate two-place edit; grep for this literal to find
+    /// both.
     static final String GRPC_RETRY_PUSHBACK_MS = "grpc-retry-pushback-ms";
 
     private static final Metadata.Key<String> PUSHBACK_KEY =

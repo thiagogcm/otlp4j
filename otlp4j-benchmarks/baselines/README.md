@@ -84,6 +84,7 @@ benchmark and, ideally, higher end-to-end throughput at unchanged allocation.
 | --- | --- | --- | --- |
 | `baseline-2026-07-06.json` | 2026-07-06 | Temurin 25.0.3+9 (OpenJDK 25 LTS) | Intel Core Ultra 9 185H, 22 logical cores, 16 GB RAM, Linux 6.18 WSL2 |
 | `phase2-2026-07-07.json` | 2026-07-07 | Temurin 25.0.3+9 (OpenJDK 25 LTS) | Intel Core Ultra 9 185H, 22 logical cores, 16 GB RAM, Linux 6.18 WSL2 |
+| `phase4-2026-07-07.json` | 2026-07-07 | Temurin 25.0.3+9 (OpenJDK 25 LTS) | Intel Core Ultra 9 185H, 22 logical cores, 16 GB RAM, Linux 6.18 WSL2 |
 
 ### baseline-2026-07-06.json headline numbers
 
@@ -216,3 +217,80 @@ large) because the backend hop's receiver no longer decodes to a domain record i
 regardless of what the gateway hop does. That backend-side laziness is a Phase 2 property every
 pipeline gets for free; `passthrough` adds the gateway hop's own laziness on top of it, which is the
 full pass-through win.
+
+### phase4-2026-07-07.json headline numbers
+
+This is the Phase 4 transport-consolidation baseline: the same end-to-end receive-forward-export and
+codec-marshalling harness, now with the two legacy transports deleted and both hops served by the
+consolidated Armeria transport (`otlp4j-transport-otlp`). The `transport` parameter therefore has the
+single value `ARMERIA`. It is captured with the identical pinned `@Fork(1)`, `@Warmup(iterations = 3,
+time = 1)`, `@Measurement(iterations = 5, time = 1)` run parameters, so the parameter tuples line up
+with the earlier files.
+
+This run was captured on an otherwise idle machine after the async client optimization (gRPC
+FutureStubs and a non-blocking HTTP aggregate stage replaced the per-export virtual-thread bridge),
+so it supersedes the earlier contended capture of the same file.
+
+Receive-forward-export (end-to-end, two real OTLP hops), Armeria transport:
+
+| Protocol | Size | Mode | Throughput | Latency | Allocation |
+| --- | --- | --- | --- | --- | --- |
+| gRPC | small | passthrough | 0.378 ops/ms | 2.65 ms/op | 78 KB/op |
+| gRPC | small | domainview | 0.385 ops/ms | 3.03 ms/op | 83 KB/op |
+| gRPC | large | passthrough | 0.198 ops/ms | 5.15 ms/op | 2.06 MB/op |
+| gRPC | large | domainview | 0.174 ops/ms | 5.21 ms/op | 2.96 MB/op |
+| HTTP | small | passthrough | 0.537 ops/ms | 2.06 ms/op | 73 KB/op |
+| HTTP | small | domainview | 0.357 ops/ms | 1.90 ms/op | 77 KB/op |
+| HTTP | large | passthrough | 0.275 ops/ms | 4.80 ms/op | 2.54 MB/op |
+| HTTP | large | domainview | 0.215 ops/ms | 4.33 ms/op | 3.46 MB/op |
+
+Parity assessment against `phase2-2026-07-07.json` (legacy transports), stated plainly:
+
+- Allocation, HTTP: better in every cell (small 234 KB/op down to 73 KB/op, large passthrough
+  2.85 MB/op down to 2.54 MB/op). Parity exceeded.
+- Allocation, gRPC large: 1.92 MB/op up to 2.06 MB/op passthrough (+7 percent), within noise for
+  domainview. Effectively parity.
+- Allocation, gRPC small: 42 KB/op up to 78 KB/op. NOT parity. Profiling attributed the fixed
+  per-request overhead to the always-installed RetryingClient decorator (~18 KB/op) and the inherent
+  Armeria gRPC client/server stack over raw grpc-java (~38 KB/op); the virtual-thread bridge share
+  was removed by the optimization. This fixed overhead is diluted at the batch sizes that dominate
+  real gateway load.
+- Single-threaded throughput: below the legacy figures in every cell (for example gRPC small
+  passthrough 0.981 down to 0.378 ops/ms). NOT parity at one serial in-flight request. Profiling
+  showed this is added per-request latency from the async server runtime's thread handoffs, not a
+  capacity loss: the same build at 8 benchmark threads reaches 3.26 (gRPC small), 1.12 (gRPC large),
+  3.76 (HTTP small), and 1.42 (HTTP large) ops/ms passthrough, which is 3 to 4 times the legacy
+  transports' recorded single-thread throughput ceiling. A gateway serves concurrent load, so the
+  consolidation trades serial round-trip latency for concurrent capacity and a smaller HTTP
+  allocation footprint.
+- The Phase 2 pass-through property survives on Armeria: `passthrough` allocates less than
+  `domainview` in every cell, because the gateway hop still forwards the proto-backed payload with
+  no domain materialisation.
+
+Verdict for the report's "parity or better" exit criterion: met or exceeded on HTTP allocation,
+gRPC large allocation, and concurrent throughput; not met on gRPC small-payload allocation (fixed
+per-request overhead) and single-serial-request throughput. The transport decision's reopening
+condition per the report is a failed spike, and the spike passed; this record documents the measured
+trade honestly rather than asserting blanket parity.
+
+Codec marshalling (no transport). Phase 4 changed no codec code, so this table is expected to, and
+does, sit within measurement noise of `phase2-2026-07-07.json`; it is re-recorded here only so the
+Phase 4 file is a complete, self-contained baseline.
+
+| Signal | Size | Path | Throughput | Latency | Allocation |
+| --- | --- | --- | --- | --- | --- |
+| traces | small | round-trip | 0.3728 ops/us | 2.36 us/op | 8 KB/op |
+| traces | small | pass-through | 0.6293 ops/us | 1.46 us/op | 5 KB/op |
+| traces | large | round-trip | 0.0017 ops/us | 535.68 us/op | 1.87 MB/op |
+| traces | large | pass-through | 0.0027 ops/us | 341.30 us/op | 1013 KB/op |
+| metrics | small | round-trip | 0.5289 ops/us | 1.92 us/op | 7 KB/op |
+| metrics | small | pass-through | 0.8730 ops/us | 1.81 us/op | 4 KB/op |
+| metrics | large | round-trip | 0.0033 ops/us | 297.55 us/op | 1.27 MB/op |
+| metrics | large | pass-through | 0.0052 ops/us | 228.43 us/op | 626 KB/op |
+| logs | small | round-trip | 0.5347 ops/us | 1.97 us/op | 7 KB/op |
+| logs | small | pass-through | 0.7169 ops/us | 1.48 us/op | 4 KB/op |
+| logs | large | round-trip | 0.0028 ops/us | 313.10 us/op | 1.23 MB/op |
+| logs | large | pass-through | 0.0047 ops/us | 216.20 us/op | 696 KB/op |
+
+The full per-iteration data, error bars, and the `AverageTime`-mode figures are in
+`phase4-2026-07-07.json`; the tables above are the headline throughput and allocation numbers.
