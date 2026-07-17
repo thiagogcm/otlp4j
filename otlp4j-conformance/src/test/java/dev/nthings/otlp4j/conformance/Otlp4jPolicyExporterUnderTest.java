@@ -1,6 +1,6 @@
 package dev.nthings.otlp4j.conformance;
 
-import dev.nthings.otlp4j.config.ClientConfig;
+import dev.nthings.otlp4j.transport.OtlpExporterConfig;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.model.Span;
@@ -12,8 +12,8 @@ import dev.nthings.otlp4j.testing.policy.ExportObservation;
 import dev.nthings.otlp4j.testing.policy.ExportProgram;
 import dev.nthings.otlp4j.testing.policy.PolicyExporterUnderTest;
 import dev.nthings.otlp4j.testing.policy.ProgrammedOtlpServer;
-import dev.nthings.otlp4j.transport.common.ClientExporter;
-import dev.nthings.otlp4j.transport.otlp.OtlpArmeriaExporter;
+import dev.nthings.otlp4j.transport.ClientExporter;
+import dev.nthings.otlp4j.transport.OtlpExporter;
 import java.time.Duration;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionException;
@@ -94,7 +94,7 @@ final class Otlp4jPolicyExporterUnderTest implements PolicyExporterUnderTest {
     /// The exporter reports to `telemetry`, so the real wire client's per-attempt retry counting is
     /// observable through the exporter's `otlp4j.exporter.export.retries` instrument.
     private ClientExporter buildExporter(int port, ExportProgram program, LoggingGatewayMetrics telemetry) {
-        var config = ClientConfig.builder()
+        var config = OtlpExporterConfig.builder(4317)
                 .setHost("127.0.0.1")
                 .setPort(port)
                 .setTimeout(program.timeout().perAttempt())
@@ -102,8 +102,8 @@ final class Otlp4jPolicyExporterUnderTest implements PolicyExporterUnderTest {
                 .setRetryPolicy(program.retry())
                 .build();
         return switch (protocol) {
-            case GRPC -> OtlpArmeriaExporter.grpcBuilder().setConfig(config).telemetry(telemetry).build();
-            case HTTP -> OtlpArmeriaExporter.httpBuilder().setConfig(config).telemetry(telemetry).build();
+            case GRPC -> OtlpExporter.grpcBuilder().setConfig(config).telemetry(telemetry).build();
+            case HTTP -> OtlpExporter.httpBuilder().setConfig(config).telemetry(telemetry).build();
         };
     }
 

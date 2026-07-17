@@ -1,0 +1,199 @@
+package dev.nthings.otlp4j.transport;
+
+import dev.nthings.otlp4j.core.component.ComponentConfig;
+import java.time.Duration;
+import java.util.Objects;
+import org.jspecify.annotations.Nullable;
+
+/// The configuration for an OTLP receiver. It is the single source of truth the transport is built
+/// from: the bind address, TLS mode, and the hardening limits: the maximum decoded request size, the
+/// optional global admission caps on in-flight requests and decoded bytes, and the optional throttle
+/// retry-after hint. No third-party type appears on it. Both the gRPC and HTTP receiver factories
+/// accept this one record; each supplies its own default port through [#defaults(int)]. The wire
+/// server ([dev.nthings.otlp4j.transport.internal.ArmeriaOtlpServer]) consumes it directly.
+///
+/// The gRPC-only per-connection concurrency cap is deliberately not modelled here; the transport's own
+/// runtime handles it (HTTP has no equivalent). Compression is asymmetric: the server transparently
+/// decodes gzip requests but response compression is not configured (OTLP responses are negligible);
+/// gzip is selected by the client via [Compression].
+///
+/// @param bindHost                   the bind host
+/// @param port                       the bind port (`0` binds an ephemeral port)
+/// @param tls                        the server TLS mode
+/// @param maxInboundMessageSizeBytes the cap on a single decoded export request
+/// @param maxInFlightRequests        the global in-flight request cap (`0` disables it)
+/// @param maxInFlightBytes           the global in-flight decoded-byte cap (`0` disables it)
+/// @param throttleRetryAfter         the hint attached to at-capacity rejections, may be null
+public record OtlpReceiverConfig(
+        String bindHost,
+        int port,
+        Tls tls,
+        int maxInboundMessageSizeBytes,
+        int maxInFlightRequests,
+        long maxInFlightBytes,
+        @Nullable Duration throttleRetryAfter)
+        implements ComponentConfig {
+
+    /// gRPC's own default decoded-message cap (4 MiB); used when the builder is left untouched.
+    public static final int DEFAULT_MAX_INBOUND_MESSAGE_SIZE_BYTES = 4 * 1024 * 1024;
+
+    /// Validates the components and the hardening limits.
+    public OtlpReceiverConfig {
+        Objects.requireNonNull(bindHost, "bindHost");
+        Objects.requireNonNull(tls, "tls");
+        if (port < 0 || port > 65535) {
+            throw new IllegalArgumentException("port out of range: " + port);
+        }
+        if (maxInboundMessageSizeBytes <= 0) {
+            throw new IllegalArgumentException(
+                    "maxInboundMessageSizeBytes must be positive: " + maxInboundMessageSizeBytes);
+        }
+        if (maxInFlightRequests < 0) {
+            throw new IllegalArgumentException("maxInFlightRequests must be >= 0: " + maxInFlightRequests);
+        }
+        if (maxInFlightBytes < 0) {
+            throw new IllegalArgumentException("maxInFlightBytes must be >= 0: " + maxInFlightBytes);
+        }
+        if (throttleRetryAfter != null && (throttleRetryAfter.isZero() || throttleRetryAfter.isNegative())) {
+            throw new IllegalArgumentException("throttleRetryAfter must be positive: " + throttleRetryAfter);
+        }
+    }
+
+    /// The default receiver config for `port`: bound to `localhost:port`, plaintext, the shared 4 MiB
+    /// decoded-request cap, no admission limits, and no throttle hint.
+    ///
+    /// @param port the default bind port for the transport (`4317` for gRPC, `4318` for HTTP)
+    /// @return the default config
+    public static OtlpReceiverConfig defaults(int port) {
+        return new OtlpReceiverConfig(
+                "localhost", port, Tls.disabled(), DEFAULT_MAX_INBOUND_MESSAGE_SIZE_BYTES, 0, 0L, null);
+    }
+
+    /// A builder seeded with `port` as the bind port and all other builder defaults.
+    ///
+    /// @param port the bind port
+    /// @return a fresh builder
+    public static Builder builder(int port) {
+        return new Builder(port);
+    }
+
+    /// A builder seeded with this config's fields.
+    ///
+    /// @return a builder pre-populated from this config
+    public Builder toBuilder() {
+        var b = new Builder(port)
+                .setBindHost(bindHost)
+                .setTls(tls)
+                .setMaxInboundMessageSizeBytes(maxInboundMessageSizeBytes)
+                .setMaxInFlightRequests(maxInFlightRequests)
+                .setMaxInFlightBytes(maxInFlightBytes);
+        if (throttleRetryAfter != null) {
+            b.setThrottleRetryAfter(throttleRetryAfter);
+        }
+        return b;
+    }
+
+    /// A copy of this config bound to an ephemeral port (`0`); read the OS-assigned port back through
+    /// the started receiver's [dev.nthings.otlp4j.core.component.NetworkBound] capability.
+    ///
+    /// @return an ephemeral-port copy
+    public OtlpReceiverConfig withEphemeralPort() {
+        return new OtlpReceiverConfig(
+                bindHost, 0, tls, maxInboundMessageSizeBytes, maxInFlightRequests, maxInFlightBytes,
+                throttleRetryAfter);
+    }
+
+    /// A fluent builder for [OtlpReceiverConfig].
+    public static final class Builder {
+
+        private String bindHost = "localhost";
+        private int port;
+        private Tls tls = Tls.disabled();
+        private int maxInboundMessageSizeBytes = DEFAULT_MAX_INBOUND_MESSAGE_SIZE_BYTES;
+        private int maxInFlightRequests = 0;
+        private long maxInFlightBytes = 0L;
+        private @Nullable Duration throttleRetryAfter = null;
+
+        private Builder(int port) {
+            this.port = port;
+        }
+
+        /// Sets the bind host.
+        ///
+        /// @param host the bind host
+        /// @return this builder
+        public Builder setBindHost(String host) {
+            this.bindHost = host;
+            return this;
+        }
+
+        /// Sets the bind port.
+        ///
+        /// @param port the bind port
+        /// @return this builder
+        public Builder setPort(int port) {
+            this.port = port;
+            return this;
+        }
+
+        /// Selects the server TLS mode.
+        ///
+        /// @param tls the TLS mode
+        /// @return this builder
+        public Builder setTls(Tls tls) {
+            this.tls = tls;
+            return this;
+        }
+
+        /// Caps the size of a single decoded export request (default 4 MiB); guards against
+        /// memory-exhausting oversized requests.
+        ///
+        /// @param bytes the per-request cap in bytes
+        /// @return this builder
+        public Builder setMaxInboundMessageSizeBytes(int bytes) {
+            this.maxInboundMessageSizeBytes = bytes;
+            return this;
+        }
+
+        /// Caps decoded export requests in flight across every connection; excess requests are rejected
+        /// retryably ("at capacity"). `0` (the default) disables the cap.
+        ///
+        /// @param max the global in-flight request cap
+        /// @return this builder
+        public Builder setMaxInFlightRequests(int max) {
+            this.maxInFlightRequests = max;
+            return this;
+        }
+
+        /// Caps decoded request bytes in flight across every connection; excess requests are rejected
+        /// retryably ("at capacity"). A single request is always admitted when nothing else is in
+        /// flight. `0` (the default) disables the cap.
+        ///
+        /// @param bytes the global in-flight byte cap
+        /// @return this builder
+        public Builder setMaxInFlightBytes(long bytes) {
+            this.maxInFlightBytes = bytes;
+            return this;
+        }
+
+        /// Sets the retry-after hint attached to admission rejections (gRPC pushback trailer / HTTP
+        /// `Retry-After`), telling throttled senders how long to wait. Unset (the default) emits no
+        /// hint.
+        ///
+        /// @param throttleRetryAfter the hint attached to "at capacity" rejections
+        /// @return this builder
+        public Builder setThrottleRetryAfter(Duration throttleRetryAfter) {
+            this.throttleRetryAfter = throttleRetryAfter;
+            return this;
+        }
+
+        /// Builds the config.
+        ///
+        /// @return the config
+        public OtlpReceiverConfig build() {
+            return new OtlpReceiverConfig(
+                    bindHost, port, tls, maxInboundMessageSizeBytes, maxInFlightRequests, maxInFlightBytes,
+                    throttleRetryAfter);
+        }
+    }
+}

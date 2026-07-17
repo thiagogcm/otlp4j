@@ -36,11 +36,11 @@ import dev.nthings.otlp4j.samples.support.FunctionProcessorFactory;
 import dev.nthings.otlp4j.service.Gateway;
 import dev.nthings.otlp4j.service.GatewayRuntime;
 import dev.nthings.otlp4j.service.config.PipelineConfig;
-import dev.nthings.otlp4j.transport.common.OtlpExporterConfig;
-import dev.nthings.otlp4j.transport.common.OtlpReceiverConfig;
-import dev.nthings.otlp4j.transport.otlp.OtlpArmeriaExporter;
-import dev.nthings.otlp4j.transport.otlp.OtlpArmeriaGrpcExporterFactory;
-import dev.nthings.otlp4j.transport.otlp.OtlpArmeriaGrpcReceiverFactory;
+import dev.nthings.otlp4j.transport.OtlpExporterConfig;
+import dev.nthings.otlp4j.transport.OtlpReceiverConfig;
+import dev.nthings.otlp4j.transport.OtlpExporter;
+import dev.nthings.otlp4j.transport.OtlpExporterFactory;
+import dev.nthings.otlp4j.transport.OtlpReceiverFactory;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -116,7 +116,7 @@ public final class OtlpE2eDemo {
             log.info("Gateway receiver started on port {}.", gatewayPort);
 
             // --- Client: export a mixed batch of spans to the gateway and block until it is handled.
-            try (var client = OtlpArmeriaExporter.grpcBuilder().setEndpoint("localhost", gatewayPort).build()) {
+            try (var client = OtlpExporter.grpcBuilder().setEndpoint("localhost", gatewayPort).build()) {
                 client.export(SignalDescriptor.TRACES, sampleTraces()).toCompletableFuture().join();
                 log.info("Client exported sample trace batch to the gateway.");
             }
@@ -172,7 +172,7 @@ public final class OtlpE2eDemo {
         };
         var capturing = new CapturingExporterFactory(capture);
         return Gateway.builder()
-                .receiver(BACKEND_RECV, new OtlpArmeriaGrpcReceiverFactory(), ephemeralReceiver())
+                .receiver(BACKEND_RECV, OtlpReceiverFactory.grpc(), ephemeralReceiver())
                 .exporter(BACKEND_SINK, capturing, EmptyConfig.INSTANCE)
                 .pipeline(PipelineId.of(TRACES),
                         new PipelineConfig(List.of(BACKEND_RECV), List.of(), List.of(BACKEND_SINK)))
@@ -190,14 +190,14 @@ public final class OtlpE2eDemo {
         var filter = new FunctionProcessorFactory<>("filter", TRACES, keepServerSpans());
         var dropEmpty = new FunctionProcessorFactory<>("drop-empty", TRACES, dropEmptyTraces());
         return Gateway.builder()
-                .receiver(GATEWAY_RECV, new OtlpArmeriaGrpcReceiverFactory(), ephemeralReceiver())
+                .receiver(GATEWAY_RECV, OtlpReceiverFactory.grpc(), ephemeralReceiver())
                 .processor(ENRICH, enrich, FunctionProcessorConfig.defaults())
                 .processor(REDACT, redact, FunctionProcessorConfig.defaults())
                 .processor(FILTER, filter, FunctionProcessorConfig.defaults())
                 .processor(DROP_EMPTY, dropEmpty, FunctionProcessorConfig.defaults())
-                .exporter(TRACES_OUT, new OtlpArmeriaGrpcExporterFactory(), OtlpExporterConfig.defaults(backendPort))
+                .exporter(TRACES_OUT, OtlpExporterFactory.grpc(), OtlpExporterConfig.defaults(backendPort))
                 .connector(SPAN_COUNT, new CountConnectorFactory(), CountConnectorConfig.defaults())
-                .exporter(METRICS_OUT, new OtlpArmeriaGrpcExporterFactory(), OtlpExporterConfig.defaults(backendPort))
+                .exporter(METRICS_OUT, OtlpExporterFactory.grpc(), OtlpExporterConfig.defaults(backendPort))
                 .pipeline(PipelineId.of(TRACES), new PipelineConfig(
                         List.of(GATEWAY_RECV),
                         List.of(ENRICH, REDACT, FILTER, DROP_EMPTY),
@@ -208,7 +208,7 @@ public final class OtlpE2eDemo {
     }
 
     private static OtlpReceiverConfig ephemeralReceiver() {
-        return OtlpReceiverConfig.defaults(OtlpArmeriaGrpcReceiverFactory.DEFAULT_PORT).withEphemeralPort();
+        return OtlpReceiverConfig.defaults(OtlpReceiverFactory.grpc().defaultPort()).withEphemeralPort();
     }
 
     private static int boundPort(GatewayRuntime runtime, ComponentId receiverId) {

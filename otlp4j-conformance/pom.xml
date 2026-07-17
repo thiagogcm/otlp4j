@@ -48,7 +48,7 @@
              with those fixtures, verified by the suites staying green here. -->
         <dependency>
             <groupId>dev.nthings.otlp4j</groupId>
-            <artifactId>otlp4j-transport-otlp</artifactId>
+            <artifactId>otlp4j-transport</artifactId>
             <scope>test</scope>
         </dependency>
         <!-- The reusable conformance suites, wire clients, seam interface and TLS material. Its

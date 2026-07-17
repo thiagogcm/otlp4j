@@ -9,10 +9,9 @@ module dev.nthings.otlp4j.samples {
     // The service graph runtime the demo boots the gateway and the backend through.
     requires dev.nthings.otlp4j.service;
     // The neutral OTLP receiver and exporter configs the demo hands to the transport factories.
-    requires dev.nthings.otlp4j.transport.common;
     // The concrete OTLP/gRPC receiver and exporter factories and the client exporter the demo wires,
     // from the consolidated Armeria transport.
-    requires dev.nthings.otlp4j.transport.otlp;
+    requires dev.nthings.otlp4j.transport;
     // The domain batch records the demo builds and inspects.
     requires dev.nthings.otlp4j.model;
     // The proto-free codec payload facade (Payloads) the seed processors emit through.

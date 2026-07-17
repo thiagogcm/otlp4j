@@ -1,6 +1,6 @@
 package dev.nthings.otlp4j.conformance;
 
-import dev.nthings.otlp4j.config.Tls;
+import dev.nthings.otlp4j.transport.Tls;
 import dev.nthings.otlp4j.core.component.ComponentContext;
 import dev.nthings.otlp4j.core.component.ComponentConfig;
 import dev.nthings.otlp4j.core.component.ComponentId;
@@ -28,9 +28,8 @@ import dev.nthings.otlp4j.testing.conformance.Protocol;
 import dev.nthings.otlp4j.testing.conformance.Scenario;
 import dev.nthings.otlp4j.testing.conformance.TlsMode;
 import dev.nthings.otlp4j.testing.conformance.TlsTestMaterial;
-import dev.nthings.otlp4j.transport.common.OtlpReceiverConfig;
-import dev.nthings.otlp4j.transport.otlp.OtlpArmeriaGrpcReceiverFactory;
-import dev.nthings.otlp4j.transport.otlp.OtlpArmeriaHttpReceiverFactory;
+import dev.nthings.otlp4j.transport.OtlpReceiverConfig;
+import dev.nthings.otlp4j.transport.OtlpReceiverFactory;
 import java.net.URI;
 import java.time.Duration;
 import java.util.List;
@@ -95,8 +94,8 @@ public final class Otlp4jGatewayUnderTest implements GatewayUnderTest {
         var heldRequest = new AtomicReference<Held>();
         var heldRequestArmed = new CountDownLatch(1);
         ReceiverFactory<OtlpReceiverConfig> receiverFactory = switch (protocol) {
-            case HTTP -> new OtlpArmeriaHttpReceiverFactory();
-            case GRPC -> new OtlpArmeriaGrpcReceiverFactory();
+            case HTTP -> OtlpReceiverFactory.http();
+            case GRPC -> OtlpReceiverFactory.grpc();
         };
         var exporterFactory = new ProgrammedExporterFactory(scenario, heldRequest, heldRequestArmed);
 

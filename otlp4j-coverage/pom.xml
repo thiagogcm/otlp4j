@@ -45,15 +45,11 @@
         </dependency>
         <dependency>
             <groupId>dev.nthings.otlp4j</groupId>
-            <artifactId>otlp4j-transport-common</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>dev.nthings.otlp4j</groupId>
             <artifactId>otlp4j-service</artifactId>
         </dependency>
         <dependency>
             <groupId>dev.nthings.otlp4j</groupId>
-            <artifactId>otlp4j-transport-otlp</artifactId>
+            <artifactId>otlp4j-transport</artifactId>
         </dependency>
         <dependency>
             <groupId>dev.nthings.otlp4j</groupId>
@@ -64,7 +60,7 @@
             <artifactId>otlp4j-samples</artifactId>
         </dependency>
         <!-- The black-box conformance runner: its jacoco.exec attributes the cross-module wire
-             behaviour that the transport-common and codec check-coverage excludes defer to this
+             behaviour that the transport and codec check-coverage excludes defer to this
              aggregate. otlp4j-testing carries the harness classes the runner executes, so it is
              added here too so that main-source coverage is attributed rather than dropped. -->
         <dependency>

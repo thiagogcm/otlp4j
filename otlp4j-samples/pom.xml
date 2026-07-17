@@ -14,7 +14,7 @@
     <name>otlp4j-samples</name>
     <description>Runnable end-to-end demonstrations of otlp4j. JPMS module dev.nthings.otlp4j.samples.
         Boots the gateway and the backend as service-graph runtimes from otlp4j-service, wiring the
-        core component contracts and the concrete OTLP/gRPC factories from otlp4j-transport-otlp; it
+        core component contracts and the concrete OTLP/gRPC factories from otlp4j-transport; it
         never touches the generated proto code.</description>
 
     <dependencies>
@@ -38,14 +38,10 @@
              factories. -->
         <dependency>
             <groupId>dev.nthings.otlp4j</groupId>
-            <artifactId>otlp4j-transport-common</artifactId>
+            <artifactId>otlp4j-transport</artifactId>
         </dependency>
         <!-- The concrete OTLP/gRPC exporter and receiver factories the demo wires up, from the
              consolidated Armeria transport. -->
-        <dependency>
-            <groupId>dev.nthings.otlp4j</groupId>
-            <artifactId>otlp4j-transport-otlp</artifactId>
-        </dependency>
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>

@@ -5,10 +5,9 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 
 import dev.nthings.otlp4j.core.policy.RetryPolicy;
 import dev.nthings.otlp4j.core.policy.TimeoutPolicy;
-import dev.nthings.otlp4j.transport.common.AbstractExporterBuilder;
-import dev.nthings.otlp4j.transport.common.ClientExporter;
-import dev.nthings.otlp4j.transport.common.OtlpExporterConfig;
-import dev.nthings.otlp4j.transport.otlp.OtlpArmeriaExporter;
+import dev.nthings.otlp4j.transport.ClientExporter;
+import dev.nthings.otlp4j.transport.OtlpExporter;
+import dev.nthings.otlp4j.transport.OtlpExporterConfig;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -53,13 +52,10 @@ final class ExporterRuntimeNegativeSpaceTest {
 
     private static final String RESILIENCE4J_PREFIX = "io.github.resilience4j";
 
-    /// The packages the exporter runtime exports, per the module descriptors of transport-common and
-    /// the consolidated transport-otlp. This is the whole public exporter surface a caller can see.
+    /// The single package the consolidated transport exports. This is the whole public exporter
+    /// surface a caller can see.
     private static final List<String> EXPORTED_EXPORTER_PACKAGES = List.of(
-            "dev.nthings.otlp4j.config",
-            "dev.nthings.otlp4j.spi",
-            "dev.nthings.otlp4j.transport.common",
-            "dev.nthings.otlp4j.transport.otlp");
+            "dev.nthings.otlp4j.transport");
 
     /// Concept names that must never appear as a type's simple name anywhere in the exporter runtime,
     /// public or internal: a sending queue, a circuit breaker, and a bulkhead are the negative space
@@ -67,11 +63,11 @@ final class ExporterRuntimeNegativeSpaceTest {
     private static final List<String> BANNED_SIMPLE_NAME_FRAGMENTS =
             List.of("SendingQueue", "CircuitBreaker", "Bulkhead");
 
-    /// One representative exported class per exporter runtime module, used both to resolve the
+    /// A representative exported class of the consolidated transport module, used both to resolve the
     /// module's compiled classes root for the whole-module class scan and to locate its
     /// `module-info.class` for the transitive requirement guard.
     private static final List<Class<?>> EXPORTER_RUNTIME_MODULE_REPRESENTATIVES =
-            List.of(ClientExporter.class, OtlpArmeriaExporter.class);
+            List.of(ClientExporter.class, OtlpExporter.class);
 
     @DisplayName("no public exporter type's signature names a Resilience4j type")
     @Test
@@ -136,24 +132,23 @@ final class ExporterRuntimeNegativeSpaceTest {
                 .as("OtlpExporterConfig.Builder exposes setTimeoutPolicy(TimeoutPolicy)")
                 .doesNotThrowAnyException();
 
-        // Every transport's exporter builder shares the same neutral retry policy setter, inherited
-        // from AbstractExporterBuilder; neither transport widens or replaces it with a resilience
-        // library type.
-        assertThatCode(() -> AbstractExporterBuilder.class.getMethod("setRetryPolicy", RetryPolicy.class))
-                .as("AbstractExporterBuilder exposes setRetryPolicy(RetryPolicy) to every transport builder")
+        // The exporter entry-point builder exposes the same neutral retry policy setter, by its neutral
+        // type; it does not widen or replace it with a resilience library type.
+        assertThatCode(() -> OtlpExporter.Builder.class.getMethod("setRetryPolicy", RetryPolicy.class))
+                .as("OtlpExporter.Builder exposes setRetryPolicy(RetryPolicy)")
                 .doesNotThrowAnyException();
     }
 
-    @DisplayName("transport-common carries no transitive Resilience4j module requirement")
+    @DisplayName("the transport carries no transitive Resilience4j module requirement")
     @Test
-    void transportCommonHasNoTransitiveResilience4jRequirement() {
+    void transportHasNoTransitiveResilience4jRequirement() {
         assertNoTransitiveResilience4jRequirement(ClientExporter.class);
     }
 
-    @DisplayName("transport-otlp carries no transitive Resilience4j module requirement")
+    @DisplayName("the transport entry points carry no transitive Resilience4j module requirement")
     @Test
-    void transportOtlpHasNoTransitiveResilience4jRequirement() {
-        assertNoTransitiveResilience4jRequirement(OtlpArmeriaExporter.class);
+    void transportEntryPointsHaveNoTransitiveResilience4jRequirement() {
+        assertNoTransitiveResilience4jRequirement(OtlpExporter.class);
     }
 
     private static void assertNoTransitiveResilience4jRequirement(Class<?> representative) {

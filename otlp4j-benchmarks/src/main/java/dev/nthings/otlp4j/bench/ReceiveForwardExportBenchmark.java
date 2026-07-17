@@ -31,12 +31,10 @@ import dev.nthings.otlp4j.service.Gateway;
 import dev.nthings.otlp4j.service.GatewayRuntime;
 import dev.nthings.otlp4j.service.config.PipelineConfig;
 import dev.nthings.otlp4j.telemetry.GatewayMetrics;
-import dev.nthings.otlp4j.transport.common.OtlpExporterConfig;
-import dev.nthings.otlp4j.transport.common.OtlpReceiverConfig;
-import dev.nthings.otlp4j.transport.otlp.OtlpArmeriaGrpcExporterFactory;
-import dev.nthings.otlp4j.transport.otlp.OtlpArmeriaGrpcReceiverFactory;
-import dev.nthings.otlp4j.transport.otlp.OtlpArmeriaHttpExporterFactory;
-import dev.nthings.otlp4j.transport.otlp.OtlpArmeriaHttpReceiverFactory;
+import dev.nthings.otlp4j.transport.OtlpExporterConfig;
+import dev.nthings.otlp4j.transport.OtlpReceiverConfig;
+import dev.nthings.otlp4j.transport.OtlpExporterFactory;
+import dev.nthings.otlp4j.transport.OtlpReceiverFactory;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
@@ -210,8 +208,8 @@ public class ReceiveForwardExportBenchmark {
     private static ReceiverFactory<OtlpReceiverConfig> receiverFactory(String transport, String protocol) {
         return switch (transport) {
             case "ARMERIA" -> switch (protocol) {
-                case "GRPC" -> new OtlpArmeriaGrpcReceiverFactory();
-                case "HTTP" -> new OtlpArmeriaHttpReceiverFactory();
+                case "GRPC" -> OtlpReceiverFactory.grpc();
+                case "HTTP" -> OtlpReceiverFactory.http();
                 default -> throw new IllegalArgumentException("unknown protocol: " + protocol);
             };
             default -> throw new IllegalArgumentException("unknown transport: " + transport);
@@ -222,8 +220,8 @@ public class ReceiveForwardExportBenchmark {
     private static ExporterFactory<OtlpExporterConfig> exporterFactory(String transport, String protocol) {
         return switch (transport) {
             case "ARMERIA" -> switch (protocol) {
-                case "GRPC" -> new OtlpArmeriaGrpcExporterFactory();
-                case "HTTP" -> new OtlpArmeriaHttpExporterFactory();
+                case "GRPC" -> OtlpExporterFactory.grpc();
+                case "HTTP" -> OtlpExporterFactory.http();
                 default -> throw new IllegalArgumentException("unknown protocol: " + protocol);
             };
             default -> throw new IllegalArgumentException("unknown transport: " + transport);

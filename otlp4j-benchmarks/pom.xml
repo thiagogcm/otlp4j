@@ -35,7 +35,7 @@
              both hops through. -->
         <dependency>
             <groupId>dev.nthings.otlp4j</groupId>
-            <artifactId>otlp4j-transport-otlp</artifactId>
+            <artifactId>otlp4j-transport</artifactId>
         </dependency>
         <dependency>
             <groupId>dev.nthings.otlp4j</groupId>
@@ -58,12 +58,6 @@
         <dependency>
             <groupId>dev.nthings.otlp4j</groupId>
             <artifactId>otlp4j-service</artifactId>
-        </dependency>
-        <!-- The neutral OTLP receiver and exporter configs the benchmark hands to the transport
-             factories. -->
-        <dependency>
-            <groupId>dev.nthings.otlp4j</groupId>
-            <artifactId>otlp4j-transport-common</artifactId>
         </dependency>
         <dependency>
             <groupId>dev.nthings.otlp4j</groupId>

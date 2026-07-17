@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>dev.nthings.otlp4j</groupId>
+        <artifactId>otlp4j-parent</artifactId>
+        <version>${revision}</version>
+    </parent>
+
+    <artifactId>otlp4j-transport</artifactId>
+    <name>otlp4j-transport</name>
+    <description>The OTLP transport: OtlpExporter and OtlpReceiver (standalone entry points) and the
+        OtlpExporterFactory / OtlpReceiverFactory graph factories, serving and speaking OTLP/gRPC and
+        OTLP/HTTP from one Armeria + Netty runtime. JPMS module dev.nthings.otlp4j.transport; the
+        Armeria, Netty, and proto internals stay confined to the unexported internal package.</description>
+
+    <dependencies>
+        <!-- The domain batch records the receiver tap and the exporter convenience export carry. -->
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-model</artifactId>
+        </dependency>
+        <!-- The graph factories, runtimes, and config records name core component, consumer, result,
+             signal, and policy types directly. -->
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-core</artifactId>
+        </dependency>
+        <!-- The codec payload facade (Payloads), the signal codecs, and the delivery-result status
+             mapping the wire client and server build on. -->
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-codec</artifactId>
+        </dependency>
+        <!-- Generated OTLP proto message and service stub types the wire client and server marshal. -->
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-proto</artifactId>
+        </dependency>
+        <!-- The service handlers size decoded requests (MessageLite.getSerializedSize) for admission. -->
+        <dependency>
+            <groupId>com.google.protobuf</groupId>
+            <artifactId>protobuf-java</artifactId>
+        </dependency>
+        <!-- Status and Metadata for the gRPC status mapping and the generated stubs. -->
+        <dependency>
+            <groupId>io.grpc</groupId>
+            <artifactId>grpc-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.grpc</groupId>
+            <artifactId>grpc-stub</artifactId>
+        </dependency>
+        <!-- com.google.rpc.Status / RetryInfo for the grpc-status-details-bin RetryInfo trailer. Arrives
+             transitively through grpc-protobuf, declared directly because the code names it. -->
+        <dependency>
+            <groupId>com.google.api.grpc</groupId>
+            <artifactId>proto-google-common-protos</artifactId>
+        </dependency>
+        <!-- The consolidated transport runtime: one Armeria server and client for both protocols. -->
+        <dependency>
+            <groupId>com.linecorp.armeria</groupId>
+            <artifactId>armeria</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.linecorp.armeria</groupId>
+            <artifactId>armeria-grpc</artifactId>
+        </dependency>
+        <!-- Netty ClientAuth / SslContextBuilder for the TLS mapping. -->
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-handler</artifactId>
+        </dependency>
+        <!-- Logging facade only; no backend bound here. -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
+
+        <!-- Shared OTLP test fixtures (Fixtures, TransportFixtures, FlowSubscribers). -->
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-testing</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- The receiver and exporter factories are tested through a real service graph runtime. -->
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-service</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Opt in to the shared coverage floor (parent POM). ClientExporter/ServerReceiver/
+                 ReceiverTap need a concrete transport to exercise end to end; they are floored through
+                 the transport suites and the aggregate rather than in isolation. -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>check-coverage</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                        <configuration>
+                            <excludes>
+                                <exclude>dev/nthings/otlp4j/transport/ClientExporter*</exclude>
+                                <exclude>dev/nthings/otlp4j/transport/ServerReceiver*</exclude>
+                                <exclude>dev/nthings/otlp4j/transport/internal/ReceiverTap*</exclude>
+                            </excludes>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

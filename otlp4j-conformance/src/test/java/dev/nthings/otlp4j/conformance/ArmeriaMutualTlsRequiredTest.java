@@ -3,7 +3,7 @@ package dev.nthings.otlp4j.conformance;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import dev.nthings.otlp4j.config.Tls;
+import dev.nthings.otlp4j.transport.Tls;
 import dev.nthings.otlp4j.core.component.ComponentId;
 import dev.nthings.otlp4j.core.component.ComponentKind;
 import dev.nthings.otlp4j.core.consumer.ConsumeContext;
@@ -18,9 +18,9 @@ import dev.nthings.otlp4j.testing.conformance.GrpcWireClient;
 import dev.nthings.otlp4j.testing.conformance.HttpWireClient;
 import dev.nthings.otlp4j.testing.conformance.TlsMode;
 import dev.nthings.otlp4j.testing.conformance.TlsTestMaterial;
-import dev.nthings.otlp4j.transport.common.ServerReceiver;
-import dev.nthings.otlp4j.transport.otlp.OtlpArmeriaReceiver;
-import dev.nthings.otlp4j.transport.otlp.OtlpArmeriaReceiver.ClientAuth;
+import dev.nthings.otlp4j.transport.ServerReceiver;
+import dev.nthings.otlp4j.transport.OtlpReceiver;
+import dev.nthings.otlp4j.transport.OtlpReceiver.ClientAuth;
 import io.grpc.Status;
 import java.net.URI;
 import java.util.ArrayList;
@@ -35,7 +35,7 @@ import org.junit.jupiter.api.Timeout;
 
 /// The enforced mutual-TLS conformance case: the new capability the Armeria transport adds and the
 /// legacy transports could not express. It boots the Armeria OTLP/gRPC and OTLP/HTTP receivers
-/// directly through [OtlpArmeriaReceiver.Builder] with [ClientAuth#REQUIRE] and the test CA as the
+/// directly through [OtlpReceiver.Builder] with [ClientAuth#REQUIRE] and the test CA as the
 /// trust anchor, then drives them over the real wire: a client presenting the test client certificate
 /// is accepted and a certless client is rejected at the TLS handshake.
 ///
@@ -64,7 +64,7 @@ final class ArmeriaMutualTlsRequiredTest {
     @DisplayName("gRPC REQUIRE: a client presenting its certificate is accepted")
     @Test
     void grpcClientCertificateAccepted() {
-        var target = "127.0.0.1:" + requireReceiver(OtlpArmeriaReceiver.grpcBuilder()).port();
+        var target = "127.0.0.1:" + requireReceiver(OtlpReceiver.grpcBuilder()).port();
         try (var client = new GrpcWireClient(target, TlsMode.MUTUAL, TlsTestMaterial.caPem())) {
             assertThat(client.export(ConformanceSignal.TRACES).grpcCode()).hasValue(Status.Code.OK);
         }
@@ -73,7 +73,7 @@ final class ArmeriaMutualTlsRequiredTest {
     @DisplayName("gRPC REQUIRE: a certless client is rejected at the handshake")
     @Test
     void grpcCertlessClientRejected() {
-        var target = "127.0.0.1:" + requireReceiver(OtlpArmeriaReceiver.grpcBuilder()).port();
+        var target = "127.0.0.1:" + requireReceiver(OtlpReceiver.grpcBuilder()).port();
         try (var client = new GrpcWireClient(target, TlsMode.SERVER_AUTH, TlsTestMaterial.caPem())) {
             // A certless client cannot complete the required-client-auth handshake, so the RPC never
             // reaches an accepting server: gRPC surfaces the handshake failure as a non-OK status.
@@ -85,7 +85,7 @@ final class ArmeriaMutualTlsRequiredTest {
     @DisplayName("HTTP REQUIRE: a client presenting its certificate is accepted")
     @Test
     void httpClientCertificateAccepted() {
-        var baseUri = URI.create("https://127.0.0.1:" + requireReceiver(OtlpArmeriaReceiver.httpBuilder()).port());
+        var baseUri = URI.create("https://127.0.0.1:" + requireReceiver(OtlpReceiver.httpBuilder()).port());
         try (var client = new HttpWireClient(baseUri, TlsMode.MUTUAL, TlsTestMaterial.caPem())) {
             assertThat(client.export(ConformanceSignal.TRACES).httpStatus()).hasValue(200);
         }
@@ -94,7 +94,7 @@ final class ArmeriaMutualTlsRequiredTest {
     @DisplayName("HTTP REQUIRE: a certless client is rejected at the handshake")
     @Test
     void httpCertlessClientRejected() {
-        var baseUri = URI.create("https://127.0.0.1:" + requireReceiver(OtlpArmeriaReceiver.httpBuilder()).port());
+        var baseUri = URI.create("https://127.0.0.1:" + requireReceiver(OtlpReceiver.httpBuilder()).port());
         try (var client = new HttpWireClient(baseUri, TlsMode.SERVER_AUTH, TlsTestMaterial.caPem())) {
             assertThatThrownBy(() -> client.export(ConformanceSignal.TRACES))
                     .isInstanceOf(RuntimeException.class);
@@ -104,7 +104,7 @@ final class ArmeriaMutualTlsRequiredTest {
     /// Boots a started receiver from `builder` with enforced mutual TLS: the test server certificate
     /// and key, the test CA as the client-auth trust anchor, [ClientAuth#REQUIRE], an accepting route
     /// for every signal, and an ephemeral port.
-    private ServerReceiver requireReceiver(OtlpArmeriaReceiver.Builder builder) {
+    private ServerReceiver requireReceiver(OtlpReceiver.Builder builder) {
         var receiver = builder
                 .setTls(Tls.custom(TlsTestMaterial.serverCertPem(), TlsTestMaterial.serverKeyPem(),
                         TlsTestMaterial.caPem()))
