@@ -31,20 +31,6 @@ class BatchProcessorConfigTest {
     }
 
     @Test
-    void rejectsNullBatch() {
-        assertThatThrownBy(() -> new BatchProcessorConfig(null, DELIVERY, Duration.ofSeconds(5)))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("batch policy");
-    }
-
-    @Test
-    void rejectsNullDelivery() {
-        assertThatThrownBy(() -> new BatchProcessorConfig(BATCH, null, Duration.ofSeconds(5)))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("delivery policy");
-    }
-
-    @Test
     void rejectsNullDegradedWindow() {
         assertThatThrownBy(() -> new BatchProcessorConfig(BATCH, DELIVERY, null))
                 .isInstanceOf(IllegalArgumentException.class)

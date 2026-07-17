@@ -1,8 +1,9 @@
 /// Runnable end-to-end demonstrations of otlp4j.
 ///
 /// Boots the gateway and the backend as service-graph runtimes from the service module, wiring the
-/// core component contracts, the neutral transport configs, and the concrete OTLP/gRPC factories from
-/// the consolidated Armeria transport; it never touches the generated proto code.
+/// core component contracts, the neutral transport configs, the concrete OTLP/gRPC factories from the
+/// consolidated Armeria transport, and the built-in batch processor and span-count connector from
+/// otlp4j-components; it never touches the generated proto code.
 module dev.nthings.otlp4j.samples {
     // The core component, signal, policy, and result contracts the demo and its seed factories name.
     requires dev.nthings.otlp4j.core;
@@ -12,6 +13,8 @@ module dev.nthings.otlp4j.samples {
     // The concrete OTLP/gRPC receiver and exporter factories and the client exporter the demo wires,
     // from the consolidated Armeria transport.
     requires dev.nthings.otlp4j.transport;
+    // The built-in batch processor and span-count connector the demo gateway pipeline wires.
+    requires dev.nthings.otlp4j.components;
     // The domain batch records the demo builds and inspects.
     requires dev.nthings.otlp4j.model;
     // The proto-free codec payload facade (Payloads) the seed processors emit through.

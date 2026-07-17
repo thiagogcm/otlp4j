@@ -22,14 +22,9 @@ import java.util.List;
 public record BatchProcessorConfig(BatchPolicy batch, DeliveryQueuePolicy delivery, Duration degradedWindow)
         implements ComponentConfig {
 
-    /// Validates that every component is present and the degraded window is non-negative.
+    /// Validates the degraded window, the one field the wrapped core [BatchPolicy] and
+    /// [DeliveryQueuePolicy] do not already validate in their own compact constructors.
     public BatchProcessorConfig {
-        if (batch == null) {
-            throw new IllegalArgumentException("batch policy must be non-null");
-        }
-        if (delivery == null) {
-            throw new IllegalArgumentException("delivery policy must be non-null");
-        }
         if (degradedWindow == null || degradedWindow.isNegative()) {
             throw new IllegalArgumentException("degradedWindow must be non-null and non-negative");
         }

@@ -1,7 +1,8 @@
 /// The built-in gateway components and their reusable helpers, depending only on the core contracts
-/// and the codec payload facade. No transport, wire, or graph library appears on this module's
-/// surface, so a component here can be assembled into any graph without dragging a server or client
-/// runtime with it.
+/// and the codec payload facade: the batch processor, the memory limiter, the routing and filtering
+/// processors, and the span-count connector. No transport, wire, or graph library appears on this
+/// module's surface, so a component here can be assembled into any graph without dragging a server or
+/// client runtime with it.
 ///
 /// The `dev.nthings.otlp4j.core` contracts are re-exported transitively because a built-in factory's
 /// public config record and its `SignalSupport` capability name core types. The
@@ -15,6 +16,7 @@ module dev.nthings.otlp4j.components {
     requires static transitive org.jspecify;
 
     exports dev.nthings.otlp4j.components.batch;
+    exports dev.nthings.otlp4j.components.connector;
     exports dev.nthings.otlp4j.components.memory;
     exports dev.nthings.otlp4j.components.routing;
 }

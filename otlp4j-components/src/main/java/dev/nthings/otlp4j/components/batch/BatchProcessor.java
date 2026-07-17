@@ -2,7 +2,6 @@ package dev.nthings.otlp4j.components.batch;
 
 import dev.nthings.otlp4j.codec.Payloads;
 import dev.nthings.otlp4j.components.internal.DeliveryQueue;
-import dev.nthings.otlp4j.components.internal.Sizer;
 import dev.nthings.otlp4j.core.component.ComponentContext;
 import dev.nthings.otlp4j.core.component.ComponentId;
 import dev.nthings.otlp4j.core.component.ComponentKind;
@@ -41,7 +40,7 @@ import org.slf4j.LoggerFactory;
 /// elapses since the buffer's first item. On flush it merges the buffered domain batches through the
 /// signal's `merge` and, when a send-batch maximum size is set, splits the merged batch into
 /// item-capped units through the signal's `split`, so the batching logic is entirely generic over the
-/// signal with no per-signal switch. Each unit is handed to the reusable bounded [DeliveryQueue].
+/// signal with no per-signal switch. Each unit is handed to the bounded [DeliveryQueue].
 ///
 /// The processor is non-mutating: it emits fresh merged and split batches and never mutates an input.
 ///
@@ -140,10 +139,10 @@ public final class BatchProcessor<M> implements Processor<TelemetryPayload> {
     }
 
     private boolean shouldFlush(Batch batch) {
-        if (Sizer.ITEMS.read(batch.items, batch.bytes) >= sendBatchSize) {
+        if (batch.items >= sendBatchSize) {
             return true;
         }
-        return sendBatchMaxBytes > 0 && Sizer.BYTES.read(batch.items, batch.bytes) >= sendBatchMaxBytes;
+        return sendBatchMaxBytes > 0 && batch.bytes >= sendBatchMaxBytes;
     }
 
     private void scheduleTimeout(Batch batch, MetadataBatchKey key) {

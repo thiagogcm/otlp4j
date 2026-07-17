@@ -42,6 +42,11 @@
         </dependency>
         <!-- The concrete OTLP/gRPC exporter and receiver factories the demo wires up, from the
              consolidated Armeria transport. -->
+        <!-- The built-in batch processor and span-count connector the demo gateway pipeline wires. -->
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-components</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>

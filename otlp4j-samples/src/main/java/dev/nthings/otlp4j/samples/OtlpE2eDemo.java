@@ -4,10 +4,17 @@ import static dev.nthings.otlp4j.core.signal.SignalDescriptor.METRICS;
 import static dev.nthings.otlp4j.core.signal.SignalDescriptor.TRACES;
 
 import dev.nthings.otlp4j.codec.Payloads;
+import dev.nthings.otlp4j.components.batch.BatchProcessorConfig;
+import dev.nthings.otlp4j.components.batch.BatchProcessorFactory;
+import dev.nthings.otlp4j.components.connector.SpanCountConnectorConfig;
+import dev.nthings.otlp4j.components.connector.SpanCountConnectorFactory;
 import dev.nthings.otlp4j.core.component.ComponentId;
 import dev.nthings.otlp4j.core.component.ExporterFactory;
 import dev.nthings.otlp4j.core.component.ProcessorFactory;
 import dev.nthings.otlp4j.core.pipeline.PipelineId;
+import dev.nthings.otlp4j.core.policy.BatchPolicy;
+import dev.nthings.otlp4j.core.policy.DeliveryQueuePolicy;
+import dev.nthings.otlp4j.core.policy.OverflowPolicy;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.signal.PayloadView;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
@@ -20,8 +27,6 @@ import dev.nthings.otlp4j.model.NumberPoint;
 import dev.nthings.otlp4j.model.Resource;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
-import dev.nthings.otlp4j.samples.support.CountConnectorConfig;
-import dev.nthings.otlp4j.samples.support.CountConnectorFactory;
 import dev.nthings.otlp4j.service.Gateway;
 import dev.nthings.otlp4j.service.GatewayRuntime;
 import dev.nthings.otlp4j.transport.OtlpExporterConfig;
@@ -29,6 +34,7 @@ import dev.nthings.otlp4j.transport.OtlpReceiverConfig;
 import dev.nthings.otlp4j.transport.OtlpExporter;
 import dev.nthings.otlp4j.transport.OtlpExporterFactory;
 import dev.nthings.otlp4j.transport.OtlpReceiverFactory;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -38,7 +44,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /// End-to-end demo: five spans flow through a service-graph gateway (enrich, redact, filter,
-/// drop-empty, fan out to an OTLP exporter and a span-count connector) to a backend gateway. Both the
+/// drop-empty, batch, fan out to an OTLP exporter and a span-count connector) to a backend gateway. The
+/// batch stage and the span-count connector are built-in components from `otlp4j-components`; the four
+/// domain transforms stay inline because they read the domain the routing/filter match engine does not.
+/// Both the
 /// gateway and the backend are single [dev.nthings.otlp4j.service.config.GatewayConfig] graphs booted
 /// by a [GatewayRuntime]; telemetry still crosses two real OTLP/gRPC hops, and this class never
 /// touches a proto or gRPC wire type.
@@ -64,7 +73,7 @@ public final class OtlpE2eDemo {
         log.info("=== otlp4j end-to-end demo ===");
         log.info("Client sent 5 spans (3 SERVER, 2 INTERNAL) to the gateway.");
         log.info("Gateway pipeline: enrich resource attribute -> redact enduser.id span attribute -> "
-                + "filter SERVER spans -> drop-empty-traces processor -> "
+                + "filter SERVER spans -> drop-empty-traces processor -> batch processor -> "
                 + "fan out to exporter + span count connector.");
         log.info("Backend received:");
         log.info("  filtered spans          : {} (expected 3)", result.spansAtBackend());
@@ -139,6 +148,7 @@ public final class OtlpE2eDemo {
     private static final ComponentId REDACT = ComponentId.parse("redact");
     private static final ComponentId FILTER = ComponentId.parse("filter");
     private static final ComponentId DROP_EMPTY = ComponentId.parse("drop-empty");
+    private static final ComponentId BATCH = ComponentId.parse("batch");
     private static final ComponentId TRACES_OUT = ComponentId.parse("traces-out");
     private static final ComponentId SPAN_COUNT = ComponentId.parse("spancount");
     private static final ComponentId METRICS_OUT = ComponentId.parse("metrics-out");
@@ -166,9 +176,12 @@ public final class OtlpE2eDemo {
     }
 
     /// Builds the gateway graph: an OTLP/gRPC receiver, the four inline domain-transform processors
-    /// (each built through [ProcessorFactory#of]), and a fan-out to the OTLP exporter forwarding traces
-    /// to the backend and the span-count connector deriving a metric that its own metrics pipeline
-    /// exports to the backend too.
+    /// (each built through [ProcessorFactory#of]) whose transforms read the domain the match engine
+    /// cannot express (resource mutation, span-attribute redaction, span-kind filtering, empty-batch
+    /// drop), the built-in [BatchProcessorFactory] coalescing what survives into one batch, and a
+    /// fan-out to the OTLP exporter forwarding traces to the backend and the built-in
+    /// [SpanCountConnectorFactory] deriving a metric that its own metrics pipeline exports to the backend
+    /// too.
     private static GatewayRuntime buildGateway(int backendPort) {
         var gw = Gateway.builder();
         var in = gw.receiver(GATEWAY_RECV, OtlpReceiverFactory.grpc(), ephemeralReceiver());
@@ -177,12 +190,24 @@ public final class OtlpE2eDemo {
         var filter = gw.processor(FILTER, ProcessorFactory.of("filter", TRACES, keepServerSpans(), Payloads.DOMAIN));
         var dropEmpty =
                 gw.processor(DROP_EMPTY, ProcessorFactory.of("drop-empty", TRACES, dropEmptyTraces(), Payloads.DOMAIN));
+        var batch = gw.processor(BATCH, new BatchProcessorFactory(), batchConfig());
         var tracesOut = gw.exporter(TRACES_OUT, OtlpExporterFactory.grpc(), OtlpExporterConfig.defaults(backendPort));
-        var spanCount = gw.connector(SPAN_COUNT, new CountConnectorFactory(), CountConnectorConfig.defaults());
+        var spanCount = gw.connector(SPAN_COUNT, new SpanCountConnectorFactory(), SpanCountConnectorConfig.defaults());
         var metricsOut = gw.exporter(METRICS_OUT, OtlpExporterFactory.grpc(), OtlpExporterConfig.defaults(backendPort));
-        gw.pipeline(PipelineId.of(TRACES), p -> p.from(in).via(enrich, redact, filter, dropEmpty).to(tracesOut, spanCount));
+        gw.pipeline(PipelineId.of(TRACES),
+                p -> p.from(in).via(enrich, redact, filter, dropEmpty, batch).to(tracesOut, spanCount));
         gw.pipeline(PipelineId.of(METRICS), p -> p.from(spanCount).to(metricsOut));
         return gw.build();
+    }
+
+    /// The batch stage's config: a short flush timeout so the single surviving batch coalesces and
+    /// flushes promptly during the run rather than only on shutdown, keeping the whole surviving batch
+    /// in one unit (no send-batch cap) so the span-count connector observes one count of three.
+    private static BatchProcessorConfig batchConfig() {
+        return new BatchProcessorConfig(
+                new BatchPolicy(8192, 0, 0, Duration.ofMillis(200), List.of()),
+                new DeliveryQueuePolicy(1024, 1, OverflowPolicy.BLOCK, false),
+                Duration.ofSeconds(5));
     }
 
     private static OtlpReceiverConfig ephemeralReceiver() {

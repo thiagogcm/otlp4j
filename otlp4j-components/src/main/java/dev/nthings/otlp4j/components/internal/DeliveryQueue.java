@@ -20,10 +20,12 @@ import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/// The reusable bounded delivery boundary in front of a downstream consumer, the single queueing
-/// point the batch processor flushes into. It is a bounded [ArrayBlockingQueue] of `queueSize`
-/// entries, drained by `numConsumers` worker virtual threads that each call the downstream
-/// `consume`. It carries two independent axes, faithful to the legacy `Batcher`:
+/// The batch processor's bounded delivery boundary: the single queueing point
+/// [dev.nthings.otlp4j.components.batch.BatchProcessor] flushes each merged-and-split unit into,
+/// decoupling the flush from the downstream `consume`. It is a bounded
+/// [ArrayBlockingQueue] of `queueSize` entries, drained by `numConsumers` worker virtual threads that
+/// each call the downstream `consume`. It carries two independent axes, faithful to the legacy
+/// `Batcher`:
 ///
 ///   - The [OverflowPolicy] axis governs a full buffer: `DROP_OLDEST` evicts the head, `DROP_NEWEST`
 ///     drops the arriving batch, `BLOCK` applies backpressure until space frees, and `FAIL` refuses
