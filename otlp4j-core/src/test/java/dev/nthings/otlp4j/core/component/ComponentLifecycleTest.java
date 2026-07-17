@@ -2,6 +2,7 @@ package dev.nthings.otlp4j.core.component;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -10,7 +11,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /// Unit tests for the [Component] default methods: the no-op `forceFlush`, and `close` shutting down
-/// within the grace period while swallowing a drain failure as a warning.
+/// within the grace period while rethrowing a drain failure wrapped in an [IllegalStateException].
 class ComponentLifecycleTest {
 
     /// A minimal component whose shutdown stage is programmable, so both the clean-drain and the
@@ -53,11 +54,13 @@ class ComponentLifecycleTest {
     }
 
     @Test
-    @DisplayName("close swallows a drain failure rather than throwing")
-    void closeSwallowsFailure() {
-        var failed = CompletableFuture.<Void>failedFuture(new IllegalStateException("drain boom"));
-        var component = new FakeComponent(failed);
-        assertThatCode(component::close).doesNotThrowAnyException();
+    @DisplayName("close rethrows a drain failure wrapped in an IllegalStateException")
+    void closeRethrowsFailure() {
+        var cause = new IllegalStateException("drain boom");
+        var component = new FakeComponent(CompletableFuture.failedFuture(cause));
+        assertThatThrownBy(component::close)
+                .isInstanceOf(IllegalStateException.class)
+                .hasRootCause(cause);
         assertThat(component.shutdownCalled).isTrue();
     }
 

@@ -5,7 +5,7 @@ import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
-import dev.nthings.otlp4j.telemetry.LoggingGatewayMetrics;
+import dev.nthings.otlp4j.testing.RecordingGatewayMetrics;
 import dev.nthings.otlp4j.testing.Fixtures;
 import dev.nthings.otlp4j.testing.conformance.Protocol;
 import dev.nthings.otlp4j.testing.policy.ExportObservation;
@@ -57,7 +57,7 @@ final class Otlp4jPolicyExporterUnderTest implements PolicyExporterUnderTest {
         try {
             // A real recording registry, so the retry attempts the wire client emits through its
             // Armeria retrying-client listener land in a counter the observation can read back.
-            var telemetry = new LoggingGatewayMetrics();
+            var telemetry = new RecordingGatewayMetrics();
             var exporter = buildExporter(server.port(), program, telemetry);
             DeliveryResult result = null;
             Throwable failure = null;
@@ -93,7 +93,7 @@ final class Otlp4jPolicyExporterUnderTest implements PolicyExporterUnderTest {
     /// total timeout to the total budget, so the interim translation completed in Lot 1 is exercised.
     /// The exporter reports to `telemetry`, so the real wire client's per-attempt retry counting is
     /// observable through the exporter's `otlp4j.exporter.export.retries` instrument.
-    private ClientExporter buildExporter(int port, ExportProgram program, LoggingGatewayMetrics telemetry) {
+    private ClientExporter buildExporter(int port, ExportProgram program, RecordingGatewayMetrics telemetry) {
         var config = OtlpExporterConfig.builder(4317)
                 .setHost("127.0.0.1")
                 .setPort(port)

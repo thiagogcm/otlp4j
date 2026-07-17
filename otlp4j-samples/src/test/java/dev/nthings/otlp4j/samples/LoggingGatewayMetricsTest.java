@@ -1,4 +1,4 @@
-package dev.nthings.otlp4j.telemetry;
+package dev.nthings.otlp4j.samples;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;

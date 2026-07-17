@@ -2,7 +2,7 @@ package dev.nthings.otlp4j.transport.internal;
 
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.core.signal.TelemetryPayload;
-import dev.nthings.otlp4j.telemetry.GatewayMetrics;
+import dev.nthings.otlp4j.core.telemetry.GatewayMetrics;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.Flow;

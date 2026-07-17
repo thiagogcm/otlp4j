@@ -2,7 +2,7 @@ package dev.nthings.otlp4j.transport;
 
 import dev.nthings.otlp4j.core.component.ComponentId;
 import dev.nthings.otlp4j.core.policy.RetryPolicy;
-import dev.nthings.otlp4j.telemetry.GatewayMetrics;
+import dev.nthings.otlp4j.core.telemetry.GatewayMetrics;
 import dev.nthings.otlp4j.transport.internal.ArmeriaOtlpClient;
 import dev.nthings.otlp4j.transport.internal.ExporterMetrics;
 import dev.nthings.otlp4j.transport.internal.Protocol;

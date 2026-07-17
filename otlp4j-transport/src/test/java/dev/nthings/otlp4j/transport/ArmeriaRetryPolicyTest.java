@@ -8,7 +8,7 @@ import dev.nthings.otlp4j.core.policy.RetryPolicy;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.model.TracesData;
-import dev.nthings.otlp4j.telemetry.LoggingGatewayMetrics;
+import dev.nthings.otlp4j.testing.RecordingGatewayMetrics;
 import dev.nthings.otlp4j.testing.TransportFixtures;
 import dev.nthings.otlp4j.transport.ScriptedCollector.Step;
 import dev.nthings.otlp4j.transport.ScriptedCollector.Wire;
@@ -194,7 +194,7 @@ class ArmeriaRetryPolicyTest {
     private Observation run(
             Wire wire, RetryPolicy retry, Duration perAttempt, Duration total, List<Step> script) {
         try (var collector = ScriptedCollector.start(wire, script)) {
-            var telemetry = new LoggingGatewayMetrics();
+            var telemetry = new RecordingGatewayMetrics();
             var config = OtlpExporterConfig.builder(4317)
                     .setHost("127.0.0.1")
                     .setPort(collector.port())

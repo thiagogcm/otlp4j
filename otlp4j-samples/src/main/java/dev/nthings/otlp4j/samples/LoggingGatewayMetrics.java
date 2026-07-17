@@ -1,5 +1,6 @@
-package dev.nthings.otlp4j.telemetry;
+package dev.nthings.otlp4j.samples;
 
+import dev.nthings.otlp4j.core.telemetry.GatewayMetrics;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;

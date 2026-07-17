@@ -6,7 +6,7 @@ import com.linecorp.armeria.server.grpc.GrpcService;
 import dev.nthings.otlp4j.codec.SignalCodec;
 import dev.nthings.otlp4j.transport.OtlpReceiverConfig;
 import dev.nthings.otlp4j.transport.Tls;
-import dev.nthings.otlp4j.telemetry.GatewayMetrics;
+import dev.nthings.otlp4j.core.telemetry.GatewayMetrics;
 import dev.nthings.otlp4j.transport.internal.AdmissionControl;
 import dev.nthings.otlp4j.transport.OtlpReceiver.ClientAuth;
 import java.io.IOException;

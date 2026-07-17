@@ -1,4 +1,4 @@
-package dev.nthings.otlp4j.telemetry;
+package dev.nthings.otlp4j.core.telemetry;
 
 import java.util.function.LongSupplier;
 

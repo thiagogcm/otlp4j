@@ -1,6 +1,6 @@
 package dev.nthings.otlp4j.core.component;
 
-import dev.nthings.otlp4j.telemetry.GatewayMetrics;
+import dev.nthings.otlp4j.core.telemetry.GatewayMetrics;
 import java.time.Clock;
 
 /// The ambient context handed to a component at start. It carries the `GatewayMetrics` handle a

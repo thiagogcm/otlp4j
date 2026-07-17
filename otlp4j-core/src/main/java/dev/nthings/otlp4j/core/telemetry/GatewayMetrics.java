@@ -1,13 +1,13 @@
-package dev.nthings.otlp4j.telemetry;
+package dev.nthings.otlp4j.core.telemetry;
 
 import java.util.function.LongSupplier;
 
 /// Self-observability SPI: gateway components report their own health so an operator can see queue
 /// depth, drops, drain failures, admission rejections, and export success/failure. The [#noop]
-/// default costs nothing; [LoggingGatewayMetrics] or an OpenTelemetry-SDK adapter turns the
-/// instruments into real metrics. Reaches components through the component context handed in at
-/// start, and through the transport entry-point builders (`OtlpArmeria*`
-/// `.telemetry(...)`); defaults to [#noop].
+/// default costs nothing; a recording adapter (the samples module ships a slf4j `LoggingGatewayMetrics`)
+/// or an OpenTelemetry-SDK adapter turns the instruments into real metrics. Reaches components through
+/// the component context handed in at start, and through the transport entry-point builders
+/// (`OtlpReceiver.Builder`/`OtlpExporter.Builder` `.telemetry(...)`); defaults to [#noop].
 ///
 /// Instrument names are namespaced `otlp4j.*` and stable across releases. Implementations must be
 /// thread-safe: counters are incremented from receiver, exporter, and drain threads concurrently.

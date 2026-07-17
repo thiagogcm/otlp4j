@@ -7,7 +7,7 @@ import dev.nthings.otlp4j.core.policy.OverflowPolicy;
 import dev.nthings.otlp4j.codec.Payloads;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.model.Span;
-import dev.nthings.otlp4j.telemetry.LoggingGatewayMetrics;
+import dev.nthings.otlp4j.testing.RecordingGatewayMetrics;
 import dev.nthings.otlp4j.testing.Fixtures;
 import dev.nthings.otlp4j.testing.FlowSubscribers;
 import java.time.Duration;
@@ -23,7 +23,7 @@ class TapMetricsTest {
     @DisplayName("a slow subscriber's overflow drops feed the tap dropped counter")
     @Test
     void tapDropsFeedTheCounter() {
-        var registry = new LoggingGatewayMetrics();
+        var registry = new RecordingGatewayMetrics();
         try (var tap = new ReceiverTap(registry)) {
             // A no-demand subscriber with a 1-slot DROP_NEWEST buffer: everything past the first
             // buffered item is dropped.

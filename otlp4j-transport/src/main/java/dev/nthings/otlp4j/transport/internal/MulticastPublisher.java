@@ -1,7 +1,7 @@
 package dev.nthings.otlp4j.transport.internal;
 
 import dev.nthings.otlp4j.core.policy.OverflowPolicy;
-import dev.nthings.otlp4j.telemetry.GatewayMetrics;
+import dev.nthings.otlp4j.core.telemetry.GatewayMetrics;
 import java.util.Objects;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CopyOnWriteArrayList;

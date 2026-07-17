@@ -3,7 +3,7 @@
 /// descriptors and the telemetry payload marker; `consumer` for the signal consumer contract and
 /// delivery context; `result` for the delivery result taxonomy; `pipeline` for pipeline identity;
 /// and `policy` for the neutral policy vocabulary. The relocated self-observability SPI keeps its
-/// original `dev.nthings.otlp4j.telemetry` package name.
+/// original `dev.nthings.otlp4j.core.telemetry` package name.
 ///
 /// This root package itself carries no exported type; it exists only to document the namespace.
 @NullMarked

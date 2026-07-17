@@ -156,7 +156,7 @@ class FactoryErgonomicsTest {
     // ---- fixtures --------------------------------------------------------------------------------
 
     private static ComponentContext base() {
-        return new ComponentContext(dev.nthings.otlp4j.telemetry.GatewayMetrics.noop(), Clock.systemUTC());
+        return new ComponentContext(dev.nthings.otlp4j.core.telemetry.GatewayMetrics.noop(), Clock.systemUTC());
     }
 
     @SuppressWarnings("unchecked")

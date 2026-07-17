@@ -12,12 +12,13 @@ It is suited to embedded telemetry gateways, test tools, specialized processors,
 
 ## Project status
 
-otlp4j is experimental and currently released only as a `0.1.0-SNAPSHOT`. The API and behavior may change, and the project has not yet received the level of testing expected for production use. Evaluate it carefully before using it for critical telemetry paths.
+otlp4j is experimental and currently released only as a `0.1.0-SNAPSHOT`, and it requires JDK 25. The API and behavior may change, and the project has not yet received the level of testing expected for production use. Evaluate it carefully before using it for critical telemetry paths.
 
 ## Current limitations
 
-- The built-in OTLP transports carry all four signals over gRPC and HTTP (binary protobuf), with plaintext or TLS (and `bindHost` interface selection on the receiver), authentication headers, gzip compression, and Resilience4j-configured retries.
-- Profiles track the experimental OpenTelemetry `v1development` schema; payloads round-trip losslessly via opaque passthrough, but the signal is not yet stable.
-- Telemetry received without a configured consumer is rejected retryably, so every required signal must be connected explicitly and intentional drops must use `discard()`.
+- The consolidated OTLP transport carries all four signals over gRPC and HTTP (binary protobuf) on Armeria, with plaintext or TLS (including mutual TLS, and `bindHost` interface selection on the receiver), authentication headers, gzip compression, and retries that honor a server `Retry-After` / `RetryInfo`.
+- Profiles track the experimental OpenTelemetry `v1development` schema; payloads round-trip losslessly via opaque passthrough, but the signal is not yet stable and the profile body is not introspectable.
+- A gateway is assembled and configured in Java (`Gateway.builder()` or a directly-built `GatewayConfig`): there is no YAML or other declarative configuration format, no authentication or extension subsystem, and queues are in-memory only (no persistent or on-disk sending queue).
+- Telemetry reaching a receiver with no configured downstream is rejected retryably, so every required signal must be wired into a pipeline explicitly.
 
 The project aims to provide a focused, Java-native foundation for custom OTLP workflows while keeping protocol-specific types out of application code. Feedback and issue reports are welcome, especially around interoperability and real-world telemetry workloads.

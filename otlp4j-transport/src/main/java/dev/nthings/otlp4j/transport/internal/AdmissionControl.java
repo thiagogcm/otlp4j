@@ -1,7 +1,7 @@
 package dev.nthings.otlp4j.transport.internal;
 
 import dev.nthings.otlp4j.transport.OtlpReceiverConfig;
-import dev.nthings.otlp4j.telemetry.GatewayMetrics;
+import dev.nthings.otlp4j.core.telemetry.GatewayMetrics;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;

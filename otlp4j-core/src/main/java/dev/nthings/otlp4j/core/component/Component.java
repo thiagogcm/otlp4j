@@ -5,7 +5,6 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
-import org.slf4j.LoggerFactory;
 
 /// A gateway component with a deadline-bounded lifecycle, using the Collector lifecycle vocabulary.
 ///
@@ -43,16 +42,16 @@ public interface Component extends AutoCloseable {
     /// @return a stage that completes on clean drain or exceptionally on timeout
     CompletionStage<Void> shutdown(ShutdownContext context);
 
-    /// Best-effort synchronous drain within the [#DEFAULT_GRACE_PERIOD]. This SWALLOWS a drain
-    /// failure or timeout as a WARN log rather than throwing, so a component can be used in a
-    /// try-with-resources block without masking a primary exception.
+    /// Synchronous drain within the [#DEFAULT_GRACE_PERIOD] for the try-with-resources idiom. A drain
+    /// failure or timeout is rethrown wrapped in an [IllegalStateException] rather than logged, so the
+    /// contracts module carries no logging dependency; call [#shutdown(ShutdownContext)] directly when
+    /// the drain outcome must be observed without the wrapping.
     @Override
     default void close() {
         try {
             shutdown(new ShutdownContext(DEFAULT_GRACE_PERIOD)).toCompletableFuture().join();
         } catch (CompletionException | CancellationException e) {
-            LoggerFactory.getLogger(getClass())
-                    .warn("graceful shutdown of {} failed or timed out during close()", this, e);
+            throw new IllegalStateException("graceful shutdown of " + this + " failed or timed out during close()", e);
         }
     }
 }

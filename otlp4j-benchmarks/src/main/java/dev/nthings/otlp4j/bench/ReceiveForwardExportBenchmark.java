@@ -21,7 +21,7 @@ import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import dev.nthings.otlp4j.service.Gateway;
 import dev.nthings.otlp4j.service.GatewayRuntime;
 import dev.nthings.otlp4j.service.config.PipelineConfig;
-import dev.nthings.otlp4j.telemetry.GatewayMetrics;
+import dev.nthings.otlp4j.core.telemetry.GatewayMetrics;
 import dev.nthings.otlp4j.transport.OtlpExporterConfig;
 import dev.nthings.otlp4j.transport.OtlpReceiverConfig;
 import dev.nthings.otlp4j.transport.OtlpExporterFactory;

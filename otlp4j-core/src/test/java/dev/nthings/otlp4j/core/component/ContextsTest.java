@@ -3,7 +3,7 @@ package dev.nthings.otlp4j.core.component;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import dev.nthings.otlp4j.telemetry.GatewayMetrics;
+import dev.nthings.otlp4j.core.telemetry.GatewayMetrics;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.ZoneOffset;

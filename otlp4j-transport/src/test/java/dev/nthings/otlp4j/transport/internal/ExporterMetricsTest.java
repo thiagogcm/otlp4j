@@ -10,7 +10,7 @@ import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.result.Provenance;
 import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import dev.nthings.otlp4j.model.Span;
-import dev.nthings.otlp4j.telemetry.LoggingGatewayMetrics;
+import dev.nthings.otlp4j.testing.RecordingGatewayMetrics;
 import dev.nthings.otlp4j.testing.Fixtures;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -39,7 +39,7 @@ class ExporterMetricsTest {
     @DisplayName("an acknowledged export increments the success counter")
     @Test
     void acknowledgedExportCountsSuccess() {
-        var registry = new LoggingGatewayMetrics();
+        var registry = new RecordingGatewayMetrics();
         ExporterMetrics.from(registry).recordSend(tracePayload(), 1_000L, DeliveryResult.accepted(PROV), null);
         assertThat(registry.counterValue(SUCCESS)).isEqualTo(1);
         assertThat(registry.counterValue(FAILURE)).isZero();
@@ -48,7 +48,7 @@ class ExporterMetricsTest {
     @DisplayName("a Rejected result increments the failure counter")
     @Test
     void rejectedResultCountsFailure() {
-        var registry = new LoggingGatewayMetrics();
+        var registry = new RecordingGatewayMetrics();
         ExporterMetrics.from(registry).recordSend(
                 tracePayload(), 1_000L, DeliveryResult.retryable("endpoint at capacity", PROV), null);
         assertThat(registry.counterValue(FAILURE)).isEqualTo(1);
@@ -58,7 +58,7 @@ class ExporterMetricsTest {
     @DisplayName("a failed stage increments the failure counter")
     @Test
     void failedStageCountsFailure() {
-        var registry = new LoggingGatewayMetrics();
+        var registry = new RecordingGatewayMetrics();
         ExporterMetrics.from(registry).recordSend(tracePayload(), 1_000L, null, new RuntimeException("boom"));
         assertThat(registry.counterValue(FAILURE)).isEqualTo(1);
         assertThat(registry.counterValue(SUCCESS)).isZero();
@@ -67,7 +67,7 @@ class ExporterMetricsTest {
     @DisplayName("a send records the payload's item count, byte size, and accumulated latency")
     @Test
     void sendRecordsItemsBytesAndLatency() {
-        var registry = new LoggingGatewayMetrics();
+        var registry = new RecordingGatewayMetrics();
         var payload = tracePayload();
         var expectedItems = payload.itemCount();
         var expectedBytes = payload.estimatedSerializedSize();
@@ -80,7 +80,7 @@ class ExporterMetricsTest {
     @DisplayName("recordRetry increments the retry counter once per call")
     @Test
     void recordRetryCountsEachAttempt() {
-        var registry = new LoggingGatewayMetrics();
+        var registry = new RecordingGatewayMetrics();
         var metrics = ExporterMetrics.from(registry);
         metrics.recordRetry();
         metrics.recordRetry();

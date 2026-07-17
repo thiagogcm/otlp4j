@@ -34,7 +34,7 @@ flowchart LR
 | Runtime | Java, automatic module names | Java 25, full JPMS module descriptors | Go binary |
 | Input | `Tracer` / `Meter` / `Logger` calls | OTLP gRPC and HTTP receivers | OTLP plus many formats (contrib) |
 | Output | OTLP, Zipkin, Prometheus, logging | OTLP gRPC and HTTP | OTLP plus many formats (contrib) |
-| Configuration | Code, plus env/SPI autoconfigure | Fluent Java builders | YAML (confmap) |
+| Configuration | Code, plus env/SPI autoconfigure | Fluent Java builders (handle-based graph) | YAML (confmap) |
 | Assembly | Maven dependency | Maven dependency | `ocb`-built custom binary |
 | Maturity | `1.63.0` stable, profiles alpha | `0.1.0-SNAPSHOT`, experimental | `v1.61.0` stable core |
 
@@ -45,14 +45,14 @@ Because they sit in different zones they are not substitutes. The SDK has no OTL
 | The SDK owns (before OTLP) | otlp4j owns (after OTLP) |
 | --- | --- |
 | `Tracer` / `Meter` / `Logger` instrumentation API and span lifecycle | OTLP gRPC and HTTP **receivers**, which the SDK lacks entirely |
-| `Context` propagation (W3C, B3, Jaeger, OT Trace) | Declarative **pipeline DSL** with transform, filter, and fan-out |
-| Sampling (`ParentBased`, `TraceIdRatioBased`, Jaeger remote, custom) | Live **`TelemetryTap`** `Flow.Publisher` streams off the acknowledgement path |
-| `SpanProcessor` / `LogRecordProcessor` (batch, simple) | Receive-side **partial success** (`ConsumeResult`) mapped to OTLP responses |
-| Metrics **aggregation engine**: temporality, `View`, cardinality limits, exemplar filter (all GA) | **Signal-to-signal connectors** at batch granularity: built-in `spanCount`/`logRecordCount`, plus a `(Signal, Signal)`-keyed factory for your own, each fanning to one or more downstreams |
+| `Context` propagation (W3C, B3, Jaeger, OT Trace) | A **handle-based gateway graph** (`Gateway.builder()`) with processors, filtering, routing, and fan-out |
+| Sampling (`ParentBased`, `TraceIdRatioBased`, Jaeger remote, custom) | Built-in **batch, memory-limiter, filter, and routing** processors, plus `ProcessorFactory.of` for inline transforms |
+| `SpanProcessor` / `LogRecordProcessor` (batch, simple) | Receive-side **delivery results** (`Accepted` / `Partial` / `Rejected`) mapped to OTLP responses |
+| Metrics **aggregation engine**: temporality, `View`, cardinality limits, exemplar filter (all GA) | **Signal-to-signal connectors** at batch granularity: the built-in trace-to-metric span-count connector, plus the `SignalPair`-keyed `ConnectorFactory` SPI for your own, each fanning to one or more downstreams |
 | `SpanLimits` / `LogLimits` and other production guardrails | Global receiver **admission control** (in-flight request and byte caps) |
-| `BatchSpanProcessor`'s own queue self-instrumentation (size, dropped, processed) | Gateway-wide **`GatewayMetrics`** SPI: queue depth, drops, drain failures, admission rejections, export outcomes, no-op by default |
+| `BatchSpanProcessor`'s own queue self-instrumentation (size, dropped, processed) | Gateway-wide **`GatewayMetrics`** SPI: admission rejections, tap drops, and export outcomes, no-op by default |
 | Autoconfigure env/SPI and resource detection (rich detectors live in contrib) | **Proto-free immutable** domain model with JPMS-isolated protobuf |
-| Non-OTLP exporters (Zipkin, Prometheus, logging, OTLP-JSON) | Dual OTLP transports under one contract (Netty gRPC, JDK-only HTTP) |
+| Non-OTLP exporters (Zipkin, Prometheus, logging, OTLP-JSON) | One consolidated OTLP transport on Armeria carrying both gRPC and HTTP |
 
 The intended integration follows from this split: instrument the application with the SDK, then point its OTLP exporter at an embedded otlp4j receiver in the same JVM (or a sidecar) rather than straight at the network. otlp4j can then buffer, enrich, redact, duplicate, or route the stream locally before it leaves the process, shielding the app from backend latency or downtime. Use the SDK to make telemetry, use otlp4j to control it once it is OTLP.
 
@@ -62,20 +62,20 @@ This is the closer comparison. Both receive OTLP, process it through a pipeline 
 
 | OpenTelemetry Collector | otlp4j |
 | --- | --- |
-| `otlpreceiver` (gRPC + HTTP) | `OtlpGrpcReceiver` / `OtlpHttpReceiver` |
-| `consumer.Traces` (`ConsumeTraces(ctx, td) error`) | `TracesSink` (`Sink<TracesData>` returning `CompletionStage<ConsumeResult>`) |
-| `processor` (`batch`, `memory_limiter`) | `Transform` / `AsyncTransform`, `Processor` (`Processors`, `AbstractProcessor`), `Batcher`, `AdmissionControl` |
-| `connector` (`forward`, traces-to-metrics), a factory-wired N-by-M matrix | `Connector<I, O>` (`spanCount`/`logRecordCount` built in; `Connectors.of(in, out, derive, ...)` for your own), fanning to one or more downstreams |
-| `otlpexporter` / `otlphttpexporter` | `OtlpGrpcExporter` / `OtlpHttpExporter` |
-| `component.TelemetrySettings` (every component self-reports) | `GatewayMetrics` SPI (`telemetry(...)` on the entry-point builders), no-op by default |
-| `pdata` (mutable OTLP wrapper) | proto-free **immutable** model records |
+| `otlpreceiver` (gRPC + HTTP) | `OtlpReceiverFactory.grpc()` / `.http()` (or the `OtlpReceiver` builders) |
+| `consumer.Traces` (`ConsumeTraces(ctx, td) error`) | `SignalConsumer` (returning `CompletionStage<DeliveryResult>`) |
+| `processor` (`batch`, `memory_limiter`) | built-in `BatchProcessorFactory`, `MemoryLimiterProcessorFactory`, `FilterProcessorFactory`, `RoutingProcessorFactory`, plus `ProcessorFactory.of` for inline transforms |
+| `connector` (`forward`, traces-to-metrics), a factory-wired N-by-M matrix | `ConnectorFactory` keyed by `SignalPair` (`SpanCountConnectorFactory` built in), fanning to one or more downstreams |
+| `otlpexporter` / `otlphttpexporter` | `OtlpExporterFactory.grpc()` / `.http()` (or the `OtlpExporter` builders) |
+| `component.TelemetrySettings` (every component self-reports) | `GatewayMetrics` SPI (`telemetry(...)` on the transport builders), no-op by default |
+| `pdata` (mutable OTLP wrapper) | proto-free **immutable** model records behind the opaque `TelemetryPayload` |
 | `Capabilities{MutatesData}` plus clone-on-fan-out | immutable records, so fan-out shares with no copy |
-| service graph DAG built from YAML | `Pipeline` DSL plus `Wiring`, built in code |
+| service graph DAG built from YAML | the `Gateway.builder()` handle-based graph (or a directly-built `GatewayConfig`), assembled in code |
 | `confmap` YAML with `${env:...}` expansion | fluent builders plus `fromEnvironment()` |
-| `exporterhelper` sending queue (memory or persistent) | `Batcher` (in-memory only) |
-| `wait_for_result` (hold the ack for the export result) | `Batcher.AckMode.ON_DELIVERY` (the default) |
-| `configretry` exponential backoff | Resilience4j `RetryConfig` |
-| `ExportPartialSuccess` response | `ConsumeResult` (`Accepted` / `Partial` / `Rejected`) |
+| `exporterhelper` sending queue (memory or persistent) | the batch processor's bounded delivery queue (`DeliveryQueuePolicy`, in-memory only) |
+| `wait_for_result` (hold the ack for the export result) | the delivery-result stage is awaited to completion |
+| `configretry` exponential backoff | `RetryPolicy` / `BackoffPolicy` (server `Retry-After` honored) |
+| `ExportPartialSuccess` response | `DeliveryResult` (`Accepted` / `Partial` / `Rejected`) |
 | `ocb` builder produces a custom binary | Maven dependency, no build or codegen step |
 
 The differences are all form factor.

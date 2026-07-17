@@ -179,3 +179,14 @@ Twelve reactor modules become eleven; the public API surface (exported packages 
 ### Sequencing and verification
 
 Land the packages in order (WP1 through WP6); each is independently green-able. WP1 and WP2 are pure deletion and can ship the same day. WP3 is the largest single change and should be one focused branch. WP4's handle API is the only part with real design freedom; prototype it against the demo and the conformance seam before committing to the shape. After each package: `./mvnw -B verify`, plus the JMH smoke (`bench` profile, one fork, min iterations) after WP3 to confirm the adapter-flattening did not regress the passthrough path it exists to protect.
+
+## Outcome
+
+WP1 through WP6 landed on the `cleanup` branch, leaving the reactor green under `./mvnw -B verify` and the module count at eleven (plus the profile-gated `otlp4j-benchmarks`). The plan held, with a handful of deviations recorded here so the code and this document agree:
+
+- **The inline processor seam carries a `PayloadFactory`.** `ProcessorFactory.of` is four arguments (`type`, `signal`, `transform`, `payloads`) rather than the three-argument sketch: the caller passes `Payloads.DOMAIN` as the emit seam, which is what keeps the factory in `otlp4j-core` without a codec dependency (core cannot name a codec type, so the emit function is injected).
+- **`transport.internal.Protocol` stays public within its unexported package.** The `OtlpReceiverFactory`/`OtlpExporterFactory` facades and the internal Armeria client and server reference it across packages inside the module, so it could not go package-private; it remains encapsulated by the module boundary (the `internal` package is never exported).
+- **`StabilityLevel` and `SignalDescriptor`'s stability field were both removed.** Cutting the mandatory `ComponentFactory.stability()` metadata (WP2) took the descriptor's redundant stability field with it; no production code read either.
+- **The materializer is the package-private `GatewayCompiler`.** The builder and the declarative `Gateway.compile(config)` path both funnel through it; there is no separate public assembler type.
+- **The DSL entry point is `Gateway.builder()` / `Gateway.compile(...)`.** `GatewayAssembler` disappeared into `GatewayBuilder`, whose registrations return the typed handles the pipelines wire; `GatewayConfig` remains directly constructible for the programmatic and future declarative paths.
+- **`LoggingGatewayMetrics` moved to `otlp4j-samples`** (it was a sample adapter by its own Javadoc), and a dependency-free `RecordingGatewayMetrics` in `otlp4j-testing` took over the assertion role it had been serving in the transport and conformance tests. With that and the rethrow-on-`close` change, `otlp4j-core` dropped `requires org.slf4j` and its telemetry package moved under `dev.nthings.otlp4j.core.telemetry`.

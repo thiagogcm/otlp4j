@@ -2,7 +2,7 @@ package dev.nthings.otlp4j.transport.internal;
 
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.signal.TelemetryPayload;
-import dev.nthings.otlp4j.telemetry.GatewayMetrics;
+import dev.nthings.otlp4j.core.telemetry.GatewayMetrics;
 import org.jspecify.annotations.Nullable;
 
 /// The single owner of the exporter's self-observability instruments. One instance is built per

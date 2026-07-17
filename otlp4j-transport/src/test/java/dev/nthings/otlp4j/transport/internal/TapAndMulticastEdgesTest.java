@@ -26,7 +26,7 @@ class TapAndMulticastEdgesTest {
     @DisplayName("A typed channel multicasts to every subscriber")
     @Test
     void receiverTapMulticastsToEverySubscriber() {
-        var tap = new ReceiverTap(dev.nthings.otlp4j.telemetry.GatewayMetrics.noop());
+        var tap = new ReceiverTap(dev.nthings.otlp4j.core.telemetry.GatewayMetrics.noop());
         try {
             var first = new CopyOnWriteArrayList<TelemetryPayload>();
             var second = new CopyOnWriteArrayList<TelemetryPayload>();
@@ -45,7 +45,7 @@ class TapAndMulticastEdgesTest {
     @DisplayName("droppedCount increases when a subscriber stalls")
     @Test
     void droppedCountIncrementsWhenSubscriberStalls() {
-        var tap = new ReceiverTap(dev.nthings.otlp4j.telemetry.GatewayMetrics.noop());
+        var tap = new ReceiverTap(dev.nthings.otlp4j.core.telemetry.GatewayMetrics.noop());
         try {
             tap.publisher(SignalDescriptor.TRACES, new TapOptions(OverflowPolicy.DROP_NEWEST, 1))
                     .subscribe(FlowSubscribers.noOp());

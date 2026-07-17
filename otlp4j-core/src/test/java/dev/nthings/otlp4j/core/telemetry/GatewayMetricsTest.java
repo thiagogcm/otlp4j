@@ -1,9 +1,11 @@
-package dev.nthings.otlp4j.telemetry;
+package dev.nthings.otlp4j.core.telemetry;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.LongSupplier;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -28,7 +30,20 @@ class GatewayMetricsTest {
     @DisplayName("a real registry accumulates counter deltas and samples the live gauge value")
     @Test
     void realRegistryCountsAndSamples() {
-        var registry = new LoggingGatewayMetrics();
+        var total = new AtomicLong();
+        var gauge = new AtomicReference<LongSupplier>();
+        GatewayMetrics registry = new GatewayMetrics() {
+            @Override
+            public LongCounter counter(String name, String description) {
+                return total::addAndGet;
+            }
+
+            @Override
+            public Registration gauge(String name, String description, LongSupplier value) {
+                gauge.set(value);
+                return () -> gauge.set(null);
+            }
+        };
         var live = new AtomicLong(7);
 
         var counter = registry.counter("otlp4j.test.count", "a count");
@@ -36,12 +51,12 @@ class GatewayMetricsTest {
 
         counter.add(3);
         counter.add(4);
-        assertThat(registry.counterValue("otlp4j.test.count")).isEqualTo(7);
+        assertThat(total.get()).isEqualTo(7);
 
         live.set(99);
-        assertThat(registry.gaugeValue("otlp4j.test.gauge")).isEqualTo(99);
+        assertThat(gauge.get().getAsLong()).isEqualTo(99);
 
         registration.close();
-        assertThat(registry.gaugeValue("otlp4j.test.gauge")).isZero();
+        assertThat(gauge.get()).isNull();
     }
 }

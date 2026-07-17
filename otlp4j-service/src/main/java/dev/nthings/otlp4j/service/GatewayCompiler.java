@@ -37,7 +37,7 @@ import dev.nthings.otlp4j.service.internal.graph.ServiceGraph;
 import dev.nthings.otlp4j.service.validation.Diagnostic;
 import dev.nthings.otlp4j.service.validation.DiagnosticCode;
 import dev.nthings.otlp4j.service.validation.GraphValidationException;
-import dev.nthings.otlp4j.telemetry.GatewayMetrics;
+import dev.nthings.otlp4j.core.telemetry.GatewayMetrics;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.HashMap;

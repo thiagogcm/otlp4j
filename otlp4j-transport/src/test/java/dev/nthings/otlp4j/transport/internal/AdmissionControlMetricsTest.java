@@ -4,8 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 
 import dev.nthings.otlp4j.transport.OtlpReceiverConfig;
-import dev.nthings.otlp4j.telemetry.GatewayMetrics;
-import dev.nthings.otlp4j.telemetry.LoggingGatewayMetrics;
+import dev.nthings.otlp4j.core.telemetry.GatewayMetrics;
+import dev.nthings.otlp4j.testing.RecordingGatewayMetrics;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -22,7 +22,7 @@ class AdmissionControlMetricsTest {
     @DisplayName("a capped control feeds the rejected counter and in-flight gauges")
     @Test
     void cappedControlReportsRejectionsAndInFlight() {
-        var registry = new LoggingGatewayMetrics();
+        var registry = new RecordingGatewayMetrics();
         var admission = AdmissionControl.of(
                 OtlpReceiverConfig.builder(4317).setMaxInFlightRequests(1).build(), registry);
 
@@ -43,7 +43,7 @@ class AdmissionControlMetricsTest {
     @DisplayName("an uncapped control with a real registry still registers gauges and a zero rejected counter")
     @Test
     void uncappedWithRegistryStillObserves() {
-        var registry = new LoggingGatewayMetrics();
+        var registry = new RecordingGatewayMetrics();
         var admission = AdmissionControl.of(OtlpReceiverConfig.builder(4317).build(), registry);
 
         // Not the shared singleton: a per-instance counting control that observes but never rejects.
@@ -71,7 +71,7 @@ class AdmissionControlMetricsTest {
     @DisplayName("close unregisters the in-flight gauges and is idempotent")
     @Test
     void closeUnregistersGaugesIdempotently() {
-        var registry = new LoggingGatewayMetrics();
+        var registry = new RecordingGatewayMetrics();
         var admission = AdmissionControl.of(
                 OtlpReceiverConfig.builder(4317).setMaxInFlightBytes(1000).build(), registry);
 

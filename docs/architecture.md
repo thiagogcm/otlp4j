@@ -1,124 +1,142 @@
 # Architecture
 
-otlp4j isolates the wire protocol from its public Java API. Applications exchange immutable domain records with signal-specific sinks; only the transport maps those records to generated OTLP messages.
+otlp4j is an in-process OTLP gateway. Telemetry arrives as OTLP over gRPC or HTTP, flows through a graph of components, and leaves as OTLP. The design follows the OpenTelemetry Collector's component model (receivers, processors, exporters, connectors assembled into pipelines and run by a service graph), translated into typed Java with immutable records and strict JPMS module boundaries. This document describes the modules, the component model, the payload design, the graph lifecycle, the delivery and policy vocabulary, the transport, and the self-observability surface.
 
-## Module boundaries
+## Modules and dependency direction
 
-The dependency graph is deliberately one-way:
+Dependencies run one way, from the domain up to the transport and the built-ins, and JPMS enforces the direction: no generated proto or gRPC type is exported past the codec and transport boundary.
 
-```mermaid
-flowchart LR
-    application[Application] --> api[otlp4j-api]
-    application --> grpc[otlp4j-transport-grpc]
-    application --> http[otlp4j-transport-http]
-    api --> model[otlp4j-model]
-    grpc --> common[otlp4j-transport-common]
-    grpc --> codec[otlp4j-codec]
-    http --> common
-    http --> codec
-    common --> api
-    codec --> model
-    codec --> proto[otlp4j-proto]
-```
-
-`otlp4j-api` re-exports `otlp4j-model` (so API signatures expose model types with no extra `requires`) but never reads the codec, transport, or proto modules; it also exports `dev.nthings.otlp4j.telemetry`, the self-observability SPI (below). `otlp4j-proto` qualified-exports its generated packages only to `otlp4j-codec` and the two transports, keeping proto and gRPC types out of the user-facing surface. `otlp4j-transport-common` exports one unqualified package, `dev.nthings.otlp4j.transport.common`: `ClientHeaders` and `ResilienceRetries` live there too (promoted from a qualified-exported `internal` package that no longer exists), so a third-party transport reuses them with no module edit; each transport exports just its `transport.grpc` / `transport.http` entry-point package.
-
-There is no provider discovery. An application picks a transport by instantiating a concrete entry point: `OtlpGrpcExporter`/`OtlpGrpcReceiver` (gRPC on Netty) or `OtlpHttpExporter`/`OtlpHttpReceiver` (JDK `java.net.http` / `jdk.httpserver`). Each is built on an `OtlpClient`/`OtlpServer` implementation of the `dev.nthings.otlp4j.spi` contracts, both symmetric `Lifecycle` resources (`OtlpClient` gained `shutdown(Duration)` alongside `OtlpServer`'s), and shares the `otlp4j-codec` proto/domain mappers. `otlp4j-transport-common` turns those wire implementations into the user-facing surface: `ClientExporter` adapts an `OtlpClient` into an `OtlpExporter` (facet fan-out, reference-counted channel, GC leak warning), `ServerReceiver` adapts an `OtlpServer` into a `Receiver` (per-signal sources, tap mirroring, dispatch), `AdmissionControl` gates in-flight work, and `AbstractExporterBuilder`/`AbstractReceiverBuilder` carry the shared fluent configuration, including a `telemetry(GatewayMetrics)` knob (below). The two transport modules are independent, so an HTTP-only deployment never pulls in gRPC or Netty, and a gRPC-only one never pulls in the HTTP server.
-
-## Request path
-
-Each signal follows the same asynchronous request and acknowledgement path:
+| Layer | Module | Responsibility |
+| --- | --- | --- |
+| Domain | `otlp4j-model` | Immutable OTLP records for the four signals, their builders, and the attribute model. Proto-free, depends only on jspecify. |
+| Contracts | `otlp4j-core` | The component SPI (four kinds plus factories), signal descriptors and batch algebra, the opaque `TelemetryPayload` and its view system, delivery results, the neutral policy vocabulary, and the `GatewayMetrics` SPI. Proto-free. |
+| Wire boundary | `otlp4j-proto`, `otlp4j-codec` | Generated protobuf and gRPC stubs (qualified-exported only to codec and transport), and the model-to-proto mappers behind the two payload implementations, reached through the `Payloads` facade. |
+| Orchestration | `otlp4j-service` | The declarative `GatewayConfig`, the JGraphT service graph, the validation diagnostics, and the `Gateway` builder and `GatewayRuntime`. |
+| Transport | `otlp4j-transport` | The one Armeria implementation of both OTLP/gRPC and OTLP/HTTP: two graph factories, two standalone entry points, admission control, and retry. |
+| Built-ins | `otlp4j-components` | The batch, memory-limiter, filter, and routing processors, and the span-count connector. |
+| Verification | `otlp4j-testing`, `otlp4j-conformance`, `otlp4j-coverage`, `otlp4j-benchmarks` | Reusable conformance and policy suites, their Armeria instantiations, coverage aggregation, and JMH benchmarks. |
 
 ```mermaid
-sequenceDiagram
-    participant Sender as OTLP sender
-    participant Server as Receiver transport
-    participant Source as Signal Source
-    participant Sink as Pipeline / sink
-    participant Tap as Telemetry tap
+flowchart TD
+    model[otlp4j-model]
+    proto[otlp4j-proto]
+    core[otlp4j-core]
+    codec[otlp4j-codec]
+    service[otlp4j-service]
+    transport[otlp4j-transport]
+    components[otlp4j-components]
+    samples[otlp4j-samples]
 
-    Sender->>Server: Export request
-    Server--)Tap: Publish copy of reference
-    Server->>Source: Domain batch
-    Source->>Sink: consume(batch)
-    Sink-->>Source: CompletionStage<ConsumeResult>
-    Source-->>Server: Accepted, Partial, or Rejected
-    Server-->>Sender: OTLP response
+    model --> core
+    model --> codec
+    proto --> codec
+    proto --> transport
+    core --> codec
+    core --> service
+    core --> transport
+    core --> components
+    codec --> transport
+    codec --> components
+    service --> samples
+    transport --> samples
+    components --> samples
 ```
 
-The transport converts a completed `ConsumeResult` into the signal's OTLP partial-success response. A thrown exception or exceptionally completed stage becomes a transport failure. The tap sits outside this acknowledgement path unconditionally: every tap overflow strategy resolves immediately on the publishing thread.
+The payload design is what keeps the direction clean past the domain: `otlp4j-service`, `otlp4j-transport`, and `otlp4j-components` import zero `dev.nthings.otlp4j.model` types on their hot paths, so a same-protocol relay never materializes the domain (see the no-materialization guarantee below).
 
-Before decode-and-dispatch, each transport checks the receiver's global `AdmissionControl` (from `ServerConfig.maxInFlightRequests`/`maxInFlightBytes`, both off by default): at capacity the request is rejected retryably (gRPC `UNAVAILABLE` "receiver at capacity", HTTP `429`), carrying the configured `throttleRetryAfter` hint when set. The permit spans the whole asynchronous dispatch, so slow pipelines bound in-flight work rather than just connection counts.
+## The component model
 
-An unattached source returns a retryable `Rejected`, so missing or late wiring is visible to the sender. A source has one attachment slot, so fan-out must be part of the attached consumer graph; attach `Source.discard()` when accept-and-drop is intentional.
+A component is an `AutoCloseable` with a deadline-bounded lifecycle: `start`, an optional `forceFlush`, and `shutdown`, each returning a `CompletionStage`. `close()` is the try-with-resources idiom, a synchronous drain within a ten-second grace period that rethrows a failure wrapped in an `IllegalStateException` rather than logging (the contracts module carries no logging dependency).
 
-## Pipeline semantics
+There are four component kinds, each with its own factory contract in `otlp4j-core`:
 
-`Pipeline.from(source)` composes batch operations before attaching one terminal consumer:
+| Kind | Factory | What it does |
+| --- | --- | --- |
+| Receiver | `ReceiverFactory` | Accepts OTLP off the wire and hands each signal to its downstream consumer. |
+| Processor | `ProcessorFactory` | Transforms, filters, or buffers a batch and forwards what survives. |
+| Exporter | `ExporterFactory` | Terminates a pipeline by sending or sinking a batch, returning a delivery result. |
+| Connector | `ConnectorFactory` | Bridges one pipeline's output into another pipeline's input, deriving one signal from another. A connector is the only way pipelines compose. |
 
-- `transform` rewrites one batch synchronously without changing its signal type. Transforms are 1-to-1 and must return non-null; a null return is a contract violation rejected permanently. Dropping a batch is `filter`'s job.
-- `transformAsync` adds an asynchronous 1-to-1 stage (`AsyncTransform<T>` completing a `CompletionStage`); the pipeline delivers downstream only when the stage completes, so the transport acknowledgement covers it. A fully synchronous pipeline keeps a plain-function fast path with no per-stage future allocation ahead of the terminal.
-- `filter` acknowledges a batch as accepted without forwarding it when the predicate returns false.
-- `via` inserts a same-signal `Processor<T>` mid-chain: it receives the batch plus `next` (the rest of the chain) and controls delivery itself: drop, forward, coalesce, or split, 1-to-N where `transform` is strictly 1-to-1. A stateful processor implementing `Lifecycle`/`AutoCloseable` is auto-collected and drained before the downstream it feeds, the same auto-collection `transformAsync` already gets. `Batcher<T>` is itself rebuilt on `Processor`, so `.via(Batcher.forTraces().buildProcessor())` batches mid-chain, capturing `next` from the pipeline rather than a builder-bound downstream.
-- `owns` registers an `AutoCloseable` the pipeline cannot otherwise reach (behind a bare lambda terminal, or an exporter fronted by a `Batcher` bound via `.downstream(...)`, which drains its own queue but not its downstream), so the subscription drains it on shutdown and flushes it on `forceFlush`. A stateful `.via` processor needs no such declaration; it is auto-collected structurally.
-- `to` attaches one terminal consumer; pass `FanOut.of(...)` to send the same batch to several peers concurrently. A single peer collapses to the peer itself; an empty peer set is a no-op sink that accepts and discards.
+A factory declares its component `type()` (for example `otlp`, `otlphttp`, `batch`), its `defaultConfig()`, and a `create(...)` seam the graph calls with a typed configuration. A connector additionally declares the `Set<SignalPair<?, ?>>` it supports (the span-count connector supports `(TRACES, METRICS)`). Configuration is a `ComponentConfig`; a component that needs none returns the shared `ComponentConfig.NONE` singleton.
 
-Fan-out sends the same immutable batch reference to every peer. If any peer rejects, the merged result is rejected (a retryable merge carries the longest peer retry-after hint); otherwise a partial result uses the largest rejected-item count rather than a sum, because all peers saw the same input.
+Two static seams collapse the boilerplate a trivial component would otherwise cost, and both keep their factory in `otlp4j-core`:
 
-A subscription drains every terminal or fan-out peer that implements `AutoCloseable`: exporter facets carrying their exporter's lifecycle, a directly attached `Batcher`, closeable async transforms, closeable/`Lifecycle` mid-chain processors attached via `.via`, and connectors that cascade to the downstream they wrap, plus any `owns(...)` resource, all within one shared deadline. Collected resources are deduplicated by reference identity, so a resource reachable twice is retained and shut down once. A multi-signal exporter is reference-counted (`SharedLifecycle`), so a channel shared by facets in two subscriptions closes only once both have shut down. `SharedLifecycle` pairs `retain()` with two symmetric verbs: `shutdown` decrements and drains on the last release, while `release()` decrements without draining, for an owner that detaches its stake but is not the one to tear the resource down (the last owner still must `shutdown()`, and the exporter's GC cleaner remains the leak backstop if none does). The drain itself logs nothing; the leak backstop lives on the exporter, whose GC cleaner warns if the exporter is collected having never been shut down.
+- `ProcessorFactory.of(type, signal, transform, payloads)` builds a non-mutating processor from a single batch transform (`UnaryOperator<@Nullable M>`, returning `null` to drop the batch). The `payloads` argument is the emit seam, `Payloads.DOMAIN` from the codec, so the factory needs no codec dependency of its own.
+- `ExporterFactory.of(type, terminal)` builds a terminal exporter from one lambda that consumes a payload and completes with a delivery result stamped with the facet's provenance.
 
-`Wiring` aggregates a whole gateway's lifecycle into one handle: receivers stop first (in-flight requests finish through the live pipeline), then pipeline subscriptions drain, then directly-owned resources close, on one shared deadline, best-effort with first-error rethrow, idempotent and deduplicated across phases.
+## Payloads and views
 
-There is deliberately no internal wiring graph. A graph cannot see resources hidden behind lambdas (the reason `owns` exists), cross-pipeline sharing is already handled by `SharedLifecycle` reference counting, and within one pipeline the topology is a known linear chain with fan-out leaves whose collection walk is already topological. The linear DSL plus `Wiring` covers the real ordering problems without a graph dependency. `PipelineHandle#describe`/`Wiring#describe` dump that same already-known structure (source, terminal shape and runtime class, and the resources a pipeline drains) rather than building a new graph over it, and `Wiring#validate` runs cheap identity-based checks over it (unattached receivers or pipelines, a redundant `owns`, the same non-shared `Lifecycle` attached to two pipelines, an opaque lambda terminal with no `owns` declared). Both are reflection-free and honest about the boundary: a bare-lambda terminal's captures stay invisible, so `validate` can only flag that case as advisory, never confirm it.
+The unit that flows between components is a `TelemetryPayload`: an opaque, signal-tagged carrier that hides whether the batch is currently proto bytes or domain records. A component reads what it needs through a `PayloadView` rather than by forcing a representation. The load-bearing view is `DOMAIN_IMMUTABLE` (the typed `TracesData`/`MetricsData`/`LogsData`/`ProfilesData` records, materialized lazily on first request), alongside lighter views for routing metadata and item counts that answer without materializing anything.
 
-## Processing and routing
+There are two payload implementations behind the codec's `Payloads` facade: a proto-backed one built from a wire request, and a domain-backed one built from a domain batch (`Payloads.domain(signal, batch)`). Each caches the other representation lazily and only when a consumer actually asks for it.
 
-Built-in stateless transforms filter or rewrite spans and log records and set resource attributes on any signal; the record-level filters prune empty resource and scope groups.
+**The no-materialization guarantee.** A payload that arrives as proto and leaves as proto (a same-protocol relay, or a routing decision made on metadata) is never turned into domain records. Only a component that reads the domain, an inline `ProcessorFactory.of` transform or an exporter that inspects the batch, triggers the lazy materialization, and only for the signal it touches. This is what lets the service, transport, and components modules stay free of `otlp4j-model` imports on the hot path, and it is parity-tested (a proto payload and a domain payload agree on item counts and routing metadata without either being materialized).
 
-`Processor<T>` is the extensible, same-signal mid-chain component: a pure SAM, `process(T batch, Sink<? super T> next)`, mirroring `AsyncTransform`'s "pure SAM, lifecycle opt-in" shape rather than baking `Lifecycle` into the contract, so a stateless processor stays a plain lambda. `Processors.pruning`/`Processors.of` name stateless processors; `pipeline.ops.AbstractProcessor<T>` is the base for a stateful one, owning a captured-`next` accessor and an idempotent shutdown so a buffering subclass can flush into the chain continuation from its `onShutdown`/`onForceFlush` hooks. A plain-`Lifecycle` `AbstractProcessor` is single-attachment by design (one instance, one pipeline chain); genuine cross-pipeline sharing requires the stage to implement `SharedLifecycle` itself, exactly as `Connector`/`ClientExporter.Facet` do. Outside the DSL, `Processor#asSink(downstream)` binds a fixed downstream into a terminal `Sink`, cascading lifecycle to both sides like `Connector`.
+## The service graph and its lifecycle
 
-`Batcher<T>` is rebuilt on `Processor`: it still `implements Sink<T>, Lifecycle` for the bound/terminal form (`.downstream(...).build()`, unchanged), and now additionally `implements Processor<T>` for a mid-chain form (`.via(Batcher.forTraces().buildProcessor())`) that captures its drain target from the pipeline's own chain continuation instead of a builder-bound sink. Either way it merges buffered batches by concatenating their top-level resource groups per signal (it does not coalesce identical resources), flushing when the queue reaches `flushThreshold`, on a `flushInterval` timer (default one second, per-instance and configurable), or through `forceFlush`/`shutdown`. The timer is driven by a `BatchScheduler`: an owned one built with `BatchScheduler.create()`, or, if none is set on the builder, the process-wide `BatchScheduler.shared()` fallback (one daemon thread named `otlp4j-batch-timer`, never shut down, the same posture the timer had before it became ownable). An owned scheduler isolates one gateway's timer thread from another sharing the same JVM; the batcher uses but never owns it, so the caller registers it with `Wiring.Builder#owns` and closes it only after every batcher sharing it has shut down. `AckMode` names when `consume`'s ack completes: the default `ON_DELIVERY` holds it open until the batch is drained and delivered, completing it with the real downstream result (bounded by `flushInterval` to first drain and, once in flight, by the optional `deliveryTimeout`), so a sender learns of a downstream failure and retains its data; `ON_ENQUEUE` completes the ack `Accepted` at enqueue, before delivery, losing a batch silently on a later failed drain except for the `drainFailedCount()` counter and a WARN log. The opt-in `Builder#circuitBreaker` mode (renamed from `reflectDownstreamFailures`; same behavior) is orthogonal to `AckMode`: it reflects a failed drain back at ingress as retryable rejections with a one-flush-interval retry-after hint until a drain succeeds or the window admits a probe, rejecting new batches rather than reporting on the ones already queued. It is a proactive ingress circuit breaker, distinct from `AckMode.ON_DELIVERY`'s reactive per-drain truthfulness; a forwarding gateway typically wants both. `droppedCount()` (queue overflow) and `drainFailedCount()` (failed-drain batches) are the two loss counters, kept distinct because the second one's data-loss meaning depends on the ack mode. A `Builder#telemetry(GatewayMetrics)` knob (default a no-op) feeds `otlp4j.batcher.dropped`, `otlp4j.batcher.drain_failed`, and a polled `otlp4j.batcher.queued` gauge into the self-observability registry (below) alongside these getters. Profiles batching is available only through the experimental `forProfilesUnsafe()` factory. `shutdown` still drains only the batcher's own queue and never cascades to its downstream in either form: the bound form's downstream needs `owns(...)`, the mid-chain form's downstream is the pipeline's own tracked continuation.
+`otlp4j-service` turns a declarative `GatewayConfig` (components keyed by `ComponentId`, pipelines keyed by `PipelineId`, and service options) into a running `GatewayRuntime`. There are two ways to produce the config:
 
-`Connector<I, O>` is the general signal-changing bridge: subclasses implement one synchronous `derive(I)` method mapping an input batch to zero or one downstream batch, and the base class owns delivery, failure normalization, the `FailurePolicy` contract, and the lifecycle cascade (with `onShutdown`/`onForceFlush` hooks for connector-local state, run before the downstream cascade). A connector fans its derived batch to one or more downstreams: the delivery path composes them with `FanOut.of(...)`, so a single downstream collapses to the bare peer and two or more get real per-peer parallelism (`FanOut`'s own virtual-thread launch, below), with results merged by FanOut semantics (worst-case rejection); the lifecycle cascade (`retain`/`release`/`shutdown`/`forceFlush`) still iterates the explicit downstream list, since `FanOut` itself is not a `Lifecycle`. This has one deliberate, documented, and tested consequence: with a single downstream, the connector's own try/catch runs and a downstream `Error` is rethrown (fail-fast on a programming bug in the one downstream); with two or more downstreams, the fan isolates each peer, so a peer `Error` becomes a captured rejection governed by `FailurePolicy` rather than aborting delivery to the healthy peers. `Connectors.of(name, in, out, derive, downstream(s), policy)` is a general `(Signal<I>, Signal<O>)`-keyed factory (backed by a package-private `FunctionConnector`), so adding a signal-conversion connector is one factory call rather than a subclass; `Connectors.spanCount` (emitting `otlp4j.connector.span.count`) and `Connectors.logRecordCount` (`otlp4j.connector.log.record.count`) are the two built-in instances, each with a multi-downstream list overload too. They consume their input signal and send a derived `MetricsData` to one or more `MetricsSink`s without forwarding the original batch; each count flush carries a real delta window from the previous flush to now, monotonic even under concurrent calls or a backward wall-clock step. As a `Lifecycle`, a connector cascades `shutdown`/`forceFlush` to its downstream(s) and takes on the pipeline's ownership of them, so attaching the connector drains them automatically. A `FailurePolicy` (default `BEST_EFFORT`) decides how a derived-delivery failure maps back onto the input: `BEST_EFFORT` accepts the input and logs the failure, while `FAIL` propagates a downstream `Partial`/`Rejected` as a `Rejected` on the input result, preserving the retry intent and any retry-after hint. `FailurePolicy.FAIL` and `Batcher`'s `AckMode.ON_DELIVERY` are the same "does the sender learn the downstream outcome" axis expressed on two different types (a connector does not buffer, so it needs no timing knob); `FailurePolicy.BEST_EFFORT` corresponds to `AckMode.ON_ENQUEUE`.
+- `Gateway.builder()` returns a fluent `GatewayBuilder` whose `receiver`/`processor`/`exporter`/`connector` registrations each return a typed handle (`ReceiverHandle`, `ProcessorHandle`, `ExporterHandle`, `ConnectorHandle`). Pipelines are wired from handles (`p -> p.from(in).via(enrich, batch).to(out, spanCount)`), so referencing an unregistered or wrong-kind component is a compile error rather than one of the runtime `UNKNOWN_*` diagnostics.
+- `Gateway.compile(config)` takes a `GatewayConfig` constructed directly, the path a future declarative loader would target. It runs the same validation and materialization (the package-private `GatewayCompiler`).
 
-## Receiver tap
+Both paths build one JGraphT DAG. Validation emits diagnostics with codes such as `UNKNOWN_RECEIVER_REF`, `UNKNOWN_EXPORTER_REF`, `PIPELINE_WITHOUT_RECEIVERS`, and `PIPELINE_WITHOUT_EXPORTERS`; a `GraphValidationException` collects every diagnostic rather than failing on the first. Fan-out is inserted where one producer feeds several consumers.
 
-`TelemetryTap` exposes one JDK `Flow.Publisher` per signal. Every subscriber gets its own bounded queue and virtual-thread dispatcher. Each publisher has a no-arg form using `TapOptions.defaults()` and a `TapOptions`-taking overload that binds the buffer size and overflow policy to that publisher's next subscription, so options travel with the subscription instead of shared mutable tap state. `TapOptions` reuses the pipeline-wide `pipeline.ops.OverflowPolicy` (the same type the `Batcher` uses, with per-value Javadoc split "For the Batcher: ... For the tap: ..." since the two sites buffer differently) rather than its own nested enum; `OverflowPolicy.BLOCK` is rejected at construction, since the tap sits outside the acknowledgement path.
+Start and shutdown order both derive from the one DAG:
 
-The default buffer holds 256 batches and drops the oldest on overflow; the other strategies drop the newest or terminate the overflowing subscription with an error. Every strategy is non-blocking, so a slow tap subscriber can never delay the OTLP acknowledgement. `droppedCount()` is shared across the receiver's tap publishers, and feeds the `otlp4j.receiver.tap.dropped` counter on a supplied `GatewayMetrics` alongside it.
+- **Start** walks the graph in reverse-topological order, so an exporter is live before the receiver that feeds it. If a component's start fails or times out, the runtime rolls back by shutting down every component it had already started, then throws a `GatewayStartException` naming the offending component.
+- **Shutdown** walks the data path in forward-topological order, so receivers stop first (in-flight requests drain through the still-live pipeline), then processors and connectors, then exporters. Shutdown is best-effort: a failing component does not abort the rest, and the first failure is rethrown at the end. `GatewayRuntime.close()` swallows that failure as a warning for the try-with-resources idiom.
 
-## Transport implementation
+`GatewayRuntime.boundPort(id)` returns the `OptionalInt` port a network-bound receiver actually bound (resolving the component and narrowing it to `NetworkBound` internally), which is how a caller reads an ephemeral receiver's port.
 
-The two transport modules each implement the `OtlpClient`/`OtlpServer` SPI and share the `otlp4j-codec` mappers and the same `ConsumeResult`-to-response encoding (`SignalResponses`). Both map a whole-batch `Rejected` to a delivery error rather than `rejected_*=0`, by explicit retry intent: retryable is gRPC `UNAVAILABLE` / HTTP `503`, permanent is gRPC `INTERNAL` / HTTP `500`. A retryable rejection's optional retry-after hint is emitted on the wire, as the gRPC `grpc-retry-pushback-ms` trailer (which the bundled client folds into its retry intervals; emitting `google.rpc.RetryInfo` status details is deferred, since `proto-google-common-protos` ships no stable module name for this strict-JPMS build) and the HTTP `Retry-After` header rounded up to whole seconds.
+## Delivery results and policies
 
-**gRPC.** The client uses blocking gRPC stubs on a virtual-thread-per-task executor and bounds each export with the configured timeout. The server exposes trace, metric, log, and experimental profile collector services. The client selects channel credentials from `Tls`: plaintext, JVM default trust, a custom certificate bundle (PEM file paths or in-memory bytes), or a caller-built `SSLContext` whose `X509TrustManager` gRPC uses for server verification (gRPC has no `SSLContext` door, so a client certificate inside the context is not presented). It attaches the configured headers to every call (re-evaluating a header supplier per call), requests gzip when configured, and runs retry through the shared Resilience4j adapter, which uses the caller's `RetryConfig`, applies the OTLP/gRPC retryable status set, and folds `grpc-retry-pushback-ms` into the retry interval. The server, on `NettyServerBuilder`, selects credentials from `Tls` (`Disabled` for plaintext, `Custom`/`Inline` for a server certificate and key from paths or bytes; `SystemTrust` and `SslContext` are rejected, having no server certificate) and binds `bindHost`: a wildcard host (empty, `0.0.0.0`, or `::`) binds every interface, and any other host binds that specific interface, so `127.0.0.1` yields a loopback-only receiver. It applies the receiver-hardening limits from `ServerConfig`: a decoded-request size cap, optional global in-flight request/byte caps (enforced by the shared `AdmissionControl` around each dispatch, sizing requests via `getSerializedSize`), a handshake deadline, and an optional bounded executor. `maxConcurrentCallsPerConnection` is a gRPC-only knob, deliberately not in shared `ServerConfig` (a field silently ignored by HTTP was the leaky abstraction): `OtlpGrpcReceiver.Builder#setMaxConcurrentCallsPerConnection` threads it straight into `GrpcOtlpServer`'s constructor and onto `NettyServerBuilder`. Compression is decode-only: gzip request bodies decode via gRPC's default decoder and there is no server compression knob.
+Every consume completes with a `DeliveryResult`, one of three shapes:
 
-**HTTP.** The client (`java.net.http.HttpClient`) POSTs each signal's serialized `Export*ServiceRequest` to its standard path (`/v1/traces`, `/v1/metrics`, `/v1/logs`, `/v1development/profiles`) as `application/x-protobuf`, on a virtual-thread-per-task executor with the export bounded by the configured timeout. The scheme follows `Tls` (`http`/`https`), with a JDK `SSLContext` built from the same PEM material the gRPC transport consumes (`PemSsl`, from file paths or in-memory bytes) or supplied directly through `Tls.sslContext(...)`; headers attach to every request (re-evaluating a supplier per request), `Compression.GZIP` gzips the body with `Content-Encoding: gzip`, a configured `connectTimeout` bounds connection setup (falling back to the request timeout), and the same Resilience4j adapter handles retryable statuses (408/429/502/503/504), I/O failures, and `Retry-After`. The server (`com.sun.net.httpserver`) registers a handler per signal path, transparently inflates gzip request bodies, checks `Content-Type` before reading the body (`415` for anything other than `application/x-protobuf`, matched on the media type before any `;` parameter and case-insensitively; an absent header is tolerated), enforces the decoded-size cap (`413`) and the optional global in-flight caps (`429` with an optional `Retry-After`, sizing by decoded body length), and rejects a bad method (`405`) or malformed body (`400`); without a configured executor it runs handlers on a virtual-thread-per-task executor. `Tls.Custom`/`Tls.Inline` serves over `HttpsServer`; `Tls.SystemTrust` and `Tls.SslContext` are rejected as for gRPC. `maxConcurrentCallsPerConnection` has no HTTP equivalent, by design (it is a gRPC-only knob, above); bound HTTP concurrency with a server executor instead. This receiver is protobuf-only: OTLP/JSON is not accepted, an explicit scope decision (not an OTLP-spec mandate) documented alongside the `415`.
+- `Accepted` (the downstream took every item),
+- `Partial(rejectedItems, message)` (some items rejected), or
+- `Rejected(disposition, reason, retryAfter, downstream)` (the whole payload rejected).
 
-An alternate transport can vary any of this without changing the application API.
+A rejection's `Disposition` is the retry axis: `RETRYABLE` maps to gRPC `UNAVAILABLE` / HTTP `503` and may carry a `retryAfter` backpressure hint, while `PERMANENT` tells the sender not to retry. The `reason` and the `downstream` marker are orthogonal diagnostics. On the wire these map to OTLP partial-success responses and the corresponding status.
+
+The neutral policy vocabulary in `core.policy` is what components and the transport configure behavior with, so the same knobs read the same way everywhere:
+
+| Policy | Governs |
+| --- | --- |
+| `BatchPolicy` | Batch size and byte triggers, flush timeout, and per-signal splitting. |
+| `DeliveryQueuePolicy` | Bounded-queue capacity, concurrency, and the `OverflowPolicy` on a full queue. |
+| `OverflowPolicy` | What a full bounded queue does (block or drop). |
+| `RetryPolicy` / `BackoffPolicy` | Maximum attempts, exponential backoff, and whether to respect a server `Retry-After`. |
+| `TimeoutPolicy` | The single expression of per-attempt and total timeouts. |
+
+## Transport
+
+`otlp4j-transport` is one module on one Armeria (plus Netty) runtime, serving and speaking both OTLP/gRPC and OTLP/HTTP. The Armeria, Netty, and proto types stay inside the unexported `internal` package; the exported surface is four types plus their config records:
+
+- `OtlpReceiverFactory` and `OtlpExporterFactory` are the graph component factories, each protocol-parameterized through `grpc()` and `http()` statics. The protocol derives the component `type()` (`otlp` for gRPC, `otlphttp` for HTTP) and the `defaultPort()` (`4317` / `4318`); the per-protocol branching lives once in the internal Armeria client and server, so the factories carry none of it.
+- `OtlpReceiver` and `OtlpExporter` are standalone entry points with fluent builders (`grpcBuilder()` / `httpBuilder()`), for using the transport outside a graph.
+
+There is one config family, not two: the graph-facing `OtlpReceiverConfig` and `OtlpExporterConfig` records are the single source of truth, consumed directly by the Armeria client and server. They express TLS, headers, compression, timeouts (as the core `TimeoutPolicy`), and the receiver-hardening limits, and each factory supplies its own default port through `defaults(int)`.
+
+Two pieces of machinery sit on the wire boundary:
+
+- **Admission control** on the receiver caps in-flight requests and in-flight bytes; a request over the cap is rejected retryably with a throttling `Retry-After`, and the in-flight counts are exposed as gauges.
+- **Retry and pushback** on the exporter: the client retries on the retryable OTLP and transport statuses per `RetryPolicy`, decoding a server's `grpc-status-details-bin` `RetryInfo` trailer or HTTP `Retry-After` to honor server-driven backoff, and encoding the same when it rejects retryably.
 
 ## Self-observability
 
-`dev.nthings.otlp4j.telemetry.GatewayMetrics` is a minimal instrument-handle SPI so the gateway can report its own health: `counter(name, description)` returns a `LongCounter` a component adds deltas to, and `gauge(name, description, LongSupplier)` registers a polled value and returns a closeable `Registration`. It is deliberately not a fixed callback listener (which would hard-code the component/metric matrix into the SPI); a component names its own instruments, all under the stable `otlp4j.*` namespace. `GatewayMetrics.noop()` is the zero-cost default; `LoggingGatewayMetrics` is a dependency-free sample adapter that logs a snapshot on demand (an OpenTelemetry-SDK adapter is left to a sample module, to keep that dependency out of `api`).
+Components report their own health through the `GatewayMetrics` SPI: a registry of monotone counters and sampled gauges, namespaced `otlp4j.*`, reached through the component context at start and through the transport builders' `telemetry(...)`. The default is a shared no-op that costs a method call and no allocation. The samples module ships a slf4j `LoggingGatewayMetrics`, and `otlp4j-testing` ships a `RecordingGatewayMetrics` for assertions.
 
-A registry reaches components through builder knobs, since components are constructed before `Wiring` can inject anything: `AbstractExporterBuilder#telemetry`/`AbstractReceiverBuilder#telemetry` (threaded through `newServer(config, dispatchers, telemetry)` into `GrpcOtlpServer`/`HttpOtlpServer`, and into `ClientExporter`) and `Batcher.Builder#telemetry`. The name is deliberately `telemetry`, not `metrics`, since `AbstractReceiverBuilder` already has a `metrics` field for the OTLP metrics-signal sink.
-
-| Instrument | Kind | Source |
+| Instrument | Kind | Meaning |
 | --- | --- | --- |
-| `otlp4j.batcher.dropped` | counter | `Batcher`, queue overflow |
-| `otlp4j.batcher.drain_failed` | counter | `Batcher`, failed downstream drain |
-| `otlp4j.batcher.queued` | gauge | `Batcher`, current queue size |
-| `otlp4j.receiver.admission.rejected` | counter | `AdmissionControl`, admission rejection (zero when uncapped) |
-| `otlp4j.receiver.admission.in_flight.requests` | gauge | `AdmissionControl` |
-| `otlp4j.receiver.admission.in_flight.bytes` | gauge | `AdmissionControl` |
-| `otlp4j.receiver.tap.dropped` | counter | `ReceiverTap`, subscriber overflow |
-| `otlp4j.exporter.export.success` | counter | `ClientExporter` facet, non-rejected result |
-| `otlp4j.exporter.export.failure` | counter | `ClientExporter` facet, rejected or failed export |
+| `otlp4j.exporter.export.success` | counter | Exports the downstream acknowledged. |
+| `otlp4j.exporter.export.failure` | counter | Exports rejected or failed with an exception. |
+| `otlp4j.exporter.export.items` | counter | Items sent. |
+| `otlp4j.exporter.export.bytes` | counter | Serialized bytes sent. |
+| `otlp4j.exporter.export.duration.nanos` | counter | Accumulated export latency in nanoseconds. |
+| `otlp4j.exporter.export.retries` | counter | Retry attempts made. |
+| `otlp4j.receiver.admission.in_flight.requests` | gauge | Requests currently admitted and in flight. |
+| `otlp4j.receiver.admission.in_flight.bytes` | gauge | Bytes currently admitted and in flight. |
+| `otlp4j.receiver.admission.rejected` | counter | Requests rejected by admission control. |
+| `otlp4j.receiver.tap.dropped` | counter | Batches a slow observation tap dropped. |
 
-`AdmissionControl` is `AutoCloseable`: it stores its gauge `Registration`s and closes them (idempotent), and the owning `GrpcOtlpServer`/`HttpOtlpServer` closes it on `shutdown`/`shutdownNow`, so no gauge outlives its server. It always builds a counting instance and registers the in-flight gauges when a real (non-noop) registry is supplied, even with no configured caps, so the common uncapped deployment still gets admission observability; the shared `UNLIMITED` singleton (no per-request bookkeeping at all) is returned only when both no caps are set and the registry is the no-op default. Every existing public counter/getter (`droppedCount()`, `queued()`, `rejectedCount()`, and so on) stays the source of truth for callers and tests; the registry is fed alongside them, so no existing counter semantics changed.
-
-## Model fidelity
-
-Traces, logs, and the metric aggregations round-trip between domain and proto, including metric exemplars: each number, histogram, and exponential-histogram point carries a `List<Exemplar>` mapped in both directions. A `Metric` whose wire `data` was unset round-trips as the non-null `Metric.NoData` form rather than `null`, so callers switch over `Metric.data()` and handle `NoData` instead of null-checking. Profiles round-trip losslessly through opaque passthrough rather than a fully modeled payload: each `Profile` carries the serialized proto `Profile` bytes and the batch carries the serialized `ProfilesDictionary`, so samples, locations, mappings, string tables, and the original payload re-emit byte-for-byte while only the resource/scope wrapper is modeled. The remaining gap is stable profiles support, because the bundled schema is OpenTelemetry `v1development`.
-
-Trace and span IDs are hex strings in the domain model, and malformed hex fails at the transport boundary. Span flags use a Java `long`; OTLP encoding keeps the wire-format unsigned 32-bit value.
+The span-count connector additionally emits a derived data metric named `otlp4j.connector.span.count` into its downstream metrics pipeline; that is telemetry the connector produces, not a self-observability instrument.

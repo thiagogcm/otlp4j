@@ -5,12 +5,11 @@
 /// this module's surface.
 ///
 /// The `dev.nthings.otlp4j.model` domain records are re-exported transitively because signal
-/// descriptors name the domain batch types in their signatures. The `org.slf4j` facade is required
-/// non-transitively for the logging telemetry adapter alone.
+/// descriptors name the domain batch types in their signatures. The module depends only on the model
+/// and jspecify: no transport, no wire library, and no logging facade appears on its surface.
 module dev.nthings.otlp4j.core {
     requires transitive dev.nthings.otlp4j.model;
     requires static transitive org.jspecify;
-    requires org.slf4j;
 
     exports dev.nthings.otlp4j.core.component;
     exports dev.nthings.otlp4j.core.consumer;
@@ -18,5 +17,5 @@ module dev.nthings.otlp4j.core {
     exports dev.nthings.otlp4j.core.policy;
     exports dev.nthings.otlp4j.core.result;
     exports dev.nthings.otlp4j.core.signal;
-    exports dev.nthings.otlp4j.telemetry;
+    exports dev.nthings.otlp4j.core.telemetry;
 }

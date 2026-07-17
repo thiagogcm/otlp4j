@@ -5,7 +5,7 @@ import dev.nthings.otlp4j.core.consumer.SignalConsumer;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.core.signal.TelemetryPayload;
-import dev.nthings.otlp4j.telemetry.GatewayMetrics;
+import dev.nthings.otlp4j.core.telemetry.GatewayMetrics;
 import dev.nthings.otlp4j.transport.internal.ArmeriaOtlpServer;
 import dev.nthings.otlp4j.transport.internal.PayloadDispatch;
 import dev.nthings.otlp4j.transport.internal.ReceiverConsumeContext;
