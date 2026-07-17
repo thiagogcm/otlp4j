@@ -5,6 +5,7 @@ import dev.nthings.otlp4j.core.component.ComponentContext;
 import dev.nthings.otlp4j.core.component.ComponentId;
 import dev.nthings.otlp4j.core.component.ComponentKind;
 import dev.nthings.otlp4j.core.component.FlushContext;
+import dev.nthings.otlp4j.core.component.NetworkBound;
 import dev.nthings.otlp4j.core.component.ShutdownContext;
 import dev.nthings.otlp4j.service.config.ServiceOptions;
 import dev.nthings.otlp4j.service.internal.graph.ServiceGraph;
@@ -15,6 +16,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -198,6 +200,21 @@ public final class GatewayRuntime implements AutoCloseable {
             }
         }
         return Optional.ofNullable(match);
+    }
+
+    /// The bound network port of the component built under `id`, when that component binds a socket
+    /// and has started. This is the direct replacement for the four-step `component(id)` to
+    /// [NetworkBound] downcast dance: it resolves the component through the unambiguous
+    /// [#component(ComponentId)] lookup, narrows it to [NetworkBound], and reads its bound port,
+    /// returning empty when no component is registered under `id` or the one that is does not bind a
+    /// port. For a receiver bound to an ephemeral port this returns the OS-assigned port after start.
+    ///
+    /// @param id the component id
+    /// @return the bound port, or empty when the component is absent or not network-bound
+    public OptionalInt boundPort(ComponentId id) {
+        return component(id).orElse(null) instanceof NetworkBound bound
+                ? OptionalInt.of(bound.port())
+                : OptionalInt.empty();
     }
 
     /// A DOT-style dump of the service graph, replacing the fluent pipeline's description.

@@ -11,6 +11,7 @@ import dev.nthings.otlp4j.core.component.ComponentKind;
 import dev.nthings.otlp4j.core.component.CreateContext;
 import dev.nthings.otlp4j.core.component.Exporter;
 import dev.nthings.otlp4j.core.component.ExporterFactory;
+import dev.nthings.otlp4j.core.component.ProcessorFactory;
 import dev.nthings.otlp4j.core.component.Receiver;
 import dev.nthings.otlp4j.core.component.ReceiverFactory;
 import dev.nthings.otlp4j.core.component.ShutdownContext;
@@ -85,16 +86,15 @@ class SeedFactoriesTest {
     void functionProcessorTransformsAndForwards() {
         var received = new CopyOnWriteArrayList<TelemetryPayload>();
         var recv = new CapturingReceiverFactory();
-        var enrich = new FunctionProcessorFactory<>(
-                "fn", TRACES, (TracesData t) -> traces(2));
+        var enrich = ProcessorFactory.of("fn", TRACES, (TracesData t) -> traces(2), Payloads.DOMAIN);
         var exp = new RecordingExporterFactory(received);
 
-        var runtime = Gateway.builder()
-                .receiver(RECV, recv, EmptyConfig.INSTANCE)
-                .processor(PROC, enrich, FunctionProcessorConfig.defaults())
-                .exporter(EXP, exp, EmptyConfig.INSTANCE)
-                .pipeline(PipelineId.of(TRACES), new PipelineConfig(List.of(RECV), List.of(PROC), List.of(EXP)))
-                .build();
+        var gw = Gateway.builder();
+        gw.receiver(RECV, recv, ComponentConfig.NONE);
+        gw.processor(PROC, enrich);
+        gw.exporter(EXP, exp, ComponentConfig.NONE);
+        gw.pipeline(PipelineId.of(TRACES), new PipelineConfig(List.of(RECV), List.of(PROC), List.of(EXP)));
+        var runtime = gw.build();
         runtime.start();
 
         var result = deliver(recv, Payloads.domain(TRACES, traces(1)));
@@ -110,15 +110,15 @@ class SeedFactoriesTest {
     void functionProcessorDropsBatch() {
         var received = new CopyOnWriteArrayList<TelemetryPayload>();
         var recv = new CapturingReceiverFactory();
-        var drop = new FunctionProcessorFactory<TracesData>("fn", TRACES, t -> null);
+        var drop = ProcessorFactory.of("fn", TRACES, (TracesData t) -> null, Payloads.DOMAIN);
         var exp = new RecordingExporterFactory(received);
 
-        var runtime = Gateway.builder()
-                .receiver(RECV, recv, EmptyConfig.INSTANCE)
-                .processor(PROC, drop, FunctionProcessorConfig.defaults())
-                .exporter(EXP, exp, EmptyConfig.INSTANCE)
-                .pipeline(PipelineId.of(TRACES), new PipelineConfig(List.of(RECV), List.of(PROC), List.of(EXP)))
-                .build();
+        var gw = Gateway.builder();
+        gw.receiver(RECV, recv, ComponentConfig.NONE);
+        gw.processor(PROC, drop);
+        gw.exporter(EXP, exp, ComponentConfig.NONE);
+        gw.pipeline(PipelineId.of(TRACES), new PipelineConfig(List.of(RECV), List.of(PROC), List.of(EXP)));
+        var runtime = gw.build();
         runtime.start();
 
         var result = deliver(recv, Payloads.domain(TRACES, traces(1)));
@@ -136,13 +136,13 @@ class SeedFactoriesTest {
         var connector = new CountConnectorFactory();
         var metricsExp = new RecordingExporterFactory(received);
 
-        var runtime = Gateway.builder()
-                .receiver(RECV, recv, EmptyConfig.INSTANCE)
-                .connector(CONN, connector, CountConnectorConfig.defaults())
-                .exporter(METRICS_EXP, metricsExp, EmptyConfig.INSTANCE)
-                .pipeline(PipelineId.of(TRACES), new PipelineConfig(List.of(RECV), List.of(), List.of(CONN)))
-                .pipeline(PipelineId.of(METRICS), new PipelineConfig(List.of(CONN), List.of(), List.of(METRICS_EXP)))
-                .build();
+        var gw = Gateway.builder();
+        gw.receiver(RECV, recv, ComponentConfig.NONE);
+        gw.connector(CONN, connector, CountConnectorConfig.defaults());
+        gw.exporter(METRICS_EXP, metricsExp, ComponentConfig.NONE);
+        gw.pipeline(PipelineId.of(TRACES), new PipelineConfig(List.of(RECV), List.of(), List.of(CONN)));
+        gw.pipeline(PipelineId.of(METRICS), new PipelineConfig(List.of(CONN), List.of(), List.of(METRICS_EXP)));
+        var runtime = gw.build();
         runtime.start();
 
         var result = deliver(recv, Payloads.domain(TRACES, traces(3)));
@@ -160,10 +160,6 @@ class SeedFactoriesTest {
     }
 
     // ---- test fixtures ---------------------------------------------------------------------------
-
-    private record EmptyConfig() implements ComponentConfig {
-        static final EmptyConfig INSTANCE = new EmptyConfig();
-    }
 
     private static final class TestContext implements ConsumeContext {
         private final Deadline deadline = Deadline.after(Duration.ofSeconds(5), Clock.systemUTC());
@@ -189,7 +185,7 @@ class SeedFactoriesTest {
         }
     }
 
-    private static final class CapturingReceiverFactory implements ReceiverFactory<EmptyConfig> {
+    private static final class CapturingReceiverFactory implements ReceiverFactory<ComponentConfig.None> {
         private @org.jspecify.annotations.Nullable SignalConsumers consumers;
 
         SignalConsumers consumers() {
@@ -206,8 +202,8 @@ class SeedFactoriesTest {
         }
 
         @Override
-        public EmptyConfig defaultConfig() {
-            return EmptyConfig.INSTANCE;
+        public ComponentConfig.None defaultConfig() {
+            return ComponentConfig.NONE;
         }
 
         @Override
@@ -216,7 +212,7 @@ class SeedFactoriesTest {
         }
 
         @Override
-        public Receiver create(CreateContext ctx, EmptyConfig config, SignalConsumers consumers) {
+        public Receiver create(CreateContext ctx, ComponentConfig.None config, SignalConsumers consumers) {
             this.consumers = consumers;
             return new NoopReceiver();
         }
@@ -234,7 +230,7 @@ class SeedFactoriesTest {
         }
     }
 
-    private static final class RecordingExporterFactory implements ExporterFactory<EmptyConfig> {
+    private static final class RecordingExporterFactory implements ExporterFactory<ComponentConfig.None> {
         private final List<TelemetryPayload> received;
 
         RecordingExporterFactory(List<TelemetryPayload> received) {
@@ -247,8 +243,8 @@ class SeedFactoriesTest {
         }
 
         @Override
-        public EmptyConfig defaultConfig() {
-            return EmptyConfig.INSTANCE;
+        public ComponentConfig.None defaultConfig() {
+            return ComponentConfig.NONE;
         }
 
         @Override
@@ -258,7 +254,7 @@ class SeedFactoriesTest {
 
         @Override
         public <T extends TelemetryPayload> Exporter<T> create(
-                CreateContext ctx, EmptyConfig config, SignalDescriptor<T> signal) {
+                CreateContext ctx, ComponentConfig.None config, SignalDescriptor<T> signal) {
             return new RecordingExporter<>(ctx.id(), signal, received);
         }
     }

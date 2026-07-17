@@ -40,17 +40,7 @@ public final class RoutingProcessorFactory implements ProcessorFactory<RoutingCo
     public <T extends TelemetryPayload> Processor<T> create(
             CreateContext ctx, RoutingConfig config, SignalDescriptor<T> signal, SignalConsumer<T> next) {
         Processor<TelemetryPayload> processor = new RoutingProcessor(
-                ctx.id(), signal, config.match(), config.defaultRoute(), payloadConsumer(next));
-        return castProcessor(processor);
-    }
-
-    @SuppressWarnings("unchecked")
-    private static SignalConsumer<TelemetryPayload> payloadConsumer(SignalConsumer<?> next) {
-        return (SignalConsumer<TelemetryPayload>) next;
-    }
-
-    @SuppressWarnings("unchecked")
-    private static <T extends TelemetryPayload> Processor<T> castProcessor(Processor<TelemetryPayload> processor) {
-        return (Processor<T>) (Processor<?>) processor;
+                ctx.id(), signal, config.match(), config.defaultRoute(), ProcessorFactory.asPayloadConsumer(next));
+        return ProcessorFactory.asTypedProcessor(processor);
     }
 }

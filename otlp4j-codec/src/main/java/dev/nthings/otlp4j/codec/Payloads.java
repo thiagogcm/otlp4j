@@ -1,5 +1,6 @@
 package dev.nthings.otlp4j.codec;
 
+import dev.nthings.otlp4j.core.component.PayloadFactory;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 
@@ -13,6 +14,11 @@ import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 /// factory on its public surface. [#domain] is the sanctioned domain-payload constructor for the
 /// built-in and sample processors.
 public final class Payloads {
+
+    /// The canonical [PayloadFactory] over [#domain], the emit seam a core domain-transform
+    /// processor built by `ProcessorFactory.of` takes so it can wrap a transformed batch without
+    /// naming this codec module.
+    public static final PayloadFactory DOMAIN = Payloads::domain;
 
     private Payloads() {}
 

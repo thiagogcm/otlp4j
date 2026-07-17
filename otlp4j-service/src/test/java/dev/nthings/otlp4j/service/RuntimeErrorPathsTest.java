@@ -25,12 +25,12 @@ class RuntimeErrorPathsTest {
     private final Fakes.Log log = new Fakes.Log();
 
     private GatewayRuntime gateway(Fakes.Config exporterConfig, ServiceOptions options) {
-        return Gateway.builder()
-                .receiver(R, new Fakes.ReceiverFactoryImpl("otlp", log, null), Fakes.Config.ok())
-                .exporter(E, new Fakes.ExporterFactoryImpl("otlpexp", log, null, null), exporterConfig)
-                .service(options)
-                .pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(), List.of(E)))
-                .build();
+        var gw = Gateway.builder();
+        gw.receiver(R, new Fakes.ReceiverFactoryImpl("otlp", log, null), Fakes.Config.ok());
+        gw.exporter(E, new Fakes.ExporterFactoryImpl("otlpexp", log, null, null), exporterConfig);
+        gw.service(options);
+        gw.pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(), List.of(E)));
+        return gw.build();
     }
 
     private static ServiceOptions options(Duration start) {
@@ -59,12 +59,12 @@ class RuntimeErrorPathsTest {
     @Test
     void startTimeoutRollsBack() {
         // The receiver hangs on start; it starts last, so the exporter is already up and rolled back.
-        var runtime = Gateway.builder()
-                .receiver(R, new Fakes.ReceiverFactoryImpl("otlp", log, null), Fakes.Config.hangingStart())
-                .exporter(E, new Fakes.ExporterFactoryImpl("otlpexp", log, null, null), Fakes.Config.ok())
-                .service(options(Duration.ofMillis(100)))
-                .pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(), List.of(E)))
-                .build();
+        var gw = Gateway.builder();
+        gw.receiver(R, new Fakes.ReceiverFactoryImpl("otlp", log, null), Fakes.Config.hangingStart());
+        gw.exporter(E, new Fakes.ExporterFactoryImpl("otlpexp", log, null, null), Fakes.Config.ok());
+        gw.service(options(Duration.ofMillis(100)));
+        gw.pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(), List.of(E)));
+        var runtime = gw.build();
 
         var failure = catchThrowableOfType(GatewayStartException.class, runtime::start);
         assertThat(failure).isNotNull();
@@ -90,17 +90,17 @@ class RuntimeErrorPathsTest {
     }
 
     @Test
-    void gatewayBuilderRejectsNullConfigAndContext() {
-        assertThatThrownBy(() -> new GatewayBuilder(null)).isInstanceOf(IllegalArgumentException.class);
-        var builder = new GatewayBuilder(gatewayConfig());
-        assertThatThrownBy(() -> builder.build(null)).isInstanceOf(IllegalArgumentException.class);
+    void compileRejectsNullConfigAndContext() {
+        assertThatThrownBy(() -> Gateway.compile(null)).isInstanceOf(IllegalArgumentException.class);
+        var config = gatewayConfig();
+        assertThatThrownBy(() -> Gateway.compile(config, null)).isInstanceOf(IllegalArgumentException.class);
     }
 
     private dev.nthings.otlp4j.service.config.GatewayConfig gatewayConfig() {
-        return Gateway.builder()
-                .receiver(R, new Fakes.ReceiverFactoryImpl("otlp", log, null), Fakes.Config.ok())
-                .exporter(E, new Fakes.ExporterFactoryImpl("otlpexp", log, null, null), Fakes.Config.ok())
-                .pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(), List.of(E)))
-                .toConfig();
+        var gw = Gateway.builder();
+        gw.receiver(R, new Fakes.ReceiverFactoryImpl("otlp", log, null), Fakes.Config.ok());
+        gw.exporter(E, new Fakes.ExporterFactoryImpl("otlpexp", log, null, null), Fakes.Config.ok());
+        gw.pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(), List.of(E)));
+        return gw.toConfig();
     }
 }

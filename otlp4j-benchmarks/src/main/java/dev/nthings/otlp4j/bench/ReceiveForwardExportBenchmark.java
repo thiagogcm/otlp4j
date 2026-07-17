@@ -2,31 +2,22 @@ package dev.nthings.otlp4j.bench;
 
 import static dev.nthings.otlp4j.core.signal.SignalDescriptor.TRACES;
 
-import dev.nthings.otlp4j.core.component.ComponentConfig;
+import dev.nthings.otlp4j.codec.Payloads;
 import dev.nthings.otlp4j.core.component.ComponentContext;
 import dev.nthings.otlp4j.core.component.ComponentId;
-import dev.nthings.otlp4j.core.component.ComponentKind;
 import dev.nthings.otlp4j.core.component.CreateContext;
 import dev.nthings.otlp4j.core.component.Exporter;
 import dev.nthings.otlp4j.core.component.ExporterFactory;
-import dev.nthings.otlp4j.core.component.NetworkBound;
-import dev.nthings.otlp4j.core.component.Processor;
 import dev.nthings.otlp4j.core.component.ProcessorFactory;
 import dev.nthings.otlp4j.core.component.ReceiverFactory;
 import dev.nthings.otlp4j.core.component.ShutdownContext;
 import dev.nthings.otlp4j.core.consumer.ClientMetadata;
 import dev.nthings.otlp4j.core.consumer.ConsumeContext;
-import dev.nthings.otlp4j.core.consumer.ConsumerCapabilities;
 import dev.nthings.otlp4j.core.consumer.Deadline;
-import dev.nthings.otlp4j.core.consumer.SignalConsumer;
 import dev.nthings.otlp4j.core.pipeline.PipelineId;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
-import dev.nthings.otlp4j.core.result.Provenance;
-import dev.nthings.otlp4j.codec.Payloads;
-import dev.nthings.otlp4j.core.signal.PayloadView;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.core.signal.TelemetryPayload;
-import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.service.Gateway;
 import dev.nthings.otlp4j.service.GatewayRuntime;
 import dev.nthings.otlp4j.service.config.PipelineConfig;
@@ -38,9 +29,8 @@ import dev.nthings.otlp4j.transport.OtlpReceiverFactory;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
+import java.util.function.UnaryOperator;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Fork;
@@ -172,29 +162,33 @@ public class ReceiveForwardExportBenchmark {
     // ---- graph assembly --------------------------------------------------------------------------
 
     private static GatewayRuntime buildBackend(String transport, String protocol) {
-        return Gateway.builder()
-                .receiver(RECV, receiverFactory(transport, protocol), ephemeralReceiver(transport, protocol))
-                .exporter(SINK, new AcceptingExporterFactory(), EmptyConfig.INSTANCE)
-                .pipeline(PipelineId.of(TRACES), new PipelineConfig(List.of(RECV), List.of(), List.of(SINK)))
-                .build();
+        var gw = Gateway.builder();
+        gw.receiver(RECV, receiverFactory(transport, protocol), ephemeralReceiver(transport, protocol));
+        // The backend's terminal exporter accepts every batch immediately, standing in for a backend
+        // store while keeping the forwarding path fully exercised.
+        gw.exporter(SINK, ExporterFactory.of("accept", (ctx, data, provenance) -> DeliveryResult.acceptedStage(provenance)));
+        gw.pipeline(PipelineId.of(TRACES), new PipelineConfig(List.of(RECV), List.of(), List.of(SINK)));
+        return gw.build();
     }
 
     private static GatewayRuntime buildGateway(String transport, String protocol, int backendPort, String mode) {
-        var assembler = Gateway.builder()
-                .receiver(RECV, receiverFactory(transport, protocol), ephemeralReceiver(transport, protocol))
-                .exporter(SINK, exporterFactory(transport, protocol), OtlpExporterConfig.defaults(backendPort));
+        var gw = Gateway.builder();
+        gw.receiver(RECV, receiverFactory(transport, protocol), ephemeralReceiver(transport, protocol));
+        gw.exporter(SINK, exporterFactory(transport, protocol), OtlpExporterConfig.defaults(backendPort));
         List<ComponentId> processors;
         switch (mode) {
             case "passthrough" -> processors = List.of();
             case "domainview" -> {
-                assembler.processor(PROC, new DomainViewProcessorFactory(), EmptyConfig.INSTANCE);
+                // One identity domain-view processor: reading the DOMAIN_IMMUTABLE view forces exactly
+                // one toDomain on the way in and re-emitting a domain payload forces exactly one toProto
+                // on export, the allocation the pass-through mode avoids.
+                gw.processor(PROC, ProcessorFactory.of("domain-view", TRACES, UnaryOperator.identity(), Payloads.DOMAIN));
                 processors = List.of(PROC);
             }
             default -> throw new IllegalArgumentException("unknown mode: " + mode);
         }
-        return assembler
-                .pipeline(PipelineId.of(TRACES), new PipelineConfig(List.of(RECV), processors, List.of(SINK)))
-                .build();
+        gw.pipeline(PipelineId.of(TRACES), new PipelineConfig(List.of(RECV), processors, List.of(SINK)));
+        return gw.build();
     }
 
     private Exporter<TelemetryPayload> buildClient(String transport, String protocol, int gatewayPort) {
@@ -236,11 +230,7 @@ public class ReceiveForwardExportBenchmark {
     }
 
     private static int boundPort(GatewayRuntime runtime) {
-        return runtime.component(RECV)
-                .filter(NetworkBound.class::isInstance)
-                .map(NetworkBound.class::cast)
-                .map(NetworkBound::port)
-                .orElseThrow(() -> new IllegalStateException("receiver has no bound port"));
+        return runtime.boundPort(RECV).orElseThrow(() -> new IllegalStateException("receiver has no bound port"));
     }
 
     @SuppressWarnings("unchecked")
@@ -249,10 +239,6 @@ public class ReceiveForwardExportBenchmark {
     }
 
     // ---- fixtures --------------------------------------------------------------------------------
-
-    private record EmptyConfig() implements ComponentConfig {
-        static final EmptyConfig INSTANCE = new EmptyConfig();
-    }
 
     private static final class BenchContext implements ConsumeContext {
         private final Deadline deadline;
@@ -279,140 +265,6 @@ public class ReceiveForwardExportBenchmark {
         @Override
         public void onCancel(Runnable callback) {
             // never cancelled in the benchmark
-        }
-    }
-
-    /// The backend's terminal exporter: it accepts every batch immediately, standing in for a backend
-    /// store while keeping the forwarding path fully exercised.
-    private static final class AcceptingExporterFactory implements ExporterFactory<EmptyConfig> {
-
-        @Override
-        public ComponentKind kind() {
-            return ComponentKind.EXPORTER;
-        }
-
-        @Override
-        public EmptyConfig defaultConfig() {
-            return EmptyConfig.INSTANCE;
-        }
-
-        @Override
-        public String type() {
-            return "accept";
-        }
-
-        @Override
-        public <T extends TelemetryPayload> Exporter<T> create(
-                CreateContext ctx, EmptyConfig config, SignalDescriptor<T> signal) {
-            return new AcceptingExporter<>(new Provenance(ctx.id(), ComponentKind.EXPORTER, signal));
-        }
-    }
-
-    private static final class AcceptingExporter<T extends TelemetryPayload> implements Exporter<T> {
-
-        private final Provenance provenance;
-
-        AcceptingExporter(Provenance provenance) {
-            this.provenance = provenance;
-        }
-
-        @Override
-        public ConsumerCapabilities capabilities() {
-            return ConsumerCapabilities.nonMutating();
-        }
-
-        @Override
-        public CompletionStage<DeliveryResult> consume(ConsumeContext ctx, T data) {
-            return DeliveryResult.acceptedStage(provenance);
-        }
-
-        @Override
-        public CompletionStage<Void> start(ComponentContext ctx) {
-            return CompletableFuture.completedFuture(null);
-        }
-
-        @Override
-        public CompletionStage<Void> shutdown(ShutdownContext ctx) {
-            return CompletableFuture.completedFuture(null);
-        }
-    }
-
-    /// The `domainview` mode's one processor: it reads the payload through the interface-level
-    /// `DOMAIN_IMMUTABLE` view and re-emits the same batch as a fresh domain-backed payload. This is
-    /// the same shape as the seed `FunctionProcessorFactory` in `otlp4j-samples` with an identity
-    /// transform, kept as a local fixture here so the benchmark module does not take on a samples
-    /// dependency. It is hardcoded to traces because the benchmark wires only a traces pipeline.
-    private static final class DomainViewProcessorFactory implements ProcessorFactory<EmptyConfig> {
-
-        private final SignalDescriptor<TracesData> signal = TRACES;
-
-        @Override
-        public ComponentKind kind() {
-            return ComponentKind.PROCESSOR;
-        }
-
-        @Override
-        public EmptyConfig defaultConfig() {
-            return EmptyConfig.INSTANCE;
-        }
-
-        @Override
-        public String type() {
-            return "domain-view";
-        }
-
-        @Override
-        public <T extends TelemetryPayload> Processor<T> create(
-                CreateContext ctx, EmptyConfig config, SignalDescriptor<T> reqSignal, SignalConsumer<T> next) {
-            if (!reqSignal.equals(signal)) {
-                throw new IllegalArgumentException(
-                        "domain-view processor operates on " + signal + " but was created for " + reqSignal);
-            }
-            var processor = new DomainViewProcessor(signal, payloadConsumer(next));
-            return castProcessor(processor);
-        }
-
-        @SuppressWarnings("unchecked")
-        private static SignalConsumer<TelemetryPayload> payloadConsumer(SignalConsumer<?> next) {
-            return (SignalConsumer<TelemetryPayload>) next;
-        }
-
-        @SuppressWarnings("unchecked")
-        private static <T extends TelemetryPayload> Processor<T> castProcessor(Processor<TelemetryPayload> processor) {
-            return (Processor<T>) (Processor<?>) processor;
-        }
-    }
-
-    private static final class DomainViewProcessor implements Processor<TelemetryPayload> {
-
-        private final SignalDescriptor<TracesData> signal;
-
-        private final SignalConsumer<TelemetryPayload> next;
-
-        DomainViewProcessor(SignalDescriptor<TracesData> signal, SignalConsumer<TelemetryPayload> next) {
-            this.signal = signal;
-            this.next = next;
-        }
-
-        @Override
-        public ConsumerCapabilities capabilities() {
-            return ConsumerCapabilities.nonMutating();
-        }
-
-        @Override
-        public CompletionStage<DeliveryResult> consume(ConsumeContext ctx, TelemetryPayload data) {
-            var batch = signal.batchType().cast(data.view(PayloadView.DOMAIN_IMMUTABLE));
-            return next.consume(ctx, Payloads.domain(signal, batch));
-        }
-
-        @Override
-        public CompletionStage<Void> start(ComponentContext ctx) {
-            return CompletableFuture.completedFuture(null);
-        }
-
-        @Override
-        public CompletionStage<Void> shutdown(ShutdownContext ctx) {
-            return CompletableFuture.completedFuture(null);
         }
     }
 }

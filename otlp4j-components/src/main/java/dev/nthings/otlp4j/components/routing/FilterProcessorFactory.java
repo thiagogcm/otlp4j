@@ -40,17 +40,7 @@ public final class FilterProcessorFactory implements ProcessorFactory<FilterConf
     public <T extends TelemetryPayload> Processor<T> create(
             CreateContext ctx, FilterConfig config, SignalDescriptor<T> signal, SignalConsumer<T> next) {
         Processor<TelemetryPayload> processor = new FilterProcessor(
-                ctx.id(), signal, config.include(), config.exclude(), payloadConsumer(next));
-        return castProcessor(processor);
-    }
-
-    @SuppressWarnings("unchecked")
-    private static SignalConsumer<TelemetryPayload> payloadConsumer(SignalConsumer<?> next) {
-        return (SignalConsumer<TelemetryPayload>) next;
-    }
-
-    @SuppressWarnings("unchecked")
-    private static <T extends TelemetryPayload> Processor<T> castProcessor(Processor<TelemetryPayload> processor) {
-        return (Processor<T>) (Processor<?>) processor;
+                ctx.id(), signal, config.include(), config.exclude(), ProcessorFactory.asPayloadConsumer(next));
+        return ProcessorFactory.asTypedProcessor(processor);
     }
 }

@@ -7,7 +7,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.nthings.otlp4j.core.component.ComponentId;
 import dev.nthings.otlp4j.core.component.ComponentKind;
-import dev.nthings.otlp4j.core.component.NetworkBound;
 import dev.nthings.otlp4j.core.pipeline.PipelineId;
 import dev.nthings.otlp4j.core.consumer.SignalConsumer;
 import dev.nthings.otlp4j.core.consumer.SignalConsumers;
@@ -47,28 +46,24 @@ class RuntimeBehaviourTest {
         return (SignalConsumer<TelemetryPayload>) bundle.consumer((SignalDescriptor<TelemetryPayload>) (SignalDescriptor<?>) TRACES);
     }
 
-    private GatewayAssembler fanOutGateway(DeliveryResult secondOutcome) {
+    private GatewayBuilder fanOutGateway(DeliveryResult secondOutcome) {
         var recv = new Fakes.ReceiverFactoryImpl("otlp", log, null);
         var exp1 = new Fakes.ExporterFactoryImpl("otlpexp", log, null, null);
         var exp2 = new Fakes.ExporterFactoryImpl("otlpexp", log, null, secondOutcome);
-        return Gateway.builder()
-                .receiver(R, recv, Fakes.Config.ok())
-                .exporter(E1, exp1, Fakes.Config.ok())
-                .exporter(E2, exp2, Fakes.Config.ok())
-                .pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(), List.of(E1, E2)));
+        var gw = Gateway.builder();
+        gw.receiver(R, recv, Fakes.Config.ok());
+        gw.exporter(E1, exp1, Fakes.Config.ok());
+        gw.exporter(E2, exp2, Fakes.Config.ok());
+        gw.pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(), List.of(E1, E2)));
+        return gw;
     }
 
     @Test
-    void exposesBoundPortThroughComponentLookup() {
+    void exposesBoundPortThroughRuntimeLookup() {
         var runtime = fanOutGateway(null).build();
         runtime.start();
 
-        var port = runtime.component(R)
-                .filter(NetworkBound.class::isInstance)
-                .map(NetworkBound.class::cast)
-                .map(NetworkBound::port)
-                .orElseThrow();
-        assertThat(port).isEqualTo(45678);
+        assertThat(runtime.boundPort(R)).hasValue(45678);
 
         runtime.shutdown(Duration.ofSeconds(5));
     }
@@ -137,14 +132,14 @@ class RuntimeBehaviourTest {
 
         // The receiver feeds two same-signal pipelines, so it fans out to a mutating processor branch
         // and a plain exporter branch, exercising the copy-before-mutating-peer seam.
-        var runtime = Gateway.builder()
-                .receiver(R, recv, Fakes.Config.ok())
-                .processor(p, mutatingProc, Fakes.Config.ok())
-                .exporter(E1, exp1, Fakes.Config.ok())
-                .exporter(eSecond, exp2, Fakes.Config.ok())
-                .pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(p), List.of(E1)))
-                .pipeline(PipelineId.of(TRACES, "second"), new PipelineConfig(List.of(R), List.of(), List.of(eSecond)))
-                .build();
+        var gw = Gateway.builder();
+        gw.receiver(R, recv, Fakes.Config.ok());
+        gw.processor(p, mutatingProc, Fakes.Config.ok());
+        gw.exporter(E1, exp1, Fakes.Config.ok());
+        gw.exporter(eSecond, exp2, Fakes.Config.ok());
+        gw.pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(p), List.of(E1)));
+        gw.pipeline(PipelineId.of(TRACES, "second"), new PipelineConfig(List.of(R), List.of(), List.of(eSecond)));
+        var runtime = gw.build();
         runtime.start();
 
         var receiver = (Fakes.ReceiverImpl) runtime.component(R).orElseThrow();
@@ -167,13 +162,13 @@ class RuntimeBehaviourTest {
         var connector = new Fakes.ConnectorFactoryImpl(
                 "spanmetrics", log, Fakes.pairs(new SignalPair<>(TRACES, METRICS)));
 
-        var runtime = Gateway.builder()
-                .receiver(R, recv, Fakes.Config.ok())
-                .exporter(eMetrics, exp, Fakes.Config.ok())
-                .connector(connectorId, connector, Fakes.Config.ok())
-                .pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(), List.of(connectorId)))
-                .pipeline(PipelineId.of(METRICS), new PipelineConfig(List.of(connectorId), List.of(), List.of(eMetrics)))
-                .build();
+        var gw = Gateway.builder();
+        gw.receiver(R, recv, Fakes.Config.ok());
+        gw.exporter(eMetrics, exp, Fakes.Config.ok());
+        gw.connector(connectorId, connector, Fakes.Config.ok());
+        gw.pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(), List.of(connectorId)));
+        gw.pipeline(PipelineId.of(METRICS), new PipelineConfig(List.of(connectorId), List.of(), List.of(eMetrics)));
+        var runtime = gw.build();
         runtime.start();
 
         assertThat(runtime.component(connectorId)).isPresent();

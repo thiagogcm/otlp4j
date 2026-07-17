@@ -6,13 +6,13 @@ import java.util.Map;
 
 /// The whole declarative description of a gateway: the component instances available by id, grouped
 /// by kind, the pipelines that wire them, and the service options that bracket the lifecycle. Every
-/// construction path compiles to this record; the fluent assembler returned by
-/// `Gateway.builder()` is sugar over building one, and there is no second construction form.
+/// construction path compiles to this record; the fluent builder returned by `Gateway.builder()` is
+/// sugar over building one, and `Gateway.compile(GatewayConfig)` materializes a directly-built one.
 ///
 /// The four component maps are keyed by [ComponentId], so a component is instantiated exactly once
 /// per id even when several pipelines reference it. The pipelines map is keyed by [PipelineId], the
-/// signal-plus-optional-name pipeline identity. A [ComponentRegistry] over this config answers the
-/// existence and signal-support queries the validator asks.
+/// signal-plus-optional-name pipeline identity. The materialization step resolves each referenced id
+/// against these maps for the existence and signal-support queries the validator asks.
 ///
 /// @param receivers  the receivers available by id
 /// @param processors the processors available by id

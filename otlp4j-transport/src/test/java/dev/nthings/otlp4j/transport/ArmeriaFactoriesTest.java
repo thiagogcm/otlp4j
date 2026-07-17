@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.nthings.otlp4j.core.component.ComponentId;
 import dev.nthings.otlp4j.core.component.ComponentKind;
-import dev.nthings.otlp4j.core.component.NetworkBound;
 import dev.nthings.otlp4j.core.pipeline.PipelineId;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.model.Span;
@@ -102,14 +101,14 @@ class ArmeriaFactoriesTest {
                 .build()
                 .start();
 
-        runtime = Gateway.builder()
-                .receiver(R, OtlpReceiverFactory.grpc(),
-                        OtlpReceiverConfig.defaults(OtlpReceiverFactory.grpc().defaultPort()).withEphemeralPort())
-                .exporter(E, OtlpExporterFactory.grpc(),
-                        OtlpExporterConfig.defaults(OtlpExporterFactory.grpc().defaultPort())
-                                .toBuilder().setEndpoint("localhost", sink.port()).build())
-                .pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(), List.of(E)))
-                .build();
+        var gw = Gateway.builder();
+        gw.receiver(R, OtlpReceiverFactory.grpc(),
+                OtlpReceiverConfig.defaults(OtlpReceiverFactory.grpc().defaultPort()).withEphemeralPort());
+        gw.exporter(E, OtlpExporterFactory.grpc(),
+                OtlpExporterConfig.defaults(OtlpExporterFactory.grpc().defaultPort())
+                        .toBuilder().setEndpoint("localhost", sink.port()).build());
+        gw.pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(), List.of(E)));
+        runtime = gw.build();
         runtime.start();
 
         var graphPort = graphPort();
@@ -133,14 +132,14 @@ class ArmeriaFactoriesTest {
                 .build()
                 .start();
 
-        runtime = Gateway.builder()
-                .receiver(R, OtlpReceiverFactory.http(),
-                        OtlpReceiverConfig.defaults(OtlpReceiverFactory.http().defaultPort()).withEphemeralPort())
-                .exporter(E, OtlpExporterFactory.http(),
-                        OtlpExporterConfig.defaults(OtlpExporterFactory.http().defaultPort())
-                                .toBuilder().setEndpoint("localhost", sink.port()).build())
-                .pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(), List.of(E)))
-                .build();
+        var gw = Gateway.builder();
+        gw.receiver(R, OtlpReceiverFactory.http(),
+                OtlpReceiverConfig.defaults(OtlpReceiverFactory.http().defaultPort()).withEphemeralPort());
+        gw.exporter(E, OtlpExporterFactory.http(),
+                OtlpExporterConfig.defaults(OtlpExporterFactory.http().defaultPort())
+                        .toBuilder().setEndpoint("localhost", sink.port()).build());
+        gw.pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(), List.of(E)));
+        runtime = gw.build();
         runtime.start();
 
         var graphPort = graphPort();
@@ -155,11 +154,7 @@ class ArmeriaFactoriesTest {
     }
 
     private int graphPort() {
-        var port = runtime.component(R)
-                .filter(NetworkBound.class::isInstance)
-                .map(NetworkBound.class::cast)
-                .map(NetworkBound::port)
-                .orElseThrow();
+        var port = runtime.boundPort(R).orElseThrow();
         assertThat(port).isPositive();
         return port;
     }

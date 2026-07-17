@@ -1,23 +1,13 @@
 package dev.nthings.otlp4j.conformance;
 
 import dev.nthings.otlp4j.transport.Tls;
-import dev.nthings.otlp4j.core.component.ComponentContext;
-import dev.nthings.otlp4j.core.component.ComponentConfig;
 import dev.nthings.otlp4j.core.component.ComponentId;
-import dev.nthings.otlp4j.core.component.ComponentKind;
-import dev.nthings.otlp4j.core.component.CreateContext;
-import dev.nthings.otlp4j.core.component.Exporter;
 import dev.nthings.otlp4j.core.component.ExporterFactory;
-import dev.nthings.otlp4j.core.component.NetworkBound;
 import dev.nthings.otlp4j.core.component.ReceiverFactory;
-import dev.nthings.otlp4j.core.component.ShutdownContext;
-import dev.nthings.otlp4j.core.consumer.ConsumeContext;
-import dev.nthings.otlp4j.core.consumer.ConsumerCapabilities;
 import dev.nthings.otlp4j.core.pipeline.PipelineId;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.result.Provenance;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
-import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import dev.nthings.otlp4j.service.Gateway;
 import dev.nthings.otlp4j.service.GatewayRuntime;
 import dev.nthings.otlp4j.service.config.PipelineConfig;
@@ -35,7 +25,6 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionStage;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -97,23 +86,41 @@ public final class Otlp4jGatewayUnderTest implements GatewayUnderTest {
             case HTTP -> OtlpReceiverFactory.http();
             case GRPC -> OtlpReceiverFactory.grpc();
         };
-        var exporterFactory = new ProgrammedExporterFactory(scenario, heldRequest, heldRequestArmed);
+        // The programmed terminal exporter, built inline through ExporterFactory.of. On consume it
+        // either holds the first admitted request open as an incomplete delivery stage, keeping the
+        // receiver's admission permit so a second request is refused, or completes immediately with the
+        // scenario's programmed outcome. A ThrowRuntime outcome throws synchronously, which the graph
+        // node boundary normalizes to a permanent rejection, the same wire status the old thrown-from-
+        // sink path produced.
+        var exporterFactory = ExporterFactory.of("programmed", (ctx, data, provenance) -> {
+            if (scenario.holdFirstRequest()) {
+                var future = new CompletableFuture<DeliveryResult>();
+                if (heldRequest.compareAndSet(null, new Held(future, provenance))) {
+                    // Hold the first admitted request open so it keeps its admission permit while the
+                    // test sends a second request that must be refused. The test releases it later, and
+                    // arming the latch signals that the permit is now held so a probe cannot race ahead.
+                    heldRequestArmed.countDown();
+                    return future;
+                }
+            }
+            return CompletableFuture.completedFuture(toResult(scenario.outcome(), provenance));
+        });
 
-        var assembler = Gateway.builder()
+        var gw = Gateway.builder()
                 // Shut down immediately on close, matching the old seam's shutdownNow(): a sub-second
                 // deadline truncates to a zero-second HttpServer.stop(0), so teardown never blocks the
                 // full default deadline waiting for a lingering keep-alive connection to drain.
-                .service(new ServiceOptions(Duration.ofSeconds(30), Duration.ofMillis(200)))
-                .receiver(RECEIVER_ID, receiverFactory, receiverConfig(scenario))
-                .exporter(EXPORTER_ID, exporterFactory, ProgrammedExporterConfig.INSTANCE);
+                .service(new ServiceOptions(Duration.ofSeconds(30), Duration.ofMillis(200)));
+        gw.receiver(RECEIVER_ID, receiverFactory, receiverConfig(scenario));
+        gw.exporter(EXPORTER_ID, exporterFactory);
         // Route every signal through the programmed exporter, so any signal a case drives is served,
         // exactly as the old seam attached the same programmed sink to all four signals.
         for (var signal : SignalDescriptor.values()) {
-            assembler.pipeline(
+            gw.pipeline(
                     PipelineId.of(signal),
                     new PipelineConfig(List.of(RECEIVER_ID), List.of(), List.of(EXPORTER_ID)));
         }
-        var runtime = assembler.build();
+        var runtime = gw.build();
         runtime.start();
         return new Otlp4jGatewayUnderTest(
                 runtime,
@@ -145,10 +152,7 @@ public final class Otlp4jGatewayUnderTest implements GatewayUnderTest {
     /// and the receiver's [NetworkBound] capability, the graph-runtime equivalent of the old fluent
     /// `receiver.port()`.
     private int boundPort() {
-        return runtime.component(RECEIVER_ID)
-                .filter(NetworkBound.class::isInstance)
-                .map(NetworkBound.class::cast)
-                .map(NetworkBound::port)
+        return runtime.boundPort(RECEIVER_ID)
                 .orElseThrow(() -> new IllegalStateException("the receiver did not expose a bound port"));
     }
 
@@ -213,107 +217,4 @@ public final class Otlp4jGatewayUnderTest implements GatewayUnderTest {
     /// facet that armed it, so [#releaseHeldRequest()] completes it with a result stamped for the
     /// right signal.
     private record Held(CompletableFuture<DeliveryResult> future, Provenance provenance) {}
-
-    /// The (empty) config for the programmed exporter. The programmed behaviour is carried by the
-    /// factory instance, not by configuration, so this record has no fields; it exists only to satisfy
-    /// the typed [ComponentConfig] contract every factory declares.
-    private record ProgrammedExporterConfig() implements ComponentConfig {
-        static final ProgrammedExporterConfig INSTANCE = new ProgrammedExporterConfig();
-    }
-
-    /// The programmed terminal exporter factory. It builds one exporter facet per signal, all sharing
-    /// the scenario and the held-request state, so any signal a case drives yields the programmed
-    /// outcome and the hold-first-request scenario is arm-once across signals.
-    private static final class ProgrammedExporterFactory implements ExporterFactory<ProgrammedExporterConfig> {
-
-        private final Scenario scenario;
-        private final AtomicReference<Held> heldRequest;
-        private final CountDownLatch heldRequestArmed;
-
-        ProgrammedExporterFactory(
-                Scenario scenario, AtomicReference<Held> heldRequest, CountDownLatch heldRequestArmed) {
-            this.scenario = scenario;
-            this.heldRequest = heldRequest;
-            this.heldRequestArmed = heldRequestArmed;
-        }
-
-        @Override
-        public ComponentKind kind() {
-            return ComponentKind.EXPORTER;
-        }
-
-        @Override
-        public ProgrammedExporterConfig defaultConfig() {
-            return ProgrammedExporterConfig.INSTANCE;
-        }
-
-        @Override
-        public String type() {
-            return "programmed";
-        }
-
-        @Override
-        public <T extends TelemetryPayload> Exporter<T> create(
-                CreateContext ctx, ProgrammedExporterConfig config, SignalDescriptor<T> signal) {
-            var provenance = new Provenance(ctx.id(), ComponentKind.EXPORTER, signal);
-            return new ProgrammedExporter<>(provenance, scenario, heldRequest, heldRequestArmed);
-        }
-    }
-
-    /// The programmed exporter component. On consume it either holds the first admitted request open
-    /// as an incomplete delivery stage, keeping the receiver's admission permit so a second request is
-    /// refused, or completes immediately with the scenario's programmed outcome. A `ThrowRuntime`
-    /// outcome throws synchronously, which the graph node boundary normalizes to a permanent rejection,
-    /// the same wire status the old thrown-from-sink path produced.
-    ///
-    /// @param <T> the payload type this exporter facet terminates
-    private static final class ProgrammedExporter<T extends TelemetryPayload> implements Exporter<T> {
-
-        private final Provenance provenance;
-        private final Scenario scenario;
-        private final AtomicReference<Held> heldRequest;
-        private final CountDownLatch heldRequestArmed;
-
-        ProgrammedExporter(
-                Provenance provenance,
-                Scenario scenario,
-                AtomicReference<Held> heldRequest,
-                CountDownLatch heldRequestArmed) {
-            this.provenance = provenance;
-            this.scenario = scenario;
-            this.heldRequest = heldRequest;
-            this.heldRequestArmed = heldRequestArmed;
-        }
-
-        @Override
-        public ConsumerCapabilities capabilities() {
-            return ConsumerCapabilities.nonMutating();
-        }
-
-        @Override
-        public CompletionStage<DeliveryResult> consume(ConsumeContext context, T data) {
-            if (scenario.holdFirstRequest()) {
-                var future = new CompletableFuture<DeliveryResult>();
-                if (heldRequest.compareAndSet(null, new Held(future, provenance))) {
-                    // Hold the first admitted request open so it keeps its admission permit while the
-                    // test sends a second request that must be refused. The test releases it later.
-                    // Signal that the permit is now held so a probe cannot race ahead of it and win
-                    // the single permit itself.
-                    heldRequestArmed.countDown();
-                    return future;
-                }
-            }
-            return CompletableFuture.completedFuture(toResult(scenario.outcome(), provenance));
-        }
-
-        @Override
-        public CompletionStage<Void> start(ComponentContext context) {
-            return CompletableFuture.completedFuture(null);
-        }
-
-        @Override
-        public CompletionStage<Void> shutdown(ShutdownContext context) {
-            return CompletableFuture.completedFuture(null);
-        }
-    }
 }

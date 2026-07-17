@@ -48,19 +48,9 @@ public final class MemoryLimiterProcessorFactory implements ProcessorFactory<Mem
                 limiter,
                 config.checkInterval(),
                 config.retryAfter(),
-                payloadConsumer(next),
+                ProcessorFactory.asPayloadConsumer(next),
                 System::nanoTime,
                 System::gc);
-        return castProcessor(processor);
-    }
-
-    @SuppressWarnings("unchecked")
-    private static SignalConsumer<TelemetryPayload> payloadConsumer(SignalConsumer<?> next) {
-        return (SignalConsumer<TelemetryPayload>) next;
-    }
-
-    @SuppressWarnings("unchecked")
-    private static <T extends TelemetryPayload> Processor<T> castProcessor(Processor<TelemetryPayload> processor) {
-        return (Processor<T>) (Processor<?>) processor;
+        return ProcessorFactory.asTypedProcessor(processor);
     }
 }

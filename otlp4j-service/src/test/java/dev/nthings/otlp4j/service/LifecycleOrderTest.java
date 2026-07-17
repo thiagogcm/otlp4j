@@ -26,17 +26,18 @@ class LifecycleOrderTest {
 
     private final Fakes.Log log = new Fakes.Log();
 
-    private GatewayAssembler chain(boolean failMiddleProcessor) {
+    private GatewayBuilder chain(boolean failMiddleProcessor) {
         var recv = new Fakes.ReceiverFactoryImpl("otlp", log, null);
         var proc = new Fakes.ProcessorFactoryImpl("batch", log, null);
         var exp = new Fakes.ExporterFactoryImpl("otlpexp", log, null, null);
-        return Gateway.builder()
-                .receiver(R, recv, Fakes.Config.ok())
-                .processor(P1, proc, failMiddleProcessor ? Fakes.Config.failingStart() : Fakes.Config.ok())
-                .processor(P2, proc, Fakes.Config.ok())
-                .exporter(E, exp, Fakes.Config.ok())
-                .service(new ServiceOptions(Duration.ofSeconds(5), Duration.ofSeconds(5)))
-                .pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(P1, P2), List.of(E)));
+        var gw = Gateway.builder();
+        gw.receiver(R, recv, Fakes.Config.ok());
+        gw.processor(P1, proc, failMiddleProcessor ? Fakes.Config.failingStart() : Fakes.Config.ok());
+        gw.processor(P2, proc, Fakes.Config.ok());
+        gw.exporter(E, exp, Fakes.Config.ok());
+        gw.service(new ServiceOptions(Duration.ofSeconds(5), Duration.ofSeconds(5)));
+        gw.pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(P1, P2), List.of(E)));
+        return gw;
     }
 
     private List<String> filtered(String prefix) {

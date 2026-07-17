@@ -3,23 +3,14 @@ package dev.nthings.otlp4j.samples;
 import static dev.nthings.otlp4j.core.signal.SignalDescriptor.METRICS;
 import static dev.nthings.otlp4j.core.signal.SignalDescriptor.TRACES;
 
-import dev.nthings.otlp4j.core.component.ComponentConfig;
-import dev.nthings.otlp4j.core.component.ComponentContext;
+import dev.nthings.otlp4j.codec.Payloads;
 import dev.nthings.otlp4j.core.component.ComponentId;
-import dev.nthings.otlp4j.core.component.ComponentKind;
-import dev.nthings.otlp4j.core.component.CreateContext;
-import dev.nthings.otlp4j.core.component.Exporter;
 import dev.nthings.otlp4j.core.component.ExporterFactory;
-import dev.nthings.otlp4j.core.component.NetworkBound;
-import dev.nthings.otlp4j.core.component.ShutdownContext;
-import dev.nthings.otlp4j.core.consumer.ConsumeContext;
-import dev.nthings.otlp4j.core.consumer.ConsumerCapabilities;
+import dev.nthings.otlp4j.core.component.ProcessorFactory;
 import dev.nthings.otlp4j.core.pipeline.PipelineId;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
-import dev.nthings.otlp4j.core.result.Provenance;
 import dev.nthings.otlp4j.core.signal.PayloadView;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
-import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import dev.nthings.otlp4j.model.AttributeValue;
 import dev.nthings.otlp4j.model.Attributes;
 import dev.nthings.otlp4j.model.InstrumentationScope;
@@ -31,11 +22,8 @@ import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.samples.support.CountConnectorConfig;
 import dev.nthings.otlp4j.samples.support.CountConnectorFactory;
-import dev.nthings.otlp4j.samples.support.FunctionProcessorConfig;
-import dev.nthings.otlp4j.samples.support.FunctionProcessorFactory;
 import dev.nthings.otlp4j.service.Gateway;
 import dev.nthings.otlp4j.service.GatewayRuntime;
-import dev.nthings.otlp4j.service.config.PipelineConfig;
 import dev.nthings.otlp4j.transport.OtlpExporterConfig;
 import dev.nthings.otlp4j.transport.OtlpReceiverConfig;
 import dev.nthings.otlp4j.transport.OtlpExporter;
@@ -44,10 +32,7 @@ import dev.nthings.otlp4j.transport.OtlpReceiverFactory;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Consumer;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -159,52 +144,45 @@ public final class OtlpE2eDemo {
     private static final ComponentId METRICS_OUT = ComponentId.parse("metrics-out");
 
     /// Builds the backend graph: an OTLP/gRPC receiver on an ephemeral port feeding one capturing
-    /// exporter that records the traces and metrics batches it terminates.
+    /// exporter, built inline through [ExporterFactory#of], that records the traces and metrics batches
+    /// it terminates.
     private static GatewayRuntime buildBackend(
             AtomicReference<TracesData> backendTraces, List<Metric> backendMetrics) {
-        Consumer<TelemetryPayload> capture = payload -> {
-            var batch = payload.view(PayloadView.DOMAIN_IMMUTABLE);
+        var capturing = ExporterFactory.of("capture", (ctx, data, provenance) -> {
+            var batch = data.view(PayloadView.DOMAIN_IMMUTABLE);
             if (batch instanceof TracesData traces) {
                 backendTraces.set(traces);
             } else if (batch instanceof MetricsData metrics) {
                 backendMetrics.addAll(metrics.metrics());
             }
-        };
-        var capturing = new CapturingExporterFactory(capture);
-        return Gateway.builder()
-                .receiver(BACKEND_RECV, OtlpReceiverFactory.grpc(), ephemeralReceiver())
-                .exporter(BACKEND_SINK, capturing, EmptyConfig.INSTANCE)
-                .pipeline(PipelineId.of(TRACES),
-                        new PipelineConfig(List.of(BACKEND_RECV), List.of(), List.of(BACKEND_SINK)))
-                .pipeline(PipelineId.of(METRICS),
-                        new PipelineConfig(List.of(BACKEND_RECV), List.of(), List.of(BACKEND_SINK)))
-                .build();
+            return DeliveryResult.acceptedStage(provenance);
+        });
+        var gw = Gateway.builder();
+        var in = gw.receiver(BACKEND_RECV, OtlpReceiverFactory.grpc(), ephemeralReceiver());
+        var sink = gw.exporter(BACKEND_SINK, capturing);
+        gw.pipeline(PipelineId.of(TRACES), p -> p.from(in).to(sink));
+        gw.pipeline(PipelineId.of(METRICS), p -> p.from(in).to(sink));
+        return gw.build();
     }
 
-    /// Builds the gateway graph: an OTLP/gRPC receiver, the four function processors, and a fan-out to
-    /// the OTLP exporter forwarding traces to the backend and the span-count connector deriving a
-    /// metric that its own metrics pipeline exports to the backend too.
+    /// Builds the gateway graph: an OTLP/gRPC receiver, the four inline domain-transform processors
+    /// (each built through [ProcessorFactory#of]), and a fan-out to the OTLP exporter forwarding traces
+    /// to the backend and the span-count connector deriving a metric that its own metrics pipeline
+    /// exports to the backend too.
     private static GatewayRuntime buildGateway(int backendPort) {
-        var enrich = new FunctionProcessorFactory<>("enrich", TRACES, enrichResource());
-        var redact = new FunctionProcessorFactory<>("redact", TRACES, redactEnduserId());
-        var filter = new FunctionProcessorFactory<>("filter", TRACES, keepServerSpans());
-        var dropEmpty = new FunctionProcessorFactory<>("drop-empty", TRACES, dropEmptyTraces());
-        return Gateway.builder()
-                .receiver(GATEWAY_RECV, OtlpReceiverFactory.grpc(), ephemeralReceiver())
-                .processor(ENRICH, enrich, FunctionProcessorConfig.defaults())
-                .processor(REDACT, redact, FunctionProcessorConfig.defaults())
-                .processor(FILTER, filter, FunctionProcessorConfig.defaults())
-                .processor(DROP_EMPTY, dropEmpty, FunctionProcessorConfig.defaults())
-                .exporter(TRACES_OUT, OtlpExporterFactory.grpc(), OtlpExporterConfig.defaults(backendPort))
-                .connector(SPAN_COUNT, new CountConnectorFactory(), CountConnectorConfig.defaults())
-                .exporter(METRICS_OUT, OtlpExporterFactory.grpc(), OtlpExporterConfig.defaults(backendPort))
-                .pipeline(PipelineId.of(TRACES), new PipelineConfig(
-                        List.of(GATEWAY_RECV),
-                        List.of(ENRICH, REDACT, FILTER, DROP_EMPTY),
-                        List.of(TRACES_OUT, SPAN_COUNT)))
-                .pipeline(PipelineId.of(METRICS), new PipelineConfig(
-                        List.of(SPAN_COUNT), List.of(), List.of(METRICS_OUT)))
-                .build();
+        var gw = Gateway.builder();
+        var in = gw.receiver(GATEWAY_RECV, OtlpReceiverFactory.grpc(), ephemeralReceiver());
+        var enrich = gw.processor(ENRICH, ProcessorFactory.of("enrich", TRACES, enrichResource(), Payloads.DOMAIN));
+        var redact = gw.processor(REDACT, ProcessorFactory.of("redact", TRACES, redactEnduserId(), Payloads.DOMAIN));
+        var filter = gw.processor(FILTER, ProcessorFactory.of("filter", TRACES, keepServerSpans(), Payloads.DOMAIN));
+        var dropEmpty =
+                gw.processor(DROP_EMPTY, ProcessorFactory.of("drop-empty", TRACES, dropEmptyTraces(), Payloads.DOMAIN));
+        var tracesOut = gw.exporter(TRACES_OUT, OtlpExporterFactory.grpc(), OtlpExporterConfig.defaults(backendPort));
+        var spanCount = gw.connector(SPAN_COUNT, new CountConnectorFactory(), CountConnectorConfig.defaults());
+        var metricsOut = gw.exporter(METRICS_OUT, OtlpExporterFactory.grpc(), OtlpExporterConfig.defaults(backendPort));
+        gw.pipeline(PipelineId.of(TRACES), p -> p.from(in).via(enrich, redact, filter, dropEmpty).to(tracesOut, spanCount));
+        gw.pipeline(PipelineId.of(METRICS), p -> p.from(spanCount).to(metricsOut));
+        return gw.build();
     }
 
     private static OtlpReceiverConfig ephemeralReceiver() {
@@ -212,10 +190,7 @@ public final class OtlpE2eDemo {
     }
 
     private static int boundPort(GatewayRuntime runtime, ComponentId receiverId) {
-        return runtime.component(receiverId)
-                .filter(NetworkBound.class::isInstance)
-                .map(NetworkBound.class::cast)
-                .map(NetworkBound::port)
+        return runtime.boundPort(receiverId)
                 .orElseThrow(() -> new IllegalStateException("receiver " + receiverId + " has no bound port"));
     }
 
@@ -336,76 +311,5 @@ public final class OtlpE2eDemo {
                 // Sensitive attribute the gateway redacts before forwarding.
                 .attributes(Attributes.builder().put(ENDUSER_ID, "alice@example.com").build())
                 .build();
-    }
-
-    // ---- the in-memory backend exporter ----------------------------------------------------------
-
-    /// The (empty) config shared by the demo's own components that carry no configuration.
-    private record EmptyConfig() implements ComponentConfig {
-        static final EmptyConfig INSTANCE = new EmptyConfig();
-    }
-
-    /// A terminal [ExporterFactory] whose exporter records every batch it receives into the demo's
-    /// backend capture sink, standing in for a real backend store.
-    private static final class CapturingExporterFactory implements ExporterFactory<EmptyConfig> {
-
-        private final Consumer<TelemetryPayload> sink;
-
-        CapturingExporterFactory(Consumer<TelemetryPayload> sink) {
-            this.sink = sink;
-        }
-
-        @Override
-        public ComponentKind kind() {
-            return ComponentKind.EXPORTER;
-        }
-
-        @Override
-        public EmptyConfig defaultConfig() {
-            return EmptyConfig.INSTANCE;
-        }
-
-        @Override
-        public String type() {
-            return "capture";
-        }
-
-        @Override
-        public <T extends TelemetryPayload> Exporter<T> create(
-                CreateContext ctx, EmptyConfig config, SignalDescriptor<T> signal) {
-            return new CapturingExporter<>(new Provenance(ctx.id(), ComponentKind.EXPORTER, signal), sink);
-        }
-    }
-
-    private static final class CapturingExporter<T extends TelemetryPayload> implements Exporter<T> {
-
-        private final Provenance provenance;
-        private final Consumer<TelemetryPayload> sink;
-
-        CapturingExporter(Provenance provenance, Consumer<TelemetryPayload> sink) {
-            this.provenance = provenance;
-            this.sink = sink;
-        }
-
-        @Override
-        public ConsumerCapabilities capabilities() {
-            return ConsumerCapabilities.nonMutating();
-        }
-
-        @Override
-        public CompletionStage<DeliveryResult> consume(ConsumeContext context, T data) {
-            sink.accept(data);
-            return DeliveryResult.acceptedStage(provenance);
-        }
-
-        @Override
-        public CompletionStage<Void> start(ComponentContext context) {
-            return CompletableFuture.completedFuture(null);
-        }
-
-        @Override
-        public CompletionStage<Void> shutdown(ShutdownContext context) {
-            return CompletableFuture.completedFuture(null);
-        }
     }
 }

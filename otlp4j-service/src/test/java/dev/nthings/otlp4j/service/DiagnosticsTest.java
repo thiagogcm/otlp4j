@@ -31,13 +31,15 @@ import dev.nthings.otlp4j.service.validation.DiagnosticCode;
 import dev.nthings.otlp4j.service.validation.GraphValidationException;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
 /// One test per [DiagnosticCode]: the enumerated fixture matrix that drives every validation branch.
-/// Each fixture is built so the target code is present in the reported diagnostics; some minimal
-/// fixtures also surface a knock-on orphan, which is expected and does not weaken the assertion that
-/// the target code was produced.
+/// Each fixture is built through the raw [PipelineConfig] path (the stringly-typed ids the runtime
+/// diagnostics guard, which the compile-time handle path forecloses) so the target code is present in
+/// the reported diagnostics; some minimal fixtures also surface a knock-on orphan, which is expected
+/// and does not weaken the assertion that the target code was produced.
 class DiagnosticsTest {
 
     private static final ComponentId R = ComponentId.parse("otlp");
@@ -72,169 +74,187 @@ class DiagnosticsTest {
         return ex.diagnostics().stream().map(Diagnostic::code).collect(Collectors.toSet());
     }
 
-    private GraphValidationException validating(GatewayAssembler assembler) {
-        return catchThrowableOfType(GraphValidationException.class, assembler::build);
+    /// Applies `setup` to a fresh builder and captures the validation failure its `build()` throws.
+    private GraphValidationException validating(Consumer<GatewayBuilder> setup) {
+        var gw = Gateway.builder();
+        setup.accept(gw);
+        return catchThrowableOfType(GraphValidationException.class, gw::build);
     }
 
     @Test
     void unknownReceiverRef() {
-        var ex = validating(Gateway.builder()
-                .exporter(E, exporter(null), Fakes.Config.ok())
-                .pipeline(TRACES_PIPE, new PipelineConfig(List.of(ComponentId.parse("missing")), List.of(), List.of(E))));
+        var ex = validating(gw -> {
+            gw.exporter(E, exporter(null), Fakes.Config.ok());
+            gw.pipeline(TRACES_PIPE, new PipelineConfig(List.of(ComponentId.parse("missing")), List.of(), List.of(E)));
+        });
         assertThat(codes(ex)).contains(UNKNOWN_RECEIVER_REF);
     }
 
     @Test
     void unknownProcessorRef() {
-        var ex = validating(Gateway.builder()
-                .receiver(R, receiver(null), Fakes.Config.ok())
-                .exporter(E, exporter(null), Fakes.Config.ok())
-                .pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(ComponentId.parse("missing")), List.of(E))));
+        var ex = validating(gw -> {
+            gw.receiver(R, receiver(null), Fakes.Config.ok());
+            gw.exporter(E, exporter(null), Fakes.Config.ok());
+            gw.pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(ComponentId.parse("missing")), List.of(E)));
+        });
         assertThat(codes(ex)).contains(UNKNOWN_PROCESSOR_REF);
     }
 
     @Test
     void unknownExporterRef() {
-        var ex = validating(Gateway.builder()
-                .receiver(R, receiver(null), Fakes.Config.ok())
-                .pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(), List.of(ComponentId.parse("missing")))));
+        var ex = validating(gw -> {
+            gw.receiver(R, receiver(null), Fakes.Config.ok());
+            gw.pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(), List.of(ComponentId.parse("missing"))));
+        });
         assertThat(codes(ex)).contains(UNKNOWN_EXPORTER_REF);
     }
 
     @Test
     void unknownConnectorRef() {
         var bridge = ComponentId.parse("bridge");
-        var ex = validating(Gateway.builder()
-                .receiver(R, receiver(null), Fakes.Config.ok())
-                .exporter(E, exporter(null), Fakes.Config.ok())
-                .pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(), List.of(bridge)))
-                .pipeline(METRICS_PIPE, new PipelineConfig(List.of(bridge), List.of(), List.of(E))));
+        var ex = validating(gw -> {
+            gw.receiver(R, receiver(null), Fakes.Config.ok());
+            gw.exporter(E, exporter(null), Fakes.Config.ok());
+            gw.pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(), List.of(bridge)));
+            gw.pipeline(METRICS_PIPE, new PipelineConfig(List.of(bridge), List.of(), List.of(E)));
+        });
         assertThat(codes(ex)).contains(UNKNOWN_CONNECTOR_REF);
     }
 
     @Test
     void emptyPipeline() {
-        var ex = validating(Gateway.builder()
-                .pipeline(TRACES_PIPE, new PipelineConfig(List.of(), List.of(), List.of())));
+        var ex = validating(gw ->
+                gw.pipeline(TRACES_PIPE, new PipelineConfig(List.of(), List.of(), List.of())));
         assertThat(codes(ex)).contains(EMPTY_PIPELINE);
     }
 
     @Test
     void pipelineNoReceivers() {
-        var ex = validating(Gateway.builder()
-                .processor(P, processor(null), Fakes.Config.ok())
-                .exporter(E, exporter(null), Fakes.Config.ok())
-                .pipeline(TRACES_PIPE, new PipelineConfig(List.of(), List.of(P), List.of(E))));
+        var ex = validating(gw -> {
+            gw.processor(P, processor(null), Fakes.Config.ok());
+            gw.exporter(E, exporter(null), Fakes.Config.ok());
+            gw.pipeline(TRACES_PIPE, new PipelineConfig(List.of(), List.of(P), List.of(E)));
+        });
         assertThat(codes(ex)).contains(PIPELINE_NO_RECEIVERS);
     }
 
     @Test
     void pipelineNoExporters() {
-        var ex = validating(Gateway.builder()
-                .receiver(R, receiver(null), Fakes.Config.ok())
-                .processor(P, processor(null), Fakes.Config.ok())
-                .pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(P), List.of())));
+        var ex = validating(gw -> {
+            gw.receiver(R, receiver(null), Fakes.Config.ok());
+            gw.processor(P, processor(null), Fakes.Config.ok());
+            gw.pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(P), List.of()));
+        });
         assertThat(codes(ex)).contains(PIPELINE_NO_EXPORTERS);
     }
 
     @Test
     void receiverSignalUnsupported() {
-        var ex = validating(Gateway.builder()
-                .receiver(R, receiver(Fakes.signals(METRICS)), Fakes.Config.ok())
-                .exporter(E, exporter(null), Fakes.Config.ok())
-                .pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(), List.of(E))));
+        var ex = validating(gw -> {
+            gw.receiver(R, receiver(Fakes.signals(METRICS)), Fakes.Config.ok());
+            gw.exporter(E, exporter(null), Fakes.Config.ok());
+            gw.pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(), List.of(E)));
+        });
         assertThat(codes(ex)).contains(RECEIVER_SIGNAL_UNSUPPORTED);
     }
 
     @Test
     void processorSignalUnsupported() {
-        var ex = validating(Gateway.builder()
-                .receiver(R, receiver(null), Fakes.Config.ok())
-                .processor(P, processor(Fakes.signals(METRICS)), Fakes.Config.ok())
-                .exporter(E, exporter(null), Fakes.Config.ok())
-                .pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(P), List.of(E))));
+        var ex = validating(gw -> {
+            gw.receiver(R, receiver(null), Fakes.Config.ok());
+            gw.processor(P, processor(Fakes.signals(METRICS)), Fakes.Config.ok());
+            gw.exporter(E, exporter(null), Fakes.Config.ok());
+            gw.pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(P), List.of(E)));
+        });
         assertThat(codes(ex)).contains(PROCESSOR_SIGNAL_UNSUPPORTED);
     }
 
     @Test
     void exporterSignalUnsupported() {
-        var ex = validating(Gateway.builder()
-                .receiver(R, receiver(null), Fakes.Config.ok())
-                .exporter(E, exporter(Fakes.signals(METRICS)), Fakes.Config.ok())
-                .pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(), List.of(E))));
+        var ex = validating(gw -> {
+            gw.receiver(R, receiver(null), Fakes.Config.ok());
+            gw.exporter(E, exporter(Fakes.signals(METRICS)), Fakes.Config.ok());
+            gw.pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(), List.of(E)));
+        });
         assertThat(codes(ex)).contains(EXPORTER_SIGNAL_UNSUPPORTED);
     }
 
     @Test
     void connectorPairUnsupported() {
         var eLogs = ComponentId.parse("logsexp");
-        var ex = validating(Gateway.builder()
-                .receiver(R, receiver(null), Fakes.Config.ok())
-                .exporter(eLogs, exporter(null), Fakes.Config.ok())
-                .connector(C, connector("spanmetrics", Fakes.pairs(new SignalPair<>(TRACES, METRICS))), Fakes.Config.ok())
-                .pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(), List.of(C)))
-                .pipeline(LOGS_PIPE, new PipelineConfig(List.of(C), List.of(), List.of(eLogs))));
+        var ex = validating(gw -> {
+            gw.receiver(R, receiver(null), Fakes.Config.ok());
+            gw.exporter(eLogs, exporter(null), Fakes.Config.ok());
+            gw.connector(C, connector("spanmetrics", Fakes.pairs(new SignalPair<>(TRACES, METRICS))), Fakes.Config.ok());
+            gw.pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(), List.of(C)));
+            gw.pipeline(LOGS_PIPE, new PipelineConfig(List.of(C), List.of(), List.of(eLogs)));
+        });
         assertThat(codes(ex)).contains(CONNECTOR_PAIR_UNSUPPORTED);
     }
 
     @Test
     void connectorUsedAsExporterOnly() {
-        var ex = validating(Gateway.builder()
-                .receiver(R, receiver(null), Fakes.Config.ok())
-                .connector(C, connector("spanmetrics", Fakes.pairs(new SignalPair<>(TRACES, METRICS))), Fakes.Config.ok())
-                .pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(), List.of(C))));
+        var ex = validating(gw -> {
+            gw.receiver(R, receiver(null), Fakes.Config.ok());
+            gw.connector(C, connector("spanmetrics", Fakes.pairs(new SignalPair<>(TRACES, METRICS))), Fakes.Config.ok());
+            gw.pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(), List.of(C)));
+        });
         assertThat(codes(ex)).contains(CONNECTOR_USED_AS_EXPORTER_ONLY);
     }
 
     @Test
     void connectorUsedAsReceiverOnly() {
-        var ex = validating(Gateway.builder()
-                .exporter(E, exporter(null), Fakes.Config.ok())
-                .connector(C, connector("spanmetrics", Fakes.pairs(new SignalPair<>(TRACES, METRICS))), Fakes.Config.ok())
-                .pipeline(METRICS_PIPE, new PipelineConfig(List.of(C), List.of(), List.of(E))));
+        var ex = validating(gw -> {
+            gw.exporter(E, exporter(null), Fakes.Config.ok());
+            gw.connector(C, connector("spanmetrics", Fakes.pairs(new SignalPair<>(TRACES, METRICS))), Fakes.Config.ok());
+            gw.pipeline(METRICS_PIPE, new PipelineConfig(List.of(C), List.of(), List.of(E)));
+        });
         assertThat(codes(ex)).contains(CONNECTOR_USED_AS_RECEIVER_ONLY);
     }
 
     @Test
     void duplicateProcessorInPipeline() {
-        var ex = validating(Gateway.builder()
-                .receiver(R, receiver(null), Fakes.Config.ok())
-                .processor(P, processor(null), Fakes.Config.ok())
-                .exporter(E, exporter(null), Fakes.Config.ok())
-                .pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(P, P), List.of(E))));
+        var ex = validating(gw -> {
+            gw.receiver(R, receiver(null), Fakes.Config.ok());
+            gw.processor(P, processor(null), Fakes.Config.ok());
+            gw.exporter(E, exporter(null), Fakes.Config.ok());
+            gw.pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(P, P), List.of(E)));
+        });
         assertThat(codes(ex)).contains(DUPLICATE_PROCESSOR_IN_PIPELINE);
     }
 
     @Test
     void cycleDetected() {
-        var ex = validating(Gateway.builder()
-                .receiver(R, receiver(null), Fakes.Config.ok())
-                .connector(C, connector("spanmetrics", Fakes.pairs(new SignalPair<>(TRACES, METRICS))), Fakes.Config.ok())
-                .connector(C2, connector("metricstraces", Fakes.pairs(new SignalPair<>(METRICS, TRACES))), Fakes.Config.ok())
-                .pipeline(TRACES_PIPE, new PipelineConfig(List.of(R, C2), List.of(), List.of(C)))
-                .pipeline(METRICS_PIPE, new PipelineConfig(List.of(C), List.of(), List.of(C2))));
+        var ex = validating(gw -> {
+            gw.receiver(R, receiver(null), Fakes.Config.ok());
+            gw.connector(C, connector("spanmetrics", Fakes.pairs(new SignalPair<>(TRACES, METRICS))), Fakes.Config.ok());
+            gw.connector(C2, connector("metricstraces", Fakes.pairs(new SignalPair<>(METRICS, TRACES))), Fakes.Config.ok());
+            gw.pipeline(TRACES_PIPE, new PipelineConfig(List.of(R, C2), List.of(), List.of(C)));
+            gw.pipeline(METRICS_PIPE, new PipelineConfig(List.of(C), List.of(), List.of(C2)));
+        });
         assertThat(codes(ex)).contains(CYCLE_DETECTED);
     }
 
     @Test
     void orphanedComponent() {
         var e2 = ComponentId.parse("otlpexp2");
-        var ex = validating(Gateway.builder()
-                .receiver(R, receiver(null), Fakes.Config.ok())
-                .exporter(E, exporter(null), Fakes.Config.ok())
-                .exporter(e2, exporter(null), Fakes.Config.ok())
-                .pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(), List.of(E))));
+        var ex = validating(gw -> {
+            gw.receiver(R, receiver(null), Fakes.Config.ok());
+            gw.exporter(E, exporter(null), Fakes.Config.ok());
+            gw.exporter(e2, exporter(null), Fakes.Config.ok());
+            gw.pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(), List.of(E)));
+        });
         assertThat(codes(ex)).contains(ORPHANED_COMPONENT);
     }
 
     @Test
     void validConfigDoesNotThrow() {
         // A well-formed traces pipeline validates and builds without any diagnostic.
-        var runtime = Gateway.builder()
-                .receiver(R, receiver(null), Fakes.Config.ok())
-                .exporter(E, exporter(null), Fakes.Config.ok())
-                .pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(), List.of(E)))
-                .build();
+        var gw = Gateway.builder();
+        var in = gw.receiver(R, receiver(null), Fakes.Config.ok());
+        var out = gw.exporter(E, exporter(null), Fakes.Config.ok());
+        gw.pipeline(TRACES_PIPE, p -> p.from(in).to(out));
+        var runtime = gw.build();
         assertThat(runtime).isNotNull();
         runtime.close();
     }

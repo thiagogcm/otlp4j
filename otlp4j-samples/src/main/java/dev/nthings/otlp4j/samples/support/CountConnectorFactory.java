@@ -9,6 +9,7 @@ import dev.nthings.otlp4j.core.component.ComponentKind;
 import dev.nthings.otlp4j.core.component.Connector;
 import dev.nthings.otlp4j.core.component.ConnectorFactory;
 import dev.nthings.otlp4j.core.component.CreateContext;
+import dev.nthings.otlp4j.core.component.ProcessorFactory;
 import dev.nthings.otlp4j.core.component.ShutdownContext;
 import dev.nthings.otlp4j.core.consumer.ConsumeContext;
 import dev.nthings.otlp4j.core.consumer.ConsumerCapabilities;
@@ -67,12 +68,7 @@ public final class CountConnectorFactory implements ConnectorFactory<CountConnec
     @Override
     public Connector create(
             CreateContext ctx, CountConnectorConfig config, SignalPair<?, ?> pair, SignalConsumer<?> next) {
-        return new CountConnector(ctx.id(), config, payloadConsumer(next));
-    }
-
-    @SuppressWarnings("unchecked")
-    private static SignalConsumer<TelemetryPayload> payloadConsumer(SignalConsumer<?> next) {
-        return (SignalConsumer<TelemetryPayload>) next;
+        return new CountConnector(ctx.id(), config, ProcessorFactory.asPayloadConsumer(next));
     }
 
     /// The connector component. It consumes a traces payload, counts its items through the payload's

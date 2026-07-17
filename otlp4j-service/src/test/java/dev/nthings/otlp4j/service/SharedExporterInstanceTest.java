@@ -46,12 +46,12 @@ class SharedExporterInstanceTest {
         var exporterFactory = new SharedCountingExporterFactory("otlpexp", clientBuilds, facetCreates);
         var recv = new Fakes.ReceiverFactoryImpl("otlp", new Fakes.Log(), null);
 
-        Gateway.builder()
-                .receiver(R, recv, Fakes.Config.ok())
-                .exporter(E, exporterFactory, Fakes.Config.ok())
-                .pipeline(PipelineId.of(TRACES), new PipelineConfig(List.of(R), List.of(), List.of(E)))
-                .pipeline(PipelineId.of(METRICS), new PipelineConfig(List.of(R), List.of(), List.of(E)))
-                .build();
+        var gw = Gateway.builder();
+        gw.receiver(R, recv, Fakes.Config.ok());
+        gw.exporter(E, exporterFactory, Fakes.Config.ok());
+        gw.pipeline(PipelineId.of(TRACES), new PipelineConfig(List.of(R), List.of(), List.of(E)));
+        gw.pipeline(PipelineId.of(METRICS), new PipelineConfig(List.of(R), List.of(), List.of(E)));
+        gw.build();
 
         // One per-signal facet is created for each of the two pipeline signals ...
         assertThat(facetCreates.get()).isEqualTo(2);

@@ -10,7 +10,6 @@ import dev.nthings.otlp4j.core.component.ComponentId;
 import dev.nthings.otlp4j.core.pipeline.PipelineId;
 import dev.nthings.otlp4j.core.signal.SignalPair;
 import dev.nthings.otlp4j.model.TracesData;
-import dev.nthings.otlp4j.service.config.ComponentRegistry;
 import dev.nthings.otlp4j.service.config.ConnectorEntry;
 import dev.nthings.otlp4j.service.config.ExporterEntry;
 import dev.nthings.otlp4j.service.config.PipelineConfig;
@@ -52,36 +51,6 @@ class ValueTypesTest {
         var cf = new Fakes.ConnectorFactoryImpl("c", log, Fakes.pairs());
         assertThatThrownBy(() -> new ConnectorEntry<>(null, Fakes.Config.ok())).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new ConnectorEntry<>(cf, null)).isInstanceOf(IllegalArgumentException.class);
-    }
-
-    @Test
-    void componentRegistryAnswersLookupsAndSignalSupport() {
-        var config = Gateway.builder()
-                .receiver(ComponentId.parse("otlp"), new Fakes.ReceiverFactoryImpl("otlp", log, Fakes.signals(TRACES)), Fakes.Config.ok())
-                .processor(ComponentId.parse("batch"), new Fakes.ProcessorFactoryImpl("batch", log, null), Fakes.Config.ok())
-                .exporter(ComponentId.parse("otlpexp"), new Fakes.ExporterFactoryImpl("otlpexp", log, null, null), Fakes.Config.ok())
-                .connector(ComponentId.parse("c"), new Fakes.ConnectorFactoryImpl("c", log, Fakes.pairs()), Fakes.Config.ok())
-                .toConfig();
-        var registry = new ComponentRegistry(config);
-
-        assertThat(registry.hasReceiver(ComponentId.parse("otlp"))).isTrue();
-        assertThat(registry.hasProcessor(ComponentId.parse("batch"))).isTrue();
-        assertThat(registry.hasExporter(ComponentId.parse("otlpexp"))).isTrue();
-        assertThat(registry.hasConnector(ComponentId.parse("c"))).isTrue();
-        assertThat(registry.receiver(ComponentId.parse("otlp"))).isNotNull();
-        assertThat(registry.processor(ComponentId.parse("batch"))).isNotNull();
-        assertThat(registry.exporter(ComponentId.parse("otlpexp"))).isNotNull();
-        assertThat(registry.connector(ComponentId.parse("c"))).isNotNull();
-
-        // SignalSupport restriction is honored.
-        assertThat(registry.receiverSupports(ComponentId.parse("otlp"), TRACES)).isTrue();
-        assertThat(registry.receiverSupports(ComponentId.parse("otlp"), METRICS)).isFalse();
-        // A processor with no restriction supports any signal.
-        assertThat(registry.processorSupports(ComponentId.parse("batch"), METRICS)).isTrue();
-        // An unknown id resolves to no factory, so it defaults to supported.
-        assertThat(registry.exporterSupports(ComponentId.parse("missing"), TRACES)).isTrue();
-
-        assertThatThrownBy(() -> new ComponentRegistry(null)).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
