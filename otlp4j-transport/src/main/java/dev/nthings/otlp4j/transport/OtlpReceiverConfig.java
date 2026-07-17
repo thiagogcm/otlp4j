@@ -20,6 +20,7 @@ import org.jspecify.annotations.Nullable;
 /// @param bindHost                   the bind host
 /// @param port                       the bind port (`0` binds an ephemeral port)
 /// @param tls                        the server TLS mode
+/// @param clientAuth                 how the server treats a client certificate (enforced mutual TLS)
 /// @param maxInboundMessageSizeBytes the cap on a single decoded export request
 /// @param maxInFlightRequests        the global in-flight request cap (`0` disables it)
 /// @param maxInFlightBytes           the global in-flight decoded-byte cap (`0` disables it)
@@ -28,6 +29,7 @@ public record OtlpReceiverConfig(
         String bindHost,
         int port,
         Tls tls,
+        ClientAuth clientAuth,
         int maxInboundMessageSizeBytes,
         int maxInFlightRequests,
         long maxInFlightBytes,
@@ -41,9 +43,8 @@ public record OtlpReceiverConfig(
     public OtlpReceiverConfig {
         Objects.requireNonNull(bindHost, "bindHost");
         Objects.requireNonNull(tls, "tls");
-        if (port < 0 || port > 65535) {
-            throw new IllegalArgumentException("port out of range: " + port);
-        }
+        Objects.requireNonNull(clientAuth, "clientAuth");
+        Ports.requireValid(port);
         if (maxInboundMessageSizeBytes <= 0) {
             throw new IllegalArgumentException(
                     "maxInboundMessageSizeBytes must be positive: " + maxInboundMessageSizeBytes);
@@ -66,7 +67,8 @@ public record OtlpReceiverConfig(
     /// @return the default config
     public static OtlpReceiverConfig defaults(int port) {
         return new OtlpReceiverConfig(
-                "localhost", port, Tls.disabled(), DEFAULT_MAX_INBOUND_MESSAGE_SIZE_BYTES, 0, 0L, null);
+                "localhost", port, Tls.disabled(), ClientAuth.NONE, DEFAULT_MAX_INBOUND_MESSAGE_SIZE_BYTES,
+                0, 0L, null);
     }
 
     /// A builder seeded with `port` as the bind port and all other builder defaults.
@@ -84,6 +86,7 @@ public record OtlpReceiverConfig(
         var b = new Builder(port)
                 .setBindHost(bindHost)
                 .setTls(tls)
+                .setClientAuth(clientAuth)
                 .setMaxInboundMessageSizeBytes(maxInboundMessageSizeBytes)
                 .setMaxInFlightRequests(maxInFlightRequests)
                 .setMaxInFlightBytes(maxInFlightBytes);
@@ -99,8 +102,8 @@ public record OtlpReceiverConfig(
     /// @return an ephemeral-port copy
     public OtlpReceiverConfig withEphemeralPort() {
         return new OtlpReceiverConfig(
-                bindHost, 0, tls, maxInboundMessageSizeBytes, maxInFlightRequests, maxInFlightBytes,
-                throttleRetryAfter);
+                bindHost, 0, tls, clientAuth, maxInboundMessageSizeBytes, maxInFlightRequests,
+                maxInFlightBytes, throttleRetryAfter);
     }
 
     /// A fluent builder for [OtlpReceiverConfig].
@@ -109,6 +112,7 @@ public record OtlpReceiverConfig(
         private String bindHost = "localhost";
         private int port;
         private Tls tls = Tls.disabled();
+        private ClientAuth clientAuth = ClientAuth.NONE;
         private int maxInboundMessageSizeBytes = DEFAULT_MAX_INBOUND_MESSAGE_SIZE_BYTES;
         private int maxInFlightRequests = 0;
         private long maxInFlightBytes = 0L;
@@ -142,6 +146,20 @@ public record OtlpReceiverConfig(
         /// @return this builder
         public Builder setTls(Tls tls) {
             this.tls = tls;
+            return this;
+        }
+
+        /// Sets how the server treats a client certificate during the TLS handshake (enforced mutual
+        /// TLS). Under [ClientAuth#REQUIRE] a certless client is rejected at the handshake; under
+        /// [ClientAuth#OPTIONAL] a presented certificate is verified but a certless client still
+        /// succeeds; under the default [ClientAuth#NONE] no client certificate is requested. Requesting
+        /// or requiring a client certificate needs a trust anchor, supplied through the server TLS mode
+        /// ([Tls.Custom] `trustFile` or [Tls.Inline] `trust`); its absence fails at start.
+        ///
+        /// @param clientAuth the client-authentication mode
+        /// @return this builder
+        public Builder setClientAuth(ClientAuth clientAuth) {
+            this.clientAuth = Objects.requireNonNull(clientAuth, "clientAuth");
             return this;
         }
 
@@ -192,8 +210,8 @@ public record OtlpReceiverConfig(
         /// @return the config
         public OtlpReceiverConfig build() {
             return new OtlpReceiverConfig(
-                    bindHost, port, tls, maxInboundMessageSizeBytes, maxInFlightRequests, maxInFlightBytes,
-                    throttleRetryAfter);
+                    bindHost, port, tls, clientAuth, maxInboundMessageSizeBytes, maxInFlightRequests,
+                    maxInFlightBytes, throttleRetryAfter);
         }
     }
 }

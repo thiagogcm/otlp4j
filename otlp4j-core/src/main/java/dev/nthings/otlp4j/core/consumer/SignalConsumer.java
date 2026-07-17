@@ -26,4 +26,16 @@ public interface SignalConsumer<T extends TelemetryPayload> {
     /// @param data    the payload to consume
     /// @return a stage completing with the delivery result
     CompletionStage<DeliveryResult> consume(ConsumeContext context, T data);
+
+    /// Reinterprets a consumer of any signal's payload as one keyed by the opaque [TelemetryPayload],
+    /// the single sanctioned unchecked cast a component factory needs to wire its component onto the
+    /// graph's payload-typed downstream consumer. At runtime the consumer is agnostic to the concrete
+    /// payload backing, so the reinterpretation is safe.
+    ///
+    /// @param consumer the downstream consumer
+    /// @return the same consumer typed over [TelemetryPayload]
+    @SuppressWarnings("unchecked")
+    static SignalConsumer<TelemetryPayload> asPayload(SignalConsumer<?> consumer) {
+        return (SignalConsumer<TelemetryPayload>) consumer;
+    }
 }

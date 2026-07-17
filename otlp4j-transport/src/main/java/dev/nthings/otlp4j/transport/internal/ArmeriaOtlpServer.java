@@ -8,7 +8,6 @@ import dev.nthings.otlp4j.transport.OtlpReceiverConfig;
 import dev.nthings.otlp4j.transport.Tls;
 import dev.nthings.otlp4j.core.telemetry.GatewayMetrics;
 import dev.nthings.otlp4j.transport.internal.AdmissionControl;
-import dev.nthings.otlp4j.transport.OtlpReceiver.ClientAuth;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.EnumSet;
@@ -62,51 +61,38 @@ public final class ArmeriaOtlpServer {
             new HttpRoute(SignalCodec.PROFILES, OtlpHttpPaths.PROFILES_PATH));
 
     private final OtlpReceiverConfig config;
-    private final PayloadDispatch dispatchers;
+    private final PayloadDispatch dispatch;
     private final GatewayMetrics telemetry;
     private final Set<Protocol> protocols;
-    private final ClientAuth clientAuth;
 
     private @Nullable Server server;
     private volatile @Nullable AdmissionControl admission;
 
-    /// Full constructor.
+    /// Full constructor. The client-certificate authentication mode (enforced mutual TLS) is carried on
+    /// the `config`, so a graph-built server honours it just as a fluent-built one does.
     ///
-    /// @param config      the transport config
-    /// @param dispatchers the per-signal dispatch functions
-    /// @param telemetry   the self-observability registry for admission health
-    /// @param protocols   the protocols to serve (at least one of [Protocol#GRPC], [Protocol#HTTP])
-    /// @param clientAuth  the client-certificate authentication mode (enforced mutual TLS)
-    public ArmeriaOtlpServer(OtlpReceiverConfig config, PayloadDispatch dispatchers, GatewayMetrics telemetry,
-            Set<Protocol> protocols, ClientAuth clientAuth) {
+    /// @param config    the transport config (its [OtlpReceiverConfig#clientAuth] selects mutual TLS)
+    /// @param dispatch  the per-signal dispatch seam
+    /// @param telemetry the self-observability registry for admission health
+    /// @param protocols the protocols to serve (at least one of [Protocol#GRPC], [Protocol#HTTP])
+    public ArmeriaOtlpServer(OtlpReceiverConfig config, PayloadDispatch dispatch, GatewayMetrics telemetry,
+            Set<Protocol> protocols) {
         if (protocols.isEmpty()) {
             throw new IllegalArgumentException("at least one protocol must be served");
         }
         this.config = config;
-        this.dispatchers = dispatchers;
+        this.dispatch = dispatch;
         this.telemetry = telemetry;
         this.protocols = EnumSet.copyOf(protocols);
-        this.clientAuth = clientAuth;
     }
 
-    /// Full constructor defaulting to [ClientAuth#NONE].
+    /// Convenience constructor with no self-observability ([GatewayMetrics#noop]).
     ///
-    /// @param config      the transport config
-    /// @param dispatchers the per-signal dispatch functions
-    /// @param telemetry   the self-observability registry for admission health
-    /// @param protocols   the protocols to serve (at least one of [Protocol#GRPC], [Protocol#HTTP])
-    public ArmeriaOtlpServer(OtlpReceiverConfig config, PayloadDispatch dispatchers, GatewayMetrics telemetry,
-            Set<Protocol> protocols) {
-        this(config, dispatchers, telemetry, protocols, ClientAuth.NONE);
-    }
-
-    /// Convenience constructor with no self-observability ([GatewayMetrics#noop]) and [ClientAuth#NONE].
-    ///
-    /// @param config      the transport config
-    /// @param dispatchers the per-signal dispatch functions
-    /// @param protocols   the protocols to serve
-    public ArmeriaOtlpServer(OtlpReceiverConfig config, PayloadDispatch dispatchers, Set<Protocol> protocols) {
-        this(config, dispatchers, GatewayMetrics.noop(), protocols, ClientAuth.NONE);
+    /// @param config    the transport config
+    /// @param dispatch  the per-signal dispatch seam
+    /// @param protocols the protocols to serve
+    public ArmeriaOtlpServer(OtlpReceiverConfig config, PayloadDispatch dispatch, Set<Protocol> protocols) {
+        this(config, dispatch, GatewayMetrics.noop(), protocols);
     }
 
     public synchronized void start() throws IOException {
@@ -119,7 +105,7 @@ public final class ArmeriaOtlpServer {
             sb.http(address);
         } else {
             sb.https(address);
-            ArmeriaTls.applyServer(sb, config.tls(), clientAuth);
+            ArmeriaTls.applyServer(sb, config.tls(), config.clientAuth());
         }
         // Leave the server-level wire request-length limit unbounded so the gRPC and HTTP caps stay
         // decoupled: gRPC enforces its decoded-message cap through the GrpcService message-length cap,
@@ -139,7 +125,7 @@ public final class ArmeriaOtlpServer {
                     // the I/O event loop, so a blocking SignalConsumer cannot stall the shared event
                     // loop and every other connection multiplexed onto it.
                     .useBlockingTaskExecutor(true);
-            GrpcServiceAdapters.create(dispatchers, admissionControl).forEach(grpc::addService);
+            GrpcServiceAdapters.create(dispatch, admissionControl).forEach(grpc::addService);
             sb.service(grpc.build());
         }
         if (protocols.contains(Protocol.HTTP)) {
@@ -152,7 +138,7 @@ public final class ArmeriaOtlpServer {
                 sb.route().post(route.path())
                         .maxRequestLength(wireCap)
                         .build(HttpProtocolMapping.service(
-                                route.codec(), dispatchers, config.maxInboundMessageSizeBytes(), admissionControl));
+                                route.codec(), dispatch, config.maxInboundMessageSizeBytes(), admissionControl));
             }
         }
 

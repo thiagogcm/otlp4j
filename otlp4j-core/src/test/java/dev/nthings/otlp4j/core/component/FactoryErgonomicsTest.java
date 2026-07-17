@@ -146,7 +146,7 @@ class FactoryErgonomicsTest {
     @DisplayName("the cast helpers reinterpret without altering the instance")
     void castHelpers() {
         SignalConsumer<TelemetryPayload> consumer = sink(new AtomicReference<>());
-        assertThat(ProcessorFactory.asPayloadConsumer(consumer)).isSameAs(consumer);
+        assertThat(SignalConsumer.asPayload(consumer)).isSameAs(consumer);
         assertThat(ProcessorFactory.<TracesData>asDomainDescriptor(TRACES)).isSameAs(TRACES);
         Processor<TelemetryPayload> processor = ProcessorFactory.of("enrich", TRACES, t -> t, PAYLOADS)
                 .create(new CreateContext(ID, base()), ComponentConfig.NONE, cast(TRACES), sink(new AtomicReference<>()));

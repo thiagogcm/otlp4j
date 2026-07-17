@@ -120,10 +120,10 @@ public final class ArmeriaOtlpClient implements AutoCloseable {
         if (clientFactory != null) {
             builder.factory(clientFactory);
         }
-        var traceStub = builder.build(TraceServiceGrpc.TraceServiceFutureStub.class);
-        var metricsStub = builder.build(MetricsServiceGrpc.MetricsServiceFutureStub.class);
-        var logsStub = builder.build(LogsServiceGrpc.LogsServiceFutureStub.class);
-        var profilesStub = builder.build(ProfilesServiceGrpc.ProfilesServiceFutureStub.class);
+        var traceStub = prepareStub(builder.build(TraceServiceGrpc.TraceServiceFutureStub.class));
+        var metricsStub = prepareStub(builder.build(MetricsServiceGrpc.MetricsServiceFutureStub.class));
+        var logsStub = prepareStub(builder.build(LogsServiceGrpc.LogsServiceFutureStub.class));
+        var profilesStub = prepareStub(builder.build(ProfilesServiceGrpc.ProfilesServiceFutureStub.class));
         exports.put(SignalDescriptor.TRACES,
                 grpcExport(SignalCodec.TRACES, r -> call(traceStub).export(r)));
         exports.put(SignalDescriptor.METRICS,
@@ -222,6 +222,20 @@ public final class ArmeriaOtlpClient implements AutoCloseable {
     /// carrier thread, so it keeps the per-export thread hop removed.
     private CompletionStage<DeliveryResult> withRetryAccounting(
             Supplier<CompletableFuture<DeliveryResult>> call) {
+        if (metrics == ExporterMetrics.noop()) {
+            // No retry accounting to do (self-observability is off): skip the context capture and the
+            // settle hop, and just map the total-deadline timeout on the underlying stage, bounded by
+            // the same total budget.
+            var settled = new CompletableFuture<DeliveryResult>();
+            call.get().whenComplete((result, error) -> {
+                if (error == null) {
+                    settled.complete(result);
+                } else {
+                    settled.completeExceptionally(mapTotalTimeout(asRuntime(error)));
+                }
+            });
+            return settled.orTimeout(config.timeout().total().toNanos(), TimeUnit.NANOSECONDS);
+        }
         ClientRequestContext ctx;
         CompletableFuture<DeliveryResult> stage;
         try (ClientRequestContextCaptor captor = Clients.newContextCaptor()) {
@@ -301,20 +315,37 @@ public final class ArmeriaOtlpClient implements AutoCloseable {
         return error;
     }
 
-    /// Applies optional gzip compression and the resolved per-call headers to a gRPC stub. The
-    /// per-attempt and total deadlines are the retrying decorator's per-attempt response timeout and the
-    /// client-level response timeout, so no per-call gRPC deadline is set here (one would span every
-    /// retry and abort the whole delivery at the first per-attempt budget).
-    private <S extends AbstractStub<S>> S call(S stub) {
-        var s = stub;
-        if (compress) {
-            s = s.withCompression("gzip");
-        }
-        var headers = ClientHeaders.resolve(config.headers(), config.headerSupplier());
-        if (!headers.isEmpty()) {
-            s = s.withInterceptors(MetadataUtils.newAttachHeadersInterceptor(toMetadata(headers)));
+    /// Decorates a gRPC stub once at construction with the settings that never vary per export: optional
+    /// gzip compression (the compression mode is fixed for the client's lifetime) and, when no per-call
+    /// header supplier is set, the fixed request headers baked in as an attach-headers interceptor. When
+    /// a header supplier is set the headers must be re-resolved per export, so they are attached in
+    /// [#call] instead and left off here.
+    ///
+    /// The per-attempt and total deadlines are the retrying decorator's per-attempt response timeout and
+    /// the client-level response timeout, so no per-call gRPC deadline is set (one would span every retry
+    /// and abort the whole delivery at the first per-attempt budget).
+    private <S extends AbstractStub<S>> S prepareStub(S stub) {
+        var s = compress ? stub.withCompression("gzip") : stub;
+        if (config.headerSupplier() == null) {
+            var headers = ClientHeaders.resolve(config.headers(), null);
+            if (!headers.isEmpty()) {
+                s = s.withInterceptors(MetadataUtils.newAttachHeadersInterceptor(toMetadata(headers)));
+            }
         }
         return s;
+    }
+
+    /// Applies the per-export header decoration to a stub already prepared by [#prepareStub]. With no
+    /// header supplier the stub was fully decorated at construction, so it is returned unchanged; only a
+    /// supplier-backed configuration re-resolves the headers on each export and attaches them here.
+    private <S extends AbstractStub<S>> S call(S stub) {
+        if (config.headerSupplier() == null) {
+            return stub;
+        }
+        var headers = ClientHeaders.resolve(config.headers(), config.headerSupplier());
+        return headers.isEmpty()
+                ? stub
+                : stub.withInterceptors(MetadataUtils.newAttachHeadersInterceptor(toMetadata(headers)));
     }
 
     private HttpRequest request(String path, byte[] body) {

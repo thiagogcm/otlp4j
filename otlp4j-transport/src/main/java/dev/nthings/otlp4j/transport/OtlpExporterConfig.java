@@ -62,9 +62,7 @@ public record OtlpExporterConfig(
                 : Collections.unmodifiableMap(new LinkedHashMap<>(headers));
         Headers.requireValid(headers);
         path = normalizePath(path);
-        if (port < 0 || port > 65535) {
-            throw new IllegalArgumentException("port out of range: " + port);
-        }
+        Ports.requireValid(port);
     }
 
     /// The default exporter config for `port`: `localhost:port`, plaintext, no headers, no

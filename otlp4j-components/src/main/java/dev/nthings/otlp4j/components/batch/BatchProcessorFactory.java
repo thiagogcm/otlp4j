@@ -53,7 +53,7 @@ public final class BatchProcessorFactory
                 ctx.id(),
                 ProcessorFactory.asDomainDescriptor(signal),
                 config,
-                ProcessorFactory.asPayloadConsumer(next),
+                SignalConsumer.asPayload(next),
                 System::nanoTime);
         return ProcessorFactory.asTypedProcessor(processor);
     }

@@ -43,9 +43,13 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.function.BiPredicate;
+import java.util.function.Predicate;
 import org.jspecify.annotations.Nullable;
 
 /// Turns a validated [GatewayConfig] into an unstarted [GatewayRuntime]. It runs the whole ten-step
@@ -140,58 +144,16 @@ final class GatewayCompiler {
             diagnostics.add(Diagnostic.ofPipeline(
                     DiagnosticCode.PIPELINE_NO_RECEIVERS, "pipeline has no receivers", pid));
         }
-        for (var id : pc.receivers()) {
-            if (hasReceiver(id)) {
-                if (!receiverSupports(id, signal)) {
-                    diagnostics.add(Diagnostic.of(
-                            DiagnosticCode.RECEIVER_SIGNAL_UNSUPPORTED,
-                            "receiver " + id + " does not support " + signal,
-                            id,
-                            pid));
-                }
-            } else if (hasConnector(id)) {
-                // A connector routed as this pipeline's receiver; the pair is validated separately.
-            } else if (bridgeIds.contains(id)) {
-                if (reportedBridge.add(id)) {
-                    diagnostics.add(Diagnostic.ofComponent(
-                            DiagnosticCode.UNKNOWN_CONNECTOR_REF,
-                            id + " is used as a connector (exporter in one pipeline, receiver in another) "
-                                    + "but no connector is registered under it",
-                            id));
-                }
-            } else {
-                diagnostics.add(Diagnostic.of(
-                        DiagnosticCode.UNKNOWN_RECEIVER_REF, "no receiver registered under " + id, id, pid));
-            }
-        }
+        validateRefs(pc.receivers(), "receiver", this::hasReceiver, this::receiverSupports,
+                DiagnosticCode.RECEIVER_SIGNAL_UNSUPPORTED, DiagnosticCode.UNKNOWN_RECEIVER_REF,
+                pid, signal, bridgeIds, reportedBridge, diagnostics);
         if (pc.exporters().isEmpty()) {
             diagnostics.add(Diagnostic.ofPipeline(
                     DiagnosticCode.PIPELINE_NO_EXPORTERS, "pipeline has no exporters", pid));
         }
-        for (var id : pc.exporters()) {
-            if (hasExporter(id)) {
-                if (!exporterSupports(id, signal)) {
-                    diagnostics.add(Diagnostic.of(
-                            DiagnosticCode.EXPORTER_SIGNAL_UNSUPPORTED,
-                            "exporter " + id + " does not support " + signal,
-                            id,
-                            pid));
-                }
-            } else if (hasConnector(id)) {
-                // A connector routed as this pipeline's exporter; the pair is validated separately.
-            } else if (bridgeIds.contains(id)) {
-                if (reportedBridge.add(id)) {
-                    diagnostics.add(Diagnostic.ofComponent(
-                            DiagnosticCode.UNKNOWN_CONNECTOR_REF,
-                            id + " is used as a connector (exporter in one pipeline, receiver in another) "
-                                    + "but no connector is registered under it",
-                            id));
-                }
-            } else {
-                diagnostics.add(Diagnostic.of(
-                        DiagnosticCode.UNKNOWN_EXPORTER_REF, "no exporter registered under " + id, id, pid));
-            }
-        }
+        validateRefs(pc.exporters(), "exporter", this::hasExporter, this::exporterSupports,
+                DiagnosticCode.EXPORTER_SIGNAL_UNSUPPORTED, DiagnosticCode.UNKNOWN_EXPORTER_REF,
+                pid, signal, bridgeIds, reportedBridge, diagnostics);
         var seen = new HashSet<ComponentId>();
         for (var id : pc.processors()) {
             if (!seen.add(id)) {
@@ -212,6 +174,46 @@ final class GatewayCompiler {
             } else {
                 diagnostics.add(Diagnostic.of(
                         DiagnosticCode.UNKNOWN_PROCESSOR_REF, "no processor registered under " + id, id, pid));
+            }
+        }
+    }
+
+    /// Validates one pipeline's receiver or exporter reference list: a registered component of the
+    /// expected `role` must support the pipeline's `signal`; an id that instead names a connector is
+    /// deferred to pair validation; a bridge id with no registered connector is reported once; anything
+    /// else is an unknown reference. The receiver and exporter passes differ only in the `role` word,
+    /// the two lookups, and the two diagnostic codes, so both share this body.
+    private void validateRefs(
+            Iterable<ComponentId> ids,
+            String role,
+            Predicate<ComponentId> has,
+            BiPredicate<ComponentId, SignalDescriptor<?>> supports,
+            DiagnosticCode signalUnsupported,
+            DiagnosticCode unknownRef,
+            PipelineId pid,
+            SignalDescriptor<?> signal,
+            Set<ComponentId> bridgeIds,
+            Set<ComponentId> reportedBridge,
+            List<Diagnostic> diagnostics) {
+        for (var id : ids) {
+            if (has.test(id)) {
+                if (!supports.test(id, signal)) {
+                    diagnostics.add(Diagnostic.of(
+                            signalUnsupported, role + " " + id + " does not support " + signal, id, pid));
+                }
+            } else if (hasConnector(id)) {
+                // A connector routed as this pipeline's receiver/exporter; the pair is validated separately.
+            } else if (bridgeIds.contains(id)) {
+                if (reportedBridge.add(id)) {
+                    diagnostics.add(Diagnostic.ofComponent(
+                            DiagnosticCode.UNKNOWN_CONNECTOR_REF,
+                            id + " is used as a connector (exporter in one pipeline, receiver in another) "
+                                    + "but no connector is registered under it",
+                            id));
+                }
+            } else {
+                diagnostics.add(Diagnostic.of(
+                        unknownRef, "no " + role + " registered under " + id, id, pid));
             }
         }
     }
@@ -565,7 +567,7 @@ final class GatewayCompiler {
     }
 
     private static Set<SignalDescriptor<?>> distinctSignals(List<PipelineId> pipelines) {
-        var signals = new java.util.LinkedHashSet<SignalDescriptor<?>>();
+        var signals = new LinkedHashSet<SignalDescriptor<?>>();
         for (var pid : pipelines) {
             signals.add(pid.signal());
         }
@@ -612,21 +614,21 @@ final class GatewayCompiler {
         return false;
     }
 
-    private java.util.Optional<ComponentId> cycleComponent(CycleException cycle) {
+    private Optional<ComponentId> cycleComponent(CycleException cycle) {
         return componentId(cycle.to()).or(() -> componentId(cycle.from()));
     }
 
-    private java.util.Optional<PipelineId> firstPipeline() {
+    private Optional<PipelineId> firstPipeline() {
         return config.pipelines().keySet().stream().findFirst();
     }
 
-    private static java.util.Optional<ComponentId> componentId(Node node) {
+    private static Optional<ComponentId> componentId(Node node) {
         return switch (node) {
-            case ReceiverNode r -> java.util.Optional.of(r.id());
-            case ProcessorNode p -> java.util.Optional.of(p.id());
-            case ExporterNode e -> java.util.Optional.of(e.id());
-            case ConnectorNode c -> java.util.Optional.of(c.id());
-            case FanOutNode ignored -> java.util.Optional.empty();
+            case ReceiverNode r -> Optional.of(r.id());
+            case ProcessorNode p -> Optional.of(p.id());
+            case ExporterNode e -> Optional.of(e.id());
+            case ConnectorNode c -> Optional.of(c.id());
+            case FanOutNode ignored -> Optional.empty();
         };
     }
 

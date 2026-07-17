@@ -16,7 +16,7 @@ import java.util.List;
 public final class PipelineBuilder {
 
     private List<ComponentId> receivers;
-    private List<ComponentId> processors = List.of();
+    private List<ComponentId> processors;
     private List<ComponentId> exporters;
 
     PipelineBuilder() {}
@@ -38,7 +38,7 @@ public final class PipelineBuilder {
     /// @param chain the processor handles, applied in order
     /// @return this builder
     public PipelineBuilder via(ProcessorHandle... chain) {
-        if (!processors.isEmpty()) {
+        if (processors != null) {
             throw new IllegalStateException("via(...) was already set for this pipeline");
         }
         processors = ids(chain, ProcessorHandle::id);
@@ -60,7 +60,7 @@ public final class PipelineBuilder {
     PipelineConfig toConfig() {
         return new PipelineConfig(
                 receivers == null ? List.of() : receivers,
-                processors,
+                processors == null ? List.of() : processors,
                 exporters == null ? List.of() : exporters);
     }
 

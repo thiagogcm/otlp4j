@@ -49,22 +49,22 @@ final class GrpcServiceAdapters {
 
     private GrpcServiceAdapters() {}
 
-    /// Creates the four OTLP collector services, each bound to its signal's dispatcher and gated by
+    /// Creates the four OTLP collector services, each bound to the shared dispatch seam and gated by
     /// the shared admission control.
     ///
-    /// @param dispatchers the per-signal dispatch functions
-    /// @param admission   the shared admission control
+    /// @param dispatch  the per-signal dispatch seam
+    /// @param admission the shared admission control
     /// @return the four bindable OTLP collector services
-    static List<BindableService> create(PayloadDispatch dispatchers, AdmissionControl admission) {
+    static List<BindableService> create(PayloadDispatch dispatch, AdmissionControl admission) {
         return List.of(
                 new TraceServiceAdapter(
-                        request -> dispatchers.dispatch(SignalCodec.TRACES.proto(request)), admission),
+                        request -> dispatch.dispatch(SignalCodec.TRACES.proto(request)), admission),
                 new MetricsServiceAdapter(
-                        request -> dispatchers.dispatch(SignalCodec.METRICS.proto(request)), admission),
+                        request -> dispatch.dispatch(SignalCodec.METRICS.proto(request)), admission),
                 new LogsServiceAdapter(
-                        request -> dispatchers.dispatch(SignalCodec.LOGS.proto(request)), admission),
+                        request -> dispatch.dispatch(SignalCodec.LOGS.proto(request)), admission),
                 new ProfilesServiceAdapter(
-                        request -> dispatchers.dispatch(SignalCodec.PROFILES.proto(request)), admission));
+                        request -> dispatch.dispatch(SignalCodec.PROFILES.proto(request)), admission));
     }
 
     /// Decodes `request` and dispatches to the signal handler, holding an admission permit for the

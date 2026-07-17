@@ -127,7 +127,7 @@ class ArmeriaOtlpClientLifecycleTest {
     void applyServerRejectsDisabled() {
         assertThatThrownBy(() -> ArmeriaTls.applyServer(
                         Server.builder(), Tls.disabled(),
-                        dev.nthings.otlp4j.transport.OtlpReceiver.ClientAuth.NONE))
+                        dev.nthings.otlp4j.transport.ClientAuth.NONE))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Disabled");
     }

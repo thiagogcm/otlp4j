@@ -48,7 +48,7 @@ public final class MemoryLimiterProcessorFactory implements ProcessorFactory<Mem
                 limiter,
                 config.checkInterval(),
                 config.retryAfter(),
-                ProcessorFactory.asPayloadConsumer(next),
+                SignalConsumer.asPayload(next),
                 System::nanoTime,
                 System::gc);
         return ProcessorFactory.asTypedProcessor(processor);

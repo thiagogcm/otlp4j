@@ -57,21 +57,9 @@ public interface ProcessorFactory<C extends ComponentConfig> extends ComponentFa
         return new FunctionProcessorFactory<>(type, signal, transform, payloads);
     }
 
-    /// Reinterprets the payload-typed downstream consumer the graph supplies as one keyed by the
-    /// opaque [TelemetryPayload], the single sanctioned unchecked cast a processor factory needs to
-    /// wire its component to the graph. At runtime the consumer is agnostic to the concrete payload
-    /// backing, so the reinterpretation is safe.
-    ///
-    /// @param next the downstream consumer
-    /// @return the same consumer typed over [TelemetryPayload]
-    @SuppressWarnings("unchecked")
-    static SignalConsumer<TelemetryPayload> asPayloadConsumer(SignalConsumer<?> next) {
-        return (SignalConsumer<TelemetryPayload>) next;
-    }
-
     /// Reinterprets a payload-typed processor as the signal-typed processor the graph builder wires,
-    /// the counterpart of [#asPayloadConsumer] on the produced component. At runtime the processor is
-    /// agnostic to the concrete payload backing, so the reinterpretation is safe.
+    /// the counterpart of [SignalConsumer#asPayload] on the produced component. At runtime the processor
+    /// is agnostic to the concrete payload backing, so the reinterpretation is safe.
     ///
     /// @param processor the payload-typed processor
     /// @param <T>       the payload type the graph expects
@@ -141,7 +129,7 @@ public interface ProcessorFactory<C extends ComponentConfig> extends ComponentFa
                         "processor " + type + " operates on " + signal + " but was created for " + reqSignal);
             }
             Processor<TelemetryPayload> processor =
-                    new FunctionProcessor<>(ctx.id(), signal, transform, payloads, asPayloadConsumer(next));
+                    new FunctionProcessor<>(ctx.id(), signal, transform, payloads, SignalConsumer.asPayload(next));
             return asTypedProcessor(processor);
         }
     }

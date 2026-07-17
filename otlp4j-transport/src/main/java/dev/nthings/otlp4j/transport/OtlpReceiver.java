@@ -29,20 +29,6 @@ public final class OtlpReceiver {
 
     private OtlpReceiver() {}
 
-    /// How the server treats a client certificate during the TLS handshake. The trust anchor that
-    /// verifies a presented client certificate is the CA supplied through the server's own
-    /// [Tls.Custom] `trustFile` or [Tls.Inline] `trust`, which the server otherwise ignores.
-    public enum ClientAuth {
-        /// No client certificate is requested; a client presenting one still succeeds. The default.
-        NONE,
-        /// A client certificate is requested but not required: a certless client still completes the
-        /// handshake, and a presented certificate is verified against the configured trust anchor.
-        OPTIONAL,
-        /// A client certificate is required: a certless client is rejected at the TLS handshake. This is
-        /// the enforced mutual-TLS capability.
-        REQUIRE
-    }
-
     /// A builder serving OTLP/gRPC only, default bind `localhost:4317`.
     ///
     /// @return the gRPC receiver builder
@@ -77,7 +63,6 @@ public final class OtlpReceiver {
         private ComponentId id = ComponentId.parse("otlp");
         private Clock clock = Clock.systemUTC();
         private GatewayMetrics gatewayMetrics = GatewayMetrics.noop();
-        private ClientAuth clientAuth = ClientAuth.NONE;
 
         private Builder(Set<Protocol> protocols, OtlpReceiverConfig.Builder config, String transportName) {
             this.protocols = protocols;
@@ -182,7 +167,7 @@ public final class OtlpReceiver {
         /// @param clientAuth the client-authentication mode
         /// @return this builder
         public Builder setClientAuth(ClientAuth clientAuth) {
-            this.clientAuth = Objects.requireNonNull(clientAuth, "clientAuth");
+            config.setClientAuth(clientAuth);
             return this;
         }
 
@@ -232,7 +217,7 @@ public final class OtlpReceiver {
         public ServerReceiver build() {
             var built = config.build();
             return new ServerReceiver(transportName, id, clock, gatewayMetrics,
-                    disp -> new ArmeriaOtlpServer(built, disp, gatewayMetrics, protocols, clientAuth), routes);
+                    disp -> new ArmeriaOtlpServer(built, disp, gatewayMetrics, protocols), routes);
         }
     }
 }

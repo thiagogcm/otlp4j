@@ -20,7 +20,7 @@ import dev.nthings.otlp4j.testing.conformance.TlsMode;
 import dev.nthings.otlp4j.testing.conformance.TlsTestMaterial;
 import dev.nthings.otlp4j.transport.ServerReceiver;
 import dev.nthings.otlp4j.transport.OtlpReceiver;
-import dev.nthings.otlp4j.transport.OtlpReceiver.ClientAuth;
+import dev.nthings.otlp4j.transport.ClientAuth;
 import io.grpc.Status;
 import java.net.URI;
 import java.util.ArrayList;

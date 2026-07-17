@@ -112,7 +112,7 @@ class OtlpComponentConfigTest {
     @Test
     void receiverEphemeralCopy() {
         var config = new OtlpReceiverConfig(
-                "0.0.0.0", 4317, Tls.disabled(), 1024, 8, 2048L, Duration.ofSeconds(1));
+                "0.0.0.0", 4317, Tls.disabled(), ClientAuth.NONE, 1024, 8, 2048L, Duration.ofSeconds(1));
         var ephemeral = config.withEphemeralPort();
         assertThat(ephemeral.port()).isZero();
         assertThat(ephemeral.bindHost()).isEqualTo("0.0.0.0");
@@ -124,9 +124,21 @@ class OtlpComponentConfigTest {
     void receiverConfigValidates() {
         assertThatThrownBy(() -> OtlpReceiverConfig.defaults(-1))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new OtlpReceiverConfig(null, 0, Tls.disabled(), 1, 0, 0, null))
+        assertThatThrownBy(() -> new OtlpReceiverConfig(null, 0, Tls.disabled(), ClientAuth.NONE, 1, 0, 0, null))
                 .isInstanceOf(NullPointerException.class);
-        assertThatThrownBy(() -> new OtlpReceiverConfig("localhost", 0, Tls.disabled(), 0, 0, 0, null))
+        assertThatThrownBy(() -> new OtlpReceiverConfig("localhost", 0, Tls.disabled(), ClientAuth.NONE, 0, 0, 0, null))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @DisplayName("clientAuth defaults to NONE and rides the config through the graph's setConfig path")
+    @Test
+    void clientAuthRidesTheConfig() {
+        assertThat(OtlpReceiverConfig.defaults(4317).clientAuth()).isEqualTo(ClientAuth.NONE);
+        var required = OtlpReceiverConfig.builder(4317).setClientAuth(ClientAuth.REQUIRE).build();
+        assertThat(required.clientAuth()).isEqualTo(ClientAuth.REQUIRE);
+        // The graph receiver factory forwards only the config (ReceiverComponentAdapter calls
+        // builder.setConfig(config), which round-trips through toBuilder), so a graph-built receiver now
+        // carries the configured mode instead of being pinned to NONE.
+        assertThat(required.toBuilder().build().clientAuth()).isEqualTo(ClientAuth.REQUIRE);
     }
 }

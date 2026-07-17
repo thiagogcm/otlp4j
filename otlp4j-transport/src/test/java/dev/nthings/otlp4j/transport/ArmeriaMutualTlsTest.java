@@ -8,7 +8,6 @@ import dev.nthings.otlp4j.transport.Tls;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.testing.TransportFixtures;
 import dev.nthings.otlp4j.testing.conformance.TlsTestMaterial;
-import dev.nthings.otlp4j.transport.OtlpReceiver.ClientAuth;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;

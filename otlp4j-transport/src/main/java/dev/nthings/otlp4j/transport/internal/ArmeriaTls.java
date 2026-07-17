@@ -3,7 +3,7 @@ package dev.nthings.otlp4j.transport.internal;
 import com.linecorp.armeria.client.ClientFactory;
 import com.linecorp.armeria.server.ServerBuilder;
 import dev.nthings.otlp4j.transport.Tls;
-import dev.nthings.otlp4j.transport.OtlpReceiver.ClientAuth;
+import dev.nthings.otlp4j.transport.ClientAuth;
 import java.io.ByteArrayInputStream;
 import org.jspecify.annotations.Nullable;
 

@@ -51,20 +51,20 @@ final class HttpProtocolMapping {
     /// The OTLP/HTTP service for `codec`, gated by the shared admission control and capped at
     /// `maxBytes` decoded request bytes.
     ///
-    /// @param codec       the signal codec
-    /// @param dispatchers the per-signal dispatch functions
-    /// @param maxBytes    the decoded-request size cap
-    /// @param admission   the shared admission control
+    /// @param codec      the signal codec
+    /// @param dispatch   the per-signal dispatch seam
+    /// @param maxBytes   the decoded-request size cap
+    /// @param admission  the shared admission control
     /// @return the HTTP service
     static HttpService service(
-            SignalCodec<?, ?, ?> codec, PayloadDispatch dispatchers, int maxBytes, AdmissionControl admission) {
+            SignalCodec<?, ?, ?> codec, PayloadDispatch dispatch, int maxBytes, AdmissionControl admission) {
         return (ctx, req) -> HttpResponse.of(
                 req.aggregate()
                         // Run the decode and dispatch on Armeria's blocking-task executor rather than
                         // the connection's I/O event loop, so a blocking SignalConsumer cannot stall the
                         // shared event loop and every other connection multiplexed onto it.
                         .thenComposeAsync(
-                                agg -> handle(agg, codec, dispatchers, maxBytes, admission),
+                                agg -> handle(agg, codec, dispatch, maxBytes, admission),
                                 ctx.blockingTaskExecutor())
                         .exceptionally(HttpProtocolMapping::onError));
     }
@@ -72,7 +72,7 @@ final class HttpProtocolMapping {
     private static <T, REQ extends MessageLite, RESP extends MessageLite> CompletionStage<HttpResponse> handle(
             AggregatedHttpRequest agg,
             SignalCodec<T, REQ, RESP> codec,
-            PayloadDispatch dispatchers,
+            PayloadDispatch dispatch,
             int maxBytes,
             AdmissionControl admission) {
         if (!isProtobuf(agg.contentType())) {
@@ -107,7 +107,7 @@ final class HttpProtocolMapping {
             return completed(text(HttpStatus.BAD_REQUEST, "malformed protobuf: " + e.getMessage()));
         }
 
-        return dispatchers.dispatch(codec.proto(request))
+        return dispatch.dispatch(codec.proto(request))
                 .handle((result, error) -> mapResult(codec, result, error))
                 .whenComplete((response, error) -> permit.close());
     }

@@ -10,7 +10,6 @@ import dev.nthings.otlp4j.core.component.ComponentKind;
 import dev.nthings.otlp4j.core.component.Connector;
 import dev.nthings.otlp4j.core.component.ConnectorFactory;
 import dev.nthings.otlp4j.core.component.CreateContext;
-import dev.nthings.otlp4j.core.component.ProcessorFactory;
 import dev.nthings.otlp4j.core.component.ShutdownContext;
 import dev.nthings.otlp4j.core.consumer.ConsumeContext;
 import dev.nthings.otlp4j.core.consumer.ConsumerCapabilities;
@@ -77,7 +76,7 @@ public final class SpanCountConnectorFactory implements ConnectorFactory<SpanCou
     @Override
     public Connector create(
             CreateContext ctx, SpanCountConnectorConfig config, SignalPair<?, ?> pair, SignalConsumer<?> next) {
-        return new SpanCountConnector(ctx.id(), config, ProcessorFactory.asPayloadConsumer(next));
+        return new SpanCountConnector(ctx.id(), config, SignalConsumer.asPayload(next));
     }
 
     /// The connector component. It consumes a traces payload, counts its items through the payload's own

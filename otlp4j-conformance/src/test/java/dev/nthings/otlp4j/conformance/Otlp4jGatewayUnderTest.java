@@ -1,5 +1,6 @@
 package dev.nthings.otlp4j.conformance;
 
+import dev.nthings.otlp4j.transport.ClientAuth;
 import dev.nthings.otlp4j.transport.Tls;
 import dev.nthings.otlp4j.core.component.ComponentId;
 import dev.nthings.otlp4j.core.component.ExporterFactory;
@@ -142,6 +143,7 @@ public final class Otlp4jGatewayUnderTest implements GatewayUnderTest {
                 "127.0.0.1",
                 0,
                 tls,
+                ClientAuth.NONE,
                 scenario.maxInboundMessageSizeBytes(),
                 scenario.maxInFlightRequests(),
                 scenario.maxInFlightBytes(),
