@@ -1,8 +1,7 @@
-package dev.nthings.otlp4j.codec.property;
+package dev.nthings.otlp4j.codec;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import dev.nthings.otlp4j.codec.MetricsMapper;
 import dev.nthings.otlp4j.model.MetricsData;
 import io.opentelemetry.proto.collector.metrics.v1.ExportMetricsServiceRequest;
 import java.util.stream.IntStream;

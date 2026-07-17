@@ -25,9 +25,4 @@ public record ProcessorNode(ComponentId id, PipelineId pipeline, SignalDescripto
     public String label() {
         return "processor " + id + " [" + pipeline + "]";
     }
-
-    @Override
-    public boolean component() {
-        return true;
-    }
 }

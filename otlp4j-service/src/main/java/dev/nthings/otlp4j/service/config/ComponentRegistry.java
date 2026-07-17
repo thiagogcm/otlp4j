@@ -30,13 +30,6 @@ public final class ComponentRegistry {
         this.config = config;
     }
 
-    /// The wrapped config.
-    ///
-    /// @return the config
-    public GatewayConfig config() {
-        return config;
-    }
-
     /// Whether a receiver is registered under `id`.
     ///
     /// @param id the component id

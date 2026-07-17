@@ -7,10 +7,10 @@ import java.util.function.Consumer;
 
 /// A batch of profiling telemetry: the domain equivalent of an OTLP export request.
 ///
-/// Profiles are still `v1development`. Top-level profile metadata is exposed for inspection;
+/// Experimental. Profiles are still `v1development`; this type's shape may change or be removed in a
+/// future minor release without notice. Top-level profile metadata is exposed for inspection;
 /// profile payloads are forwarded losslessly via opaque passthrough - the shared [dictionary]
 /// and each [Profile]'s raw bytes re-emit byte-for-byte.
-@Experimental("profiles signal tracks OpenTelemetry v1development; shape may change without notice")
 public record ProfilesData(List<ResourceProfiles> resourceProfiles, byte[] dictionary) {
 
     private static final byte[] EMPTY_BYTES = new byte[0];

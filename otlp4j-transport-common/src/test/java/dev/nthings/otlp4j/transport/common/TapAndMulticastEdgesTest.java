@@ -9,7 +9,6 @@ import dev.nthings.otlp4j.codec.Payloads;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import dev.nthings.otlp4j.model.Span;
-import dev.nthings.otlp4j.receiver.TapOptions;
 import dev.nthings.otlp4j.testing.Fixtures;
 import dev.nthings.otlp4j.testing.FlowSubscribers;
 import java.time.Duration;

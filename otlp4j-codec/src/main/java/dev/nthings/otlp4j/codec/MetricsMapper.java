@@ -29,7 +29,7 @@ import java.util.OptionalDouble;
 /// Maps metrics between proto and [MetricsData].
 ///
 /// Exemplars are surfaced as [Exemplar] on each data point and mapped in both directions.
-public final class MetricsMapper {
+final class MetricsMapper {
 
     private MetricsMapper() {}
 
@@ -41,7 +41,7 @@ public final class MetricsMapper {
     ///
     /// @param request the proto metrics export request
     /// @return the total data point count
-    public static long itemCount(ExportMetricsServiceRequest request) {
+    static long itemCount(ExportMetricsServiceRequest request) {
         long count = 0;
         for (var rm : request.getResourceMetricsList()) {
             for (var sm : rm.getScopeMetricsList()) {
@@ -94,7 +94,7 @@ public final class MetricsMapper {
 
     // --- proto -> domain ---
 
-    public static MetricsData toDomain(ExportMetricsServiceRequest request) {
+    static MetricsData toDomain(ExportMetricsServiceRequest request) {
         var resourceMetrics =
                 new ArrayList<MetricsData.ResourceMetrics>(request.getResourceMetricsCount());
         for (var rm : request.getResourceMetricsList()) {
@@ -283,7 +283,7 @@ public final class MetricsMapper {
     /// @param response   the metrics export response
     /// @param provenance the provenance to attribute the result to
     /// @return the delivery result
-    public static dev.nthings.otlp4j.core.result.DeliveryResult deliveryResult(
+    static dev.nthings.otlp4j.core.result.DeliveryResult deliveryResult(
             ExportMetricsServiceResponse response, dev.nthings.otlp4j.core.result.Provenance provenance) {
         var partial = response.getPartialSuccess();
         return CommonMapper.deliveryResult(
@@ -292,7 +292,7 @@ public final class MetricsMapper {
 
     // --- domain -> proto ---
 
-    public static ExportMetricsServiceRequest toProto(MetricsData metrics) {
+    static ExportMetricsServiceRequest toProto(MetricsData metrics) {
         var request = ExportMetricsServiceRequest.newBuilder();
         for (var rm : metrics.resourceMetrics()) {
             request.addResourceMetrics(toProto(rm));

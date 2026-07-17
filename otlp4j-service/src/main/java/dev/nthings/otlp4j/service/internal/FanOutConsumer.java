@@ -28,8 +28,6 @@ public final class FanOutConsumer<T extends dev.nthings.otlp4j.core.signal.Telem
 
     private final List<SignalConsumer<T>> peers;
 
-    private final boolean anyPeerMutates;
-
     /// Builds a fan-out over `peers`, which must be non-empty.
     ///
     /// @param peers the downstream consumers, at least one
@@ -38,13 +36,6 @@ public final class FanOutConsumer<T extends dev.nthings.otlp4j.core.signal.Telem
             throw new IllegalArgumentException("a fan-out requires at least one peer");
         }
         this.peers = List.copyOf(peers);
-        var mutates = false;
-        for (var peer : this.peers) {
-            if (peer.capabilities().mutatesData()) {
-                mutates = true;
-            }
-        }
-        this.anyPeerMutates = mutates;
     }
 
     @Override
@@ -77,12 +68,5 @@ public final class FanOutConsumer<T extends dev.nthings.otlp4j.core.signal.Telem
             }
             return DeliveryResult.fanOutMerge(results);
         });
-    }
-
-    /// Whether any peer declared that it mutates the payload, exposed for diagnostics and tests.
-    ///
-    /// @return true if at least one peer mutates
-    public boolean anyPeerMutates() {
-        return anyPeerMutates;
     }
 }

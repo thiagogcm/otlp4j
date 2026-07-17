@@ -4,7 +4,6 @@ import dev.nthings.otlp4j.core.policy.OverflowPolicy;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
-import dev.nthings.otlp4j.receiver.TapOptions;
 import dev.nthings.otlp4j.testing.FlowSubscribers;
 import java.time.Duration;
 import java.util.concurrent.CopyOnWriteArrayList;

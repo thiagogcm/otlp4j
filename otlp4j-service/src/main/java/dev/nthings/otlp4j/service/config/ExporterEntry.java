@@ -1,7 +1,6 @@
 package dev.nthings.otlp4j.service.config;
 
 import dev.nthings.otlp4j.core.component.ComponentConfig;
-import dev.nthings.otlp4j.core.component.ComponentKind;
 import dev.nthings.otlp4j.core.component.CreateContext;
 import dev.nthings.otlp4j.core.component.Exporter;
 import dev.nthings.otlp4j.core.component.ExporterFactory;
@@ -36,19 +35,5 @@ public record ExporterEntry<C extends ComponentConfig>(ExporterFactory<C> factor
     /// @return the exporter
     public <T extends TelemetryPayload> Exporter<T> create(CreateContext ctx, SignalDescriptor<T> signal) {
         return factory.create(ctx, config, signal);
-    }
-
-    /// The kind this entry produces, always [ComponentKind#EXPORTER].
-    ///
-    /// @return the component kind
-    public ComponentKind kind() {
-        return factory.kind();
-    }
-
-    /// The exporter type name, forming the `type` half of the component id.
-    ///
-    /// @return the type name
-    public String type() {
-        return factory.type();
     }
 }

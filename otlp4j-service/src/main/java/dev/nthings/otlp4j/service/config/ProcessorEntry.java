@@ -1,7 +1,6 @@
 package dev.nthings.otlp4j.service.config;
 
 import dev.nthings.otlp4j.core.component.ComponentConfig;
-import dev.nthings.otlp4j.core.component.ComponentKind;
 import dev.nthings.otlp4j.core.component.CreateContext;
 import dev.nthings.otlp4j.core.component.Processor;
 import dev.nthings.otlp4j.core.component.ProcessorFactory;
@@ -40,19 +39,5 @@ public record ProcessorEntry<C extends ComponentConfig>(ProcessorFactory<C> fact
     public <T extends TelemetryPayload> Processor<T> create(
             CreateContext ctx, SignalDescriptor<T> signal, SignalConsumer<T> next) {
         return factory.create(ctx, config, signal, next);
-    }
-
-    /// The kind this entry produces, always [ComponentKind#PROCESSOR].
-    ///
-    /// @return the component kind
-    public ComponentKind kind() {
-        return factory.kind();
-    }
-
-    /// The processor type name, forming the `type` half of the component id.
-    ///
-    /// @return the type name
-    public String type() {
-        return factory.type();
     }
 }

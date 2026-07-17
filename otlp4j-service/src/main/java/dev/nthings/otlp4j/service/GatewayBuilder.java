@@ -371,7 +371,7 @@ public final class GatewayBuilder {
             }
         }
         for (var n : graph.nodes()) {
-            if (!n.component()) {
+            if (n instanceof FanOutNode) {
                 continue;
             }
             if (!(forward.contains(n) && backward.contains(n))) {

@@ -1,7 +1,6 @@
 package dev.nthings.otlp4j.codec;
 
 import com.google.protobuf.MessageLite;
-import dev.nthings.otlp4j.core.signal.PayloadMemoryMode;
 import dev.nthings.otlp4j.core.signal.PayloadView;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.core.signal.TelemetryPayload;
@@ -18,9 +17,6 @@ import java.io.OutputStream;
 /// field, which gives safe publication to peers on other threads. Both the carried domain record and
 /// the cached proto message are immutable, so the payload is share-safe and `copyForMutation` returns
 /// `this`.
-///
-/// Beyond the [TelemetryPayload] contract this class adds the public `batch()` accessor, the
-/// zero-cost narrowing a domain-view reader used before the `view` API landed on the interface.
 ///
 /// @param <T>    the domain batch type
 /// @param <REQ>  the signal's proto export-request message
@@ -45,14 +41,6 @@ public final class DomainRequestPayload<T, REQ extends MessageLite, RESP extends
         this.batch = batch;
     }
 
-    /// The carried domain batch. Used transitionally where a reader narrows the payload through a
-    /// concrete downcast before the `view` API lands on the interface.
-    ///
-    /// @return the domain batch
-    public T batch() {
-        return batch;
-    }
-
     @Override
     public SignalDescriptor<?> signal() {
         return codec.descriptor();
@@ -70,15 +58,6 @@ public final class DomainRequestPayload<T, REQ extends MessageLite, RESP extends
     @Override
     public long estimatedSerializedSize() {
         return protoRequest().getSerializedSize();
-    }
-
-    /// The payload's authoritative cheap representation, always [PayloadMemoryMode#DOMAIN_BACKED] for
-    /// this domain-carrying payload.
-    ///
-    /// @return the memory mode
-    @Override
-    public PayloadMemoryMode memoryMode() {
-        return PayloadMemoryMode.DOMAIN_BACKED;
     }
 
     /// Returns the requested representation. [PayloadView#DOMAIN_IMMUTABLE] is the carried batch at

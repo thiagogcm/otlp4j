@@ -1,4 +1,4 @@
-package dev.nthings.otlp4j.service;
+package dev.nthings.otlp4j.service.internal;
 
 import dev.nthings.otlp4j.core.consumer.ConsumeContext;
 import dev.nthings.otlp4j.core.consumer.SignalConsumer;

@@ -1,7 +1,6 @@
 package dev.nthings.otlp4j.codec;
 
 import com.google.protobuf.MessageLite;
-import dev.nthings.otlp4j.core.signal.PayloadMemoryMode;
 import dev.nthings.otlp4j.core.signal.PayloadView;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.core.signal.TelemetryPayload;
@@ -59,15 +58,6 @@ public final class ProtoRequestPayload<T, REQ extends MessageLite, RESP extends 
     @Override
     public long estimatedSerializedSize() {
         return request.getSerializedSize();
-    }
-
-    /// The payload's authoritative cheap representation, always [PayloadMemoryMode#PROTO_BACKED] for
-    /// this pass-through payload.
-    ///
-    /// @return the memory mode
-    @Override
-    public PayloadMemoryMode memoryMode() {
-        return PayloadMemoryMode.PROTO_BACKED;
     }
 
     /// Returns the requested representation. [PayloadView#PROTO_REQUEST] is the carried message at

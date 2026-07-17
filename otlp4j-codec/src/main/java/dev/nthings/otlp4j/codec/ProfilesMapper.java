@@ -17,7 +17,7 @@ import java.util.List;
 /// Profiles use the `v1development` spec. Only top-level metadata is modeled for inspection;
 /// forwarding is lossless via opaque payload passthrough so domain-to-proto re-emits
 /// byte-identical output.
-public final class ProfilesMapper {
+final class ProfilesMapper {
 
     private ProfilesMapper() {}
 
@@ -29,7 +29,7 @@ public final class ProfilesMapper {
     ///
     /// @param request the proto profiles export request
     /// @return the total profile count
-    public static long itemCount(ExportProfilesServiceRequest request) {
+    static long itemCount(ExportProfilesServiceRequest request) {
         long count = 0;
         for (var rp : request.getResourceProfilesList()) {
             for (var sp : rp.getScopeProfilesList()) {
@@ -69,7 +69,7 @@ public final class ProfilesMapper {
 
     // --- proto -> domain ---
 
-    public static ProfilesData toDomain(ExportProfilesServiceRequest request) {
+    static ProfilesData toDomain(ExportProfilesServiceRequest request) {
         var resourceProfiles =
                 new ArrayList<ProfilesData.ResourceProfiles>(request.getResourceProfilesCount());
         for (var rp : request.getResourceProfilesList()) {
@@ -120,7 +120,7 @@ public final class ProfilesMapper {
     /// @param response   the profiles export response
     /// @param provenance the provenance to attribute the result to
     /// @return the delivery result
-    public static dev.nthings.otlp4j.core.result.DeliveryResult deliveryResult(
+    static dev.nthings.otlp4j.core.result.DeliveryResult deliveryResult(
             ExportProfilesServiceResponse response, dev.nthings.otlp4j.core.result.Provenance provenance) {
         var partial = response.getPartialSuccess();
         return CommonMapper.deliveryResult(
@@ -129,7 +129,7 @@ public final class ProfilesMapper {
 
     // --- domain -> proto ---
 
-    public static ExportProfilesServiceRequest toProto(ProfilesData profiles) {
+    static ExportProfilesServiceRequest toProto(ProfilesData profiles) {
         var request = ExportProfilesServiceRequest.newBuilder();
         for (var rp : profiles.resourceProfiles()) {
             request.addResourceProfiles(toProto(rp));

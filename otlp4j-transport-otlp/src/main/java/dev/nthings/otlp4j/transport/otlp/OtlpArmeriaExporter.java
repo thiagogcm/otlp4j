@@ -7,7 +7,6 @@ import dev.nthings.otlp4j.transport.common.ClientExporter;
 import dev.nthings.otlp4j.transport.common.ExporterMetrics;
 import dev.nthings.otlp4j.transport.otlp.internal.ArmeriaOtlpClient;
 import dev.nthings.otlp4j.transport.otlp.internal.Protocol;
-import java.time.Duration;
 
 /// Builds [ClientExporter]s that send typed telemetry to an OTLP endpoint over Armeria.
 ///
@@ -53,16 +52,6 @@ public final class OtlpArmeriaExporter {
         /// @return this builder
         public Builder setPath(String path) {
             config().setPath(path);
-            return this;
-        }
-
-        /// Bounds connection setup on OTLP/HTTP; unset falls back to the per-attempt timeout. Ignored
-        /// by OTLP/gRPC.
-        ///
-        /// @param connectTimeout the connection-setup deadline
-        /// @return this builder
-        public Builder setConnectTimeout(Duration connectTimeout) {
-            config().setConnectTimeout(connectTimeout);
             return this;
         }
 

@@ -47,7 +47,6 @@ class OtlpComponentConfigTest {
                 .setCompression(Compression.GZIP)
                 .setRetryPolicy(retry)
                 .setTimeoutPolicy(new TimeoutPolicy(Duration.ofSeconds(3), Duration.ofSeconds(15)))
-                .setConnectTimeout(Duration.ofSeconds(2))
                 .build();
 
         var client = config.toClientConfig();
@@ -59,7 +58,6 @@ class OtlpComponentConfigTest {
         assertThat(client.retry()).isEqualTo(retry);
         assertThat(client.timeout()).isEqualTo(Duration.ofSeconds(3));
         assertThat(client.totalTimeout()).isEqualTo(Duration.ofSeconds(15));
-        assertThat(client.connectTimeout()).isEqualTo(Duration.ofSeconds(2));
     }
 
     @DisplayName("exporter config rejects an out-of-range port and defensively copies headers")
@@ -83,14 +81,13 @@ class OtlpComponentConfigTest {
         var server = config.toServerConfig();
         assertThat(server.bindHost()).isEqualTo("localhost");
         assertThat(server.port()).isEqualTo(4318);
-        assertThat(server.handshakeTimeout()).isEqualTo(Duration.ofSeconds(20));
     }
 
     @DisplayName("receiver ephemeral-port copy and throttle hint translate")
     @Test
     void receiverEphemeralAndThrottle() {
         var config = new OtlpReceiverConfig(
-                "0.0.0.0", 4317, Tls.disabled(), 1024, 8, 2048L, Duration.ofSeconds(1), Duration.ofSeconds(5));
+                "0.0.0.0", 4317, Tls.disabled(), 1024, 8, 2048L, Duration.ofSeconds(1));
         assertThat(config.withEphemeralPort().port()).isZero();
 
         var server = config.toServerConfig();
@@ -105,7 +102,7 @@ class OtlpComponentConfigTest {
         assertThatThrownBy(() -> OtlpReceiverConfig.defaults(-1))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new OtlpReceiverConfig(
-                        null, 0, Tls.disabled(), 1, 0, 0, null, Duration.ofSeconds(1)))
+                        null, 0, Tls.disabled(), 1, 0, 0, null))
                 .isInstanceOf(NullPointerException.class);
     }
 }

@@ -15,8 +15,7 @@ module dev.nthings.otlp4j.samples {
     requires dev.nthings.otlp4j.transport.otlp;
     // The domain batch records the demo builds and inspects.
     requires dev.nthings.otlp4j.model;
-    // The proto-free codec payload facade (Payloads) the seed processors emit through, and the
-    // concrete DomainRequestPayload the demo narrows to read the domain batch.
+    // The proto-free codec payload facade (Payloads) the seed processors emit through.
     requires dev.nthings.otlp4j.codec;
 
     // The logback backend is an automatic module bound at runtime via ServiceLoader,

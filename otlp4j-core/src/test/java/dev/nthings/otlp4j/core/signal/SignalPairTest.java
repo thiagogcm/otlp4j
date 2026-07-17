@@ -48,11 +48,6 @@ class SignalPairTest {
             }
 
             @Override
-            public PayloadMemoryMode memoryMode() {
-                return PayloadMemoryMode.DOMAIN_BACKED;
-            }
-
-            @Override
             public <V> V view(PayloadView<V> view) {
                 throw new IllegalArgumentException("this marker exposes no views: " + view);
             }

@@ -47,6 +47,6 @@ class ResultValueTypesTest {
             assertThat(DeliveryReason.valueOf(reason.name())).isEqualTo(reason);
         }
         assertThat(Disposition.values()).containsExactly(Disposition.RETRYABLE, Disposition.PERMANENT);
-        assertThat(DeliveryReason.values()).hasSize(8);
+        assertThat(DeliveryReason.values()).hasSize(6);
     }
 }

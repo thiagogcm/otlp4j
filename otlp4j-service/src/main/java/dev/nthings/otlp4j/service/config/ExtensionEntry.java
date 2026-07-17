@@ -1,7 +1,6 @@
 package dev.nthings.otlp4j.service.config;
 
 import dev.nthings.otlp4j.core.component.ComponentConfig;
-import dev.nthings.otlp4j.core.component.ComponentKind;
 import dev.nthings.otlp4j.core.component.CreateContext;
 import dev.nthings.otlp4j.core.component.Extension;
 import dev.nthings.otlp4j.core.component.ExtensionFactory;
@@ -31,19 +30,5 @@ public record ExtensionEntry<C extends ComponentConfig>(ExtensionFactory<C> fact
     /// @return the extension
     public Extension create(CreateContext ctx) {
         return factory.create(ctx, config);
-    }
-
-    /// The kind this entry produces, always [ComponentKind#EXTENSION].
-    ///
-    /// @return the component kind
-    public ComponentKind kind() {
-        return factory.kind();
-    }
-
-    /// The extension type name, forming the `type` half of the component id.
-    ///
-    /// @return the type name
-    public String type() {
-        return factory.type();
     }
 }

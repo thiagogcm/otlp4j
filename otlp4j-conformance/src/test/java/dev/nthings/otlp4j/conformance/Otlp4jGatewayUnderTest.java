@@ -140,8 +140,7 @@ public final class Otlp4jGatewayUnderTest implements GatewayUnderTest {
                 scenario.maxInboundMessageSizeBytes(),
                 scenario.maxInFlightRequests(),
                 scenario.maxInFlightBytes(),
-                scenario.throttleRetryAfter(),
-                Duration.ofSeconds(20));
+                scenario.throttleRetryAfter());
     }
 
     /// The bound ephemeral port of the started receiver, read through the runtime's component lookup

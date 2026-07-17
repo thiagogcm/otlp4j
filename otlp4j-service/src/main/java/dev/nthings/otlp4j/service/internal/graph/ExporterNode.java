@@ -24,9 +24,4 @@ public record ExporterNode(ComponentId id, SignalDescriptor<?> signal) implement
     public String label() {
         return "exporter " + id + " (" + signal + ")";
     }
-
-    @Override
-    public boolean component() {
-        return true;
-    }
 }

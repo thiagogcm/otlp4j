@@ -27,9 +27,4 @@ public record ConnectorNode(ComponentId id, SignalPair<?, ?> pair) implements No
     public String label() {
         return "connector " + id + " (" + pair + ")";
     }
-
-    @Override
-    public boolean component() {
-        return true;
-    }
 }

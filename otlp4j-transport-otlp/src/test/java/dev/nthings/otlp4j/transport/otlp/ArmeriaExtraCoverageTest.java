@@ -126,7 +126,6 @@ class ArmeriaExtraCoverageTest {
         var exporter = OtlpArmeriaExporter.httpBuilder()
                 .setEndpoint("localhost", receiver.port())
                 .setPath("")
-                .setConnectTimeout(Duration.ofSeconds(5))
                 .addHeader("authorization", "Bearer token")
                 .setTimeout(Duration.ofSeconds(5))
                 .build();

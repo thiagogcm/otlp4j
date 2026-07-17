@@ -1,6 +1,5 @@
 package dev.nthings.otlp4j.service;
 
-import dev.nthings.otlp4j.codec.DomainRequestPayload;
 import dev.nthings.otlp4j.codec.Payloads;
 import static dev.nthings.otlp4j.core.signal.SignalDescriptor.TRACES;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -13,8 +12,10 @@ import dev.nthings.otlp4j.core.consumer.SignalConsumer;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.result.Disposition;
 import dev.nthings.otlp4j.core.result.Provenance;
+import dev.nthings.otlp4j.core.signal.PayloadView;
 import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import dev.nthings.otlp4j.model.TracesData;
+import dev.nthings.otlp4j.service.internal.GraphNodeBoundary;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import org.junit.jupiter.api.Test;
@@ -105,7 +106,7 @@ class HelpersTest {
     void modelBatchPayloadReportsSignalAndCount() {
         assertThat(payload.signal()).isEqualTo(TRACES);
         assertThat(payload.itemCount()).isZero();
-        assertThat(((DomainRequestPayload<?, ?, ?>) payload).batch()).isInstanceOf(TracesData.class);
+        assertThat(payload.view(PayloadView.DOMAIN_IMMUTABLE)).isInstanceOf(TracesData.class);
         assertThat(payload.toString()).contains("traces");
     }
 }

@@ -96,13 +96,6 @@ public final class SignalDescriptor<T> {
         return wireOrdinal;
     }
 
-    /// Whether this is a development signal (profiles only). Equivalent to a `DEVELOPMENT` stability.
-    ///
-    /// @return true for profiles, false otherwise
-    public boolean development() {
-        return stability == StabilityLevel.DEVELOPMENT;
-    }
-
     /// The signal's declared stability level.
     ///
     /// @return the stability level

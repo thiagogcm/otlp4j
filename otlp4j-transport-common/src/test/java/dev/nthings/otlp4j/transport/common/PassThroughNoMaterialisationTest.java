@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.result.Provenance;
-import dev.nthings.otlp4j.core.signal.PayloadMemoryMode;
 import dev.nthings.otlp4j.core.signal.PayloadView;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.core.signal.TelemetryPayload;
@@ -91,11 +90,6 @@ class PassThroughNoMaterialisationTest {
         @Override
         public long estimatedSerializedSize() {
             return 0L;
-        }
-
-        @Override
-        public PayloadMemoryMode memoryMode() {
-            return PayloadMemoryMode.PROTO_BACKED;
         }
 
         @Override

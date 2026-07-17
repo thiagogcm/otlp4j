@@ -132,8 +132,6 @@ class ArmeriaOtlpServerLifecycleTest {
         var config = ServerConfig.builder()
                 .setPort(0)
                 .setMaxInboundMessageSizeBytes(1024 * 1024)
-                .setHandshakeTimeout(Duration.ofSeconds(5))
-                .setServerExecutor(Runnable::run)
                 .build();
         var server = new ArmeriaOtlpServer(config, NO_OP, BOTH);
         server.start();

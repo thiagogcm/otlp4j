@@ -17,7 +17,7 @@ import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceResponse;
 /// rejected count and message. [DeliveryResult.Rejected] is never a response message: both transports
 /// intercept it first (gRPC error / HTTP 5xx), so its switch arm only keeps exhaustiveness and throws
 /// [#rejectedNotMapped()] if ever reached.
-public final class DeliveryResultResponses {
+final class DeliveryResultResponses {
 
     private DeliveryResultResponses() {}
 
@@ -25,7 +25,7 @@ public final class DeliveryResultResponses {
     ///
     /// @param result the delivery result
     /// @return the trace service response
-    public static ExportTraceServiceResponse traces(DeliveryResult result) {
+    static ExportTraceServiceResponse traces(DeliveryResult result) {
         var resp = ExportTraceServiceResponse.newBuilder();
         switch (result) {
             case DeliveryResult.Accepted _ -> { }
@@ -42,7 +42,7 @@ public final class DeliveryResultResponses {
     ///
     /// @param result the delivery result
     /// @return the metrics service response
-    public static ExportMetricsServiceResponse metrics(DeliveryResult result) {
+    static ExportMetricsServiceResponse metrics(DeliveryResult result) {
         var resp = ExportMetricsServiceResponse.newBuilder();
         switch (result) {
             case DeliveryResult.Accepted _ -> { }
@@ -59,7 +59,7 @@ public final class DeliveryResultResponses {
     ///
     /// @param result the delivery result
     /// @return the logs service response
-    public static ExportLogsServiceResponse logs(DeliveryResult result) {
+    static ExportLogsServiceResponse logs(DeliveryResult result) {
         var resp = ExportLogsServiceResponse.newBuilder();
         switch (result) {
             case DeliveryResult.Accepted _ -> { }
@@ -76,7 +76,7 @@ public final class DeliveryResultResponses {
     ///
     /// @param result the delivery result
     /// @return the profiles service response
-    public static ExportProfilesServiceResponse profiles(DeliveryResult result) {
+    static ExportProfilesServiceResponse profiles(DeliveryResult result) {
         var resp = ExportProfilesServiceResponse.newBuilder();
         switch (result) {
             case DeliveryResult.Accepted _ -> { }

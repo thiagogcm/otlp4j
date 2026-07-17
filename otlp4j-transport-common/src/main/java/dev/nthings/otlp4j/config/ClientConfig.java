@@ -19,7 +19,6 @@ import org.jspecify.annotations.Nullable;
 /// no compression, the default [RetryPolicy] on, no path prefix. `path` is an OTLP/HTTP endpoint path
 /// prefix (e.g. `/otlp`) prepended to the per-signal paths; gRPC ignores it.
 /// `headerSupplier`, when set, is evaluated per export and overlays the static `headers`.
-/// `connectTimeout`, when set, bounds connection setup on OTLP/HTTP (gRPC ignores it).
 ///
 /// `timeout` is the per-attempt deadline bounding each in-flight RPC or connection, while
 /// `totalTimeout` is the total budget bounding the whole retrying delivery end to end. Unset,
@@ -35,7 +34,6 @@ public record ClientConfig(
         Compression compression,
         RetryPolicy retry,
         @Nullable Supplier<Map<String, String>> headerSupplier,
-        @Nullable Duration connectTimeout,
         Duration totalTimeout) {
 
     private static final RetryPolicy DEFAULT_RETRY = RetryPolicy.defaults();
@@ -55,9 +53,6 @@ public record ClientConfig(
         }
         if (timeout.isZero() || timeout.isNegative()) {
             throw new IllegalArgumentException("timeout must be > 0");
-        }
-        if (connectTimeout != null && (connectTimeout.isZero() || connectTimeout.isNegative())) {
-            throw new IllegalArgumentException("connectTimeout must be > 0");
         }
         if (totalTimeout.compareTo(timeout) < 0) {
             throw new IllegalArgumentException("totalTimeout must be >= timeout");
@@ -115,7 +110,6 @@ public record ClientConfig(
         b.path = path;
         b.pathExplicit = true;
         b.headerSupplier = headerSupplier;
-        b.connectTimeout = connectTimeout;
         return b;
     }
 
@@ -168,7 +162,6 @@ public record ClientConfig(
         private RetryPolicy retry = DEFAULT_RETRY;
         private String path = "";
         private @Nullable Supplier<Map<String, String>> headerSupplier = null;
-        private @Nullable Duration connectTimeout = null;
 
         // Which fields the caller set explicitly, so a deferred fromEnvironment() overrides only the
         // untouched ones (env is lowest precedence). Package-private: read/written by [OtlpEnv].
@@ -238,12 +231,6 @@ public record ClientConfig(
         /// [#setTimeout].
         public Builder setTotalTimeout(Duration totalTimeout) {
             this.totalTimeout = totalTimeout;
-            return this;
-        }
-
-        /// Bounds connection setup on OTLP/HTTP; unset falls back to [#setTimeout]. gRPC ignores it.
-        public Builder setConnectTimeout(Duration connectTimeout) {
-            this.connectTimeout = connectTimeout;
             return this;
         }
 
@@ -339,7 +326,7 @@ public record ClientConfig(
                 OtlpEnv.applyTo(this, env);
             }
             return new ClientConfig(
-                    host, port, path, timeout, tls, headers, compression, retry, headerSupplier, connectTimeout,
+                    host, port, path, timeout, tls, headers, compression, retry, headerSupplier,
                     totalTimeout == null ? timeout : totalTimeout);
         }
     }

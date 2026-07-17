@@ -14,7 +14,6 @@ import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.Executor;
 
 /// Shared builder base for OTLP receiver entry points. Holds the [ServerConfig.Builder] every
 /// transport delegates to, the routed graph consumers, and the fluent setters common to all
@@ -151,32 +150,6 @@ public abstract class AbstractReceiverBuilder<B extends AbstractReceiverBuilder<
     /// @return this builder
     public final B setThrottleRetryAfter(Duration throttleRetryAfter) {
         config.setThrottleRetryAfter(throttleRetryAfter);
-        return self();
-    }
-
-    /// Bounds the transport/TLS handshake deadline, not request body or connection idle time.
-    /// Defaults to 20s.
-    ///
-    /// @param handshakeTimeout the handshake deadline
-    /// @return this builder
-    public final B setHandshakeTimeout(Duration handshakeTimeout) {
-        config.setHandshakeTimeout(handshakeTimeout);
-        return self();
-    }
-
-    /// Supplies the executor that runs admitted requests; a bounded pool caps concurrent work.
-    /// Defaults to the transport's own executor.
-    ///
-    /// The pool and admission control compose along different axes: a bounded `serverExecutor` is
-    /// the hard concurrency cap for handler threads, while admission independently caps decoded
-    /// in-flight requests/bytes. A request blocked waiting for a pool thread holds no admission
-    /// permit yet (the permit is acquired inside the handler, after the pool hands off), so a
-    /// bounded pool smaller than the offered load queues exchanges at the pool, not at admission.
-    ///
-    /// @param serverExecutor the request executor
-    /// @return this builder
-    public final B setServerExecutor(Executor serverExecutor) {
-        config.setServerExecutor(serverExecutor);
         return self();
     }
 

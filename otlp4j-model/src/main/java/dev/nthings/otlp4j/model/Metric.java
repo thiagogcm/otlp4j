@@ -122,7 +122,7 @@ public record Metric(String name, String description, String unit, Data data, At
     }
 
     /// How a metric aggregator reports values relative to time.
-    public enum AggregationTemporality implements ProtoEnum {
+    public enum AggregationTemporality {
         UNSPECIFIED(0),
         DELTA(1),
         CUMULATIVE(2);
@@ -134,7 +134,6 @@ public record Metric(String name, String description, String unit, Data data, At
         }
 
         /// The numeric aggregation temporality as defined by the protocol.
-        @Override
         public int number() {
             return number;
         }
@@ -144,7 +143,12 @@ public record Metric(String name, String description, String unit, Data data, At
 
         /// Resolves a temporality from its protocol number, falling back to [#UNSPECIFIED].
         public static AggregationTemporality fromNumber(int number) {
-            return ProtoEnum.fromNumber(VALUES, number, UNSPECIFIED);
+            for (var value : VALUES) {
+                if (value.number == number) {
+                    return value;
+                }
+            }
+            return UNSPECIFIED;
         }
     }
 

@@ -1,8 +1,7 @@
-package dev.nthings.otlp4j.codec.property;
+package dev.nthings.otlp4j.codec;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import dev.nthings.otlp4j.codec.ProfilesMapper;
 import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.testing.TransportFixtures;
 import io.opentelemetry.proto.collector.profiles.v1development.ExportProfilesServiceRequest;

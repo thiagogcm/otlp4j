@@ -24,7 +24,6 @@ import dev.nthings.otlp4j.testing.Fixtures;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
-import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -87,13 +86,10 @@ class AbstractReceiverBuilderTest {
     @DisplayName("every shared setter lands on the built ServerConfig")
     @Test
     void sharedSettersLandOnConfig() {
-        var executor = Executors.newVirtualThreadPerTaskExecutor();
         var builder = new TestBuilder();
         builder.setEndpoint("127.0.0.1", 4317)
                 .setTls(Tls.disabled())
                 .setMaxInboundMessageSizeBytes(1024)
-                .setHandshakeTimeout(Duration.ofSeconds(5))
-                .setServerExecutor(executor)
                 .build();
         var c = builder.captured;
         assertThat(c).isNotNull();
@@ -101,9 +97,6 @@ class AbstractReceiverBuilderTest {
         assertThat(c.port()).isEqualTo(4317);
         assertThat(c.tls()).isEqualTo(Tls.disabled());
         assertThat(c.maxInboundMessageSizeBytes()).isEqualTo(1024);
-        assertThat(c.handshakeTimeout()).isEqualTo(Duration.ofSeconds(5));
-        assertThat(c.serverExecutor()).isSameAs(executor);
-        executor.shutdown();
     }
 
     @DisplayName("telemetry defaults to noop and the explicit registry reaches newServer")

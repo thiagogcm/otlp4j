@@ -67,7 +67,7 @@ public record Span(
     }
 
     /// Explicit OTLP wire numbers decouple the encoding from declaration order.
-    public enum Kind implements ProtoEnum {
+    public enum Kind {
         UNSPECIFIED(0),
         INTERNAL(1),
         SERVER(2),
@@ -82,7 +82,6 @@ public record Span(
         }
 
         /// The numeric span kind as defined by the protocol.
-        @Override
         public int number() {
             return number;
         }
@@ -92,7 +91,12 @@ public record Span(
 
         /// Resolves a kind from its protocol number, falling back to [#UNSPECIFIED].
         public static Kind fromNumber(int number) {
-            return ProtoEnum.fromNumber(VALUES, number, UNSPECIFIED);
+            for (var value : VALUES) {
+                if (value.number == number) {
+                    return value;
+                }
+            }
+            return UNSPECIFIED;
         }
     }
 
@@ -121,7 +125,7 @@ public record Span(
 
         public static final Status UNSET = new Status(Code.UNSET, "");
 
-        public enum Code implements ProtoEnum {
+        public enum Code {
             UNSET(0),
             OK(1),
             ERROR(2);
@@ -133,7 +137,6 @@ public record Span(
             }
 
             /// The numeric status code as defined by the protocol.
-            @Override
             public int number() {
                 return number;
             }
@@ -143,7 +146,12 @@ public record Span(
 
             /// Resolves a status code from its protocol number, falling back to [#UNSET].
             public static Code fromNumber(int number) {
-                return ProtoEnum.fromNumber(VALUES, number, UNSET);
+                for (var value : VALUES) {
+                    if (value.number == number) {
+                        return value;
+                    }
+                }
+                return UNSET;
             }
         }
     }

@@ -1,4 +1,4 @@
-package dev.nthings.otlp4j.codec.property;
+package dev.nthings.otlp4j.codec;
 
 import com.google.protobuf.ByteString;
 import dev.nthings.otlp4j.model.AttributeValue;

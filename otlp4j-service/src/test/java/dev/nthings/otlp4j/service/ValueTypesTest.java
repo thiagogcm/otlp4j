@@ -7,7 +7,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.nthings.otlp4j.core.component.ComponentId;
-import dev.nthings.otlp4j.core.component.ComponentKind;
 import dev.nthings.otlp4j.core.pipeline.PipelineId;
 import dev.nthings.otlp4j.core.signal.SignalPair;
 import dev.nthings.otlp4j.model.TracesData;
@@ -34,28 +33,10 @@ class ValueTypesTest {
     private final Fakes.Log log = new Fakes.Log();
 
     @Test
-    void entriesExposeKindTypeAndValidate() {
-        var recv = new ReceiverEntry<>(new Fakes.ReceiverFactoryImpl("otlp", log, null), Fakes.Config.ok());
-        assertThat(recv.kind()).isEqualTo(ComponentKind.RECEIVER);
-        assertThat(recv.type()).isEqualTo("otlp");
-
-        var proc = new ProcessorEntry<>(new Fakes.ProcessorFactoryImpl("batch", log, null), Fakes.Config.ok());
-        assertThat(proc.kind()).isEqualTo(ComponentKind.PROCESSOR);
-        assertThat(proc.type()).isEqualTo("batch");
-
-        var exp = new ExporterEntry<>(new Fakes.ExporterFactoryImpl("otlpexp", log, null, null), Fakes.Config.ok());
-        assertThat(exp.kind()).isEqualTo(ComponentKind.EXPORTER);
-        assertThat(exp.type()).isEqualTo("otlpexp");
-
+    void connectorEntryExposesSupportedPairs() {
         var pairs = Fakes.pairs(new SignalPair<>(TRACES, METRICS));
         var conn = new ConnectorEntry<>(new Fakes.ConnectorFactoryImpl("spanmetrics", log, pairs), Fakes.Config.ok());
-        assertThat(conn.kind()).isEqualTo(ComponentKind.CONNECTOR);
-        assertThat(conn.type()).isEqualTo("spanmetrics");
         assertThat(conn.supportedPairs()).isEqualTo(pairs);
-
-        var ext = new ExtensionEntry<>(new Fakes.ExtensionFactoryImpl("health", log), Fakes.Config.ok());
-        assertThat(ext.kind()).isEqualTo(ComponentKind.EXTENSION);
-        assertThat(ext.type()).isEqualTo("health");
     }
 
     @Test
@@ -88,7 +69,6 @@ class ValueTypesTest {
                 .toConfig();
         var registry = new ComponentRegistry(config);
 
-        assertThat(registry.config()).isSameAs(config);
         assertThat(registry.hasReceiver(ComponentId.parse("otlp"))).isTrue();
         assertThat(registry.hasProcessor(ComponentId.parse("batch"))).isTrue();
         assertThat(registry.hasExporter(ComponentId.parse("otlpexp"))).isTrue();

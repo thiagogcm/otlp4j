@@ -1,7 +1,6 @@
 package dev.nthings.otlp4j.service.config;
 
 import dev.nthings.otlp4j.core.component.ComponentConfig;
-import dev.nthings.otlp4j.core.component.ComponentKind;
 import dev.nthings.otlp4j.core.component.CreateContext;
 import dev.nthings.otlp4j.core.component.Receiver;
 import dev.nthings.otlp4j.core.component.ReceiverFactory;
@@ -36,19 +35,5 @@ public record ReceiverEntry<C extends ComponentConfig>(ReceiverFactory<C> factor
     /// @return the receiver
     public Receiver create(CreateContext ctx, SignalConsumers consumers) {
         return factory.create(ctx, config, consumers);
-    }
-
-    /// The kind this entry produces, always [ComponentKind#RECEIVER].
-    ///
-    /// @return the component kind
-    public ComponentKind kind() {
-        return factory.kind();
-    }
-
-    /// The receiver type name, forming the `type` half of the component id.
-    ///
-    /// @return the type name
-    public String type() {
-        return factory.type();
     }
 }

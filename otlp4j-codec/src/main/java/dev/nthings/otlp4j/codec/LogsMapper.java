@@ -14,7 +14,7 @@ import java.util.List;
 /// Maps OTLP logs types between proto and domain, in both directions.
 ///
 /// Internal. Part of the transport layer; not public API.
-public final class LogsMapper {
+final class LogsMapper {
 
     private LogsMapper() {}
 
@@ -26,7 +26,7 @@ public final class LogsMapper {
     ///
     /// @param request the proto logs export request
     /// @return the total log record count
-    public static long itemCount(ExportLogsServiceRequest request) {
+    static long itemCount(ExportLogsServiceRequest request) {
         long count = 0;
         for (var rl : request.getResourceLogsList()) {
             for (var sl : rl.getScopeLogsList()) {
@@ -66,7 +66,7 @@ public final class LogsMapper {
 
     // --- proto -> domain ---
 
-    public static LogsData toDomain(ExportLogsServiceRequest request) {
+    static LogsData toDomain(ExportLogsServiceRequest request) {
         var resourceLogs = new ArrayList<LogsData.ResourceLogs>(request.getResourceLogsCount());
         for (var rl : request.getResourceLogsList()) {
             resourceLogs.add(toDomain(rl));
@@ -112,7 +112,7 @@ public final class LogsMapper {
     /// @param response   the logs export response
     /// @param provenance the provenance to attribute the result to
     /// @return the delivery result
-    public static dev.nthings.otlp4j.core.result.DeliveryResult deliveryResult(
+    static dev.nthings.otlp4j.core.result.DeliveryResult deliveryResult(
             ExportLogsServiceResponse response, dev.nthings.otlp4j.core.result.Provenance provenance) {
         var partial = response.getPartialSuccess();
         return CommonMapper.deliveryResult(
@@ -121,7 +121,7 @@ public final class LogsMapper {
 
     // --- domain -> proto ---
 
-    public static ExportLogsServiceRequest toProto(LogsData logs) {
+    static ExportLogsServiceRequest toProto(LogsData logs) {
         var request = ExportLogsServiceRequest.newBuilder();
         for (var rl : logs.resourceLogs()) {
             request.addResourceLogs(toProto(rl));

@@ -1,9 +1,9 @@
-package dev.nthings.otlp4j.receiver;
+package dev.nthings.otlp4j.transport.common;
 
 import dev.nthings.otlp4j.core.policy.OverflowPolicy;
 import java.util.Objects;
 
-/// Subscription options for a [TelemetryTap].
+/// Subscription options for a [ReceiverTap] publisher.
 ///
 /// Reuses the neutral [OverflowPolicy] as the one overflow vocabulary. Every tap strategy is
 /// non-blocking: the tap sits outside the acknowledgement path, so a slow subscriber can never delay

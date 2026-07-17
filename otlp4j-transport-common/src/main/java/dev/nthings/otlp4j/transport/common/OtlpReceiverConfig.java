@@ -9,15 +9,13 @@ import org.jspecify.annotations.Nullable;
 
 /// The neutral, transport-independent configuration for an OTLP receiver component. It carries the
 /// bind address, TLS mode, and the hardening limits: the maximum decoded request size, the optional
-/// global admission caps on in-flight requests and decoded bytes, the optional throttle retry-after
-/// hint, and the handshake deadline. No third-party type appears on it. Both the gRPC and HTTP
-/// receiver factories accept this one record; each supplies its own default port through
-/// [#defaults(int)]. The factory translates it to the internal [ServerConfig] through
-/// [#toServerConfig()].
+/// global admission caps on in-flight requests and decoded bytes, and the optional throttle
+/// retry-after hint. No third-party type appears on it. Both the gRPC and HTTP receiver factories
+/// accept this one record; each supplies its own default port through [#defaults(int)]. The factory
+/// translates it to the internal [ServerConfig] through [#toServerConfig()].
 ///
-/// The gRPC-only per-connection concurrency cap and a custom server executor are deliberately not
-/// modelled here, matching the legacy [ServerConfig], which also keeps the executor off the neutral
-/// surface.
+/// The gRPC-only per-connection concurrency cap is deliberately not modelled here, matching the
+/// legacy [ServerConfig].
 ///
 /// @param bindHost                   the bind host
 /// @param port                       the bind port (`0` binds an ephemeral port)
@@ -26,7 +24,6 @@ import org.jspecify.annotations.Nullable;
 /// @param maxInFlightRequests        the global in-flight request cap (`0` disables it)
 /// @param maxInFlightBytes           the global in-flight decoded-byte cap (`0` disables it)
 /// @param throttleRetryAfter         the hint attached to at-capacity rejections, may be null
-/// @param handshakeTimeout           the transport/TLS handshake deadline
 public record OtlpReceiverConfig(
         String bindHost,
         int port,
@@ -34,23 +31,21 @@ public record OtlpReceiverConfig(
         int maxInboundMessageSizeBytes,
         int maxInFlightRequests,
         long maxInFlightBytes,
-        @Nullable Duration throttleRetryAfter,
-        Duration handshakeTimeout)
+        @Nullable Duration throttleRetryAfter)
         implements ComponentConfig {
 
     /// Validates the components.
     public OtlpReceiverConfig {
         Objects.requireNonNull(bindHost, "bindHost");
         Objects.requireNonNull(tls, "tls");
-        Objects.requireNonNull(handshakeTimeout, "handshakeTimeout");
         if (port < 0 || port > 65535) {
             throw new IllegalArgumentException("port out of range: " + port);
         }
     }
 
     /// The default receiver config for `port`: bound to `localhost:port`, plaintext, the shared 4 MiB
-    /// decoded-request cap, no admission limits, no throttle hint, and a twenty second handshake
-    /// deadline, matching the legacy [ServerConfig] defaults.
+    /// decoded-request cap, no admission limits, and no throttle hint, matching the legacy
+    /// [ServerConfig] defaults.
     ///
     /// @param port the default bind port for the transport (`4317` for gRPC, `4318` for HTTP)
     /// @return the default config
@@ -62,8 +57,7 @@ public record OtlpReceiverConfig(
                 ServerConfig.DEFAULT_MAX_INBOUND_MESSAGE_SIZE_BYTES,
                 0,
                 0L,
-                null,
-                Duration.ofSeconds(20));
+                null);
     }
 
     /// A copy of this config bound to an ephemeral port (`0`); read the OS-assigned port back through
@@ -73,7 +67,7 @@ public record OtlpReceiverConfig(
     public OtlpReceiverConfig withEphemeralPort() {
         return new OtlpReceiverConfig(
                 bindHost, 0, tls, maxInboundMessageSizeBytes, maxInFlightRequests, maxInFlightBytes,
-                throttleRetryAfter, handshakeTimeout);
+                throttleRetryAfter);
     }
 
     /// Translates this neutral config into the internal transport [ServerConfig], mapping every field
@@ -87,8 +81,7 @@ public record OtlpReceiverConfig(
                 .setTls(tls)
                 .setMaxInboundMessageSizeBytes(maxInboundMessageSizeBytes)
                 .setMaxInFlightRequests(maxInFlightRequests)
-                .setMaxInFlightBytes(maxInFlightBytes)
-                .setHandshakeTimeout(handshakeTimeout);
+                .setMaxInFlightBytes(maxInFlightBytes);
         if (throttleRetryAfter != null) {
             b.setThrottleRetryAfter(throttleRetryAfter);
         }

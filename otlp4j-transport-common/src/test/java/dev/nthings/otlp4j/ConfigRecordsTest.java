@@ -14,7 +14,6 @@ import java.nio.file.Path;
 import java.security.KeyStore;
 import java.time.Duration;
 import java.util.Map;
-import java.util.concurrent.Executor;
 import java.util.function.Supplier;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManagerFactory;
@@ -39,7 +38,6 @@ class ConfigRecordsTest {
         assertThat(c.headers()).isEmpty();
         assertThat(c.path()).isEmpty();
         assertThat(c.headerSupplier()).isNull();
-        assertThat(c.connectTimeout()).isNull();
     }
 
     @DisplayName("ClientConfig normalizes the endpoint path prefix")
@@ -142,14 +140,11 @@ class ConfigRecordsTest {
         assertThat(c.maxInFlightRequests()).isZero();
         assertThat(c.maxInFlightBytes()).isZero();
         assertThat(c.throttleRetryAfter()).isNull();
-        assertThat(c.handshakeTimeout()).isEqualTo(Duration.ofSeconds(20));
-        assertThat(c.serverExecutor()).isNull();
     }
 
     @DisplayName("ServerConfig.toBuilder round-trips and preserves untouched fields")
     @Test
     void serverConfigToBuilderRoundTrips() {
-        Executor executor = Runnable::run;
         var original = ServerConfig.builder()
                 .setBindHost("127.0.0.1")
                 .setPort(5000)
@@ -158,8 +153,6 @@ class ConfigRecordsTest {
                 .setMaxInFlightRequests(64)
                 .setMaxInFlightBytes(1_000_000L)
                 .setThrottleRetryAfter(Duration.ofSeconds(2))
-                .setHandshakeTimeout(Duration.ofSeconds(5))
-                .setServerExecutor(executor)
                 .build();
 
         var derived = original.toBuilder().setPort(6000).build();
@@ -171,8 +164,6 @@ class ConfigRecordsTest {
         assertThat(derived.maxInFlightRequests()).isEqualTo(64);
         assertThat(derived.maxInFlightBytes()).isEqualTo(1_000_000L);
         assertThat(derived.throttleRetryAfter()).isEqualTo(Duration.ofSeconds(2));
-        assertThat(derived.handshakeTimeout()).isEqualTo(Duration.ofSeconds(5));
-        assertThat(derived.serverExecutor()).isSameAs(executor);
         assertThat(original.port()).isEqualTo(5000);
     }
 
@@ -183,7 +174,7 @@ class ConfigRecordsTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
-    @DisplayName("ServerConfig rejects non-positive hardening limits and a non-positive handshake timeout")
+    @DisplayName("ServerConfig rejects non-positive hardening limits")
     @Test
     void serverConfigRejectsBadHardeningLimits() {
         assertThatThrownBy(() -> ServerConfig.builder().setMaxInboundMessageSizeBytes(0).build())
@@ -193,8 +184,6 @@ class ConfigRecordsTest {
         assertThatThrownBy(() -> ServerConfig.builder().setMaxInFlightBytes(-1L).build())
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> ServerConfig.builder().setThrottleRetryAfter(Duration.ZERO).build())
-                .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> ServerConfig.builder().setHandshakeTimeout(Duration.ZERO).build())
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -300,12 +289,4 @@ class ConfigRecordsTest {
         assertThat(c.headerSupplier()).isSameAs(supplier);
     }
 
-    @DisplayName("ClientConfig builder carries and validates a connect timeout")
-    @Test
-    void clientConfigBuilderConnectTimeout() {
-        var c = ClientConfig.builder().setConnectTimeout(Duration.ofSeconds(2)).build();
-        assertThat(c.connectTimeout()).isEqualTo(Duration.ofSeconds(2));
-        assertThatThrownBy(() -> ClientConfig.builder().setConnectTimeout(Duration.ZERO).build())
-                .isInstanceOf(IllegalArgumentException.class);
-    }
 }

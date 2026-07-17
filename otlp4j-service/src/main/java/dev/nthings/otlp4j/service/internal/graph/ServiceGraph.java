@@ -74,14 +74,6 @@ public final class ServiceGraph {
         return dag.getEdgeTarget(edge);
     }
 
-    /// The source node of `edge`.
-    ///
-    /// @param edge the edge
-    /// @return the source node
-    public Node source(Edge edge) {
-        return dag.getEdgeSource(edge);
-    }
-
     /// The nodes reachable from `node` by following edges forward, not including `node` itself.
     ///
     /// @param node the node
@@ -132,20 +124,5 @@ public final class ServiceGraph {
         }
         sb.append("}");
         return sb.toString();
-    }
-
-    /// The lifecycle-bearing component nodes in the graph, in the given order, skipping synthetic
-    /// fan-out nodes.
-    ///
-    /// @param order the node order to filter
-    /// @return the component nodes in that order
-    public static List<Node> componentsOf(List<Node> order) {
-        var result = new ArrayList<Node>(order.size());
-        for (var node : order) {
-            if (node.component()) {
-                result.add(node);
-            }
-        }
-        return result;
     }
 }

@@ -1,7 +1,6 @@
 package dev.nthings.otlp4j.service.config;
 
 import dev.nthings.otlp4j.core.component.ComponentConfig;
-import dev.nthings.otlp4j.core.component.ComponentKind;
 import dev.nthings.otlp4j.core.component.Connector;
 import dev.nthings.otlp4j.core.component.ConnectorFactory;
 import dev.nthings.otlp4j.core.component.CreateContext;
@@ -45,19 +44,5 @@ public record ConnectorEntry<C extends ComponentConfig>(ConnectorFactory<C> fact
     /// @return the connector
     public Connector create(CreateContext ctx, SignalPair<?, ?> pair, SignalConsumer<?> next) {
         return factory.create(ctx, config, pair, next);
-    }
-
-    /// The kind this entry produces, always [ComponentKind#CONNECTOR].
-    ///
-    /// @return the component kind
-    public ComponentKind kind() {
-        return factory.kind();
-    }
-
-    /// The connector type name, forming the `type` half of the component id.
-    ///
-    /// @return the type name
-    public String type() {
-        return factory.type();
     }
 }

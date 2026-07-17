@@ -14,10 +14,4 @@ public sealed interface Node permits ReceiverNode, ProcessorNode, ExporterNode, 
     ///
     /// @return the label
     String label();
-
-    /// Whether this node backs a lifecycle-bearing component that is instantiated, started, and shut
-    /// down. A fan-out node is not: it is a pure consumer with no lifecycle.
-    ///
-    /// @return true for a component-backed node, false for a synthetic fan-out node
-    boolean component();
 }

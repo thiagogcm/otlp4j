@@ -3,7 +3,6 @@ package dev.nthings.otlp4j.codec;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import dev.nthings.otlp4j.core.signal.PayloadMemoryMode;
 import dev.nthings.otlp4j.core.signal.PayloadView;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.testing.Fixtures;
@@ -41,7 +40,6 @@ class ProtoRequestPayloadTest {
         assertThat(payload.itemCount()).isEqualTo(SignalCodec.TRACES.protoItemCount(request));
         assertThat(payload.itemCount()).isEqualTo(2L);
         assertThat(payload.estimatedSerializedSize()).isEqualTo(request.getSerializedSize());
-        assertThat(payload.memoryMode()).isEqualTo(PayloadMemoryMode.PROTO_BACKED);
     }
 
     @DisplayName("PROTO_REQUEST is the carried message; DOMAIN_IMMUTABLE decodes it")

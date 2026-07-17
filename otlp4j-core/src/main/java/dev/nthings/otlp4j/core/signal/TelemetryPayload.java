@@ -8,10 +8,10 @@ import java.io.OutputStream;
 /// payload type is never named in a factory, a consumer, the graph, or the runtime.
 ///
 /// Phase 2 widens this from the two-method marker Phase 1 shipped into the full contract: alongside
-/// the signal and item count it now exposes the serialized size, the payload's authoritative
-/// representation ([PayloadMemoryMode]), a view selector ([PayloadView]) that materialises the
-/// requested representation lazily, a mutation-safe copy hook, and a direct serialisation to an
-/// [OutputStream]. The interface stays proto-free: the proto request is reached only through the
+/// the signal and item count it now exposes the serialized size, a view selector ([PayloadView]) that
+/// materialises the requested representation lazily, a mutation-safe copy hook, and a direct
+/// serialisation to an [OutputStream]. The interface stays proto-free: the proto request is reached
+/// only through the
 /// opaque [PayloadView#PROTO_REQUEST] view, whose runtime value the codec and the transports narrow,
 /// so no wire type appears on any signature here.
 public interface TelemetryPayload {
@@ -34,12 +34,6 @@ public interface TelemetryPayload {
     ///
     /// @return the serialized size in bytes
     long estimatedSerializedSize();
-
-    /// The payload's authoritative cheap representation, so the exporter and the fan-out node can
-    /// reason about cost without downcasting.
-    ///
-    /// @return the memory mode
-    PayloadMemoryMode memoryMode();
 
     /// Returns the requested representation, materialising and caching it on first request.
     /// [PayloadView#PROTO_REQUEST] yields the OTLP export request; [PayloadView#DOMAIN_IMMUTABLE]

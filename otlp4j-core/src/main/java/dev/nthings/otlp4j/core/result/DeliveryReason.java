@@ -7,12 +7,6 @@ package dev.nthings.otlp4j.core.result;
 /// unavailability differ only by disposition and retry-after, not by reason.
 public enum DeliveryReason {
 
-    /// Full success; carried conceptually by an accepted result.
-    OK,
-
-    /// Some items were rejected while others were accepted; carried by a partial result.
-    PARTIAL_SUCCESS,
-
     /// A failure local to the producing component (a policy fault, a validation error, an
     /// unreachable local resource).
     LOCAL_FAILURE,

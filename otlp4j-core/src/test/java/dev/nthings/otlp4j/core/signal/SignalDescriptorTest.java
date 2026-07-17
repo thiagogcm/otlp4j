@@ -41,15 +41,12 @@ class SignalDescriptorTest {
     }
 
     @Test
-    @DisplayName("stability and development track the model: profiles is development, the rest stable")
-    void stabilityAndDevelopment() {
+    @DisplayName("stability tracks the model: profiles is development, the rest stable")
+    void stability() {
         assertThat(SignalDescriptor.TRACES.stability()).isEqualTo(StabilityLevel.STABLE);
         assertThat(SignalDescriptor.METRICS.stability()).isEqualTo(StabilityLevel.STABLE);
         assertThat(SignalDescriptor.LOGS.stability()).isEqualTo(StabilityLevel.STABLE);
         assertThat(SignalDescriptor.PROFILES.stability()).isEqualTo(StabilityLevel.DEVELOPMENT);
-
-        assertThat(SignalDescriptor.TRACES.development()).isFalse();
-        assertThat(SignalDescriptor.PROFILES.development()).isTrue();
     }
 
     @Test

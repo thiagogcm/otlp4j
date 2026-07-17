@@ -1,6 +1,5 @@
 package dev.nthings.otlp4j.components.support;
 
-import dev.nthings.otlp4j.core.signal.PayloadMemoryMode;
 import dev.nthings.otlp4j.core.signal.PayloadView;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.core.signal.TelemetryPayload;
@@ -47,11 +46,6 @@ public final class MaterialisationTrackingPayload implements TelemetryPayload {
     @Override
     public long estimatedSerializedSize() {
         return delegate.estimatedSerializedSize();
-    }
-
-    @Override
-    public PayloadMemoryMode memoryMode() {
-        return delegate.memoryMode();
     }
 
     @Override

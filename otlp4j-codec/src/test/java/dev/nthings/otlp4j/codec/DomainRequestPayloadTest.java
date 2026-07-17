@@ -3,7 +3,6 @@ package dev.nthings.otlp4j.codec;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import dev.nthings.otlp4j.core.signal.PayloadMemoryMode;
 import dev.nthings.otlp4j.core.signal.PayloadView;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.model.Span;
@@ -37,8 +36,7 @@ class DomainRequestPayloadTest {
         assertThat(payload.signal()).isEqualTo(SignalDescriptor.TRACES);
         assertThat(payload.itemCount()).isEqualTo(SignalDescriptor.TRACES.itemCount(batch));
         assertThat(payload.itemCount()).isEqualTo(2L);
-        assertThat(payload.batch()).isSameAs(batch);
-        assertThat(payload.memoryMode()).isEqualTo(PayloadMemoryMode.DOMAIN_BACKED);
+        assertThat(payload.view(PayloadView.DOMAIN_IMMUTABLE)).isSameAs(batch);
     }
 
     @DisplayName("DOMAIN_IMMUTABLE is the carried batch; PROTO_REQUEST encodes it")

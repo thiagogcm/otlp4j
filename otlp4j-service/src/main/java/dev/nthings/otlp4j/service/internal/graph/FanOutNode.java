@@ -27,9 +27,4 @@ public record FanOutNode(SignalDescriptor<?> signal, int sequence) implements No
     public String label() {
         return "fanout#" + sequence + " (" + signal + ")";
     }
-
-    @Override
-    public boolean component() {
-        return false;
-    }
 }

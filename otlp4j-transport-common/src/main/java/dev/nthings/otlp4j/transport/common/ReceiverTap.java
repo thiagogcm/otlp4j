@@ -2,7 +2,6 @@ package dev.nthings.otlp4j.transport.common;
 
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.core.signal.TelemetryPayload;
-import dev.nthings.otlp4j.receiver.TapOptions;
 import dev.nthings.otlp4j.telemetry.GatewayMetrics;
 import java.util.LinkedHashMap;
 import java.util.Map;

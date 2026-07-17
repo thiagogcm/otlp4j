@@ -24,8 +24,8 @@ import dev.nthings.otlp4j.core.consumer.SignalConsumers;
 import dev.nthings.otlp4j.core.pipeline.PipelineId;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.result.Provenance;
-import dev.nthings.otlp4j.codec.DomainRequestPayload;
 import dev.nthings.otlp4j.codec.Payloads;
+import dev.nthings.otlp4j.core.signal.PayloadView;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import dev.nthings.otlp4j.model.InstrumentationScope;
@@ -151,7 +151,7 @@ class SeedFactoriesTest {
         assertThat(result).isInstanceOf(DeliveryResult.Accepted.class);
         assertThat(received).hasSize(1);
         assertThat(received.get(0).signal()).isEqualTo(METRICS);
-        var metrics = (MetricsData) ((DomainRequestPayload<?, ?, ?>) received.get(0)).batch();
+        var metrics = (MetricsData) received.get(0).view(PayloadView.DOMAIN_IMMUTABLE);
         assertThat(metrics.resourceMetrics()).isNotEmpty();
         runtime.close();
     }

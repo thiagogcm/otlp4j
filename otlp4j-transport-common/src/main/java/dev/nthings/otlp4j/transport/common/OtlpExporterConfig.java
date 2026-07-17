@@ -10,7 +10,6 @@ import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
-import org.jspecify.annotations.Nullable;
 
 /// The neutral, transport-independent configuration for an OTLP exporter component. It carries the
 /// endpoint, TLS mode, request headers, compression, the neutral [RetryPolicy] (which itself nests
@@ -32,7 +31,6 @@ import org.jspecify.annotations.Nullable;
 /// @param compression    the request-body compression
 /// @param retry          the neutral retry policy
 /// @param timeout        the neutral timeout policy
-/// @param connectTimeout the optional OTLP/HTTP connection-setup bound, may be null
 public record OtlpExporterConfig(
         String host,
         int port,
@@ -41,8 +39,7 @@ public record OtlpExporterConfig(
         Map<String, String> headers,
         Compression compression,
         RetryPolicy retry,
-        TimeoutPolicy timeout,
-        @Nullable Duration connectTimeout)
+        TimeoutPolicy timeout)
         implements ComponentConfig {
 
     /// Validates the components and defensively copies the headers.
@@ -74,8 +71,7 @@ public record OtlpExporterConfig(
                 Map.of(),
                 Compression.NONE,
                 RetryPolicy.defaults(),
-                new TimeoutPolicy(Duration.ofSeconds(10), Duration.ofSeconds(10)),
-                null);
+                new TimeoutPolicy(Duration.ofSeconds(10), Duration.ofSeconds(10)));
     }
 
     /// A builder seeded with this config's fields, so a caller adjusts only what it needs.
@@ -89,7 +85,6 @@ public record OtlpExporterConfig(
         b.compression = compression;
         b.retry = retry;
         b.timeout = timeout;
-        b.connectTimeout = connectTimeout;
         return b;
     }
 
@@ -110,9 +105,6 @@ public record OtlpExporterConfig(
                 .setRetryPolicy(retry)
                 .setTimeout(timeout.perAttempt())
                 .setTotalTimeout(timeout.total());
-        if (connectTimeout != null) {
-            b.setConnectTimeout(connectTimeout);
-        }
         return b.build();
     }
 
@@ -127,7 +119,6 @@ public record OtlpExporterConfig(
         private Compression compression = Compression.NONE;
         private RetryPolicy retry = RetryPolicy.defaults();
         private TimeoutPolicy timeout = new TimeoutPolicy(Duration.ofSeconds(10), Duration.ofSeconds(10));
-        private @Nullable Duration connectTimeout = null;
 
         private Builder(String host, int port) {
             this.host = host;
@@ -200,21 +191,12 @@ public record OtlpExporterConfig(
             return this;
         }
 
-        /// Sets the optional OTLP/HTTP connection-setup bound.
-        ///
-        /// @param connectTimeout the connect timeout
-        /// @return this builder
-        public Builder setConnectTimeout(Duration connectTimeout) {
-            this.connectTimeout = connectTimeout;
-            return this;
-        }
-
         /// Builds the config.
         ///
         /// @return the config
         public OtlpExporterConfig build() {
             return new OtlpExporterConfig(
-                    host, port, path, tls, headers, compression, retry, timeout, connectTimeout);
+                    host, port, path, tls, headers, compression, retry, timeout);
         }
     }
 }

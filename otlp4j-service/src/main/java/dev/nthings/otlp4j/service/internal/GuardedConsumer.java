@@ -6,7 +6,6 @@ import dev.nthings.otlp4j.core.consumer.SignalConsumer;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.result.Provenance;
 import dev.nthings.otlp4j.core.signal.TelemetryPayload;
-import dev.nthings.otlp4j.service.GraphNodeBoundary;
 import java.util.concurrent.CompletionStage;
 
 /// Wraps one component consumer so every delivery through it is normalized by

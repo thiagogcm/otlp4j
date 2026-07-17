@@ -22,9 +22,4 @@ public record ReceiverNode(ComponentId id) implements Node {
     public String label() {
         return "receiver " + id;
     }
-
-    @Override
-    public boolean component() {
-        return true;
-    }
 }

@@ -16,7 +16,7 @@ import java.util.List;
 /// Maps OTLP trace types between proto and domain, in both directions.
 ///
 /// Internal. Part of the transport layer; not public API.
-public final class TraceMapper {
+final class TraceMapper {
 
     private TraceMapper() {}
 
@@ -27,7 +27,7 @@ public final class TraceMapper {
     ///
     /// @param request the proto trace export request
     /// @return the total span count
-    public static long itemCount(ExportTraceServiceRequest request) {
+    static long itemCount(ExportTraceServiceRequest request) {
         long count = 0;
         for (var rs : request.getResourceSpansList()) {
             for (var ss : rs.getScopeSpansList()) {
@@ -67,7 +67,7 @@ public final class TraceMapper {
 
     // --- proto -> domain ---
 
-    public static TracesData toDomain(ExportTraceServiceRequest request) {
+    static TracesData toDomain(ExportTraceServiceRequest request) {
         var resourceSpans = new ArrayList<TracesData.ResourceSpans>(request.getResourceSpansCount());
         for (var rs : request.getResourceSpansList()) {
             resourceSpans.add(toDomain(rs));
@@ -143,7 +143,7 @@ public final class TraceMapper {
     /// @param response   the trace export response
     /// @param provenance the provenance to attribute the result to
     /// @return the delivery result
-    public static dev.nthings.otlp4j.core.result.DeliveryResult deliveryResult(
+    static dev.nthings.otlp4j.core.result.DeliveryResult deliveryResult(
             ExportTraceServiceResponse response, dev.nthings.otlp4j.core.result.Provenance provenance) {
         var partial = response.getPartialSuccess();
         return CommonMapper.deliveryResult(
@@ -152,7 +152,7 @@ public final class TraceMapper {
 
     // --- domain -> proto ---
 
-    public static ExportTraceServiceRequest toProto(TracesData traces) {
+    static ExportTraceServiceRequest toProto(TracesData traces) {
         var request = ExportTraceServiceRequest.newBuilder();
         for (var rs : traces.resourceSpans()) {
             request.addResourceSpans(toProto(rs));
