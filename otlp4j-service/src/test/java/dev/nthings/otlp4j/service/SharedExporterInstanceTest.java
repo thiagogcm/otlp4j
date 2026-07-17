@@ -13,7 +13,6 @@ import dev.nthings.otlp4j.core.component.ExporterFactory;
 import dev.nthings.otlp4j.core.component.FlushContext;
 import dev.nthings.otlp4j.core.component.ShutdownContext;
 import dev.nthings.otlp4j.core.component.SignalSupport;
-import dev.nthings.otlp4j.core.component.StabilityLevel;
 import dev.nthings.otlp4j.core.consumer.ConsumeContext;
 import dev.nthings.otlp4j.core.consumer.ConsumerCapabilities;
 import dev.nthings.otlp4j.core.pipeline.PipelineId;
@@ -79,11 +78,6 @@ class SharedExporterInstanceTest {
         @Override
         public ComponentKind kind() {
             return ComponentKind.EXPORTER;
-        }
-
-        @Override
-        public StabilityLevel stability() {
-            return StabilityLevel.BETA;
         }
 
         @Override

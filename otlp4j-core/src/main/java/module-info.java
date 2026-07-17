@@ -12,9 +12,7 @@ module dev.nthings.otlp4j.core {
     requires static transitive org.jspecify;
     requires org.slf4j;
 
-    exports dev.nthings.otlp4j.core.auth;
     exports dev.nthings.otlp4j.core.component;
-    exports dev.nthings.otlp4j.core.config;
     exports dev.nthings.otlp4j.core.consumer;
     exports dev.nthings.otlp4j.core.pipeline;
     exports dev.nthings.otlp4j.core.policy;

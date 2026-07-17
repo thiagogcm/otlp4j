@@ -6,7 +6,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import dev.nthings.otlp4j.core.component.ComponentId;
 import dev.nthings.otlp4j.core.component.ComponentKind;
 import dev.nthings.otlp4j.core.component.NetworkBound;
-import dev.nthings.otlp4j.core.component.StabilityLevel;
 import dev.nthings.otlp4j.core.pipeline.PipelineId;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.model.Span;
@@ -84,9 +83,6 @@ class ArmeriaFactoriesTest {
         assertThat(httpRecv.kind()).isEqualTo(ComponentKind.RECEIVER);
         assertThat(grpcExp.kind()).isEqualTo(ComponentKind.EXPORTER);
         assertThat(httpExp.kind()).isEqualTo(ComponentKind.EXPORTER);
-
-        assertThat(grpcRecv.stability()).isEqualTo(StabilityLevel.BETA);
-        assertThat(httpExp.stability()).isEqualTo(StabilityLevel.BETA);
 
         assertThat(grpcRecv.type()).isEqualTo("otlp");
         assertThat(grpcExp.type()).isEqualTo("otlp");

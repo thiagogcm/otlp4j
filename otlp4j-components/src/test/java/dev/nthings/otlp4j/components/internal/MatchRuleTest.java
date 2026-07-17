@@ -6,12 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.nthings.otlp4j.components.support.MaterialisationTrackingPayload;
 import dev.nthings.otlp4j.components.support.TestConsumeContext;
-import dev.nthings.otlp4j.core.config.ConfigNode;
-import dev.nthings.otlp4j.core.consumer.ClientMetadata;
 import dev.nthings.otlp4j.model.TracesData;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 /// Proves the shared match engine's conjunction semantics over resource attributes, headers, and the
@@ -144,30 +139,6 @@ class MatchRuleTest {
 
         assertThat(rule.matches(tracked, EMPTY_CONTEXT)).isFalse();
         assertThat(tracked.domainRequested()).isFalse();
-    }
-
-    @Test
-    void fromConfigCombinesAllFourConditionMapsIntoOneRule() {
-        var node = ConfigNode.of(Map.of(
-                "resource_attribute", Map.of("service.name", "checkout"),
-                "resource_attribute_regex", Map.of("service.name", "check.*"),
-                "header", Map.of("x-tenant", "acme"),
-                "header_regex", Map.of("x-region", "us-.*")));
-
-        var rule = MatchRule.fromConfig(node).orElseThrow();
-
-        var bothHeaders = new TestConsumeContext(new ClientMetadata(
-                Optional.empty(), Map.of("x-tenant", List.of("acme"), "x-region", List.of("us-east"))));
-        assertThat(rule.matches(traces(1), bothHeaders)).isTrue();
-        // Break just the header_regex condition: the conjunction must then fail.
-        assertThat(rule.matches(traces(1), TestConsumeContext.withHeader("x-tenant", "acme"))).isFalse();
-        assertThat(node.unreadKeys()).isEmpty();
-    }
-
-    @Test
-    void fromConfigYieldsNoRuleWhenNoConditionMapIsPresent() {
-        assertThat(MatchRule.fromConfig(ConfigNode.empty())).isEmpty();
-        assertThat(MatchRule.fromConfig(ConfigNode.of(Map.of("unrelated", "value")))).isEmpty();
     }
 
     @Test

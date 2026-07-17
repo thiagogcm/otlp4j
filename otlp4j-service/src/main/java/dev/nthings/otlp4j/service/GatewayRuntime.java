@@ -26,13 +26,13 @@ import org.slf4j.LoggerFactory;
 /// replacement for the fluent pipeline's discovered lifecycle. It owns the components and derives
 /// start and shutdown order from the graph, not from registration order.
 ///
-/// [#start()] starts extensions first, then the data-path components in reverse topological order, so
-/// a downstream is live before the upstream that feeds it and receivers start last. Each start is
-/// bounded by the service start deadline; on any start failure the already-started components are shut
-/// down in reverse start order and the failure is rethrown, so a half-started gateway never serves.
+/// [#start()] starts the data-path components in reverse topological order, so a downstream is live
+/// before the upstream that feeds it and receivers start last. Each start is bounded by the service
+/// start deadline; on any start failure the already-started components are shut down in reverse start
+/// order and the failure is rethrown, so a half-started gateway never serves.
 /// [#shutdown(Duration)] walks the data path in forward topological order so receivers stop first and
-/// in-flight work drains into still-open exporters and extensions, best-effort with the first error
-/// rethrown at the end. [#component(ComponentKind, ComponentId)] (and its convenience
+/// in-flight work drains into still-open exporters, best-effort with the first error rethrown at the
+/// end. [#component(ComponentKind, ComponentId)] (and its convenience
 /// [#component(ComponentId)] overload for an unambiguous id) is the only path from a post-construction
 /// runtime to a live component instance, which a caller downcasts to a capability such as
 /// [dev.nthings.otlp4j.core.component.NetworkBound] to read, for example, a receiver's bound port.
@@ -48,9 +48,6 @@ public final class GatewayRuntime implements AutoCloseable {
 
     private final ServiceOptions options;
 
-    /// Extensions in the order they are started (before the data path).
-    private final List<ComponentRef> extensions;
-
     /// Data-path components in reverse topological order, which is their start order.
     private final List<ComponentRef> dataPathStartOrder;
 
@@ -63,36 +60,27 @@ public final class GatewayRuntime implements AutoCloseable {
             ServiceGraph graph,
             ComponentContext base,
             ServiceOptions options,
-            List<ComponentRef> extensions,
             List<ComponentRef> dataPathStartOrder) {
         this.graph = graph;
         this.base = base;
         this.options = options;
-        this.extensions = List.copyOf(extensions);
         this.dataPathStartOrder = List.copyOf(dataPathStartOrder);
         var keyed = new LinkedHashMap<ComponentKey, Component>();
         for (var ref : this.dataPathStartOrder) {
             keyed.putIfAbsent(ref.key(), ref.component());
         }
-        for (var ref : this.extensions) {
-            keyed.putIfAbsent(ref.key(), ref.component());
-        }
         this.byKey = Map.copyOf(keyed);
     }
 
-    /// Starts the gateway: extensions first, then the data-path components in reverse topological
-    /// order, each bounded by the start deadline. On any failure the already-started components are
-    /// shut down in reverse start order and the failure is rethrown.
+    /// Starts the gateway: the data-path components in reverse topological order, each bounded by the
+    /// start deadline. On any failure the already-started components are shut down in reverse start
+    /// order and the failure is rethrown.
     ///
     /// @throws GatewayStartException if a component fails to start, times out, or the thread is
     ///     interrupted
     public void start() {
         var started = new ArrayList<ComponentRef>();
         try {
-            for (var ext : extensions) {
-                startOne(ext);
-                started.add(ext);
-            }
             for (var ref : dataPathStartOrder) {
                 startOne(ref);
                 started.add(ref);
@@ -124,16 +112,13 @@ public final class GatewayRuntime implements AutoCloseable {
         }
     }
 
-    /// Flushes every component best-effort within `deadline`, data path first then extensions.
+    /// Flushes every component best-effort within `deadline`, in forward data-path order.
     ///
     /// @param deadline the per-component flush deadline
     public void forceFlush(Duration deadline) {
         var context = new FlushContext(deadline);
         Throwable first = null;
         for (var ref : forwardDataPath()) {
-            first = flushOne(ref, context, first);
-        }
-        for (var ref : reversed(extensions)) {
             first = flushOne(ref, context, first);
         }
         rethrowIfPresent(first, "forceFlush");
@@ -151,17 +136,13 @@ public final class GatewayRuntime implements AutoCloseable {
         }
     }
 
-    /// Shuts the gateway down: the data path in forward topological order so receivers stop first, then
-    /// the extensions in reverse of their start order. Best-effort, with the first error rethrown at
-    /// the end.
+    /// Shuts the gateway down: the data path in forward topological order so receivers stop first.
+    /// Best-effort, with the first error rethrown at the end.
     ///
     /// @param deadline the per-component shutdown deadline
     public void shutdown(Duration deadline) {
         Throwable first = null;
         for (var ref : forwardDataPath()) {
-            first = shutdownBestEffort(ref, deadline, first);
-        }
-        for (var ref : reversed(extensions)) {
             first = shutdownBestEffort(ref, deadline, first);
         }
         rethrowIfPresent(first, "shutdown");
@@ -173,7 +154,7 @@ public final class GatewayRuntime implements AutoCloseable {
             return first;
         } catch (Error | RuntimeException failure) {
             // Best-effort: an Error from one component's shutdown must not abort the shutdown of the
-            // components and extensions behind it; rethrowIfPresent re-surfaces it at the end.
+            // components behind it; rethrowIfPresent re-surfaces it at the end.
             LOG.warn("shutdown of {} failed", ref.id(), failure);
             return first == null ? failure : first;
         }

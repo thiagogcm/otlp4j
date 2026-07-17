@@ -1,6 +1,5 @@
 package dev.nthings.otlp4j.core.signal;
 
-import dev.nthings.otlp4j.core.component.StabilityLevel;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.Metric;
 import dev.nthings.otlp4j.model.MetricsData;
@@ -17,9 +16,8 @@ import java.util.function.ToLongFunction;
 /// descriptor behaves like a generic enum.
 ///
 /// A descriptor owns the signal name, the domain batch type, the wire ordinal (traces `0`, metrics
-/// `1`, logs `2`, profiles `3`), whether the signal is a development signal (profiles only), its
-/// stability level, and the batch-level operations `merge`, `itemCount`, and `empty`. Those three
-/// operations are implemented here directly over the immutable model records, so the batch policy is
+/// `1`, logs `2`, profiles `3`), and the batch-level operations `merge`, `itemCount`, and `empty`.
+/// Those three operations are implemented here directly over the immutable model records, so the batch policy is
 /// core behaviour rather than model behaviour. Profiles merge, in particular, throws an
 /// `IllegalStateException` on distinct non-empty dictionaries, which the conformance suite's profiles
 /// wire-identical guarantee depends on.
@@ -27,29 +25,27 @@ import java.util.function.ToLongFunction;
 /// @param <T> the domain batch type this signal identifies
 public final class SignalDescriptor<T> {
 
-    /// Traces, carrying `TracesData`, wire ordinal `0`, stable.
+    /// Traces, carrying `TracesData`, wire ordinal `0`.
     public static final SignalDescriptor<TracesData> TRACES = new SignalDescriptor<>(
             "traces", TracesData.class, SignalDescriptor::mergeTraces, SignalDescriptor::splitTraces,
-            TracesData::spanCount, () -> new TracesData(List.of()), 0, StabilityLevel.STABLE);
+            TracesData::spanCount, () -> new TracesData(List.of()), 0);
 
-    /// Metrics, carrying `MetricsData`, wire ordinal `1`, stable.
+    /// Metrics, carrying `MetricsData`, wire ordinal `1`.
     public static final SignalDescriptor<MetricsData> METRICS = new SignalDescriptor<>(
             "metrics", MetricsData.class, SignalDescriptor::mergeMetrics, SignalDescriptor::splitMetrics,
-            MetricsData::dataPointCount, () -> new MetricsData(List.of()), 1, StabilityLevel.STABLE);
+            MetricsData::dataPointCount, () -> new MetricsData(List.of()), 1);
 
-    /// Logs, carrying `LogsData`, wire ordinal `2`, stable.
+    /// Logs, carrying `LogsData`, wire ordinal `2`.
     public static final SignalDescriptor<LogsData> LOGS = new SignalDescriptor<>(
             "logs", LogsData.class, SignalDescriptor::mergeLogs, SignalDescriptor::splitLogs,
-            LogsData::logRecordCount, () -> new LogsData(List.of()), 2, StabilityLevel.STABLE);
+            LogsData::logRecordCount, () -> new LogsData(List.of()), 2);
 
-    /// Profiles, carrying `ProfilesData`, wire ordinal `3`, a development signal. Merge is only
-    /// lossless when batches share one `ProfilesDictionary`; see [#merge(List)]. Split, by contrast,
-    /// only slices the profile list under the batch's single shared dictionary, so it is always
-    /// lossless.
+    /// Profiles, carrying `ProfilesData`, wire ordinal `3`. Merge is only lossless when batches share
+    /// one `ProfilesDictionary`; see [#merge(List)]. Split, by contrast, only slices the profile list
+    /// under the batch's single shared dictionary, so it is always lossless.
     public static final SignalDescriptor<ProfilesData> PROFILES = new SignalDescriptor<>(
             "profiles", ProfilesData.class, SignalDescriptor::mergeProfiles, SignalDescriptor::splitProfiles,
-            ProfilesData::profileCount, () -> new ProfilesData(List.of(), new byte[0]), 3,
-            StabilityLevel.DEVELOPMENT);
+            ProfilesData::profileCount, () -> new ProfilesData(List.of(), new byte[0]), 3);
 
     private static final List<SignalDescriptor<?>> VALUES = List.of(TRACES, METRICS, LOGS, PROFILES);
 
@@ -60,11 +56,10 @@ public final class SignalDescriptor<T> {
     private final ToLongFunction<T> itemCounter;
     private final Supplier<T> empty;
     private final int wireOrdinal;
-    private final StabilityLevel stability;
 
     private SignalDescriptor(String signalName, Class<T> batchType, Merger<T> merger,
                              Splitter<T> splitter, ToLongFunction<T> itemCounter, Supplier<T> empty,
-                             int wireOrdinal, StabilityLevel stability) {
+                             int wireOrdinal) {
         this.signalName = signalName;
         this.batchType = batchType;
         this.merger = merger;
@@ -72,7 +67,6 @@ public final class SignalDescriptor<T> {
         this.itemCounter = itemCounter;
         this.empty = empty;
         this.wireOrdinal = wireOrdinal;
-        this.stability = stability;
     }
 
     /// The lowercase signal name (`traces`/`metrics`/`logs`/`profiles`), for logs and diagnostics.
@@ -94,13 +88,6 @@ public final class SignalDescriptor<T> {
     /// @return the wire ordinal
     public int wireOrdinal() {
         return wireOrdinal;
-    }
-
-    /// The signal's declared stability level.
-    ///
-    /// @return the stability level
-    public StabilityLevel stability() {
-        return stability;
     }
 
     /// Merges a snapshot of batches into one downstream batch. For profiles this throws

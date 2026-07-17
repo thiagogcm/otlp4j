@@ -7,7 +7,6 @@ import dev.nthings.otlp4j.core.component.ComponentKind;
 import dev.nthings.otlp4j.core.component.Connector;
 import dev.nthings.otlp4j.core.component.CreateContext;
 import dev.nthings.otlp4j.core.component.Exporter;
-import dev.nthings.otlp4j.core.component.Extension;
 import dev.nthings.otlp4j.core.component.Processor;
 import dev.nthings.otlp4j.core.component.SharedComponents;
 import dev.nthings.otlp4j.core.consumer.SignalConsumer;
@@ -22,7 +21,6 @@ import dev.nthings.otlp4j.service.config.ExporterEntry;
 import dev.nthings.otlp4j.service.config.GatewayConfig;
 import dev.nthings.otlp4j.service.config.PipelineConfig;
 import dev.nthings.otlp4j.service.config.ProcessorEntry;
-import dev.nthings.otlp4j.service.internal.BuiltExtensions;
 import dev.nthings.otlp4j.service.internal.FanOutConsumer;
 import dev.nthings.otlp4j.service.internal.GuardedConsumer;
 import dev.nthings.otlp4j.service.internal.RoutedConsumers;
@@ -116,12 +114,6 @@ public final class GatewayBuilder {
     // ---- structural validation -------------------------------------------------------------------
 
     private void validateStructure(List<Diagnostic> diagnostics, Set<ComponentId> bridgeIds) {
-        for (var extId : config.service().extensions()) {
-            if (!registry.hasExtension(extId)) {
-                diagnostics.add(Diagnostic.ofComponent(
-                        DiagnosticCode.UNKNOWN_EXTENSION_REF, "no extension registered under " + extId, extId));
-            }
-        }
         var reportedBridge = new HashSet<ComponentId>();
         for (var entry : config.pipelines().entrySet()) {
             validatePipeline(entry.getKey(), entry.getValue(), diagnostics, bridgeIds, reportedBridge);
@@ -394,13 +386,11 @@ public final class GatewayBuilder {
             referenced.addAll(pc.processors());
             referenced.addAll(pc.exporters());
         }
-        referenced.addAll(config.service().extensions());
         var orphans = new ArrayList<ComponentId>();
         collectUnreferenced(config.receivers().keySet(), referenced, orphans);
         collectUnreferenced(config.processors().keySet(), referenced, orphans);
         collectUnreferenced(config.exporters().keySet(), referenced, orphans);
         collectUnreferenced(config.connectors().keySet(), referenced, orphans);
-        collectUnreferenced(config.extensions().keySet(), referenced, orphans);
         return new HashSet<>(orphans);
     }
 
@@ -422,24 +412,10 @@ public final class GatewayBuilder {
         // One shared-component cache for the whole build: an exporter id that terminates several
         // signals is backed by exactly one underlying instance, its per-signal facets sharing it.
         var shared = new SharedComponents();
-        // Build the extensions before the data path, keyed by id, and wrap them in an Extensions view
-        // threaded into every data-path create context. An extension has no data-path dependency, so
-        // building it first is safe, and it is what makes a referenced authenticator or credential
-        // extension resolvable by a receiver, exporter, or connector factory at create time. The
-        // runtime start order is unchanged: extensions still start before the data path and stop after
-        // it (GatewayRuntime.start and shutdown), so extensions outlive the data path exactly as before.
-        var extensions = new ArrayList<ComponentRef>();
-        var extensionsById = new LinkedHashMap<ComponentId, Extension>();
-        for (var extId : config.service().extensions()) {
-            var built = registry.extension(extId).create(new CreateContext(extId, base, shared));
-            extensions.add(new ComponentRef(ComponentKind.EXTENSION, extId, built));
-            extensionsById.put(extId, built);
-        }
-        var extensionView = new BuiltExtensions(extensionsById);
         for (var node : order.reverse()) {
             switch (node) {
                 case ExporterNode exporter -> {
-                    var ctx = new CreateContext(exporter.id(), base, shared, extensionView);
+                    var ctx = new CreateContext(exporter.id(), base, shared);
                     var provenance = new Provenance(exporter.id(), ComponentKind.EXPORTER, exporter.signal());
                     var built = buildExporter(registry.exporter(exporter.id()), ctx, exporter.signal(), provenance);
                     inConsumer.put(node, built.guarded());
@@ -448,7 +424,7 @@ public final class GatewayBuilder {
                 }
                 case ProcessorNode processor -> {
                     var next = singleDownstream(graph, node, inConsumer);
-                    var ctx = new CreateContext(processor.id(), base, shared, extensionView);
+                    var ctx = new CreateContext(processor.id(), base, shared);
                     var provenance = new Provenance(processor.id(), ComponentKind.PROCESSOR, processor.signal());
                     var built = buildProcessor(
                             registry.processor(processor.id()), ctx, processor.signal(), next, provenance);
@@ -458,7 +434,7 @@ public final class GatewayBuilder {
                 }
                 case ConnectorNode connector -> {
                     var next = singleDownstream(graph, node, inConsumer);
-                    var ctx = new CreateContext(connector.id(), base, shared, extensionView);
+                    var ctx = new CreateContext(connector.id(), base, shared);
                     var built = buildConnector(registry.connector(connector.id()), ctx, connector.pair(), next);
                     inConsumer.put(node, built.guarded());
                     dataPathStartOrder.add(
@@ -470,13 +446,13 @@ public final class GatewayBuilder {
                     for (var edge : graph.outgoing(node)) {
                         bundle.put(edge.signal(), inConsumer.get(graph.target(edge)));
                     }
-                    var ctx = new CreateContext(receiver.id(), base, shared, extensionView);
+                    var ctx = new CreateContext(receiver.id(), base, shared);
                     var built = registry.receiver(receiver.id()).create(ctx, new RoutedConsumers(bundle));
                     dataPathStartOrder.add(new ComponentRef(ComponentKind.RECEIVER, receiver.id(), built));
                 }
             }
         }
-        return new GatewayRuntime(graph, base, config.service(), extensions, dataPathStartOrder);
+        return new GatewayRuntime(graph, base, config.service(), dataPathStartOrder);
     }
 
     private SignalConsumer<?> singleDownstream(
@@ -621,11 +597,7 @@ public final class GatewayBuilder {
     private static boolean hasUnknownReference(List<Diagnostic> diagnostics) {
         for (var d : diagnostics) {
             switch (d.code()) {
-                case UNKNOWN_RECEIVER_REF,
-                        UNKNOWN_PROCESSOR_REF,
-                        UNKNOWN_EXPORTER_REF,
-                        UNKNOWN_CONNECTOR_REF,
-                        UNKNOWN_EXTENSION_REF -> {
+                case UNKNOWN_RECEIVER_REF, UNKNOWN_PROCESSOR_REF, UNKNOWN_EXPORTER_REF, UNKNOWN_CONNECTOR_REF -> {
                     return true;
                 }
                 default -> {

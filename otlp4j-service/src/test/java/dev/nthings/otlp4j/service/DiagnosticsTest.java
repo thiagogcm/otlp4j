@@ -17,7 +17,6 @@ import static dev.nthings.otlp4j.service.validation.DiagnosticCode.PROCESSOR_SIG
 import static dev.nthings.otlp4j.service.validation.DiagnosticCode.RECEIVER_SIGNAL_UNSUPPORTED;
 import static dev.nthings.otlp4j.service.validation.DiagnosticCode.UNKNOWN_CONNECTOR_REF;
 import static dev.nthings.otlp4j.service.validation.DiagnosticCode.UNKNOWN_EXPORTER_REF;
-import static dev.nthings.otlp4j.service.validation.DiagnosticCode.UNKNOWN_EXTENSION_REF;
 import static dev.nthings.otlp4j.service.validation.DiagnosticCode.UNKNOWN_PROCESSOR_REF;
 import static dev.nthings.otlp4j.service.validation.DiagnosticCode.UNKNOWN_RECEIVER_REF;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -27,11 +26,9 @@ import dev.nthings.otlp4j.core.component.ComponentId;
 import dev.nthings.otlp4j.core.pipeline.PipelineId;
 import dev.nthings.otlp4j.core.signal.SignalPair;
 import dev.nthings.otlp4j.service.config.PipelineConfig;
-import dev.nthings.otlp4j.service.config.ServiceOptions;
 import dev.nthings.otlp4j.service.validation.Diagnostic;
 import dev.nthings.otlp4j.service.validation.DiagnosticCode;
 import dev.nthings.otlp4j.service.validation.GraphValidationException;
-import java.time.Duration;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -113,17 +110,6 @@ class DiagnosticsTest {
                 .pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(), List.of(bridge)))
                 .pipeline(METRICS_PIPE, new PipelineConfig(List.of(bridge), List.of(), List.of(E))));
         assertThat(codes(ex)).contains(UNKNOWN_CONNECTOR_REF);
-    }
-
-    @Test
-    void unknownExtensionRef() {
-        var ex = validating(Gateway.builder()
-                .receiver(R, receiver(null), Fakes.Config.ok())
-                .exporter(E, exporter(null), Fakes.Config.ok())
-                .service(new ServiceOptions(
-                        Duration.ofSeconds(5), Duration.ofSeconds(5), List.of(ComponentId.parse("missing"))))
-                .pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(), List.of(E))));
-        assertThat(codes(ex)).contains(UNKNOWN_EXTENSION_REF);
     }
 
     @Test

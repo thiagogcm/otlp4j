@@ -4,7 +4,6 @@ import dev.nthings.otlp4j.core.component.ComponentKind;
 import dev.nthings.otlp4j.core.component.CreateContext;
 import dev.nthings.otlp4j.core.component.Receiver;
 import dev.nthings.otlp4j.core.component.ReceiverFactory;
-import dev.nthings.otlp4j.core.component.StabilityLevel;
 import dev.nthings.otlp4j.core.consumer.SignalConsumers;
 import dev.nthings.otlp4j.transport.common.OtlpReceiverConfig;
 import dev.nthings.otlp4j.transport.common.ReceiverComponentAdapter;
@@ -24,11 +23,6 @@ public final class OtlpArmeriaHttpReceiverFactory implements ReceiverFactory<Otl
     @Override
     public ComponentKind kind() {
         return ComponentKind.RECEIVER;
-    }
-
-    @Override
-    public StabilityLevel stability() {
-        return StabilityLevel.BETA;
     }
 
     @Override

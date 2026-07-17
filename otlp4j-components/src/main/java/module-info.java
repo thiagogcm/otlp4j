@@ -4,7 +4,7 @@
 /// runtime with it.
 ///
 /// The `dev.nthings.otlp4j.core` contracts are re-exported transitively because a built-in factory's
-/// public config record and its `SignalSupport` and `ConfigBinder` capabilities name core types. The
+/// public config record and its `SignalSupport` capability name core types. The
 /// `dev.nthings.otlp4j.components.internal` package, holding the bounded delivery queue and the shared
 /// match engine, is deliberately not exported: it is module-internal machinery a component reuses, not
 /// a public surface.

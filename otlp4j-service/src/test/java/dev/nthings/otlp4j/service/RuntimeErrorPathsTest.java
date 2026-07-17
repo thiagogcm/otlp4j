@@ -34,7 +34,7 @@ class RuntimeErrorPathsTest {
     }
 
     private static ServiceOptions options(Duration start) {
-        return new ServiceOptions(start, Duration.ofSeconds(5), List.of());
+        return new ServiceOptions(start, Duration.ofSeconds(5));
     }
 
     @Test

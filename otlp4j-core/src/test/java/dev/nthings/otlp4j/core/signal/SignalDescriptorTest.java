@@ -3,7 +3,6 @@ package dev.nthings.otlp4j.core.signal;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import dev.nthings.otlp4j.core.component.StabilityLevel;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
@@ -12,7 +11,7 @@ import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/// Unit tests for [SignalDescriptor]: the closed value set, its wire ordering and stability, and the
+/// Unit tests for [SignalDescriptor]: the closed value set, its wire ordering, and the
 /// merge/itemCount/empty operations it owns directly over the immutable model records. The
 /// profiles-merge test is the guard the report requires: merging batches that carry distinct
 /// non-empty dictionaries throws.
@@ -38,15 +37,6 @@ class SignalDescriptorTest {
         assertThat(SignalDescriptor.METRICS.signalName()).isEqualTo("metrics");
         assertThat(SignalDescriptor.LOGS.signalName()).isEqualTo("logs");
         assertThat(SignalDescriptor.PROFILES.signalName()).isEqualTo("profiles");
-    }
-
-    @Test
-    @DisplayName("stability tracks the model: profiles is development, the rest stable")
-    void stability() {
-        assertThat(SignalDescriptor.TRACES.stability()).isEqualTo(StabilityLevel.STABLE);
-        assertThat(SignalDescriptor.METRICS.stability()).isEqualTo(StabilityLevel.STABLE);
-        assertThat(SignalDescriptor.LOGS.stability()).isEqualTo(StabilityLevel.STABLE);
-        assertThat(SignalDescriptor.PROFILES.stability()).isEqualTo(StabilityLevel.DEVELOPMENT);
     }
 
     @Test

@@ -14,7 +14,6 @@ import dev.nthings.otlp4j.core.component.ExporterFactory;
 import dev.nthings.otlp4j.core.component.Receiver;
 import dev.nthings.otlp4j.core.component.ReceiverFactory;
 import dev.nthings.otlp4j.core.component.ShutdownContext;
-import dev.nthings.otlp4j.core.component.StabilityLevel;
 import dev.nthings.otlp4j.core.consumer.ClientMetadata;
 import dev.nthings.otlp4j.core.consumer.ConsumeContext;
 import dev.nthings.otlp4j.core.consumer.ConsumerCapabilities;
@@ -207,11 +206,6 @@ class SeedFactoriesTest {
         }
 
         @Override
-        public StabilityLevel stability() {
-            return StabilityLevel.DEVELOPMENT;
-        }
-
-        @Override
         public EmptyConfig defaultConfig() {
             return EmptyConfig.INSTANCE;
         }
@@ -250,11 +244,6 @@ class SeedFactoriesTest {
         @Override
         public ComponentKind kind() {
             return ComponentKind.EXPORTER;
-        }
-
-        @Override
-        public StabilityLevel stability() {
-            return StabilityLevel.DEVELOPMENT;
         }
 
         @Override

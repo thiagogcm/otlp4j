@@ -19,9 +19,6 @@ public enum DiagnosticCode {
     /// A pipeline routes a connector id that no registered connector matches.
     UNKNOWN_CONNECTOR_REF,
 
-    /// The service options name an extension id that no registered extension matches.
-    UNKNOWN_EXTENSION_REF,
-
     /// A pipeline has no receivers, no processors, and no exporters.
     EMPTY_PIPELINE,
 

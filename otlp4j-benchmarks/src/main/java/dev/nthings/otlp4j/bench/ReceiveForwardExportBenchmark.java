@@ -14,7 +14,6 @@ import dev.nthings.otlp4j.core.component.Processor;
 import dev.nthings.otlp4j.core.component.ProcessorFactory;
 import dev.nthings.otlp4j.core.component.ReceiverFactory;
 import dev.nthings.otlp4j.core.component.ShutdownContext;
-import dev.nthings.otlp4j.core.component.StabilityLevel;
 import dev.nthings.otlp4j.core.consumer.ClientMetadata;
 import dev.nthings.otlp4j.core.consumer.ConsumeContext;
 import dev.nthings.otlp4j.core.consumer.ConsumerCapabilities;
@@ -295,11 +294,6 @@ public class ReceiveForwardExportBenchmark {
         }
 
         @Override
-        public StabilityLevel stability() {
-            return StabilityLevel.DEVELOPMENT;
-        }
-
-        @Override
         public EmptyConfig defaultConfig() {
             return EmptyConfig.INSTANCE;
         }
@@ -357,11 +351,6 @@ public class ReceiveForwardExportBenchmark {
         @Override
         public ComponentKind kind() {
             return ComponentKind.PROCESSOR;
-        }
-
-        @Override
-        public StabilityLevel stability() {
-            return StabilityLevel.DEVELOPMENT;
         }
 
         @Override

@@ -62,14 +62,6 @@ public final class ComponentRegistry {
         return config.connectors().containsKey(id);
     }
 
-    /// Whether an extension is registered under `id`.
-    ///
-    /// @param id the component id
-    /// @return true if an extension is registered
-    public boolean hasExtension(ComponentId id) {
-        return config.extensions().containsKey(id);
-    }
-
     /// The receiver entry registered under `id`, or null when none is.
     ///
     /// @param id the component id
@@ -100,14 +92,6 @@ public final class ComponentRegistry {
     /// @return the connector entry, or null
     public @Nullable ConnectorEntry<?> connector(ComponentId id) {
         return config.connectors().get(id);
-    }
-
-    /// The extension entry registered under `id`, or null when none is.
-    ///
-    /// @param id the component id
-    /// @return the extension entry, or null
-    public @Nullable ExtensionEntry<?> extension(ComponentId id) {
-        return config.extensions().get(id);
     }
 
     /// Whether the registered receiver under `id` supports `signal`. A receiver whose factory does not

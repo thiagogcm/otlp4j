@@ -9,8 +9,6 @@ import dev.nthings.otlp4j.core.component.ConnectorFactory;
 import dev.nthings.otlp4j.core.component.CreateContext;
 import dev.nthings.otlp4j.core.component.Exporter;
 import dev.nthings.otlp4j.core.component.ExporterFactory;
-import dev.nthings.otlp4j.core.component.Extension;
-import dev.nthings.otlp4j.core.component.ExtensionFactory;
 import dev.nthings.otlp4j.core.component.FlushContext;
 import dev.nthings.otlp4j.core.component.NetworkBound;
 import dev.nthings.otlp4j.core.component.Processor;
@@ -19,7 +17,6 @@ import dev.nthings.otlp4j.core.component.Receiver;
 import dev.nthings.otlp4j.core.component.ReceiverFactory;
 import dev.nthings.otlp4j.core.component.ShutdownContext;
 import dev.nthings.otlp4j.core.component.SignalSupport;
-import dev.nthings.otlp4j.core.component.StabilityLevel;
 import dev.nthings.otlp4j.core.consumer.ConsumeContext;
 import dev.nthings.otlp4j.core.consumer.ConsumerCapabilities;
 import dev.nthings.otlp4j.core.consumer.SignalConsumer;
@@ -170,11 +167,6 @@ final class Fakes {
         }
 
         @Override
-        public StabilityLevel stability() {
-            return StabilityLevel.BETA;
-        }
-
-        @Override
         public Config defaultConfig() {
             return Config.ok();
         }
@@ -260,11 +252,6 @@ final class Fakes {
         @Override
         public ComponentKind kind() {
             return ComponentKind.PROCESSOR;
-        }
-
-        @Override
-        public StabilityLevel stability() {
-            return StabilityLevel.BETA;
         }
 
         @Override
@@ -358,11 +345,6 @@ final class Fakes {
         }
 
         @Override
-        public StabilityLevel stability() {
-            return StabilityLevel.BETA;
-        }
-
-        @Override
         public Config defaultConfig() {
             return Config.ok();
         }
@@ -445,11 +427,6 @@ final class Fakes {
         }
 
         @Override
-        public StabilityLevel stability() {
-            return StabilityLevel.BETA;
-        }
-
-        @Override
         public Config defaultConfig() {
             return Config.ok();
         }
@@ -468,71 +445,6 @@ final class Fakes {
         public Connector create(CreateContext ctx, Config config, SignalPair<?, ?> pair, SignalConsumer<?> next) {
             log.record("create:" + ctx.id());
             return new ConnectorImpl<>(ctx.id(), log, config, pair);
-        }
-    }
-
-    // ---- extension -------------------------------------------------------------------------------
-
-    static final class ExtensionImpl implements Extension {
-        private final ComponentId id;
-        private final Log log;
-        private final Config config;
-
-        ExtensionImpl(ComponentId id, Log log, Config config) {
-            this.id = id;
-            this.log = log;
-            this.config = config;
-        }
-
-        @Override
-        public CompletionStage<Void> start(ComponentContext context) {
-            return startStage(log, id, config);
-        }
-
-        @Override
-        public CompletionStage<Void> forceFlush(FlushContext context) {
-            return flushStage(log, id, config);
-        }
-
-        @Override
-        public CompletionStage<Void> shutdown(ShutdownContext context) {
-            return shutdownStage(log, id, config);
-        }
-    }
-
-    static final class ExtensionFactoryImpl implements ExtensionFactory<Config> {
-        private final String type;
-        private final Log log;
-
-        ExtensionFactoryImpl(String type, Log log) {
-            this.type = type;
-            this.log = log;
-        }
-
-        @Override
-        public ComponentKind kind() {
-            return ComponentKind.EXTENSION;
-        }
-
-        @Override
-        public StabilityLevel stability() {
-            return StabilityLevel.BETA;
-        }
-
-        @Override
-        public Config defaultConfig() {
-            return Config.ok();
-        }
-
-        @Override
-        public String type() {
-            return type;
-        }
-
-        @Override
-        public Extension create(CreateContext ctx, Config config) {
-            log.record("create:" + ctx.id());
-            return new ExtensionImpl(ctx.id(), log, config);
         }
     }
 

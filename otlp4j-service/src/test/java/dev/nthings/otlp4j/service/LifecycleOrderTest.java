@@ -14,16 +14,14 @@ import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
 /// Proves the graph-derived lifecycle order: reverse-topological instantiation and start,
-/// forward-topological shutdown, extensions started first and stopped last, and rollback in reverse
-/// start order when a start fails. The topology is the linear chain
-/// `otlp -> batch/1 -> batch/2 -> otlpexp` plus a `health` extension, so every order is unique.
+/// forward-topological shutdown, and rollback in reverse start order when a start fails. The topology
+/// is the linear chain `otlp -> batch/1 -> batch/2 -> otlpexp`, so every order is unique.
 class LifecycleOrderTest {
 
     private static final ComponentId R = ComponentId.parse("otlp");
     private static final ComponentId P1 = ComponentId.parse("batch/1");
     private static final ComponentId P2 = ComponentId.parse("batch/2");
     private static final ComponentId E = ComponentId.parse("otlpexp");
-    private static final ComponentId X = ComponentId.parse("health");
     private static final PipelineId TRACES_PIPE = PipelineId.of(TRACES);
 
     private final Fakes.Log log = new Fakes.Log();
@@ -32,14 +30,12 @@ class LifecycleOrderTest {
         var recv = new Fakes.ReceiverFactoryImpl("otlp", log, null);
         var proc = new Fakes.ProcessorFactoryImpl("batch", log, null);
         var exp = new Fakes.ExporterFactoryImpl("otlpexp", log, null, null);
-        var ext = new Fakes.ExtensionFactoryImpl("health", log);
         return Gateway.builder()
                 .receiver(R, recv, Fakes.Config.ok())
                 .processor(P1, proc, failMiddleProcessor ? Fakes.Config.failingStart() : Fakes.Config.ok())
                 .processor(P2, proc, Fakes.Config.ok())
                 .exporter(E, exp, Fakes.Config.ok())
-                .extension(X, ext, Fakes.Config.ok())
-                .service(new ServiceOptions(Duration.ofSeconds(5), Duration.ofSeconds(5), List.of(X)))
+                .service(new ServiceOptions(Duration.ofSeconds(5), Duration.ofSeconds(5)))
                 .pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(P1, P2), List.of(E)));
     }
 
@@ -57,19 +53,19 @@ class LifecycleOrderTest {
     }
 
     @Test
-    void startsExtensionsFirstThenReverseTopological() {
+    void startsInReverseTopologicalOrder() {
         var runtime = chain(false).build();
         runtime.start();
-        assertThat(filtered("start:")).containsExactly("health", "otlpexp", "batch/2", "batch/1", "otlp");
+        assertThat(filtered("start:")).containsExactly("otlpexp", "batch/2", "batch/1", "otlp");
         runtime.shutdown(Duration.ofSeconds(5));
     }
 
     @Test
-    void shutsDownForwardTopologicalThenExtensionsLast() {
+    void shutsDownForwardTopological() {
         var runtime = chain(false).build();
         runtime.start();
         runtime.shutdown(Duration.ofSeconds(5));
-        assertThat(filtered("shutdown:")).containsExactly("otlp", "batch/1", "batch/2", "otlpexp", "health");
+        assertThat(filtered("shutdown:")).containsExactly("otlp", "batch/1", "batch/2", "otlpexp");
     }
 
     @Test
@@ -80,10 +76,10 @@ class LifecycleOrderTest {
 
         assertThat(failure).isNotNull();
         assertThat(failure.component()).isEqualTo(P1);
-        // health, otlpexp, batch/2 started; batch/1 failed; otlp never started.
-        assertThat(filtered("start:")).containsExactly("health", "otlpexp", "batch/2", "batch/1");
+        // otlpexp, batch/2 started; batch/1 failed; otlp never started.
+        assertThat(filtered("start:")).containsExactly("otlpexp", "batch/2", "batch/1");
         // rollback shuts down the started components in reverse start order; the failed and unstarted
         // components are not shut down.
-        assertThat(filtered("shutdown:")).containsExactly("batch/2", "otlpexp", "health");
+        assertThat(filtered("shutdown:")).containsExactly("batch/2", "otlpexp");
     }
 }

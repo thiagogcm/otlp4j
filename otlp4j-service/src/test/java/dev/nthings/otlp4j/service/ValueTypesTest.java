@@ -13,7 +13,6 @@ import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.service.config.ComponentRegistry;
 import dev.nthings.otlp4j.service.config.ConnectorEntry;
 import dev.nthings.otlp4j.service.config.ExporterEntry;
-import dev.nthings.otlp4j.service.config.ExtensionEntry;
 import dev.nthings.otlp4j.service.config.PipelineConfig;
 import dev.nthings.otlp4j.service.config.ProcessorEntry;
 import dev.nthings.otlp4j.service.config.ReceiverEntry;
@@ -53,9 +52,6 @@ class ValueTypesTest {
         var cf = new Fakes.ConnectorFactoryImpl("c", log, Fakes.pairs());
         assertThatThrownBy(() -> new ConnectorEntry<>(null, Fakes.Config.ok())).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new ConnectorEntry<>(cf, null)).isInstanceOf(IllegalArgumentException.class);
-        var xf = new Fakes.ExtensionFactoryImpl("h", log);
-        assertThatThrownBy(() -> new ExtensionEntry<>(null, Fakes.Config.ok())).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new ExtensionEntry<>(xf, null)).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
@@ -65,7 +61,6 @@ class ValueTypesTest {
                 .processor(ComponentId.parse("batch"), new Fakes.ProcessorFactoryImpl("batch", log, null), Fakes.Config.ok())
                 .exporter(ComponentId.parse("otlpexp"), new Fakes.ExporterFactoryImpl("otlpexp", log, null, null), Fakes.Config.ok())
                 .connector(ComponentId.parse("c"), new Fakes.ConnectorFactoryImpl("c", log, Fakes.pairs()), Fakes.Config.ok())
-                .extension(ComponentId.parse("h"), new Fakes.ExtensionFactoryImpl("h", log), Fakes.Config.ok())
                 .toConfig();
         var registry = new ComponentRegistry(config);
 
@@ -73,12 +68,10 @@ class ValueTypesTest {
         assertThat(registry.hasProcessor(ComponentId.parse("batch"))).isTrue();
         assertThat(registry.hasExporter(ComponentId.parse("otlpexp"))).isTrue();
         assertThat(registry.hasConnector(ComponentId.parse("c"))).isTrue();
-        assertThat(registry.hasExtension(ComponentId.parse("h"))).isTrue();
         assertThat(registry.receiver(ComponentId.parse("otlp"))).isNotNull();
         assertThat(registry.processor(ComponentId.parse("batch"))).isNotNull();
         assertThat(registry.exporter(ComponentId.parse("otlpexp"))).isNotNull();
         assertThat(registry.connector(ComponentId.parse("c"))).isNotNull();
-        assertThat(registry.extension(ComponentId.parse("h"))).isNotNull();
 
         // SignalSupport restriction is honored.
         assertThat(registry.receiverSupports(ComponentId.parse("otlp"), TRACES)).isTrue();
@@ -100,12 +93,10 @@ class ValueTypesTest {
 
     @Test
     void serviceOptionsValidateDeadlines() {
-        assertThat(ServiceOptions.defaults().extensions()).isEmpty();
-        assertThatThrownBy(() -> new ServiceOptions(Duration.ZERO, Duration.ofSeconds(1), List.of()))
+        assertThat(ServiceOptions.defaults().startDeadline()).isPositive();
+        assertThatThrownBy(() -> new ServiceOptions(Duration.ZERO, Duration.ofSeconds(1)))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new ServiceOptions(Duration.ofSeconds(1), Duration.ofSeconds(-1), List.of()))
-                .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new ServiceOptions(Duration.ofSeconds(1), Duration.ofSeconds(1), null))
+        assertThatThrownBy(() -> new ServiceOptions(Duration.ofSeconds(1), Duration.ofSeconds(-1)))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 

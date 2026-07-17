@@ -7,7 +7,6 @@ import dev.nthings.otlp4j.core.component.CreateContext;
 import dev.nthings.otlp4j.core.component.Processor;
 import dev.nthings.otlp4j.core.component.ProcessorFactory;
 import dev.nthings.otlp4j.core.component.ShutdownContext;
-import dev.nthings.otlp4j.core.component.StabilityLevel;
 import dev.nthings.otlp4j.core.consumer.ConsumeContext;
 import dev.nthings.otlp4j.core.consumer.ConsumerCapabilities;
 import dev.nthings.otlp4j.core.consumer.SignalConsumer;
@@ -54,11 +53,6 @@ public final class FunctionProcessorFactory<M> implements ProcessorFactory<Funct
     @Override
     public ComponentKind kind() {
         return ComponentKind.PROCESSOR;
-    }
-
-    @Override
-    public StabilityLevel stability() {
-        return StabilityLevel.DEVELOPMENT;
     }
 
     @Override

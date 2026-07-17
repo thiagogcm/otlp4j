@@ -11,7 +11,6 @@ import dev.nthings.otlp4j.core.component.ExporterFactory;
 import dev.nthings.otlp4j.core.component.NetworkBound;
 import dev.nthings.otlp4j.core.component.ReceiverFactory;
 import dev.nthings.otlp4j.core.component.ShutdownContext;
-import dev.nthings.otlp4j.core.component.StabilityLevel;
 import dev.nthings.otlp4j.core.consumer.ConsumeContext;
 import dev.nthings.otlp4j.core.consumer.ConsumerCapabilities;
 import dev.nthings.otlp4j.core.pipeline.PipelineId;
@@ -105,7 +104,7 @@ public final class Otlp4jGatewayUnderTest implements GatewayUnderTest {
                 // Shut down immediately on close, matching the old seam's shutdownNow(): a sub-second
                 // deadline truncates to a zero-second HttpServer.stop(0), so teardown never blocks the
                 // full default deadline waiting for a lingering keep-alive connection to drain.
-                .service(new ServiceOptions(Duration.ofSeconds(30), Duration.ofMillis(200), List.of()))
+                .service(new ServiceOptions(Duration.ofSeconds(30), Duration.ofMillis(200)))
                 .receiver(RECEIVER_ID, receiverFactory, receiverConfig(scenario))
                 .exporter(EXPORTER_ID, exporterFactory, ProgrammedExporterConfig.INSTANCE);
         // Route every signal through the programmed exporter, so any signal a case drives is served,
@@ -242,11 +241,6 @@ public final class Otlp4jGatewayUnderTest implements GatewayUnderTest {
         @Override
         public ComponentKind kind() {
             return ComponentKind.EXPORTER;
-        }
-
-        @Override
-        public StabilityLevel stability() {
-            return StabilityLevel.DEVELOPMENT;
         }
 
         @Override

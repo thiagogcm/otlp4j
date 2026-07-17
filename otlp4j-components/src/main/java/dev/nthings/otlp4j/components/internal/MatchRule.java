@@ -1,6 +1,5 @@
 package dev.nthings.otlp4j.components.internal;
 
-import dev.nthings.otlp4j.core.config.ConfigNode;
 import dev.nthings.otlp4j.core.consumer.ConsumeContext;
 import dev.nthings.otlp4j.core.signal.PayloadView;
 import dev.nthings.otlp4j.core.signal.RoutingMetadata;
@@ -8,7 +7,6 @@ import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.function.BiConsumer;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import org.jspecify.annotations.Nullable;
@@ -55,41 +53,6 @@ public final class MatchRule {
     /// @return the builder
     public static Builder builder() {
         return new Builder();
-    }
-
-    /// Binds one rule from a configuration node carrying up to four condition maps: `resource_attribute`
-    /// and `resource_attribute_regex` (each a map of resource-attribute key to exact value or regular
-    /// expression) and `header` and `header_regex` (the same shape over client-metadata header keys).
-    /// Every condition read from any of the four maps is added to the same rule, so they are all
-    /// required together (a conjunction) rather than treated as separate alternatives.
-    ///
-    /// A node carrying none of the four keys yields no rule, since there is nothing to bind; the caller
-    /// falls back to its own default in that case. The domain-predicate escape hatch has no textual
-    /// form and is never bound from configuration; it is available only to a rule built programmatically
-    /// through [#builder].
-    ///
-    /// @param node the configuration node to read the four condition maps from
-    /// @return the bound rule, or empty when the node carries none of the four condition maps
-    public static Optional<MatchRule> fromConfig(ConfigNode node) {
-        var builder = builder();
-        var any = new boolean[] {false};
-        bindConditions(node, "resource_attribute", builder::resourceAttribute, any);
-        bindConditions(node, "resource_attribute_regex", builder::resourceAttributeRegex, any);
-        bindConditions(node, "header", builder::header, any);
-        bindConditions(node, "header_regex", builder::headerRegex, any);
-        return any[0] ? Optional.of(builder.build()) : Optional.empty();
-    }
-
-    private static void bindConditions(ConfigNode node, String key, BiConsumer<String, String> add, boolean[] any) {
-        var child = node.child(key);
-        if (child.isEmpty()) {
-            return;
-        }
-        var sub = child.get();
-        for (var conditionKey : sub.keys()) {
-            add.accept(conditionKey, sub.string(conditionKey).orElse(""));
-            any[0] = true;
-        }
     }
 
     /// Whether this rule matches `payload` under `context`: every configured resource-attribute

@@ -10,7 +10,6 @@ import dev.nthings.otlp4j.core.component.Connector;
 import dev.nthings.otlp4j.core.component.ConnectorFactory;
 import dev.nthings.otlp4j.core.component.CreateContext;
 import dev.nthings.otlp4j.core.component.ShutdownContext;
-import dev.nthings.otlp4j.core.component.StabilityLevel;
 import dev.nthings.otlp4j.core.consumer.ConsumeContext;
 import dev.nthings.otlp4j.core.consumer.ConsumerCapabilities;
 import dev.nthings.otlp4j.core.consumer.SignalConsumer;
@@ -48,11 +47,6 @@ public final class CountConnectorFactory implements ConnectorFactory<CountConnec
     @Override
     public ComponentKind kind() {
         return ComponentKind.CONNECTOR;
-    }
-
-    @Override
-    public StabilityLevel stability() {
-        return StabilityLevel.DEVELOPMENT;
     }
 
     @Override

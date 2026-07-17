@@ -5,13 +5,11 @@ import dev.nthings.otlp4j.core.component.ComponentContext;
 import dev.nthings.otlp4j.core.component.ComponentId;
 import dev.nthings.otlp4j.core.component.ConnectorFactory;
 import dev.nthings.otlp4j.core.component.ExporterFactory;
-import dev.nthings.otlp4j.core.component.ExtensionFactory;
 import dev.nthings.otlp4j.core.component.ProcessorFactory;
 import dev.nthings.otlp4j.core.component.ReceiverFactory;
 import dev.nthings.otlp4j.core.pipeline.PipelineId;
 import dev.nthings.otlp4j.service.config.ConnectorEntry;
 import dev.nthings.otlp4j.service.config.ExporterEntry;
-import dev.nthings.otlp4j.service.config.ExtensionEntry;
 import dev.nthings.otlp4j.service.config.GatewayConfig;
 import dev.nthings.otlp4j.service.config.PipelineConfig;
 import dev.nthings.otlp4j.service.config.ProcessorEntry;
@@ -34,8 +32,6 @@ public final class GatewayAssembler {
     private final Map<ComponentId, ExporterEntry<?>> exporters = new LinkedHashMap<>();
 
     private final Map<ComponentId, ConnectorEntry<?>> connectors = new LinkedHashMap<>();
-
-    private final Map<ComponentId, ExtensionEntry<?>> extensions = new LinkedHashMap<>();
 
     private final Map<PipelineId, PipelineConfig> pipelines = new LinkedHashMap<>();
 
@@ -95,19 +91,6 @@ public final class GatewayAssembler {
         return this;
     }
 
-    /// Registers an extension instance under `id`.
-    ///
-    /// @param id      the component id
-    /// @param factory the extension factory
-    /// @param config  the extension config
-    /// @param <C>     the config type
-    /// @return this assembler
-    public <C extends ComponentConfig> GatewayAssembler extension(
-            ComponentId id, ExtensionFactory<C> factory, C config) {
-        extensions.put(id, new ExtensionEntry<>(factory, config));
-        return this;
-    }
-
     /// Adds a pipeline under `id`.
     ///
     /// @param id   the pipeline id
@@ -134,8 +117,7 @@ public final class GatewayAssembler {
     ///
     /// @return the gateway config
     public GatewayConfig toConfig() {
-        return new GatewayConfig(
-                receivers, processors, exporters, connectors, extensions, pipelines, service);
+        return new GatewayConfig(receivers, processors, exporters, connectors, pipelines, service);
     }
 
     /// Validates and materializes the gateway with a default component context, returning an unstarted

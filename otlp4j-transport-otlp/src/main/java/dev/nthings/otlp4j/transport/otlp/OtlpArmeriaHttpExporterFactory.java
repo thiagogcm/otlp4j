@@ -4,7 +4,6 @@ import dev.nthings.otlp4j.core.component.ComponentKind;
 import dev.nthings.otlp4j.core.component.CreateContext;
 import dev.nthings.otlp4j.core.component.Exporter;
 import dev.nthings.otlp4j.core.component.ExporterFactory;
-import dev.nthings.otlp4j.core.component.StabilityLevel;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import dev.nthings.otlp4j.transport.common.ExporterComponentAdapter;
@@ -25,11 +24,6 @@ public final class OtlpArmeriaHttpExporterFactory implements ExporterFactory<Otl
     @Override
     public ComponentKind kind() {
         return ComponentKind.EXPORTER;
-    }
-
-    @Override
-    public StabilityLevel stability() {
-        return StabilityLevel.BETA;
     }
 
     @Override
