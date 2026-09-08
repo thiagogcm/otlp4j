@@ -10,10 +10,9 @@ import org.jspecify.annotations.Nullable;
 
 /// Reads and writes the gRPC `grpc-status-details-bin` trailer, whose value is a base64-encoded
 /// [com.google.rpc.Status] that may carry a [com.google.rpc.RetryInfo] in its `Any` details. This is
-/// the spec-compliant server backoff hint that the legacy gRPC transport neither emitted nor consumed,
-/// so it is the interop gap Phase 4 closes: the consolidated client decodes a spec-compliant
-/// Collector's `RetryInfo`, and the consolidated server emits one alongside its own pushback trailer so
-/// a spec-compliant client can read otlp4j's.
+/// a spec-compliant server backoff hint. The consolidated client decodes a Collector's `RetryInfo`,
+/// and the consolidated server emits one alongside its own pushback trailer so any spec-compliant
+/// client can read the requested delay.
 ///
 /// `com.google.rpc.Status` and `com.google.rpc.RetryInfo` arrive transitively through grpc-protobuf
 /// (`proto-google-common-protos`), so no new dependency is introduced.
@@ -59,7 +58,8 @@ final class RetryInfoCodec {
             if (detail.is(RetryInfo.class)) {
                 try {
                     var delay = detail.unpack(RetryInfo.class).getRetryDelay();
-                    return Duration.ofSeconds(delay.getSeconds()).plusNanos(delay.getNanos());
+                    var decoded = Duration.ofSeconds(delay.getSeconds()).plusNanos(delay.getNanos());
+                    return !decoded.isZero() && !decoded.isNegative() ? decoded : null;
                 } catch (InvalidProtocolBufferException e) {
                     return null;
                 }

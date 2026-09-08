@@ -32,7 +32,7 @@ import org.junit.jupiter.api.Timeout;
 @DisplayName("Armeria OTLP/HTTP transport")
 class ArmeriaHttpTransportTest {
 
-    private final List<ServerReceiver> receivers = new ArrayList<>();
+    private final List<OtlpReceiver> receivers = new ArrayList<>();
     private final List<AutoCloseable> closeables = new ArrayList<>();
 
     @AfterEach
@@ -46,7 +46,7 @@ class ArmeriaHttpTransportTest {
         }
         for (var receiver : receivers) {
             try {
-                receiver.shutdownNow().toCompletableFuture().get(5, TimeUnit.SECONDS);
+                receiver.shutdown(Duration.ofSeconds(5)).toCompletableFuture().get(5, TimeUnit.SECONDS);
             } catch (Exception ignored) {
                 // keep tearing down
             }
@@ -104,10 +104,10 @@ class ArmeriaHttpTransportTest {
         var receiver = startReceiver(OtlpReceiver.httpBuilder()
                 .route(TRACES, Consumers.record(TRACES, received)));
         var exporter = OtlpExporter.httpBuilder()
-                .setEndpoint("localhost", receiver.port())
-                .setCompression(Compression.GZIP)
-                .setTimeout(Duration.ofSeconds(5))
-                .build();
+                .endpoint("localhost", receiver.port())
+                .compression(Compression.GZIP)
+                .timeout(Duration.ofSeconds(5))
+                .build().start();
         closeables.add(exporter);
         var sent = TransportFixtures.richTraceData();
 
@@ -142,17 +142,17 @@ class ArmeriaHttpTransportTest {
                 .hasMessageContaining("HTTP 500");
     }
 
-    private ServerReceiver startReceiver(OtlpReceiver.Builder builder) {
+    private OtlpReceiver startReceiver(OtlpReceiver.Builder builder) {
         var receiver = builder.ephemeralPort().build();
         receivers.add(receiver);
         return receiver.start();
     }
 
-    private ClientExporter exporterTo(ServerReceiver receiver) {
+    private OtlpExporter exporterTo(OtlpReceiver receiver) {
         var exporter = OtlpExporter.httpBuilder()
-                .setEndpoint("localhost", receiver.port())
-                .setTimeout(Duration.ofSeconds(5))
-                .build();
+                .endpoint("localhost", receiver.port())
+                .timeout(Duration.ofSeconds(5))
+                .build().start();
         closeables.add(exporter);
         return exporter;
     }

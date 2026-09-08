@@ -5,14 +5,11 @@ import dev.nthings.otlp4j.core.component.CreateContext;
 import dev.nthings.otlp4j.core.component.Exporter;
 import dev.nthings.otlp4j.core.component.ExporterFactory;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
-import dev.nthings.otlp4j.core.signal.TelemetryPayload;
-import dev.nthings.otlp4j.transport.internal.ArmeriaOtlpClient;
-import dev.nthings.otlp4j.transport.internal.ExporterMetrics;
 import dev.nthings.otlp4j.transport.internal.Protocol;
 
 /// The graph [ExporterFactory] for the OTLP exporter, protocol-parameterized through [#grpc()] and
 /// [#http()]. Each factory creates one exporter bound to a signal by building a shared
-/// [ClientExporter] (once per component id, through the build-scoped [CreateContext#sharedComponents])
+/// [OtlpExporter] (once per component id, through the build-scoped [CreateContext#sharedComponents])
 /// and handing each per-signal pipeline the matching facet, so one shared channel serves every signal
 /// that terminates at one endpoint. The protocol derives the component [#type()] (`otlp` for gRPC,
 /// `otlphttp` for HTTP) and the [#defaultPort()] (`4317` / `4318`).
@@ -65,18 +62,14 @@ public final class OtlpExporterFactory implements ExporterFactory<OtlpExporterCo
     }
 
     @Override
-    public <T extends TelemetryPayload> Exporter<T> create(
+    public <T> Exporter<T> create(
             CreateContext ctx, OtlpExporterConfig config, SignalDescriptor<T> signal) {
-        // The first facet of an id builds the shared ClientExporter through the build-scoped cache;
+        // The first facet of an id builds the shared OtlpExporter through the build-scoped cache;
         // later facets of the same id reuse it, so a single exporter id used by several pipelines opens
         // exactly one wire channel. Each facet retains a reference-counted stake, so the channel closes
         // only when the last facet shuts down.
-        ClientExporter exporter = ctx.sharedComponents().computeIfAbsent(ctx.id(), () -> {
-            var metrics = ExporterMetrics.from(ctx.base().metrics());
-            var client = new ArmeriaOtlpClient(config, metrics, protocol);
-            return new ClientExporter(client, ctx.id(), type + "/" + protocol, metrics);
-        });
-        exporter.retain();
-        return exporter.exporterFor(signal);
+        OtlpExporter exporter = ctx.sharedComponents().computeIfAbsent(ctx.id(), () ->
+                OtlpExporter.forFactory(protocol, config, ctx.id(), ctx.base().metrics()));
+        return exporter.facet(signal);
     }
 }

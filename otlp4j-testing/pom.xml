@@ -26,7 +26,7 @@
          transitively. The declaring module still compiles the harness against them.
          This module has no module-info.java and must keep it that way: it stays on the classpath so
          the harness can read otlp4j-proto's packages, which the proto module exports only qualified
-         to the codec and the two transports. -->
+         to the codec and the consolidated transport. -->
     <dependencies>
         <dependency>
             <groupId>dev.nthings.otlp4j</groupId>

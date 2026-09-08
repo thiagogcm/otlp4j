@@ -6,8 +6,7 @@ import java.time.Duration;
 /// without any otlp4j result type.
 ///
 /// The seam implementation in otlp4j-conformance translates each case to whatever the current
-/// runtime uses. Today that is the fluent runtime's per-batch result; after the Phase 1 API break
-/// it is the neutral delivery result. The suite never notices, because it only ever asserts the
+/// runtime uses. The suite never notices, because it only ever asserts the
 /// wire status the gateway emits for a given outcome.
 public sealed interface ProgrammedOutcome
         permits ProgrammedOutcome.Accepted, ProgrammedOutcome.Partial, ProgrammedOutcome.Retryable,

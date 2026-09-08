@@ -1,41 +1,33 @@
 package dev.nthings.otlp4j.components.support;
 
-import dev.nthings.otlp4j.core.signal.PayloadView;
+import dev.nthings.otlp4j.core.signal.Payload;
+import dev.nthings.otlp4j.core.signal.RoutingMetadata;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
-import dev.nthings.otlp4j.core.signal.TelemetryPayload;
-import java.io.IOException;
-import java.io.OutputStream;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/// A [TelemetryPayload] decorator that records whether [PayloadView#DOMAIN_IMMUTABLE] was ever
-/// requested through it, regardless of the delegate's own materialisation caching or backing. This lets
-/// the routing and filtering tests prove, at the match-engine and processor level, that a
-/// resource-attribute or header rule never calls for the domain view that only the domain-predicate
-/// escape hatch is allowed to force; the property holds independently of whether the wrapped delegate
-/// is proto-backed or domain-backed, since it is a statement about which view the matching code reads,
-/// not about how expensive that read happens to be for a given delegate.
-public final class MaterialisationTrackingPayload implements TelemetryPayload {
+/// A payload decorator that records whether a routing rule requested the materialised domain.
+public final class MaterialisationTrackingPayload<T> implements Payload<T> {
 
-    private final TelemetryPayload delegate;
-    private final AtomicBoolean domainRequested = new AtomicBoolean();
+    private final Payload<T> delegate;
+    private final AtomicBoolean dataRequested = new AtomicBoolean();
 
-    /// Wraps `delegate`, tracking its [PayloadView#DOMAIN_IMMUTABLE] reads.
-    ///
-    /// @param delegate the payload to wrap
-    public MaterialisationTrackingPayload(TelemetryPayload delegate) {
+    public MaterialisationTrackingPayload(Payload<T> delegate) {
         this.delegate = delegate;
     }
 
-    /// Whether [PayloadView#DOMAIN_IMMUTABLE] has been requested through this wrapper at least once.
-    ///
-    /// @return true once the domain view has been read
     public boolean domainRequested() {
-        return domainRequested.get();
+        return dataRequested.get();
     }
 
     @Override
-    public SignalDescriptor<?> signal() {
+    public SignalDescriptor<T> signal() {
         return delegate.signal();
+    }
+
+    @Override
+    public T data() {
+        dataRequested.set(true);
+        return delegate.data();
     }
 
     @Override
@@ -44,25 +36,12 @@ public final class MaterialisationTrackingPayload implements TelemetryPayload {
     }
 
     @Override
-    public long estimatedSerializedSize() {
-        return delegate.estimatedSerializedSize();
+    public RoutingMetadata routingMetadata() {
+        return delegate.routingMetadata();
     }
 
     @Override
-    public <V> V view(PayloadView<V> view) {
-        if (view == PayloadView.DOMAIN_IMMUTABLE) {
-            domainRequested.set(true);
-        }
-        return delegate.view(view);
-    }
-
-    @Override
-    public TelemetryPayload copyForMutation() {
-        return new MaterialisationTrackingPayload(delegate.copyForMutation());
-    }
-
-    @Override
-    public void writeTo(OutputStream out) throws IOException {
-        delegate.writeTo(out);
+    public Payload<T> withData(T replacement) {
+        return new MaterialisationTrackingPayload<>(delegate.withData(replacement));
     }
 }

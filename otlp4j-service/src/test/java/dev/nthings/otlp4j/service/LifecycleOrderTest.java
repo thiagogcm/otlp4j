@@ -10,7 +10,6 @@ import dev.nthings.otlp4j.service.config.PipelineConfig;
 import dev.nthings.otlp4j.service.config.ServiceOptions;
 import java.time.Duration;
 import java.util.List;
-import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
 /// Proves the graph-derived lifecycle order: reverse-topological instantiation and start,
@@ -44,7 +43,7 @@ class LifecycleOrderTest {
         return log.events().stream()
                 .filter(e -> e.startsWith(prefix))
                 .map(e -> e.substring(prefix.length()))
-                .collect(Collectors.toList());
+                .toList();
     }
 
     @Test
@@ -58,29 +57,28 @@ class LifecycleOrderTest {
         var runtime = chain(false).build();
         runtime.start();
         assertThat(filtered("start:")).containsExactly("otlpexp", "batch/2", "batch/1", "otlp");
-        runtime.shutdown(Duration.ofSeconds(5));
+        runtime.shutdown(Duration.ofSeconds(5)).toCompletableFuture().join();
     }
 
     @Test
     void shutsDownForwardTopological() {
         var runtime = chain(false).build();
         runtime.start();
-        runtime.shutdown(Duration.ofSeconds(5));
+        runtime.shutdown(Duration.ofSeconds(5)).toCompletableFuture().join();
         assertThat(filtered("shutdown:")).containsExactly("otlp", "batch/1", "batch/2", "otlpexp");
     }
 
     @Test
-    void rollsBackAlreadyStartedInReverseStartOrderOnStartFailure() {
+    void rollsBackAllCreatedComponentsOnStartFailure() {
         var runtime = chain(true).build();
 
-        var failure = catchThrowableOfType(GatewayStartException.class, runtime::start);
+        var failure = catchThrowableOfType(GatewayLifecycleException.class, runtime::start);
 
         assertThat(failure).isNotNull();
         assertThat(failure.component()).isEqualTo(P1);
         // otlpexp, batch/2 started; batch/1 failed; otlp never started.
         assertThat(filtered("start:")).containsExactly("otlpexp", "batch/2", "batch/1");
-        // rollback shuts down the started components in reverse start order; the failed and unstarted
-        // components are not shut down.
-        assertThat(filtered("shutdown:")).containsExactly("batch/2", "otlpexp");
+        // All created components own resources, including failed and unstarted components.
+        assertThat(filtered("shutdown:")).containsExactly("otlp", "batch/1", "batch/2", "otlpexp");
     }
 }

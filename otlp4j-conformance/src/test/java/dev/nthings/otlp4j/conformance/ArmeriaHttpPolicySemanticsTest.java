@@ -7,8 +7,7 @@ import org.junit.jupiter.api.Tag;
 
 /// Executes the reusable policy semantics suite against a real OTLP/HTTP exporter on the consolidated
 /// Armeria transport, the only production transport, driving a programmed HTTP server. It drives the
-/// retry counts, backoff bounds, deadline behaviour, and `Retry-After` folding against Armeria, with
-/// the total-deadline cancellation capability asserting the stronger behaviour here. This class
+/// retry counts, backoff bounds, deadline behaviour, and `Retry-After` folding against Armeria. This class
 /// supplies the seam and names nothing else.
 ///
 /// Tagged `policy-timing`: the deterministic counts, orderings, and outcomes are not flaky, but the

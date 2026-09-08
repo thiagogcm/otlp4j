@@ -4,6 +4,8 @@ import static dev.nthings.otlp4j.components.support.BatchSupport.traces;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.nthings.otlp4j.components.support.TestConsumeContext;
+import dev.nthings.otlp4j.components.routing.MatchRule;
+import dev.nthings.otlp4j.components.routing.MatchSpec;
 import org.junit.jupiter.api.Test;
 
 /// Proves the spec's disjunction semantics: it matches when any one of its alternative rules matches,

@@ -14,8 +14,8 @@
     <name>otlp4j-model</name>
     <description>The otlp4j domain model: pure, typed OTLP record types (traces, metrics, logs,
         profiles and their resource/scope envelopes). JPMS module dev.nthings.otlp4j.model — no
-        dependency on the generated proto code or the wire transport; the shared vocabulary the
-        api and transport modules are both expressed in.</description>
+        dependency on generated proto code or the wire transport; the shared vocabulary the core and
+        transport modules are expressed in.</description>
 
     <dependencies>
         <!-- Nullness contracts are part of the public model API; keep them visible to consumers. -->

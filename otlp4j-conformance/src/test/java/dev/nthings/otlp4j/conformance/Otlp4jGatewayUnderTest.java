@@ -41,8 +41,7 @@ import java.util.concurrent.atomic.AtomicReference;
 /// bridges back to the same wire status the gateway emits today. The reusable suites in otlp4j-testing
 /// observe only that wire status, so they compile and pass unchanged on the graph runtime.
 ///
-/// The bound ephemeral port is read back through the runtime's component lookup, downcasting the live
-/// receiver to [NetworkBound], which is the graph-runtime equivalent of the retired `Receiver.port()`.
+/// The bound ephemeral port is read back through the runtime's component lookup after startup.
 public final class Otlp4jGatewayUnderTest implements GatewayUnderTest {
 
     private static final ComponentId RECEIVER_ID = ComponentId.parse("in");
@@ -108,10 +107,9 @@ public final class Otlp4jGatewayUnderTest implements GatewayUnderTest {
         });
 
         var gw = Gateway.builder()
-                // Shut down immediately on close, matching the old seam's shutdownNow(): a sub-second
-                // deadline truncates to a zero-second HttpServer.stop(0), so teardown never blocks the
-                // full default deadline waiting for a lingering keep-alive connection to drain.
-                .service(new ServiceOptions(Duration.ofSeconds(30), Duration.ofMillis(200)));
+                // Close is a real graceful drain and reports deadline failures. Allow Armeria's
+                // quiet period and the graph's remaining component cleanup to finish normally.
+                .service(new ServiceOptions(Duration.ofSeconds(30), Duration.ofSeconds(5)));
         gw.receiver(RECEIVER_ID, receiverFactory, receiverConfig(scenario));
         gw.exporter(EXPORTER_ID, exporterFactory);
         // Route every signal through the programmed exporter, so any signal a case drives is served,
@@ -150,9 +148,7 @@ public final class Otlp4jGatewayUnderTest implements GatewayUnderTest {
                 scenario.throttleRetryAfter());
     }
 
-    /// The bound ephemeral port of the started receiver, read through the runtime's component lookup
-    /// and the receiver's [NetworkBound] capability, the graph-runtime equivalent of the old fluent
-    /// `receiver.port()`.
+    /// The bound ephemeral port of the started receiver, read through the runtime's component lookup.
     private int boundPort() {
         return runtime.boundPort(RECEIVER_ID)
                 .orElseThrow(() -> new IllegalStateException("the receiver did not expose a bound port"));

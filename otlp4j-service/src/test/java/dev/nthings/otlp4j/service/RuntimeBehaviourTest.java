@@ -1,6 +1,5 @@
 package dev.nthings.otlp4j.service;
 
-import dev.nthings.otlp4j.codec.Payloads;
 import static dev.nthings.otlp4j.core.signal.SignalDescriptor.METRICS;
 import static dev.nthings.otlp4j.core.signal.SignalDescriptor.TRACES;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -15,7 +14,7 @@ import dev.nthings.otlp4j.core.result.Disposition;
 import dev.nthings.otlp4j.core.result.Provenance;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.core.signal.SignalPair;
-import dev.nthings.otlp4j.core.signal.TelemetryPayload;
+import dev.nthings.otlp4j.core.signal.Payload;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.service.config.PipelineConfig;
 import java.time.Duration;
@@ -34,16 +33,11 @@ class RuntimeBehaviourTest {
 
     private final Fakes.Log log = new Fakes.Log();
 
-    private final TelemetryPayload payload =
-            Payloads.domain(TRACES, new TracesData(List.of()));
+    private final Payload<TracesData> payload =
+            Payload.of(TRACES, new TracesData(List.of()));
 
-    /// The core `SignalConsumers.consumer` is keyed by the payload type (`TelemetryPayload`) while the
-    /// public `SignalDescriptor` constants are keyed by the model batch type (`TracesData`), so the
-    /// constant cannot be handed to `consumer` without a cast. This mirrors the cast the runtime and
-    /// the receiver adapter make internally.
-    @SuppressWarnings("unchecked")
-    private static SignalConsumer<TelemetryPayload> tracesConsumer(SignalConsumers bundle) {
-        return (SignalConsumer<TelemetryPayload>) bundle.consumer((SignalDescriptor<TelemetryPayload>) (SignalDescriptor<?>) TRACES);
+    private static SignalConsumer<TracesData> tracesConsumer(SignalConsumers bundle) {
+        return bundle.consumer(TRACES);
     }
 
     private GatewayBuilder fanOutGateway(DeliveryResult secondOutcome) {
@@ -65,7 +59,7 @@ class RuntimeBehaviourTest {
 
         assertThat(runtime.boundPort(R)).hasValue(45678);
 
-        runtime.shutdown(Duration.ofSeconds(5));
+        runtime.shutdown(Duration.ofSeconds(5)).toCompletableFuture().join();
     }
 
     @Test
@@ -79,10 +73,10 @@ class RuntimeBehaviourTest {
     }
 
     @Test
-    void forceFlushIsBestEffort() {
+    void flushIsBestEffort() {
         var runtime = fanOutGateway(null).build();
         runtime.start();
-        runtime.forceFlush(Duration.ofSeconds(1));
+        runtime.flush(Duration.ofSeconds(1)).toCompletableFuture().join();
         runtime.close();
     }
 
@@ -100,7 +94,7 @@ class RuntimeBehaviourTest {
         assertThat(result).isInstanceOf(DeliveryResult.Accepted.class);
         // Both exporters were delivered to.
         assertThat(log.events()).contains("consume:otlpexp/a", "consume:otlpexp/b");
-        runtime.shutdown(Duration.ofSeconds(5));
+        runtime.shutdown(Duration.ofSeconds(5)).toCompletableFuture().join();
     }
 
     @Test
@@ -118,23 +112,22 @@ class RuntimeBehaviourTest {
 
         assertThat(result).isInstanceOf(DeliveryResult.Rejected.class);
         assertThat(((DeliveryResult.Rejected) result).disposition()).isEqualTo(Disposition.PERMANENT);
-        runtime.shutdown(Duration.ofSeconds(5));
+        runtime.shutdown(Duration.ofSeconds(5)).toCompletableFuture().join();
     }
 
     @Test
-    void fanOutWithMutatingPeerBuildsAndDelivers() {
+    void fanOutWithProcessorBranchBuildsAndDelivers() {
         var p = ComponentId.parse("redact");
         var eSecond = ComponentId.parse("otlpexp/second");
         var recv = new Fakes.ReceiverFactoryImpl("otlp", log, null);
-        var mutatingProc = new Fakes.ProcessorFactoryImpl("redact", log, null, true);
+        var processor = new Fakes.ProcessorFactoryImpl("redact", log, null);
         var exp1 = new Fakes.ExporterFactoryImpl("otlpexp", log, null, null);
         var exp2 = new Fakes.ExporterFactoryImpl("otlpexp", log, null, null);
 
-        // The receiver feeds two same-signal pipelines, so it fans out to a mutating processor branch
-        // and a plain exporter branch, exercising the copy-before-mutating-peer seam.
+        // The receiver feeds both a processor branch and a direct exporter branch.
         var gw = Gateway.builder();
         gw.receiver(R, recv, Fakes.Config.ok());
-        gw.processor(p, mutatingProc, Fakes.Config.ok());
+        gw.processor(p, processor, Fakes.Config.ok());
         gw.exporter(E1, exp1, Fakes.Config.ok());
         gw.exporter(eSecond, exp2, Fakes.Config.ok());
         gw.pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(p), List.of(E1)));
@@ -174,7 +167,7 @@ class RuntimeBehaviourTest {
         assertThat(runtime.component(connectorId)).isPresent();
         assertThat(log.events()).contains("start:spanmetrics", "start:metricsexp", "start:otlp");
 
-        runtime.shutdown(Duration.ofSeconds(5));
+        runtime.shutdown(Duration.ofSeconds(5)).toCompletableFuture().join();
         assertThat(log.events()).contains("shutdown:otlp", "shutdown:spanmetrics", "shutdown:metricsexp");
     }
 }

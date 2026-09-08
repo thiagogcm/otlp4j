@@ -7,14 +7,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import dev.nthings.otlp4j.core.component.ComponentId;
 import dev.nthings.otlp4j.core.component.ComponentKind;
 import dev.nthings.otlp4j.core.consumer.ConsumeContext;
-import dev.nthings.otlp4j.core.consumer.ConsumerCapabilities;
 import dev.nthings.otlp4j.core.consumer.SignalConsumer;
 import dev.nthings.otlp4j.core.result.DeliveryReason;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.result.Disposition;
 import dev.nthings.otlp4j.core.result.Provenance;
-import dev.nthings.otlp4j.codec.Payloads;
-import dev.nthings.otlp4j.core.signal.TelemetryPayload;
+import dev.nthings.otlp4j.core.signal.Payload;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.testing.Fixtures;
@@ -35,8 +33,8 @@ class SignalSourceTest {
         return new SignalSource<>(TRACES, RECEIVER);
     }
 
-    private static TelemetryPayload payload() {
-        return Payloads.domain(TRACES, Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)));
+    private static Payload<TracesData> payload() {
+        return Payload.of(TRACES, Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER)));
     }
 
     private static DeliveryResult dispatch(SignalSource<TracesData> source) {
@@ -81,12 +79,7 @@ class SignalSourceTest {
         var source = source();
         source.attach(new SignalConsumer<>() {
             @Override
-            public ConsumerCapabilities capabilities() {
-                return ConsumerCapabilities.nonMutating();
-            }
-
-            @Override
-            public CompletionStage<DeliveryResult> consume(ConsumeContext context, TelemetryPayload data) {
+            public CompletionStage<DeliveryResult> consume(ConsumeContext context, Payload<TracesData> data) {
                 throw new RuntimeException("boom");
             }
         });
@@ -101,12 +94,7 @@ class SignalSourceTest {
         var source = source();
         source.attach(new SignalConsumer<>() {
             @Override
-            public ConsumerCapabilities capabilities() {
-                return ConsumerCapabilities.nonMutating();
-            }
-
-            @Override
-            public CompletionStage<DeliveryResult> consume(ConsumeContext context, TelemetryPayload data) {
+            public CompletionStage<DeliveryResult> consume(ConsumeContext context, Payload<TracesData> data) {
                 return CompletableFuture.failedFuture(new IllegalStateException("async boom"));
             }
         });
@@ -123,21 +111,16 @@ class SignalSourceTest {
         var source = source();
         source.attach(accepting(new AtomicInteger()));
         var result = source.dispatch(
-                new TestConsumeContext(), Payloads.domain(TRACES, new TracesData(List.of())))
+                new TestConsumeContext(), Payload.of(TRACES, new TracesData(List.of())))
                 .toCompletableFuture().join();
         assertThat(result).isInstanceOf(DeliveryResult.Accepted.class);
     }
 
-    private static SignalConsumer<TelemetryPayload> accepting(AtomicInteger hits) {
+    private static SignalConsumer<TracesData> accepting(AtomicInteger hits) {
         var provenance = new Provenance(RECEIVER, ComponentKind.EXPORTER, TRACES);
         return new SignalConsumer<>() {
             @Override
-            public ConsumerCapabilities capabilities() {
-                return ConsumerCapabilities.nonMutating();
-            }
-
-            @Override
-            public CompletionStage<DeliveryResult> consume(ConsumeContext context, TelemetryPayload data) {
+            public CompletionStage<DeliveryResult> consume(ConsumeContext context, Payload<TracesData> data) {
                 hits.incrementAndGet();
                 return DeliveryResult.acceptedStage(provenance);
             }

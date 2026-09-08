@@ -4,14 +4,11 @@ import static dev.nthings.otlp4j.components.support.BatchSupport.baseContext;
 import static dev.nthings.otlp4j.components.support.BatchSupport.traces;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import dev.nthings.otlp4j.components.internal.MatchRule;
-import dev.nthings.otlp4j.components.internal.MatchSpec;
 import dev.nthings.otlp4j.components.support.MaterialisationTrackingPayload;
 import dev.nthings.otlp4j.components.support.RecordingConsumer;
 import dev.nthings.otlp4j.components.support.TestConsumeContext;
 import dev.nthings.otlp4j.core.component.ComponentId;
 import dev.nthings.otlp4j.core.component.ShutdownContext;
-import dev.nthings.otlp4j.core.consumer.ConsumerCapabilities;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.model.TracesData;
@@ -22,13 +19,12 @@ class FilterProcessorTest {
 
     private static final TestConsumeContext CTX = new TestConsumeContext();
 
-    private final RecordingConsumer next = new RecordingConsumer();
+    private final RecordingConsumer<TracesData> next = new RecordingConsumer<>();
 
     @Test
-    void declaresNonMutatingCapabilitiesAndCompletesItsLifecycle() {
+    void completesItsLifecycle() {
         var processor = filterProcessor(MatchSpec.none(), MatchSpec.none());
 
-        assertThat(processor.capabilities()).isEqualTo(ConsumerCapabilities.nonMutating());
         processor.start(baseContext()).toCompletableFuture().join();
         processor.shutdown(new ShutdownContext(Duration.ofSeconds(1))).toCompletableFuture().join();
     }
@@ -67,8 +63,8 @@ class FilterProcessorTest {
     }
 
     @Test
-    void emptyIncludeAdmitsEveryPayload() {
-        var processor = filterProcessor(MatchSpec.none(), MatchSpec.none());
+    void explicitCatchAllIncludeAdmitsEveryPayload() {
+        var processor = filterProcessor(MatchSpec.all(), MatchSpec.none());
 
         processor.consume(CTX, traces(1)).toCompletableFuture().join();
 
@@ -93,7 +89,7 @@ class FilterProcessorTest {
         var include = MatchSpec.of(MatchRule.builder().resourceAttribute("service.name", "checkout").build());
         var exclude = MatchSpec.of(MatchRule.builder().header("x-drop", "yes").build());
         var processor = filterProcessor(include, exclude);
-        var tracked = new MaterialisationTrackingPayload(traces(1));
+        var tracked = new MaterialisationTrackingPayload<>(traces(1));
 
         var result = processor.consume(CTX, tracked).toCompletableFuture().join();
 
@@ -110,7 +106,7 @@ class FilterProcessorTest {
                 .domainPredicate(batch -> ((TracesData) batch).spanCount() == 1)
                 .build());
         var processor = filterProcessor(MatchSpec.none(), exclude);
-        var tracked = new MaterialisationTrackingPayload(traces(1));
+        var tracked = new MaterialisationTrackingPayload<>(traces(1));
 
         var result = processor.consume(CTX, tracked).toCompletableFuture().join();
 
@@ -119,7 +115,7 @@ class FilterProcessorTest {
         assertThat(tracked.domainRequested()).isTrue();
     }
 
-    private FilterProcessor filterProcessor(MatchSpec include, MatchSpec exclude) {
-        return new FilterProcessor(ComponentId.parse("filter"), SignalDescriptor.TRACES, include, exclude, next);
+    private FilterProcessor<TracesData> filterProcessor(MatchSpec include, MatchSpec exclude) {
+        return new FilterProcessor<>(ComponentId.parse("filter"), SignalDescriptor.TRACES, include, exclude, next);
     }
 }

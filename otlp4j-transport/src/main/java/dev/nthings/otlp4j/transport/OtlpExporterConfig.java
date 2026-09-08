@@ -47,7 +47,9 @@ public record OtlpExporterConfig(
         Compression compression,
         RetryPolicy retry,
         TimeoutPolicy timeout,
-        @Nullable Supplier<Map<String, String>> headerSupplier)
+        @Nullable Supplier<Map<String, String>> headerSupplier,
+        long maxRequestBytes,
+        long maxResponseBytes)
         implements ComponentConfig {
 
     /// Validates the components, normalizes the path, and defensively copies and validates the headers.
@@ -63,6 +65,23 @@ public record OtlpExporterConfig(
         Headers.requireValid(headers);
         path = normalizePath(path);
         Ports.requireValid(port);
+        if (maxRequestBytes <= 0) {
+            throw new IllegalArgumentException("maxRequestBytes must be positive: " + maxRequestBytes);
+        }
+        if (maxResponseBytes <= 0) {
+            throw new IllegalArgumentException("maxResponseBytes must be positive: " + maxResponseBytes);
+        }
+        // The gRPC client builder accepts int byte limits. Keep this shared configuration
+        // representable for both protocol implementations so invalid values fail at build time,
+        // rather than only when a gRPC exporter is started.
+        if (maxRequestBytes > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException(
+                    "maxRequestBytes must be <= " + Integer.MAX_VALUE + ": " + maxRequestBytes);
+        }
+        if (maxResponseBytes > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException(
+                    "maxResponseBytes must be <= " + Integer.MAX_VALUE + ": " + maxResponseBytes);
+        }
     }
 
     /// The default exporter config for `port`: `localhost:port`, plaintext, no headers, no
@@ -80,7 +99,9 @@ public record OtlpExporterConfig(
                 Compression.NONE,
                 RetryPolicy.defaults(),
                 new TimeoutPolicy(Duration.ofSeconds(10), Duration.ofSeconds(10)),
-                null);
+                null,
+                64L * 1024 * 1024,
+                4L * 1024 * 1024);
     }
 
     /// A builder seeded with `port` as the endpoint port and all other builder defaults.
@@ -113,6 +134,8 @@ public record OtlpExporterConfig(
         b.timeoutExplicit = true;
         b.totalTimeout = timeout.total();
         b.headerSupplier = headerSupplier;
+        b.maxRequestBytes = maxRequestBytes;
+        b.maxResponseBytes = maxResponseBytes;
         return b;
     }
 
@@ -185,6 +208,8 @@ public record OtlpExporterConfig(
         private Duration perAttempt = Duration.ofSeconds(10);
         private @Nullable Duration totalTimeout = null;
         private @Nullable Supplier<Map<String, String>> headerSupplier = null;
+        private long maxRequestBytes = 64L * 1024 * 1024;
+        private long maxResponseBytes = 4L * 1024 * 1024;
 
         // Which fields the caller set explicitly, so a deferred fromEnvironment() overrides only the
         // untouched ones (env is lowest precedence). Package-private: read/written by [OtlpEnv].
@@ -201,11 +226,11 @@ public record OtlpExporterConfig(
         }
 
         /// Sets the endpoint from a `scheme://host:port[/prefix]` URL: `https` selects system-trust
-        /// TLS, a portless URL keeps the current port. Call [#setTls] afterwards for mTLS.
+        /// TLS, a portless URL keeps the current port. Call [#tls] afterwards for mTLS.
         ///
         /// @param url the endpoint URL
         /// @return this builder
-        public Builder setEndpoint(String url) {
+        public Builder endpoint(String url) {
             var e = parseEndpoint(url);
             this.host = e.host();
             this.hostExplicit = true;
@@ -225,7 +250,7 @@ public record OtlpExporterConfig(
         /// @param host the endpoint host
         /// @param port the endpoint port
         /// @return this builder
-        public Builder setEndpoint(String host, int port) {
+        public Builder endpoint(String host, int port) {
             this.host = host;
             this.hostExplicit = true;
             this.port = port;
@@ -238,7 +263,7 @@ public record OtlpExporterConfig(
         ///
         /// @param path the path prefix
         /// @return this builder
-        public Builder setPath(String path) {
+        public Builder path(String path) {
             this.path = path;
             this.pathExplicit = true;
             return this;
@@ -248,7 +273,7 @@ public record OtlpExporterConfig(
         ///
         /// @param host the endpoint host
         /// @return this builder
-        public Builder setHost(String host) {
+        public Builder host(String host) {
             this.host = host;
             this.hostExplicit = true;
             return this;
@@ -258,7 +283,7 @@ public record OtlpExporterConfig(
         ///
         /// @param port the endpoint port
         /// @return this builder
-        public Builder setPort(int port) {
+        public Builder port(int port) {
             this.port = port;
             this.portExplicit = true;
             return this;
@@ -269,18 +294,18 @@ public record OtlpExporterConfig(
         ///
         /// @param timeout the per-attempt deadline
         /// @return this builder
-        public Builder setTimeout(Duration timeout) {
+        public Builder timeout(Duration timeout) {
             this.perAttempt = timeout;
             this.timeoutExplicit = true;
             return this;
         }
 
-        /// Bounds the whole retrying delivery end to end. Unset, it falls back to [#setTimeout]. Must
-        /// be greater than or equal to the per-attempt [#setTimeout].
+        /// Bounds the whole retrying delivery end to end. Unset, it falls back to [#timeout]. Must
+        /// be greater than or equal to the per-attempt [#timeout].
         ///
         /// @param totalTimeout the total budget across all attempts
         /// @return this builder
-        public Builder setTotalTimeout(Duration totalTimeout) {
+        public Builder totalTimeout(Duration totalTimeout) {
             this.totalTimeout = totalTimeout;
             return this;
         }
@@ -289,7 +314,7 @@ public record OtlpExporterConfig(
         ///
         /// @param timeout the timeout policy
         /// @return this builder
-        public Builder setTimeoutPolicy(TimeoutPolicy timeout) {
+        public Builder timeoutPolicy(TimeoutPolicy timeout) {
             this.perAttempt = timeout.perAttempt();
             this.timeoutExplicit = true;
             this.totalTimeout = timeout.total();
@@ -300,7 +325,7 @@ public record OtlpExporterConfig(
         ///
         /// @param tls the TLS mode
         /// @return this builder
-        public Builder setTls(Tls tls) {
+        public Builder tls(Tls tls) {
             this.tls = tls;
             this.tlsExplicit = true;
             return this;
@@ -320,7 +345,7 @@ public record OtlpExporterConfig(
         ///
         /// @param headers the replacement headers
         /// @return this builder
-        public Builder setHeaders(Map<String, String> headers) {
+        public Builder headers(Map<String, String> headers) {
             this.headers.clear();
             this.headers.putAll(headers);
             return this;
@@ -328,12 +353,12 @@ public record OtlpExporterConfig(
 
         /// Sets a per-export header supplier (e.g. a rotating bearer token). Evaluated on every export
         /// and overlaid on the static headers, winning per key. Does not clear the static
-        /// [#addHeader]/[#setHeaders(Map)] entries. Supplied headers are validated on every resolve; an
+        /// [#addHeader]/[#headers(Map)] entries. Supplied headers are validated on every resolve; an
         /// invalid header fails that export exceptionally and is not retried.
         ///
         /// @param headerSupplier the per-export header supplier
         /// @return this builder
-        public Builder setHeaders(Supplier<Map<String, String>> headerSupplier) {
+        public Builder headers(Supplier<Map<String, String>> headerSupplier) {
             this.headerSupplier = headerSupplier;
             return this;
         }
@@ -349,7 +374,7 @@ public record OtlpExporterConfig(
         ///
         /// @param compression the compression mode
         /// @return this builder
-        public Builder setCompression(Compression compression) {
+        public Builder compression(Compression compression) {
             this.compression = compression;
             this.compressionExplicit = true;
             return this;
@@ -359,7 +384,7 @@ public record OtlpExporterConfig(
         ///
         /// @param compression the compression name
         /// @return this builder
-        public Builder setCompression(String compression) {
+        public Builder compression(String compression) {
             this.compression =
                     switch (compression.strip().toLowerCase(Locale.ROOT)) {
                         case "gzip" -> Compression.GZIP;
@@ -375,8 +400,22 @@ public record OtlpExporterConfig(
         ///
         /// @param retry the retry policy
         /// @return this builder
-        public Builder setRetryPolicy(RetryPolicy retry) {
+        public Builder retryPolicy(RetryPolicy retry) {
             this.retry = retry;
+            return this;
+        }
+
+        /// Caps one uncompressed export request. The cap is checked before and after request
+        /// compression, and is therefore also a bound on the bytes passed to a remote peer.
+        public Builder maxRequestBytes(long bytes) {
+            this.maxRequestBytes = bytes;
+            return this;
+        }
+
+        /// Caps one response after decompression. Armeria also applies the cap while aggregating
+        /// compressed responses, so a decompressor cannot bypass it.
+        public Builder maxResponseBytes(long bytes) {
+            this.maxResponseBytes = bytes;
             return this;
         }
 
@@ -409,7 +448,8 @@ public record OtlpExporterConfig(
             var total = totalTimeout == null ? perAttempt : totalTimeout;
             return new OtlpExporterConfig(
                     host, port, path, tls, headers, compression, retry,
-                    new TimeoutPolicy(perAttempt, total), headerSupplier);
+                    new TimeoutPolicy(perAttempt, total), headerSupplier,
+                    maxRequestBytes, maxResponseBytes);
         }
     }
 }

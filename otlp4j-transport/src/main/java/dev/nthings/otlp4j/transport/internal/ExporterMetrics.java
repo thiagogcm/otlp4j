@@ -1,7 +1,7 @@
 package dev.nthings.otlp4j.transport.internal;
 
 import dev.nthings.otlp4j.core.result.DeliveryResult;
-import dev.nthings.otlp4j.core.signal.TelemetryPayload;
+import dev.nthings.otlp4j.core.signal.Payload;
 import dev.nthings.otlp4j.core.telemetry.GatewayMetrics;
 import org.jspecify.annotations.Nullable;
 
@@ -10,12 +10,11 @@ import org.jspecify.annotations.Nullable;
 /// written, so the outcome switch and the item, byte, latency, and retry accounting live in exactly one
 /// place. The exporter builder constructs one instance and hands the same object to both the wire
 /// client (which alone can observe a retry attempt, since that happens inside the retry loop) and the
-/// [ClientExporter] send boundary (which records everything visible when a send settles).
+/// [OtlpExporter] send boundary (which records everything visible when a send settles).
 ///
 /// Latency is accumulated as a nanosecond counter rather than a histogram because [GatewayMetrics]
 /// exposes only counters and gauges. Paired with the success and failure counts it yields an average
-/// send latency. A real latency histogram is a known limitation of the current self-observability SPI
-/// and arrives with the Armeria metrics decorator in a later phase.
+/// send latency. A real latency histogram is a known limitation of the current self-observability SPI.
 ///
 /// Instances are cheap and hold only counter handles. [GatewayMetrics] implementations are required to
 /// be thread-safe, so a single instance is safely shared across the export virtual threads that write
@@ -75,12 +74,13 @@ public final class ExporterMetrics {
     /// @param result       the delivery result, or null when the send failed exceptionally
     /// @param failure      the failure the send completed with, or null on a returned result
     public void recordSend(
-            TelemetryPayload payload,
+            Payload<?> payload,
+            long serializedBytes,
             long latencyNanos,
             @Nullable DeliveryResult result,
             @Nullable Throwable failure) {
         items.add(payload.itemCount());
-        bytes.add(payload.estimatedSerializedSize());
+        bytes.add(serializedBytes);
         durationNanos.add(latencyNanos);
         if (failure != null || result instanceof DeliveryResult.Rejected) {
             this.failure.add(1);

@@ -3,10 +3,12 @@ package dev.nthings.otlp4j.core.signal;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import dev.nthings.otlp4j.model.TracesData;
+import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/// Unit tests for [SignalPair] and the [TelemetryPayload] marker.
+/// Unit tests for [SignalPair] and the typed [Payload] contract.
 class SignalPairTest {
 
     @Test
@@ -29,40 +31,26 @@ class SignalPairTest {
     }
 
     @Test
-    @DisplayName("a telemetry payload reports its signal and item count")
-    void telemetryPayloadMarker() {
-        TelemetryPayload payload = new TelemetryPayload() {
-            @Override
-            public SignalDescriptor<?> signal() {
-                return SignalDescriptor.LOGS;
-            }
+    @DisplayName("a payload is typed and replacements recompute derived values")
+    void typedPayload() {
+        var first = new TracesData(List.of());
+        var second = new TracesData(List.of());
+        Payload<TracesData> payload = Payload.of(SignalDescriptor.TRACES, first);
 
-            @Override
-            public long itemCount() {
-                return 7L;
-            }
+        assertThat(payload.signal()).isSameAs(SignalDescriptor.TRACES);
+        assertThat(payload.data()).isSameAs(first);
+        assertThat(payload.itemCount()).isZero();
+        assertThat(payload.routingMetadata().resourceAttributeKeys()).isEmpty();
+        assertThat(payload.withData(first)).isSameAs(payload);
+        assertThat(payload.withData(second).data()).isSameAs(second);
+    }
 
-            @Override
-            public long estimatedSerializedSize() {
-                return 0L;
-            }
-
-            @Override
-            public <V> V view(PayloadView<V> view) {
-                throw new IllegalArgumentException("this marker exposes no views: " + view);
-            }
-
-            @Override
-            public TelemetryPayload copyForMutation() {
-                return this;
-            }
-
-            @Override
-            public void writeTo(java.io.OutputStream out) {
-                // A marker with no wire form; the test exercises only signal and item count.
-            }
-        };
-        assertThat(payload.signal()).isEqualTo(SignalDescriptor.LOGS);
-        assertThat(payload.itemCount()).isEqualTo(7L);
+    @Test
+    @DisplayName("a payload rejects null signal and data")
+    void payloadNullsRejected() {
+        assertThatThrownBy(() -> Payload.of(null, new TracesData(List.of())))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> Payload.of(SignalDescriptor.TRACES, null))
+                .isInstanceOf(NullPointerException.class);
     }
 }

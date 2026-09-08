@@ -35,8 +35,8 @@ final class CommonMapper {
     /// Interprets an OTLP export partial-success as a [DeliveryResult], attributing the outcome to
     /// `provenance`. Shared by all four signal mappers.
     ///
-    /// Zero rejected count with a non-empty message is a retryable rejection; a positive count is a
-    /// partial; anything else is accepted.
+    /// A present partial-success block is always represented as a partial result, including a zero
+    /// rejected count carrying a server warning. Partial success is terminal and is never retried.
     ///
     /// @param hasPartialSuccess whether the response carried a partial-success message
     /// @param rejectedItems     the rejected item count
@@ -46,12 +46,8 @@ final class CommonMapper {
     public static DeliveryResult deliveryResult(
             boolean hasPartialSuccess, long rejectedItems, String errorMessage,
             dev.nthings.otlp4j.core.result.Provenance provenance) {
-        if (!hasPartialSuccess || (rejectedItems == 0 && errorMessage.isEmpty())) {
+        if (!hasPartialSuccess) {
             return DeliveryResult.accepted(provenance);
-        }
-        if (rejectedItems == 0) {
-            // Zero items rejected but a message present: a server-side issue worth retrying.
-            return DeliveryResult.retryable(errorMessage, provenance);
         }
         return DeliveryResult.partial(rejectedItems, errorMessage, provenance);
     }

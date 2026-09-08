@@ -7,10 +7,9 @@ import java.util.Objects;
 ///
 /// Reuses the neutral [OverflowPolicy] as the one overflow vocabulary. Every tap strategy is
 /// non-blocking: the tap sits outside the acknowledgement path, so a slow subscriber can never delay
-/// the OTLP response. [OverflowPolicy#BLOCK] is therefore rejected at construction (it is a
-/// batch-processor-only ingress-backpressure policy); use `DROP_OLDEST`, `DROP_NEWEST`, or `FAIL`.
+/// the OTLP response. Use `DROP_OLDEST`, `DROP_NEWEST`, or `FAIL`.
 ///
-/// @param strategy   the overflow policy for a full subscription buffer (not [OverflowPolicy#BLOCK])
+/// @param strategy   the overflow policy for a full subscription buffer
 /// @param bufferSize the per-subscription buffer size, at least 1
 public record TapOptions(OverflowPolicy strategy, int bufferSize) {
 
@@ -18,10 +17,6 @@ public record TapOptions(OverflowPolicy strategy, int bufferSize) {
 
     public TapOptions {
         Objects.requireNonNull(strategy, "strategy");
-        if (strategy == OverflowPolicy.BLOCK) {
-            throw new IllegalArgumentException(
-                    "the tap sits outside the ack path; BLOCK is unavailable, use DROP_OLDEST, DROP_NEWEST, or FAIL");
-        }
         if (bufferSize < 1) {
             throw new IllegalArgumentException("bufferSize must be >= 1, got " + bufferSize);
         }

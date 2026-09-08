@@ -5,9 +5,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
-import dev.nthings.otlp4j.codec.Payloads;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
-import dev.nthings.otlp4j.core.signal.TelemetryPayload;
+import dev.nthings.otlp4j.core.signal.Payload;
+import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.testing.Fixtures;
 import dev.nthings.otlp4j.testing.FlowSubscribers;
@@ -28,11 +28,11 @@ class TapAndMulticastEdgesTest {
     void receiverTapMulticastsToEverySubscriber() {
         var tap = new ReceiverTap(dev.nthings.otlp4j.core.telemetry.GatewayMetrics.noop());
         try {
-            var first = new CopyOnWriteArrayList<TelemetryPayload>();
-            var second = new CopyOnWriteArrayList<TelemetryPayload>();
+            var first = new CopyOnWriteArrayList<Payload<?>>();
+            var second = new CopyOnWriteArrayList<Payload<?>>();
             tap.publisher(SignalDescriptor.TRACES).subscribe(FlowSubscribers.recording(first));
             tap.publisher(SignalDescriptor.TRACES).subscribe(FlowSubscribers.recording(second));
-            tap.publish(Payloads.domain(
+            tap.publish(Payload.of(
                     SignalDescriptor.TRACES, Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER))));
             await().atMost(Duration.ofSeconds(2)).until(() -> first.size() >= 1 && second.size() >= 1);
             assertThat(first).hasSize(1);
@@ -50,7 +50,7 @@ class TapAndMulticastEdgesTest {
             tap.publisher(SignalDescriptor.TRACES, new TapOptions(OverflowPolicy.DROP_NEWEST, 1))
                     .subscribe(FlowSubscribers.noOp());
             for (var i = 0; i < 50; i++) {
-                tap.publish(Payloads.domain(
+                tap.publish(Payload.of(
                         SignalDescriptor.TRACES, Fixtures.traceData(Fixtures.span("s" + i, Span.Kind.SERVER))));
             }
             assertThat(tap.droppedCount()).isGreaterThan(0L);

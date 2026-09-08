@@ -66,15 +66,14 @@ public record ExportObservation(
                 retries);
     }
 
-    /// The outcome classification rule, stated once so the legacy seam and the future Armeria seam
-    /// agree. It is protocol-agnostic: it reads the returned result or the unwrapped failure type and,
+    /// The protocol-agnostic outcome classification rule. It reads the returned result or the
+    /// unwrapped failure type and,
     /// for a plain transport rejection, the recorded attempt count relative to the policy's attempt
     /// count, never a transport-specific exception type.
     ///
     /// 1. A returned [DeliveryResult] maps [DeliveryResult.Accepted] to `ACCEPTED`, [DeliveryResult.Partial]
     ///    to `PARTIAL`, and a [DeliveryResult.Rejected] to `RETRYABLE_REJECTED` or `PERMANENT_REJECTED` by
-    ///    its disposition. The legacy transports never return a Rejected on these scripts, but the rule
-    ///    stays total for a transport that does.
+    ///    its disposition. The rule remains total for a transport that returns a rejection.
     /// 2. An exceptional stage whose unwrapped cause is a [TimeoutException] is `TIMED_OUT`; the outer
     ///    total-budget `orTimeout` is the only source of that type on these paths.
     /// 3. Any other exceptional stage is a transport rejection. If `attempts == maxAttempts` the error

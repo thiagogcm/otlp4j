@@ -12,12 +12,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 /// attempt count and the gaps between attempts. One implementation drives OTLP/HTTP over the JDK
 /// `HttpServer`, the other OTLP/gRPC over grpc-netty; both share the recording, over-script tolerance,
 /// and attempt accounting on this base. A fresh server is booted on an ephemeral loopback port per
-/// export and closed in the same call, so no state leaks between cases. The same server is reused
-/// verbatim by the future Armeria seam.
+/// export and closed in the same call, so no state leaks between cases.
 ///
-/// Over-script tolerance is part of the contract. A legacy transport does not cancel an already
-/// scheduled retry at the total deadline, so a straggler attempt can arrive after the script is
-/// exhausted. When that happens the server still records the arrival (so the attempt count stays
+/// Over-script tolerance is part of the contract. A retry may already be scheduled when the total
+/// deadline expires, so a straggler attempt can arrive after the script is exhausted. When that
+/// happens the server still records the arrival (so the attempt count stays
 /// observable) and answers with a default retryable [ProgrammedResponse.Unavailable], never hanging and
 /// never throwing. Because each server owns a private port and is closed during the same export's
 /// teardown, a late straggler can only reach its own already-draining server, never a later case's.

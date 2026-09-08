@@ -3,6 +3,9 @@ package dev.nthings.otlp4j.service.config;
 import dev.nthings.otlp4j.core.component.ComponentId;
 import dev.nthings.otlp4j.core.pipeline.PipelineId;
 import java.util.Map;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Objects;
 
 /// The whole declarative description of a gateway: the component instances available by id, grouped
 /// by kind, the pipelines that wire them, and the service options that bracket the lifecycle. Every
@@ -40,10 +43,16 @@ public record GatewayConfig(
         if (service == null) {
             throw new IllegalArgumentException("service options must be non-null");
         }
-        receivers = Map.copyOf(receivers);
-        processors = Map.copyOf(processors);
-        exporters = Map.copyOf(exporters);
-        connectors = Map.copyOf(connectors);
-        pipelines = Map.copyOf(pipelines);
+        receivers = orderedCopy(receivers);
+        processors = orderedCopy(processors);
+        exporters = orderedCopy(exporters);
+        connectors = orderedCopy(connectors);
+        pipelines = orderedCopy(pipelines);
+    }
+
+    private static <K, V> Map<K, V> orderedCopy(Map<K, V> entries) {
+        var copy = new LinkedHashMap<K, V>();
+        entries.forEach((key, value) -> copy.put(Objects.requireNonNull(key), Objects.requireNonNull(value)));
+        return Collections.unmodifiableMap(copy);
     }
 }

@@ -12,8 +12,8 @@
 
     <artifactId>otlp4j-benchmarks</artifactId>
     <name>otlp4j-benchmarks</name>
-    <description>JMH harness that captures the Phase 0 receive-forward-export throughput and
-        allocation baseline. It is built only under the `bench` profile and never by the default
+    <description>JMH harness that captures receive-forward-export throughput and allocation
+        baselines. It is built only under the `bench` profile and never by the default
         reactor, so `./mvnw verify` stays fast. The module shades its dependencies into a
         self-contained benchmarks.jar whose main class is org.openjdk.jmh.Main. It is kept
         non-modular (no module-info.java) so the harness reaches otlp4j-proto's qualified-exported
@@ -22,7 +22,7 @@
     <properties>
         <!-- Pinned locally: the shade plugin is used only by this module, so it does not belong in
              the shared parent pluginManagement. -->
-        <maven-shade-plugin.version>3.6.0</maven-shade-plugin.version>
+        <maven-shade-plugin.version>3.6.2</maven-shade-plugin.version>
         <!-- Benchmark harness, not a published API: no javadoc jar is produced or linted. -->
         <maven.javadoc.skip>true</maven.javadoc.skip>
     </properties>

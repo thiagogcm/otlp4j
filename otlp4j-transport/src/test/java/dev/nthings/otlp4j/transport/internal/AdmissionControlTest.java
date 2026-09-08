@@ -14,7 +14,7 @@ class AdmissionControlTest {
     @Test
     void requestCapAdmitsAndRecovers() {
         var admission = AdmissionControl.of(
-                OtlpReceiverConfig.builder(4317).setMaxInFlightRequests(2).build());
+                OtlpReceiverConfig.builder(4317).maxInFlightRequests(2).build());
 
         var first = admission.tryAcquire(() -> 10);
         var second = admission.tryAcquire(() -> 10);
@@ -39,7 +39,7 @@ class AdmissionControlTest {
     @Test
     void byteCapRejectsOvershoot() {
         var admission = AdmissionControl.of(
-                OtlpReceiverConfig.builder(4317).setMaxInFlightBytes(100).build());
+                OtlpReceiverConfig.builder(4317).maxInFlightBytes(100).build());
 
         var first = admission.tryAcquire(() -> 60);
         assertThat(first).isNotNull();
@@ -60,7 +60,7 @@ class AdmissionControlTest {
     @Test
     void oversizedRequestAdmittedWhenIdle() {
         var admission = AdmissionControl.of(
-                OtlpReceiverConfig.builder(4317).setMaxInFlightBytes(100).build());
+                OtlpReceiverConfig.builder(4317).maxInFlightBytes(100).build());
 
         var oversized = admission.tryAcquire(() -> 10_000);
         assertThat(oversized).isNotNull();
@@ -80,7 +80,7 @@ class AdmissionControlTest {
     @Test
     void permitCloseIsIdempotent() {
         var admission = AdmissionControl.of(
-                OtlpReceiverConfig.builder(4317).setMaxInFlightRequests(1).setMaxInFlightBytes(100).build());
+                OtlpReceiverConfig.builder(4317).maxInFlightRequests(1).maxInFlightBytes(100).build());
 
         var permit = admission.tryAcquire(() -> 40);
         assertThat(permit).isNotNull();
@@ -110,12 +110,12 @@ class AdmissionControlTest {
     @DisplayName("the retry-after hint mirrors the config")
     @Test
     void retryAfterHintMirrorsConfig() {
-        var without = AdmissionControl.of(OtlpReceiverConfig.builder(4317).setMaxInFlightRequests(1).build());
+        var without = AdmissionControl.of(OtlpReceiverConfig.builder(4317).maxInFlightRequests(1).build());
         assertThat(without.retryAfterHint()).isNull();
 
         var with = AdmissionControl.of(OtlpReceiverConfig.builder(4317)
-                .setMaxInFlightRequests(1)
-                .setThrottleRetryAfter(Duration.ofSeconds(3))
+                .maxInFlightRequests(1)
+                .throttleRetryAfter(Duration.ofSeconds(3))
                 .build());
         assertThat(with.retryAfterHint()).isEqualTo(Duration.ofSeconds(3));
     }

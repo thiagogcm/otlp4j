@@ -10,8 +10,8 @@ import org.jspecify.annotations.Nullable;
 /// Maps the neutral [Tls] sealed family onto Armeria's server and client TLS surfaces.
 ///
 /// Server side: [Tls.Custom] and [Tls.Inline] supply the certificate and key through
-/// `ServerBuilder.tls(...)`; [Tls.SystemTrust] and [Tls.SslContext] are rejected because a server has
-/// no certificate of its own, matching the legacy transports. When the receiver requests or requires a
+/// `ServerBuilder.tls(...)`; [Tls.SystemTrust] is rejected because a server has no certificate of its
+/// own. When the receiver requests or requires a
 /// client certificate ([ClientAuth#OPTIONAL] or [ClientAuth#REQUIRE]), a `tlsCustomizer` sets the Netty
 /// client-auth mode and the trust anchor drawn from the server TLS mode's own CA material, so a
 /// certless client is rejected at the handshake under [ClientAuth#REQUIRE]. Client side: every variant
@@ -77,8 +77,6 @@ final class ArmeriaTls {
                     "Tls.Disabled is not a TLS mode; the server binds plaintext instead");
             case Tls.SystemTrust ignored -> throw new IllegalArgumentException(
                     "Tls.SystemTrust is not valid for a server; use Tls.Custom with a certificate and key");
-            case Tls.SslContext ignored -> throw new IllegalArgumentException(
-                    "Tls.SslContext is not valid for a server; use Tls.Custom with a certificate and key");
         }
     }
 
@@ -122,10 +120,6 @@ final class ArmeriaTls {
                     }
                 }).build();
             }
-            // Armeria's TLS runs on Netty, which has no SSLContext door: honour the trust manager only
-            // (no mutual TLS through a caller-built SSLContext), matching the legacy gRPC transport.
-            case Tls.SslContext(var ignoredContext, var trustManager) ->
-                ClientFactory.builder().tlsCustomizer(b -> b.trustManager(trustManager)).build();
         };
     }
 }

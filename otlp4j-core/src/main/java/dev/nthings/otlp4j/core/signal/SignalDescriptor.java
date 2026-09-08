@@ -1,5 +1,6 @@
 package dev.nthings.otlp4j.core.signal;
 
+import dev.nthings.otlp4j.model.Attributes;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.Metric;
 import dev.nthings.otlp4j.model.MetricsData;
@@ -8,6 +9,7 @@ import dev.nthings.otlp4j.model.TracesData;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.function.ToLongFunction;
 
@@ -28,24 +30,28 @@ public final class SignalDescriptor<T> {
     /// Traces, carrying `TracesData`, wire ordinal `0`.
     public static final SignalDescriptor<TracesData> TRACES = new SignalDescriptor<>(
             "traces", TracesData.class, SignalDescriptor::mergeTraces, SignalDescriptor::splitTraces,
-            TracesData::spanCount, () -> new TracesData(List.of()), 0);
+            TracesData::spanCount, SignalDescriptor::traceResourceAttributes,
+            () -> new TracesData(List.of()), 0);
 
     /// Metrics, carrying `MetricsData`, wire ordinal `1`.
     public static final SignalDescriptor<MetricsData> METRICS = new SignalDescriptor<>(
             "metrics", MetricsData.class, SignalDescriptor::mergeMetrics, SignalDescriptor::splitMetrics,
-            MetricsData::dataPointCount, () -> new MetricsData(List.of()), 1);
+            MetricsData::dataPointCount, SignalDescriptor::metricsResourceAttributes,
+            () -> new MetricsData(List.of()), 1);
 
     /// Logs, carrying `LogsData`, wire ordinal `2`.
     public static final SignalDescriptor<LogsData> LOGS = new SignalDescriptor<>(
             "logs", LogsData.class, SignalDescriptor::mergeLogs, SignalDescriptor::splitLogs,
-            LogsData::logRecordCount, () -> new LogsData(List.of()), 2);
+            LogsData::logRecordCount, SignalDescriptor::logsResourceAttributes,
+            () -> new LogsData(List.of()), 2);
 
     /// Profiles, carrying `ProfilesData`, wire ordinal `3`. Merge is only lossless when batches share
     /// one `ProfilesDictionary`; see [#merge(List)]. Split, by contrast, only slices the profile list
     /// under the batch's single shared dictionary, so it is always lossless.
     public static final SignalDescriptor<ProfilesData> PROFILES = new SignalDescriptor<>(
             "profiles", ProfilesData.class, SignalDescriptor::mergeProfiles, SignalDescriptor::splitProfiles,
-            ProfilesData::profileCount, () -> new ProfilesData(List.of(), new byte[0]), 3);
+            ProfilesData::profileCount, SignalDescriptor::profilesResourceAttributes,
+            () -> new ProfilesData(List.of(), new byte[0]), 3);
 
     private static final List<SignalDescriptor<?>> VALUES = List.of(TRACES, METRICS, LOGS, PROFILES);
 
@@ -54,17 +60,20 @@ public final class SignalDescriptor<T> {
     private final Merger<T> merger;
     private final Splitter<T> splitter;
     private final ToLongFunction<T> itemCounter;
+    private final Function<T, List<Attributes>> resourceAttributes;
     private final Supplier<T> empty;
     private final int wireOrdinal;
 
     private SignalDescriptor(String signalName, Class<T> batchType, Merger<T> merger,
-                             Splitter<T> splitter, ToLongFunction<T> itemCounter, Supplier<T> empty,
+                             Splitter<T> splitter, ToLongFunction<T> itemCounter,
+                             Function<T, List<Attributes>> resourceAttributes, Supplier<T> empty,
                              int wireOrdinal) {
         this.signalName = signalName;
         this.batchType = batchType;
         this.merger = merger;
         this.splitter = splitter;
         this.itemCounter = itemCounter;
+        this.resourceAttributes = resourceAttributes;
         this.empty = empty;
         this.wireOrdinal = wireOrdinal;
     }
@@ -133,6 +142,19 @@ public final class SignalDescriptor<T> {
         return itemCounter.applyAsLong(batch);
     }
 
+    /// The resource-level attributes carried by `batch`, used to build the cheap routing metadata
+    /// exposed by a [Payload]. This operation only walks resource wrappers and never walks signal
+    /// items.
+    ///
+    /// @param batch the domain batch
+    /// @return the batch's resource attributes in wire order
+    RoutingMetadata routingMetadata(T batch) {
+        if (batch == null) {
+            throw new IllegalArgumentException("batch must be non-null");
+        }
+        return RoutingMetadataSupport.of(resourceAttributes.apply(batch));
+    }
+
     /// An empty batch of this signal.
     ///
     /// @return an empty batch
@@ -172,6 +194,38 @@ public final class SignalDescriptor<T> {
         var combined = new ArrayList<TracesData.ResourceSpans>();
         snapshot.forEach(t -> combined.addAll(t.resourceSpans()));
         return new TracesData(combined);
+    }
+
+    private static List<Attributes> traceResourceAttributes(TracesData batch) {
+        var result = new ArrayList<Attributes>(batch.resourceSpans().size());
+        for (var resource : batch.resourceSpans()) {
+            result.add(resource.resource().attributes());
+        }
+        return List.copyOf(result);
+    }
+
+    private static List<Attributes> metricsResourceAttributes(MetricsData batch) {
+        var result = new ArrayList<Attributes>(batch.resourceMetrics().size());
+        for (var resource : batch.resourceMetrics()) {
+            result.add(resource.resource().attributes());
+        }
+        return List.copyOf(result);
+    }
+
+    private static List<Attributes> logsResourceAttributes(LogsData batch) {
+        var result = new ArrayList<Attributes>(batch.resourceLogs().size());
+        for (var resource : batch.resourceLogs()) {
+            result.add(resource.resource().attributes());
+        }
+        return List.copyOf(result);
+    }
+
+    private static List<Attributes> profilesResourceAttributes(ProfilesData batch) {
+        var result = new ArrayList<Attributes>(batch.resourceProfiles().size());
+        for (var resource : batch.resourceProfiles()) {
+            result.add(resource.resource().attributes());
+        }
+        return List.copyOf(result);
     }
 
     private static MetricsData mergeMetrics(List<MetricsData> snapshot) {

@@ -18,8 +18,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
-/// Enforced mutual TLS, the new capability the transport-specific [ClientAuth] builder knob adds and
-/// the legacy transports could not express. Under [ClientAuth#REQUIRE] a certless client is rejected at
+/// Enforced mutual TLS through the transport-specific [ClientAuth] builder knob. Under
+/// [ClientAuth#REQUIRE] a certless client is rejected at
 /// the TLS handshake and a client presenting the test certificate succeeds; under [ClientAuth#OPTIONAL]
 /// a certless client still succeeds. The neutral config records are untouched: the mode is an
 /// Armeria-builder knob only.
@@ -27,7 +27,7 @@ import org.junit.jupiter.api.Timeout;
 @DisplayName("Armeria enforced mutual TLS")
 class ArmeriaMutualTlsTest {
 
-    private final List<ServerReceiver> receivers = new ArrayList<>();
+    private final List<OtlpReceiver> receivers = new ArrayList<>();
     private final List<AutoCloseable> closeables = new ArrayList<>();
 
     @AfterEach
@@ -41,7 +41,7 @@ class ArmeriaMutualTlsTest {
         }
         for (var receiver : receivers) {
             try {
-                receiver.shutdownNow().toCompletableFuture().get(5, TimeUnit.SECONDS);
+                receiver.shutdown(Duration.ofSeconds(5)).toCompletableFuture().get(5, TimeUnit.SECONDS);
             } catch (Exception ignored) {
                 // keep tearing down
             }
@@ -53,11 +53,11 @@ class ArmeriaMutualTlsTest {
     void grpcRequireAcceptsClientCert() {
         var receiver = requireReceiver(OtlpReceiver.grpcBuilder());
         var exporter = OtlpExporter.grpcBuilder()
-                .setEndpoint("localhost", receiver.port())
-                .setTls(Tls.custom(TlsTestMaterial.clientCertPem(), TlsTestMaterial.clientKeyPem(),
+                .endpoint("localhost", receiver.port())
+                .tls(Tls.custom(TlsTestMaterial.clientCertPem(), TlsTestMaterial.clientKeyPem(),
                         TlsTestMaterial.caPem()))
-                .setTimeout(Duration.ofSeconds(5))
-                .build();
+                .timeout(Duration.ofSeconds(5))
+                .build().start();
         closeables.add(exporter);
 
         assertThat(exporter.export(TRACES, TransportFixtures.richTraceData()).toCompletableFuture().join())
@@ -69,10 +69,10 @@ class ArmeriaMutualTlsTest {
     void grpcRequireRejectsCertlessClient() {
         var receiver = requireReceiver(OtlpReceiver.grpcBuilder());
         var exporter = OtlpExporter.grpcBuilder()
-                .setEndpoint("localhost", receiver.port())
-                .setTls(Tls.trust(TlsTestMaterial.caPem()))
-                .setTimeout(Duration.ofSeconds(5))
-                .build();
+                .endpoint("localhost", receiver.port())
+                .tls(Tls.trust(TlsTestMaterial.caPem()))
+                .timeout(Duration.ofSeconds(5))
+                .build().start();
         closeables.add(exporter);
 
         assertThatThrownBy(() -> exporter.export(TRACES, TransportFixtures.richTraceData())
@@ -85,11 +85,11 @@ class ArmeriaMutualTlsTest {
     void httpRequireAcceptsClientCert() {
         var receiver = requireReceiver(OtlpReceiver.httpBuilder());
         var exporter = OtlpExporter.httpBuilder()
-                .setEndpoint("localhost", receiver.port())
-                .setTls(Tls.custom(TlsTestMaterial.clientCertPem(), TlsTestMaterial.clientKeyPem(),
+                .endpoint("localhost", receiver.port())
+                .tls(Tls.custom(TlsTestMaterial.clientCertPem(), TlsTestMaterial.clientKeyPem(),
                         TlsTestMaterial.caPem()))
-                .setTimeout(Duration.ofSeconds(5))
-                .build();
+                .timeout(Duration.ofSeconds(5))
+                .build().start();
         closeables.add(exporter);
 
         assertThat(exporter.export(TRACES, TransportFixtures.richTraceData()).toCompletableFuture().join())
@@ -101,10 +101,10 @@ class ArmeriaMutualTlsTest {
     void httpRequireRejectsCertlessClient() {
         var receiver = requireReceiver(OtlpReceiver.httpBuilder());
         var exporter = OtlpExporter.httpBuilder()
-                .setEndpoint("localhost", receiver.port())
-                .setTls(Tls.trust(TlsTestMaterial.caPem()))
-                .setTimeout(Duration.ofSeconds(5))
-                .build();
+                .endpoint("localhost", receiver.port())
+                .tls(Tls.trust(TlsTestMaterial.caPem()))
+                .timeout(Duration.ofSeconds(5))
+                .build().start();
         closeables.add(exporter);
 
         assertThatThrownBy(() -> exporter.export(TRACES, TransportFixtures.richTraceData())
@@ -116,9 +116,9 @@ class ArmeriaMutualTlsTest {
     @Test
     void optionalAcceptsCertlessClient() {
         var receiver = OtlpReceiver.grpcBuilder()
-                .setTls(Tls.custom(TlsTestMaterial.serverCertPem(), TlsTestMaterial.serverKeyPem(),
+                .tls(Tls.custom(TlsTestMaterial.serverCertPem(), TlsTestMaterial.serverKeyPem(),
                         TlsTestMaterial.caPem()))
-                .setClientAuth(ClientAuth.OPTIONAL)
+                .clientAuth(ClientAuth.OPTIONAL)
                 .route(TRACES, Consumers.accepting())
                 .ephemeralPort()
                 .build()
@@ -126,10 +126,10 @@ class ArmeriaMutualTlsTest {
         receivers.add(receiver);
 
         var exporter = OtlpExporter.grpcBuilder()
-                .setEndpoint("localhost", receiver.port())
-                .setTls(Tls.trust(TlsTestMaterial.caPem()))
-                .setTimeout(Duration.ofSeconds(5))
-                .build();
+                .endpoint("localhost", receiver.port())
+                .tls(Tls.trust(TlsTestMaterial.caPem()))
+                .timeout(Duration.ofSeconds(5))
+                .build().start();
         closeables.add(exporter);
 
         assertThat(exporter.export(TRACES, TransportFixtures.richTraceData()).toCompletableFuture().join())
@@ -140,8 +140,8 @@ class ArmeriaMutualTlsTest {
     @Test
     void requireWithoutTrustAnchorFails() {
         var receiver = OtlpReceiver.grpcBuilder()
-                .setTls(Tls.custom(TlsTestMaterial.serverCertPem(), TlsTestMaterial.serverKeyPem(), null))
-                .setClientAuth(ClientAuth.REQUIRE)
+                .tls(Tls.custom(TlsTestMaterial.serverCertPem(), TlsTestMaterial.serverKeyPem(), null))
+                .clientAuth(ClientAuth.REQUIRE)
                 .route(TRACES, Consumers.accepting())
                 .ephemeralPort()
                 .build();
@@ -150,11 +150,11 @@ class ArmeriaMutualTlsTest {
                 .hasMessageContaining("trust anchor");
     }
 
-    private ServerReceiver requireReceiver(OtlpReceiver.Builder builder) {
+    private OtlpReceiver requireReceiver(OtlpReceiver.Builder builder) {
         var receiver = builder
-                .setTls(Tls.custom(TlsTestMaterial.serverCertPem(), TlsTestMaterial.serverKeyPem(),
+                .tls(Tls.custom(TlsTestMaterial.serverCertPem(), TlsTestMaterial.serverKeyPem(),
                         TlsTestMaterial.caPem()))
-                .setClientAuth(ClientAuth.REQUIRE)
+                .clientAuth(ClientAuth.REQUIRE)
                 .route(TRACES, Consumers.accepting())
                 .ephemeralPort()
                 .build()

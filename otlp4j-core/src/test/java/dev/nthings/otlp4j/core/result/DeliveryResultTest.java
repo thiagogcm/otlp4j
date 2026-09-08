@@ -40,7 +40,7 @@ class DeliveryResultTest {
     }
 
     @Test
-    @DisplayName("partial requires a strictly positive rejection count and normalizes a null message")
+    @DisplayName("partial accepts zero or more rejected items and normalizes a null message")
     void partialFactory() {
         var partial = (Partial) DeliveryResult.partial(3, "dropped", TRACES_EXPORTER);
         assertThat(partial.rejectedItems()).isEqualTo(3);
@@ -48,8 +48,8 @@ class DeliveryResultTest {
         assertThat(partial.provenance()).isEqualTo(TRACES_EXPORTER);
 
         assertThat(new Partial(1, null, TRACES_EXPORTER).message()).isEmpty();
-        assertThatThrownBy(() -> DeliveryResult.partial(0, "x", TRACES_EXPORTER))
-                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(DeliveryResult.partial(0, "warning", TRACES_EXPORTER))
+                .isEqualTo(new Partial(0, "warning", TRACES_EXPORTER));
     }
 
     @Test

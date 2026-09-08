@@ -1,5 +1,4 @@
-/// The otlp4j graph runtime: the declarative gateway configuration model, the JGraphT-backed service
-/// graph, validation diagnostics, and the started gateway runtime.
+/// Typed in-process pipelines and the validated, JGraphT-backed multi-signal gateway runtime.
 ///
 /// This module exports the gateway builder and runtime, the configuration model, and the validation
 /// diagnostics. The internal service graph package is not exported, so no `org.jgrapht` type ever
@@ -12,7 +11,6 @@
 module dev.nthings.otlp4j.service {
     requires transitive dev.nthings.otlp4j.core;
     requires org.jgrapht.core;
-    requires org.slf4j;
     requires static transitive org.jspecify;
 
     exports dev.nthings.otlp4j.service;

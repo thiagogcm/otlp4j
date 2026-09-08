@@ -6,7 +6,7 @@ import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.result.Provenance;
 import dev.nthings.otlp4j.core.signal.RoutingMetadata;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
-import dev.nthings.otlp4j.core.signal.TelemetryPayload;
+import dev.nthings.otlp4j.core.signal.Payload;
 import dev.nthings.otlp4j.model.Attributes;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
@@ -121,21 +121,21 @@ public final class SignalCodec<T, REQ extends MessageLite, RESP extends MessageL
         return toProto.apply(batch);
     }
 
-    /// Wraps a decoded proto export request as a pass-through [TelemetryPayload] that materialises the
+    /// Wraps a decoded proto export request as a pass-through [Payload] that materialises the
     /// domain only on demand.
     ///
     /// @param request the proto export request
     /// @return a proto-backed payload
-    public TelemetryPayload proto(REQ request) {
+    public Payload<T> proto(REQ request) {
         return new ProtoRequestPayload<>(this, request);
     }
 
-    /// Wraps a domain batch as a [TelemetryPayload] that materialises the proto export request only on
+    /// Wraps a domain batch as a [Payload] that materialises the proto export request only on
     /// demand.
     ///
     /// @param batch the domain batch
     /// @return a domain-backed payload
-    public TelemetryPayload domain(T batch) {
+    public Payload<T> domain(T batch) {
         return new DomainRequestPayload<>(this, batch);
     }
 
@@ -155,8 +155,7 @@ public final class SignalCodec<T, REQ extends MessageLite, RESP extends MessageL
     /// @param batch the domain batch
     /// @return the routing metadata
     RoutingMetadata routingMetadata(T batch) {
-        return new RoutingMetadataView(
-                descriptor, descriptor.itemCount(batch), domainResourceAttributes.apply(batch));
+        return new RoutingMetadataView(domainResourceAttributes.apply(batch));
     }
 
     /// Builds the proto-free routing surface for a proto export request by converting only its
@@ -167,8 +166,7 @@ public final class SignalCodec<T, REQ extends MessageLite, RESP extends MessageL
     /// @param request the proto export request
     /// @return the routing metadata
     RoutingMetadata protoRoutingMetadata(REQ request) {
-        return new RoutingMetadataView(
-                descriptor, protoItemCount(request), protoResourceAttributes.apply(request));
+        return new RoutingMetadataView(protoResourceAttributes.apply(request));
     }
 
     /// Interprets a proto export response as a [DeliveryResult] attributed to `provenance`.

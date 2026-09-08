@@ -9,8 +9,7 @@ import org.junit.jupiter.api.Tag;
 /// Armeria transport, the only production transport, driving a programmed gRPC server. It drives the
 /// retry counts, backoff bounds, deadline behaviour, negative-pushback stop-retry, and throttle
 /// folding against Armeria. Because the Armeria seam declares it honours gRPC RetryInfo and cancels
-/// retries at the total deadline, the capability-gated cases assert the stronger behaviour here
-/// without any edit to the suite. This class supplies the seam and names nothing else.
+/// retries at the total deadline. This class supplies the seam and names nothing else.
 ///
 /// Tagged `policy-timing`: the deterministic counts, orderings, and outcomes are not flaky, but the
 /// wall-clock upper bounds carry a fixed tolerance, so CI may grant this class a single automatic retry.

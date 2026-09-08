@@ -4,6 +4,7 @@ import dev.nthings.otlp4j.core.component.ComponentId;
 import dev.nthings.otlp4j.service.config.PipelineConfig;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Function;
 
 /// The small typed DSL a [GatewayBuilder#pipeline(dev.nthings.otlp4j.core.pipeline.PipelineId,
 /// java.util.function.Consumer)] block receives to wire one pipeline from registration handles rather
@@ -19,7 +20,9 @@ public final class PipelineBuilder {
     private List<ComponentId> processors;
     private List<ComponentId> exporters;
 
-    PipelineBuilder() {}
+    private final Object owner;
+
+    PipelineBuilder(Object owner) { this.owner = owner; }
 
     /// Sets the pipeline's head from receiver and connector-as-receiver handles.
     ///
@@ -64,11 +67,22 @@ public final class PipelineBuilder {
                 exporters == null ? List.of() : exporters);
     }
 
-    private static <H> List<ComponentId> ids(H[] handles, java.util.function.Function<H, ComponentId> id) {
+    private <H> List<ComponentId> ids(H[] handles, Function<H, ComponentId> id) {
         var result = new ArrayList<ComponentId>(handles.length);
         for (var handle : handles) {
             if (handle == null) {
                 throw new IllegalArgumentException("pipeline handle must be non-null");
+            }
+            Object handleOwner = switch (handle) {
+                case ReceiverHandle h -> h.owner();
+                case ProcessorHandle h -> h.owner();
+                case ExporterHandle h -> h.owner();
+                case ConnectorHandle h -> h.owner();
+                case InputHandle<?> h -> h.owner();
+                default -> throw new IllegalArgumentException("unknown component handle");
+            };
+            if (handleOwner != owner) {
+                throw new IllegalArgumentException("component handle belongs to another builder");
             }
             result.add(id.apply(handle));
         }

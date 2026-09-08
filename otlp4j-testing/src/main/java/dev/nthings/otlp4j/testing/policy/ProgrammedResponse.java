@@ -5,8 +5,8 @@ import java.time.Duration;
 /// A neutral server behaviour the programmed OTLP server replays for one received attempt. The
 /// programmed server holds a `List<ProgrammedResponse>` and answers the n-th received attempt with the
 /// n-th element, so a script is a per-attempt plan the exporter under test drives one request at a time
-/// against. Each variant names a wire behaviour both legacy transports already read, expressed once so
-/// the same script runs unchanged on gRPC and HTTP.
+/// against. Each variant names a wire behaviour expressed once so the same script runs unchanged on
+/// gRPC and HTTP.
 ///
 /// The variants map to the wire as follows. [Ok] is a full success. [Unavailable] is a retryable
 /// rejection with no server hint (gRPC `UNAVAILABLE`, HTTP `503`). [Throttle] is a retryable rejection

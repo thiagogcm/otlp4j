@@ -18,15 +18,16 @@ import dev.nthings.otlp4j.core.component.ReceiverFactory;
 import dev.nthings.otlp4j.core.component.ShutdownContext;
 import dev.nthings.otlp4j.core.component.SignalSupport;
 import dev.nthings.otlp4j.core.consumer.ConsumeContext;
-import dev.nthings.otlp4j.core.consumer.ConsumerCapabilities;
 import dev.nthings.otlp4j.core.consumer.SignalConsumer;
 import dev.nthings.otlp4j.core.consumer.SignalConsumers;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
+import dev.nthings.otlp4j.core.result.FlushReport;
 import dev.nthings.otlp4j.core.result.Provenance;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.core.signal.SignalPair;
-import dev.nthings.otlp4j.core.signal.TelemetryPayload;
+import dev.nthings.otlp4j.core.signal.Payload;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -102,12 +103,12 @@ final class Fakes {
         return CompletableFuture.completedFuture(null);
     }
 
-    private static CompletionStage<Void> flushStage(Log log, ComponentId id, Config config) {
+    private static CompletionStage<FlushReport> flushStage(Log log, ComponentId id, Config config) {
         log.record("flush:" + id);
         if (config.failFlush()) {
             return CompletableFuture.failedFuture(new IllegalStateException("flush of " + id + " failed on purpose"));
         }
-        return CompletableFuture.completedFuture(null);
+        return CompletableFuture.completedFuture(FlushReport.empty());
     }
 
     // ---- receiver --------------------------------------------------------------------------------
@@ -135,7 +136,7 @@ final class Fakes {
         }
 
         @Override
-        public CompletionStage<Void> forceFlush(FlushContext context) {
+        public CompletionStage<FlushReport> flush(FlushContext context) {
             return flushStage(log, id, config);
         }
 
@@ -190,28 +191,20 @@ final class Fakes {
 
     // ---- processor -------------------------------------------------------------------------------
 
-    static final class ProcessorImpl<T extends TelemetryPayload> implements Processor<T> {
+    static final class ProcessorImpl<T> implements Processor<T> {
         private final ComponentId id;
         private final Log log;
         private final Config config;
         private final SignalConsumer<T> next;
-        private final boolean mutates;
 
-        ProcessorImpl(ComponentId id, Log log, Config config, SignalConsumer<T> next, boolean mutates) {
+        ProcessorImpl(ComponentId id, Log log, Config config, SignalConsumer<T> next) {
             this.id = id;
             this.log = log;
             this.config = config;
             this.next = next;
-            this.mutates = mutates;
         }
-
         @Override
-        public ConsumerCapabilities capabilities() {
-            return mutates ? ConsumerCapabilities.mutating() : ConsumerCapabilities.nonMutating();
-        }
-
-        @Override
-        public CompletionStage<DeliveryResult> consume(ConsumeContext context, T data) {
+        public CompletionStage<DeliveryResult> consume(ConsumeContext context, Payload<T> data) {
             log.record("consume:" + id);
             return next.consume(context, data);
         }
@@ -222,7 +215,7 @@ final class Fakes {
         }
 
         @Override
-        public CompletionStage<Void> forceFlush(FlushContext context) {
+        public CompletionStage<FlushReport> flush(FlushContext context) {
             return flushStage(log, id, config);
         }
 
@@ -236,17 +229,11 @@ final class Fakes {
         private final String type;
         private final Log log;
         private final Set<SignalDescriptor<?>> supported;
-        private final boolean mutates;
 
         ProcessorFactoryImpl(String type, Log log, Set<SignalDescriptor<?>> supported) {
-            this(type, log, supported, false);
-        }
-
-        ProcessorFactoryImpl(String type, Log log, Set<SignalDescriptor<?>> supported, boolean mutates) {
             this.type = type;
             this.log = log;
             this.supported = supported;
-            this.mutates = mutates;
         }
 
         @Override
@@ -270,16 +257,16 @@ final class Fakes {
         }
 
         @Override
-        public <T extends TelemetryPayload> Processor<T> create(
+        public <T> Processor<T> create(
                 CreateContext ctx, Config config, SignalDescriptor<T> signal, SignalConsumer<T> next) {
             log.record("create:" + ctx.id());
-            return new ProcessorImpl<>(ctx.id(), log, config, next, mutates);
+            return new ProcessorImpl<>(ctx.id(), log, config, next);
         }
     }
 
     // ---- exporter --------------------------------------------------------------------------------
 
-    static final class ExporterImpl<T extends TelemetryPayload> implements Exporter<T> {
+    static final class ExporterImpl<T> implements Exporter<T> {
         private final ComponentId id;
         private final Log log;
         private final Config config;
@@ -293,14 +280,8 @@ final class Fakes {
             this.signal = signal;
             this.outcome = outcome;
         }
-
         @Override
-        public ConsumerCapabilities capabilities() {
-            return ConsumerCapabilities.nonMutating();
-        }
-
-        @Override
-        public CompletionStage<DeliveryResult> consume(ConsumeContext context, T data) {
+        public CompletionStage<DeliveryResult> consume(ConsumeContext context, Payload<T> data) {
             log.record("consume:" + id);
             return CompletableFuture.completedFuture(
                     outcome != null ? outcome : DeliveryResult.accepted(provenance()));
@@ -316,7 +297,7 @@ final class Fakes {
         }
 
         @Override
-        public CompletionStage<Void> forceFlush(FlushContext context) {
+        public CompletionStage<FlushReport> flush(FlushContext context) {
             return flushStage(log, id, config);
         }
 
@@ -360,7 +341,7 @@ final class Fakes {
         }
 
         @Override
-        public <T extends TelemetryPayload> Exporter<T> create(
+        public <T> Exporter<T> create(
                 CreateContext ctx, Config config, SignalDescriptor<T> signal) {
             log.record("create:" + ctx.id());
             return new ExporterImpl<>(ctx.id(), log, config, signal, outcome);
@@ -369,7 +350,7 @@ final class Fakes {
 
     // ---- connector -------------------------------------------------------------------------------
 
-    static final class ConnectorImpl<I extends TelemetryPayload> implements Connector, SignalConsumer<I> {
+    static final class ConnectorImpl<I> implements Connector, SignalConsumer<I> {
         private final ComponentId id;
         private final Log log;
         private final Config config;
@@ -381,14 +362,8 @@ final class Fakes {
             this.config = config;
             this.pair = pair;
         }
-
         @Override
-        public ConsumerCapabilities capabilities() {
-            return ConsumerCapabilities.nonMutating();
-        }
-
-        @Override
-        public CompletionStage<DeliveryResult> consume(ConsumeContext context, I data) {
+        public CompletionStage<DeliveryResult> consume(ConsumeContext context, Payload<I> data) {
             log.record("consume:" + id);
             return CompletableFuture.completedFuture(
                     DeliveryResult.accepted(new Provenance(id, ComponentKind.CONNECTOR, pair.from())));
@@ -400,7 +375,7 @@ final class Fakes {
         }
 
         @Override
-        public CompletionStage<Void> forceFlush(FlushContext context) {
+        public CompletionStage<FlushReport> flush(FlushContext context) {
             return flushStage(log, id, config);
         }
 
@@ -453,6 +428,6 @@ final class Fakes {
     }
 
     static Set<SignalDescriptor<?>> signals(SignalDescriptor<?>... s) {
-        return Collections.unmodifiableSet(new java.util.LinkedHashSet<>(List.of(s)));
+        return Collections.unmodifiableSet(new LinkedHashSet<>(List.of(s)));
     }
 }

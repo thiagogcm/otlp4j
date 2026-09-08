@@ -3,6 +3,7 @@ package dev.nthings.otlp4j.transport.internal;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.MessageLite;
+import com.google.rpc.Status;
 import com.linecorp.armeria.client.ClientFactory;
 import com.linecorp.armeria.client.ClientRequestContext;
 import com.linecorp.armeria.client.ClientRequestContextCaptor;
@@ -16,13 +17,14 @@ import com.linecorp.armeria.common.HttpRequest;
 import com.linecorp.armeria.common.MediaType;
 import com.linecorp.armeria.common.logging.RequestLog;
 import dev.nthings.otlp4j.codec.SignalCodec;
+import dev.nthings.otlp4j.codec.PayloadWire;
 import dev.nthings.otlp4j.transport.OtlpExporterConfig;
 import dev.nthings.otlp4j.transport.Compression;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
+import dev.nthings.otlp4j.core.result.FlushReport;
 import dev.nthings.otlp4j.core.result.Provenance;
-import dev.nthings.otlp4j.core.signal.PayloadView;
+import dev.nthings.otlp4j.core.signal.Payload;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
-import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import dev.nthings.otlp4j.transport.internal.ClientHeaders;
 import dev.nthings.otlp4j.transport.internal.ExporterMetrics;
 import io.grpc.Metadata;
@@ -37,18 +39,21 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.Duration;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
-import java.util.function.Supplier;
 import java.util.zip.GZIPOutputStream;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -56,7 +61,7 @@ import org.slf4j.LoggerFactory;
 
 /// The consolidated OTLP implementation of a wire client, built on Armeria's gRPC and HTTP
 /// clients. One instance speaks one protocol (selected at construction): OTLP/gRPC through per-signal
-/// blocking stubs, OTLP/HTTP through a [WebClient] posting binary protobuf to the per-signal
+/// asynchronous stubs, OTLP/HTTP through a [WebClient] posting binary protobuf to the per-signal
 /// `/v1/...` paths. It honours the full [OtlpExporterConfig]: TLS credentials, per-call headers, gzip, and
 /// the per-attempt and total deadlines.
 ///
@@ -79,10 +84,14 @@ public final class ArmeriaOtlpClient implements AutoCloseable {
 
     private final OtlpExporterConfig config;
     private final ExporterMetrics metrics;
+    private final Protocol protocol;
     private final boolean compress;
-    private final ExecutorService executor;
-    private final @Nullable ClientFactory clientFactory;
+    private @Nullable ClientFactory clientFactory;
     private final Map<SignalDescriptor<?>, Export> exports = new HashMap<>();
+    private final Set<CompletableFuture<DeliveryResult>> inFlight = ConcurrentHashMap.newKeySet();
+    private volatile boolean started;
+    private boolean closing;
+    private @Nullable CompletionStage<Void> shutdownStage;
 
     /// Standalone and lifecycle-test constructor: no exporter metrics.
     ///
@@ -95,20 +104,52 @@ public final class ArmeriaOtlpClient implements AutoCloseable {
     /// Full constructor.
     ///
     /// @param config   the transport config
-    /// @param metrics  the exporter's instrument owner (used for retry accounting in a later lot)
+    /// @param metrics  the exporter's instrument owner
     /// @param protocol the wire protocol to speak
     public ArmeriaOtlpClient(OtlpExporterConfig config, ExporterMetrics metrics, Protocol protocol) {
         this.config = config;
         this.metrics = metrics;
+        this.protocol = protocol;
         this.compress = config.compression() == Compression.GZIP;
-        this.executor = Executors.newVirtualThreadPerTaskExecutor();
-        this.clientFactory = ArmeriaTls.clientFactory(config.tls());
-        var base = ArmeriaTls.clientScheme(config.tls()) + "://" + authority(config.host(), config.port());
-        switch (protocol) {
-            case GRPC -> buildGrpcExports(base);
-            case HTTP -> buildHttpExports(base);
+        this.clientFactory = null;
+    }
+
+    /** Creates the protocol client resources. This method is idempotent and does no network I/O. */
+    public synchronized void start() {
+        if (closing) {
+            throw new IllegalStateException("client is already stopping");
         }
-        log.debug("created consolidated OTLP {} client for {}", protocol, base);
+        if (started) {
+            return;
+        }
+        try {
+            this.clientFactory = ArmeriaTls.clientFactory(config.tls());
+            var base = ArmeriaTls.clientScheme(config.tls()) + "://" + authority(config.host(), config.port());
+            switch (protocol) {
+                case GRPC -> buildGrpcExports(base);
+                case HTTP -> buildHttpExports(base);
+            }
+            started = true;
+            log.debug("created consolidated OTLP {} client for {}", protocol, base);
+        } catch (RuntimeException | Error failure) {
+            // ClientFactory is allocated before protocol-specific stubs are built. If a limit,
+            // decorator, or TLS validation fails during construction, release every resource acquired
+            // by this attempt so a failed start is retry-safe and does not leak event-loop threads.
+            exports.clear();
+            var factory = clientFactory;
+            clientFactory = null;
+            if (factory != null) {
+                try {
+                    factory.closeAsync().get(5, TimeUnit.SECONDS);
+                } catch (InterruptedException cleanupFailure) {
+                    Thread.currentThread().interrupt();
+                    failure.addSuppressed(cleanupFailure);
+                } catch (Exception cleanupFailure) {
+                    failure.addSuppressed(cleanupFailure);
+                }
+            }
+            throw failure;
+        }
     }
 
     private void buildGrpcExports(String base) {
@@ -116,6 +157,8 @@ public final class ArmeriaOtlpClient implements AutoCloseable {
         // deadline and the retry/backoff/hint folding are the retrying decorator's job.
         var builder = GrpcClients.builder(base + "/")
                 .responseTimeout(config.timeout().total())
+                .maxRequestMessageLength(Math.toIntExact(config.maxRequestBytes()))
+                .maxResponseMessageLength(Math.toIntExact(config.maxResponseBytes()))
                 .decorator(ArmeriaRetryRules.decorator(Protocol.GRPC, config.retry(), config.timeout().perAttempt()));
         if (clientFactory != null) {
             builder.factory(clientFactory);
@@ -137,6 +180,7 @@ public final class ArmeriaOtlpClient implements AutoCloseable {
     private void buildHttpExports(String base) {
         var builder = WebClient.builder(base)
                 .responseTimeout(config.timeout().total())
+                .maxResponseLength(config.maxResponseBytes())
                 .decorator(ArmeriaRetryRules.decorator(Protocol.HTTP, config.retry(), config.timeout().perAttempt()));
         if (clientFactory != null) {
             builder.factory(clientFactory);
@@ -159,18 +203,26 @@ public final class ArmeriaOtlpClient implements AutoCloseable {
     /// @param payload    the payload to export
     /// @param provenance the provenance to attribute the result to
     /// @return a stage completing with the export outcome
-    public CompletionStage<DeliveryResult> export(TelemetryPayload payload, Provenance provenance) {
-        var export = exports.get(payload.signal());
-        // Initiate the delivery on the caller's thread and hand back Armeria's own future: the request
-        // is enqueued to the client event loop and the completion is delivered there, with no
-        // per-export carrier thread. The whole delivery is bounded by the client-level response timeout
-        // (config.timeout().total()); each in-flight attempt is bounded by the retrying decorator's
-        // per-attempt response timeout. A failure preparing the request surfaces as a failed stage, so
-        // export() honours the SPI contract of never throwing synchronously.
-        try {
-            return export.result(payload, provenance);
-        } catch (RuntimeException e) {
-            return CompletableFuture.failedFuture(e);
+    public <T> CompletionStage<DeliveryResult> export(Payload<T> payload, Provenance provenance) {
+        synchronized (this) {
+            if (!started || closing) {
+                return CompletableFuture.failedFuture(
+                        new IllegalStateException(closing
+                                ? "exporter is stopping"
+                                : "exporter has not been started"));
+            }
+            var export = exports.get(payload.signal());
+            // Admission and registration are one critical section. Shutdown takes the same lock
+            // before it snapshots in-flight work, so a request cannot slip between its snapshot and
+            // registration and outlive the returned shutdown stage.
+            try {
+                var delivery = export.result(payload, provenance).toCompletableFuture();
+                inFlight.add(delivery);
+                delivery.whenComplete((result, error) -> inFlight.remove(delivery));
+                return delivery;
+            } catch (RuntimeException e) {
+                return CompletableFuture.failedFuture(e);
+            }
         }
     }
 
@@ -180,10 +232,13 @@ public final class ArmeriaOtlpClient implements AutoCloseable {
             SignalCodec<T, REQ, RESP> codec, Function<REQ, ListenableFuture<RESP>> rpc) {
         return (payload, provenance) -> {
             @SuppressWarnings("unchecked")
-            var request = (REQ) payload.view(PayloadView.PROTO_REQUEST);
-            return withRetryAccounting(() ->
-                    toCompletableFuture(rpc.apply(request))
-                            .thenApply(response -> codec.deliveryResult(response, provenance)));
+            var request = PayloadWire.request(codec, (Payload<T>) payload);
+            return withRetryAccounting(cancel -> {
+                var response = toCompletableFuture(rpc.apply(request));
+                cancel.set(() -> response.cancel(true));
+                var mapped = response.thenApply(value -> codec.deliveryResult(value, provenance));
+                return mapped;
+            });
         };
     }
 
@@ -194,15 +249,24 @@ public final class ArmeriaOtlpClient implements AutoCloseable {
             WebClient webClient, SignalCodec<T, REQ, RESP> codec, String path) {
         return (payload, provenance) -> {
             var body = serialize(payload);
-            return withRetryAccounting(() ->
-                    webClient.execute(request(path, body)).aggregate().thenApply(response -> {
-                        var code = response.status().code();
-                        if (code >= 200 && code < 300) {
-                            return codec.deliveryResult(
-                                    parseResponse(codec, response.content().array()), provenance);
-                        }
-                        throw rejection(path, response);
-                    }));
+            return withRetryAccounting(cancel -> {
+                var response = webClient.execute(request(path, body));
+                // Abort the public response stream as well as the captured request context. Armeria
+                // wrappers may delegate one operation but not the other depending on the installed
+                // retry decorator, so retaining both paths keeps cancellation effective for HTTP/1
+                // and HTTP/2.
+                cancel.set(response::abort);
+                var aggregate = response.aggregate();
+                var mapped = aggregate.thenApply(result -> {
+                    var code = result.status().code();
+                    if (code >= 200 && code < 300) {
+                        return codec.deliveryResult(
+                                parseResponse(codec, result.content().array()), provenance);
+                    }
+                    throw rejection(path, result);
+                });
+                return mapped;
+            });
         };
     }
 
@@ -221,37 +285,85 @@ public final class ArmeriaOtlpClient implements AutoCloseable {
     /// caller's wait on the total budget independently of that settling. It is a scheduled timer, not a
     /// carrier thread, so it keeps the per-export thread hop removed.
     private CompletionStage<DeliveryResult> withRetryAccounting(
-            Supplier<CompletableFuture<DeliveryResult>> call) {
-        if (metrics == ExporterMetrics.noop()) {
-            // No retry accounting to do (self-observability is off): skip the context capture and the
-            // settle hop, and just map the total-deadline timeout on the underlying stage, bounded by
-            // the same total budget.
-            var settled = new CompletableFuture<DeliveryResult>();
-            call.get().whenComplete((result, error) -> {
-                if (error == null) {
-                    settled.complete(result);
-                } else {
-                    settled.completeExceptionally(mapTotalTimeout(asRuntime(error)));
-                }
-            });
-            return settled.orTimeout(config.timeout().total().toNanos(), TimeUnit.NANOSECONDS);
-        }
-        ClientRequestContext ctx;
+            Function<WireCancellation, CompletableFuture<DeliveryResult>> call) {
+        var cancellation = new WireCancellation();
+        List<ClientRequestContext> contexts;
         CompletableFuture<DeliveryResult> stage;
         try (ClientRequestContextCaptor captor = Clients.newContextCaptor()) {
-            stage = call.get();
-            ctx = captor.getOrNull();
+            stage = call.apply(cancellation);
+            contexts = captor.getAll();
         }
+        var context = contexts.isEmpty() ? null : contexts.getLast();
         var settled = new CompletableFuture<DeliveryResult>();
         stage.whenComplete((result, error) ->
-                recordRetries(ctx).whenComplete((ignored, recordFailure) -> {
+                (metrics == ExporterMetrics.noop() ? CompletableFuture.completedFuture(null) : recordRetries(context))
+                        .whenComplete((ignored, recordFailure) -> {
                     if (error == null) {
                         settled.complete(result);
                     } else {
                         settled.completeExceptionally(mapTotalTimeout(asRuntime(error)));
                     }
                 }));
-        return settled.orTimeout(config.timeout().total().toNanos(), TimeUnit.NANOSECONDS);
+        settled.whenComplete((result, error) -> {
+            if (settled.isCancelled()) {
+                cancelWire(stage, contexts, cancellation);
+            }
+        });
+        var bounded = settled.orTimeout(timeoutNanos(config.timeout().total()), TimeUnit.NANOSECONDS);
+        bounded.whenComplete((result, error) -> {
+            // CompletableFuture.orTimeout only settles the dependent stage. Cancel the active
+            // Armeria request as well when the total budget expires, otherwise a timed-out export
+            // would remain in-flight until the remote peer eventually responds.
+            if (error != null && !stage.isDone()) {
+                cancelWire(stage, contexts, cancellation);
+            }
+        });
+        return bounded;
+    }
+
+    private static void cancelWire(
+            CompletableFuture<?> stage,
+            List<ClientRequestContext> contexts,
+            WireCancellation cancellation) {
+        cancellation.cancel();
+        stage.cancel(true);
+        // RetryingClient may create a child context after the outer context was captured. Cancelling
+        // every context already visible to the captor reaches both the current attempt and its
+        // decorator, while the stage/action above handles protocol-specific future cancellation.
+        contexts.forEach(context -> {
+            context.log().children().forEach(child -> child.context().cancel());
+            context.cancel();
+        });
+    }
+
+    /**
+     * Cancellation of a mapped response future does not cancel the wire operation by itself. Keep the
+     * operation-specific abort action beside the logical delivery and run it from every cancellation
+     * path, including a deadline that expires before Armeria settles the response.
+     */
+    private static final class WireCancellation {
+        private final AtomicReference<Runnable> action = new AtomicReference<>();
+        private final AtomicBoolean cancelled = new AtomicBoolean();
+
+        void set(Runnable action) {
+            Objects.requireNonNull(action, "action");
+            this.action.set(action);
+            if (cancelled.get()) {
+                runOnce();
+            }
+        }
+
+        void cancel() {
+            cancelled.set(true);
+            runOnce();
+        }
+
+        private void runOnce() {
+            var action = this.action.getAndSet(null);
+            if (action != null) {
+                action.run();
+            }
+        }
     }
 
     /// Counts the retrying decorator's re-sends into the exporter's retry instrument once the request
@@ -283,7 +395,13 @@ public final class ArmeriaOtlpClient implements AutoCloseable {
     /// that settles the future (Armeria's event loop) and unwrapping the [ExecutionException] so the
     /// stage carries the same `StatusRuntimeException` the blocking stub would have thrown.
     private static <T> CompletableFuture<T> toCompletableFuture(ListenableFuture<T> future) {
-        var result = new CompletableFuture<T>();
+        var result = new CompletableFuture<T>() {
+            @Override
+            public boolean cancel(boolean mayInterruptIfRunning) {
+                future.cancel(mayInterruptIfRunning);
+                return super.cancel(mayInterruptIfRunning);
+            }
+        };
         future.addListener(() -> {
             try {
                 result.complete(future.get());
@@ -357,21 +475,38 @@ public final class ArmeriaOtlpClient implements AutoCloseable {
         return builder.build();
     }
 
-    private byte[] serialize(TelemetryPayload payload) {
-        var size = Math.toIntExact(payload.estimatedSerializedSize());
+    private byte[] serialize(Payload<?> payload) {
+        var codec = SignalCodec.forDescriptor(payload.signal());
+        var request = request(codec, payload);
+        var size = request.getSerializedSize();
+        if (size > config.maxRequestBytes()) {
+            throw new IllegalArgumentException(
+                    "OTLP request exceeds maxRequestBytes=" + config.maxRequestBytes());
+        }
         var out = new ByteArrayOutputStream(size);
         try {
             if (compress) {
                 try (var gz = new GZIPOutputStream(out)) {
-                    payload.writeTo(gz);
+                    request.writeTo(gz);
                 }
             } else {
-                payload.writeTo(out);
+                request.writeTo(out);
             }
         } catch (IOException e) {
             throw new UncheckedIOException("failed to serialize OTLP/HTTP request body", e);
         }
-        return out.toByteArray();
+        var bytes = out.toByteArray();
+        if (bytes.length > config.maxRequestBytes()) {
+            throw new IllegalArgumentException(
+                    "OTLP request exceeds maxRequestBytes=" + config.maxRequestBytes());
+        }
+        return bytes;
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static <REQ extends MessageLite> REQ request(
+            SignalCodec<?, REQ, ?> codec, Payload<?> payload) {
+        return (REQ) PayloadWire.request((SignalCodec) codec, (Payload) payload);
     }
 
     private static <RESP extends MessageLite> RESP parseResponse(
@@ -386,6 +521,16 @@ public final class ArmeriaOtlpClient implements AutoCloseable {
     private static RuntimeException rejection(String path, AggregatedHttpResponse response) {
         var code = response.status().code();
         var text = response.contentUtf8().strip();
+        if (!response.content().isEmpty()) {
+            try {
+                var status = Status.parseFrom(response.content().array());
+                if (!status.getMessage().isBlank()) {
+                    text = status.getMessage();
+                }
+            } catch (InvalidProtocolBufferException ignored) {
+                // A non-OTLP peer may still return plain text. Preserve that useful diagnostic.
+            }
+        }
         return new IllegalStateException(
                 "OTLP/HTTP export to " + path + " rejected: HTTP " + code + (text.isEmpty() ? "" : " - " + text));
     }
@@ -403,35 +548,106 @@ public final class ArmeriaOtlpClient implements AutoCloseable {
         return h + ":" + port;
     }
 
-    /// Flushes any buffered exports; a no-op, since the client does not buffer.
+    /// Waits for exports accepted before the flush call; the client does not maintain a buffer.
     ///
     /// @param timeout the flush deadline
     /// @return a completed stage
-    public CompletionStage<Void> forceFlush(Duration timeout) {
-        return CompletableFuture.completedFuture(null);
+    public CompletionStage<FlushReport> flush(Duration timeout) {
+        Objects.requireNonNull(timeout, "timeout");
+        if (timeout.isNegative()) {
+            throw new IllegalArgumentException("timeout must be non-negative");
+        }
+        final List<CompletableFuture<DeliveryResult>> snapshot;
+        synchronized (this) {
+            snapshot = List.copyOf(inFlight);
+        }
+        if (snapshot.isEmpty()) {
+            return CompletableFuture.completedFuture(FlushReport.empty());
+        }
+        var all = CompletableFuture.allOf(snapshot.toArray(CompletableFuture[]::new));
+        // DeliveryResult is already the authoritative outcome for this unbuffered client. Flush only
+        // establishes a completion barrier and must not turn a direct rejected/partial result into a
+        // second loss report.
+        return all.handle((ignored, failure) -> FlushReport.empty())
+                .orTimeout(timeoutNanos(timeout), TimeUnit.NANOSECONDS);
     }
 
-    /// Drains the client with a default ten-second grace, so it is usable in a try-with-resources
-    /// block. A teardown failure is swallowed so a throw during close cannot mask a primary exception.
+    private static long timeoutNanos(Duration timeout) {
+        return TimeUnit.NANOSECONDS.convert(timeout);
+    }
+
+    private static long remainingNanos(long startedAt, long budget) {
+        return Math.max(0, budget - (System.nanoTime() - startedAt));
+    }
+
+    /// Drains the client with a ten-second grace and exposes teardown failures to the caller.
     @Override
     public void close() {
-        try {
-            shutdown(Duration.ofSeconds(10)).toCompletableFuture().join();
-        } catch (RuntimeException ignored) {
-            // best-effort drain
-        }
+        shutdown(Duration.ofSeconds(10)).toCompletableFuture().join();
     }
 
     /// Drains in-flight exports and releases the client's transport resources within `timeout`.
     ///
     /// @param timeout the drain deadline
     /// @return a stage that completes when teardown finishes
-    public CompletionStage<Void> shutdown(Duration timeout) {
-        var deadline = System.nanoTime() + timeout.toNanos();
-        return CompletableFuture.runAsync(() -> {
-            drainExecutor(Duration.ofNanos(Math.max(0, deadline - System.nanoTime())));
-            closeFactoryWithin(Math.max(0, deadline - System.nanoTime()));
+    public synchronized CompletionStage<Void> shutdown(Duration timeout) {
+        Objects.requireNonNull(timeout, "timeout");
+        if (timeout.isNegative()) {
+            throw new IllegalArgumentException("timeout must be non-negative");
+        }
+        if (shutdownStage != null) {
+            return shutdownStage;
+        }
+        if (!started) {
+            closing = true;
+            shutdownStage = CompletableFuture.completedFuture(null);
+            return shutdownStage;
+        }
+        closing = true;
+        started = false;
+        var startedAt = System.nanoTime();
+        var budget = timeoutNanos(timeout);
+        shutdownStage = CompletableFuture.runAsync(() -> {
+            Throwable firstFailure = awaitInFlight(Duration.ofNanos(remainingNanos(startedAt, budget)));
+            var failure = closeFactoryWithin(remainingNanos(startedAt, budget));
+            if (firstFailure == null) {
+                firstFailure = failure;
+            } else if (failure != null && failure != firstFailure) {
+                firstFailure.addSuppressed(failure);
+            }
+            if (firstFailure != null) {
+                throw new CompletionException(firstFailure);
+            }
         }, SHUTDOWN_EXECUTOR);
+        return shutdownStage;
+    }
+
+    /// Waits for exports already accepted by this client before closing the shared factory. A
+    /// factory close alone may release the connection while a caller-owned export stage is still
+    /// pending, which makes shutdown report success before the last delivery has settled.
+    private @Nullable Throwable awaitInFlight(Duration budget) {
+        final List<CompletableFuture<DeliveryResult>> snapshot;
+        synchronized (this) {
+            snapshot = List.copyOf(inFlight);
+        }
+        if (snapshot.isEmpty()) {
+            return null;
+        }
+        try {
+            CompletableFuture.allOf(snapshot.toArray(CompletableFuture[]::new))
+                    .get(timeoutNanos(budget), TimeUnit.NANOSECONDS);
+        } catch (TimeoutException e) {
+            log.warn("{} in-flight exports did not settle within the shutdown deadline", snapshot.size());
+            return e;
+        } catch (ExecutionException ignored) {
+            // A failed export is drained just like a successful one; its result is observed by the
+            // caller and the client can still release all transport resources.
+            return null;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return e;
+        }
+        return null;
     }
 
     /// Closes the [ClientFactory] within the remaining `budgetNanos`, so the returned shutdown stage
@@ -439,40 +655,28 @@ public final class ArmeriaOtlpClient implements AutoCloseable {
     /// teardown. Armeria's own `close()` is unbounded and not usefully interruptible, so this bounds
     /// the wait on the async close and abandons it on timeout (the orphaned close finishes in Armeria's
     /// own threads) rather than blocking the shutdown stage past the deadline.
-    private void closeFactoryWithin(long budgetNanos) {
+    private @Nullable Throwable closeFactoryWithin(long budgetNanos) {
         if (clientFactory == null) {
-            return;
+            return null;
         }
         try {
             clientFactory.closeAsync().get(budgetNanos, TimeUnit.NANOSECONDS);
         } catch (TimeoutException e) {
             log.warn("client factory did not close within the shutdown deadline; abandoning the close");
+            return e;
         } catch (ExecutionException e) {
-            log.warn("client factory close failed", e.getCause() != null ? e.getCause() : e);
+            return e.getCause() != null ? e.getCause() : e;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            return e;
         }
-    }
-
-    /// Drains the per-export executor within `budget`, interrupting outstanding exports on timeout.
-    private void drainExecutor(Duration budget) {
-        executor.shutdown();
-        try {
-            if (!executor.awaitTermination(budget.toNanos(), TimeUnit.NANOSECONDS)) {
-                log.warn("per-export executor did not terminate within {}; interrupting outstanding exports",
-                        budget);
-                executor.shutdownNow();
-            }
-        } catch (InterruptedException e) {
-            executor.shutdownNow();
-            Thread.currentThread().interrupt();
-        }
+        return null;
     }
 
     /// One signal's export: reads the payload's wire representation, sends it asynchronously, and maps
     /// the response to a [DeliveryResult].
     @FunctionalInterface
     private interface Export {
-        CompletionStage<DeliveryResult> result(TelemetryPayload payload, Provenance provenance);
+        CompletionStage<DeliveryResult> result(Payload<?> payload, Provenance provenance);
     }
 }

@@ -1,7 +1,6 @@
 package dev.nthings.otlp4j.core.consumer;
 
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
-import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import java.util.Set;
 
 /// The bundle of routed consumers a receiver factory receives, one per signal the receiver serves.
@@ -19,7 +18,7 @@ public interface SignalConsumers {
     /// [#signals()].
     ///
     /// @param signal the signal to route
-    /// @param <T>    the signal's payload type
+    /// @param <T>    the signal's domain batch type
     /// @return the consumer for that signal
-    <T extends TelemetryPayload> SignalConsumer<T> consumer(SignalDescriptor<T> signal);
+    <T> SignalConsumer<T> consumer(SignalDescriptor<T> signal);
 }

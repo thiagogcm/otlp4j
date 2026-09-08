@@ -2,11 +2,10 @@ package dev.nthings.otlp4j.service.config;
 
 import java.time.Duration;
 
-/// The service-level options that bracket the gateway lifecycle: the deadline each component's start
-/// is bounded by and the deadline each component's shutdown is bounded by.
+/// Total monotonic time budgets for starting and shutting down the entire gateway graph.
 ///
-/// @param startDeadline    the per-component start deadline
-/// @param shutdownDeadline the per-component shutdown deadline
+/// @param startDeadline    the total start deadline
+/// @param shutdownDeadline the total shutdown deadline
 public record ServiceOptions(Duration startDeadline, Duration shutdownDeadline) {
 
     private static final Duration DEFAULT_START_DEADLINE = Duration.ofSeconds(30);

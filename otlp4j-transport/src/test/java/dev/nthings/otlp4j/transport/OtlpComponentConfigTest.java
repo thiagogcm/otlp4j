@@ -7,6 +7,7 @@ import dev.nthings.otlp4j.core.policy.BackoffPolicy;
 import dev.nthings.otlp4j.core.policy.RetryPolicy;
 import dev.nthings.otlp4j.core.policy.TimeoutPolicy;
 import java.time.Duration;
+import java.util.HashMap;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -35,13 +36,13 @@ class OtlpComponentConfigTest {
         var retry = new RetryPolicy(2, BackoffPolicy.defaults(), false);
         var config = OtlpExporterConfig.defaults(4318)
                 .toBuilder()
-                .setEndpoint("collector", 4319)
-                .setPath("/otlp")
-                .setTls(Tls.systemTrust())
+                .endpoint("collector", 4319)
+                .path("/otlp")
+                .tls(Tls.systemTrust())
                 .addHeader("authorization", "Bearer t")
-                .setCompression(Compression.GZIP)
-                .setRetryPolicy(retry)
-                .setTimeoutPolicy(new TimeoutPolicy(Duration.ofSeconds(3), Duration.ofSeconds(15)))
+                .compression(Compression.GZIP)
+                .retryPolicy(retry)
+                .timeoutPolicy(new TimeoutPolicy(Duration.ofSeconds(3), Duration.ofSeconds(15)))
                 .build();
 
         assertThat(config.host()).isEqualTo("collector");
@@ -58,7 +59,7 @@ class OtlpComponentConfigTest {
     @DisplayName("an unset total timeout falls back to the per-attempt bound")
     @Test
     void totalTimeoutFallsBackToPerAttempt() {
-        var config = OtlpExporterConfig.builder(4317).setTimeout(Duration.ofSeconds(7)).build();
+        var config = OtlpExporterConfig.builder(4317).timeout(Duration.ofSeconds(7)).build();
         assertThat(config.timeout().perAttempt()).isEqualTo(Duration.ofSeconds(7));
         assertThat(config.timeout().total()).isEqualTo(Duration.ofSeconds(7));
     }
@@ -68,14 +69,24 @@ class OtlpComponentConfigTest {
     void exporterConfigValidates() {
         assertThatThrownBy(() -> OtlpExporterConfig.defaults(70000))
                 .isInstanceOf(IllegalArgumentException.class);
-        var headers = new java.util.HashMap<String, String>();
+        var headers = new HashMap<String, String>();
         headers.put("a", "b");
-        var config = OtlpExporterConfig.builder(4317).setHeaders(headers).build();
+        var config = OtlpExporterConfig.builder(4317).headers(headers).build();
         headers.put("c", "d");
         assertThat(config.headers()).containsOnlyKeys("a");
+        assertThatThrownBy(() -> OtlpExporterConfig.builder(4317)
+                        .maxRequestBytes((long) Integer.MAX_VALUE + 1)
+                        .build())
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("maxRequestBytes");
+        assertThatThrownBy(() -> OtlpExporterConfig.builder(4317)
+                        .maxResponseBytes((long) Integer.MAX_VALUE + 1)
+                        .build())
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("maxResponseBytes");
     }
 
-    @DisplayName("receiver defaults are localhost:port, plaintext, the 4 MiB cap, no admission limits")
+    @DisplayName("receiver defaults are localhost:port, plaintext, the 64 MiB cap, no admission limits")
     @Test
     void receiverDefaults() {
         var config = OtlpReceiverConfig.defaults(4318);
@@ -93,12 +104,12 @@ class OtlpComponentConfigTest {
     @Test
     void receiverBuilderCarriesKnobs() {
         var config = OtlpReceiverConfig.builder(4317)
-                .setBindHost("0.0.0.0")
-                .setPort(9999)
-                .setMaxInboundMessageSizeBytes(1024)
-                .setMaxInFlightRequests(8)
-                .setMaxInFlightBytes(2048L)
-                .setThrottleRetryAfter(Duration.ofSeconds(1))
+                .bindHost("0.0.0.0")
+                .port(9999)
+                .maxInboundMessageSizeBytes(1024)
+                .maxInFlightRequests(8)
+                .maxInFlightBytes(2048L)
+                .throttleRetryAfter(Duration.ofSeconds(1))
                 .build();
         assertThat(config.bindHost()).isEqualTo("0.0.0.0");
         assertThat(config.port()).isEqualTo(9999);
@@ -130,14 +141,14 @@ class OtlpComponentConfigTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
-    @DisplayName("clientAuth defaults to NONE and rides the config through the graph's setConfig path")
+    @DisplayName("clientAuth defaults to NONE and rides the config through the graph's config path")
     @Test
     void clientAuthRidesTheConfig() {
         assertThat(OtlpReceiverConfig.defaults(4317).clientAuth()).isEqualTo(ClientAuth.NONE);
-        var required = OtlpReceiverConfig.builder(4317).setClientAuth(ClientAuth.REQUIRE).build();
+        var required = OtlpReceiverConfig.builder(4317).clientAuth(ClientAuth.REQUIRE).build();
         assertThat(required.clientAuth()).isEqualTo(ClientAuth.REQUIRE);
         // The graph receiver factory forwards only the config (ReceiverComponentAdapter calls
-        // builder.setConfig(config), which round-trips through toBuilder), so a graph-built receiver now
+        // builder.config(config), which round-trips through toBuilder), so a graph-built receiver now
         // carries the configured mode instead of being pinned to NONE.
         assertThat(required.toBuilder().build().clientAuth()).isEqualTo(ClientAuth.REQUIRE);
     }

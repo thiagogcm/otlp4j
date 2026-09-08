@@ -6,7 +6,6 @@ import dev.nthings.otlp4j.core.component.Processor;
 import dev.nthings.otlp4j.core.component.ProcessorFactory;
 import dev.nthings.otlp4j.core.consumer.SignalConsumer;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
-import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 
 /// The factory for the built-in routing processor, type `routing`.
 ///
@@ -37,10 +36,8 @@ public final class RoutingProcessorFactory implements ProcessorFactory<RoutingCo
     }
 
     @Override
-    public <T extends TelemetryPayload> Processor<T> create(
+    public <T> Processor<T> create(
             CreateContext ctx, RoutingConfig config, SignalDescriptor<T> signal, SignalConsumer<T> next) {
-        Processor<TelemetryPayload> processor = new RoutingProcessor(
-                ctx.id(), signal, config.match(), config.defaultRoute(), SignalConsumer.asPayload(next));
-        return ProcessorFactory.asTypedProcessor(processor);
+        return new RoutingProcessor<>(ctx.id(), signal, config.match(), next);
     }
 }

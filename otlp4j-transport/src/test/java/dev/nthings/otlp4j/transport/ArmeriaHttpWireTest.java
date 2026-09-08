@@ -16,6 +16,8 @@ import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.testing.Fixtures;
 import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceResponse;
 import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -36,13 +38,13 @@ class ArmeriaHttpWireTest {
     private static final MediaType PROTOBUF = MediaType.parse("application/x-protobuf");
     private static final String PATH = "/v1/traces";
 
-    private final List<ServerReceiver> receivers = new ArrayList<>();
+    private final List<OtlpReceiver> receivers = new ArrayList<>();
 
     @AfterEach
     void teardown() {
         for (var receiver : receivers) {
             try {
-                receiver.shutdownNow().toCompletableFuture().get(5, TimeUnit.SECONDS);
+                receiver.shutdown(Duration.ofSeconds(5)).toCompletableFuture().get(5, TimeUnit.SECONDS);
             } catch (Exception ignored) {
                 // keep tearing down
             }
@@ -101,7 +103,7 @@ class ArmeriaHttpWireTest {
     @Test
     void jsonYields415() {
         var response = startAccepting()
-                .execute(post(MediaType.JSON_UTF_8, "{}".getBytes(java.nio.charset.StandardCharsets.UTF_8)))
+                .execute(post(MediaType.JSON_UTF_8, "{}".getBytes(StandardCharsets.UTF_8)))
                 .aggregate().join();
         assertThat(response.status().code()).isEqualTo(415);
     }
@@ -110,7 +112,7 @@ class ArmeriaHttpWireTest {
     @Test
     void textPlainYields415() {
         var response = startAccepting()
-                .execute(post(MediaType.PLAIN_TEXT_UTF_8, "hi".getBytes(java.nio.charset.StandardCharsets.UTF_8)))
+                .execute(post(MediaType.PLAIN_TEXT_UTF_8, "hi".getBytes(StandardCharsets.UTF_8)))
                 .aggregate().join();
         assertThat(response.status().code()).isEqualTo(415);
     }
@@ -134,7 +136,7 @@ class ArmeriaHttpWireTest {
     @Test
     void oversizedBodyYields413() {
         var client = client(OtlpReceiver.httpBuilder()
-                .setMaxInboundMessageSizeBytes(16)
+                .maxInboundMessageSizeBytes(16)
                 .route(TRACES, Consumers.accepting()));
         assertThat(client.execute(post(PROTOBUF, traceBytes())).aggregate().join().status().code())
                 .isEqualTo(413);
@@ -144,7 +146,7 @@ class ArmeriaHttpWireTest {
     @Test
     void oversizedGzipBodyYields413() throws Exception {
         var client = client(OtlpReceiver.httpBuilder()
-                .setMaxInboundMessageSizeBytes(16)
+                .maxInboundMessageSizeBytes(16)
                 .route(TRACES, Consumers.accepting()));
         var request = HttpRequest.builder().post(PATH)
                 .content(PROTOBUF, gzip(traceBytes()))
@@ -167,7 +169,7 @@ class ArmeriaHttpWireTest {
     @Test
     void throttledYields503WithRetryAfter() {
         var client = client(OtlpReceiver.httpBuilder()
-                .route(TRACES, Consumers.throttled(java.time.Duration.ofSeconds(4), "slow down")));
+                .route(TRACES, Consumers.throttled(Duration.ofSeconds(4), "slow down")));
         var response = client.execute(post(PROTOBUF, traceBytes())).aggregate().join();
 
         assertThat(response.status().code()).isEqualTo(503);
@@ -180,8 +182,8 @@ class ArmeriaHttpWireTest {
         var entered = new CountDownLatch(1);
         var gate = new CompletableFuture<DeliveryResult>();
         var client = client(OtlpReceiver.httpBuilder()
-                .setMaxInFlightRequests(1)
-                .setThrottleRetryAfter(java.time.Duration.ofSeconds(3))
+                .maxInFlightRequests(1)
+                .throttleRetryAfter(Duration.ofSeconds(3))
                 .route(TRACES, Consumers.gated(entered::countDown, gate)));
 
         var held = client.execute(post(PROTOBUF, traceBytes())).aggregate();

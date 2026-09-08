@@ -6,8 +6,7 @@ import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 
 /// Which component produced a delivery result, and for which signal. Every delivery result carries
 /// its provenance so a diagnostic can name the failing component, and so fan-out can preserve the
-/// originating component of the rejection it propagates rather than dropping it, which the legacy
-/// `ConsumeResult.fanOutMerge` could not do.
+/// originating component of a propagated rejection.
 ///
 /// @param componentId the producing component's identity
 /// @param kind        the producing component's kind

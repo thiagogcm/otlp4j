@@ -1,16 +1,14 @@
 package dev.nthings.otlp4j.core.policy;
 
 /// The policy for a bounded delivery queue in front of a consumer: the queue capacity, the number of
-/// draining consumers, the overflow behaviour when the queue is full, and whether the producer waits
-/// for the downstream delivery result. The `waitForResult` flag subsumes the legacy acknowledgement
-/// mode: when true, the producer's acknowledgement reflects the real downstream result; when false,
-/// the producer is acknowledged at enqueue and a later drain failure is not signalled upstream.
+/// draining consumers, and the overflow behaviour when the queue is full. Admission is always
+/// acknowledged at the first bounded buffer; downstream outcomes are surfaced by the component flush
+/// report rather than by an optional result-waiting mode.
 ///
 /// @param queueSize     the queue capacity in entries, at least one
 /// @param numConsumers  the number of draining consumers, at least one
 /// @param overflow      the behaviour when the queue is full
-/// @param waitForResult whether the producer waits for the downstream delivery result
-public record DeliveryQueuePolicy(int queueSize, int numConsumers, OverflowPolicy overflow, boolean waitForResult) {
+public record DeliveryQueuePolicy(int queueSize, int numConsumers, OverflowPolicy overflow) {
 
     /// Validates the sizes and overflow policy.
     public DeliveryQueuePolicy {

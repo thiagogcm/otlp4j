@@ -6,12 +6,9 @@ import dev.nthings.otlp4j.testing.conformance.Protocol;
 /// implementation lives in otlp4j-conformance and is the only place a real exporter type appears; it
 /// boots a programmed server, drives one export of a neutral [ExportProgram] through a real exporter
 /// configured with the program's policies, and returns a neutral [ExportObservation]. The suite drives
-/// only this interface and the neutral vocabulary, so the same suite gates the future Armeria transport
-/// by supplying a new seam implementation and nothing else.
+/// only this interface and the neutral vocabulary, so the same suite can be applied to any transport
+/// by supplying a seam implementation and nothing else.
 ///
-/// The capability methods let the abstract suite switch its assertions without naming a transport. They
-/// declare what the transport under test actually does today, so a case that pins a legacy miss now
-/// becomes a real assertion on a transport that closes the gap, with no edit to the suite.
 public interface PolicyExporterUnderTest extends AutoCloseable {
 
     /// Boots a programmed server on an ephemeral loopback port, configures a real exporter with the
@@ -28,21 +25,6 @@ public interface PolicyExporterUnderTest extends AutoCloseable {
     ///
     /// @return the protocol
     Protocol protocol();
-
-    /// Whether the transport folds a server RetryInfo hint into its backoff. The legacy gRPC transport
-    /// does not (it ignores `grpc-status-details-bin` RetryInfo), so it declares false; the future
-    /// Armeria transport will declare true. The HTTP transport folds the RetryInfo-equivalent
-    /// `Retry-After` and so declares true.
-    ///
-    /// @return true when the transport folds RetryInfo
-    boolean honorsGrpcRetryInfo();
-
-    /// Whether the transport cancels in-flight retry scheduling at the total deadline. The legacy
-    /// transports abandon the caller stage at the total budget but do not interrupt an already-scheduled
-    /// retry, so they declare false; the future Armeria transport will declare true.
-    ///
-    /// @return true when the transport cancels retries at the total deadline
-    boolean cancelsRetriesAtTotalDeadline();
 
     @Override
     void close();

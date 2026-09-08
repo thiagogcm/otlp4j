@@ -25,7 +25,7 @@ import org.jspecify.annotations.Nullable;
 
 /// The Armeria receiver and exporter factories, exercised through a real service graph runtime: a
 /// `receiver -> exporter` graph forwarding to a plain recording receiver, with a wire request driven
-/// into the graph receiver end to end. Mirrors the legacy transport factory tests.
+/// into the graph receiver end to end.
 @Timeout(60)
 @DisplayName("Armeria graph factories")
 class ArmeriaFactoriesTest {
@@ -34,7 +34,7 @@ class ArmeriaFactoriesTest {
     private static final ComponentId E = ComponentId.parse("otlpexp");
     private static final PipelineId TRACES_PIPE = PipelineId.of(TRACES);
 
-    private @Nullable ServerReceiver sink;
+    private @Nullable OtlpReceiver sink;
     private @Nullable GatewayRuntime runtime;
     private @Nullable AutoCloseable client;
 
@@ -43,14 +43,14 @@ class ArmeriaFactoriesTest {
         close(client);
         if (runtime != null) {
             try {
-                runtime.shutdown(Duration.ofSeconds(5));
+                runtime.shutdown(Duration.ofSeconds(5)).toCompletableFuture().join();
             } catch (RuntimeException ignored) {
                 // keep tearing down
             }
         }
         if (sink != null) {
             try {
-                sink.shutdownNow().toCompletableFuture().get(5, TimeUnit.SECONDS);
+                sink.shutdown(Duration.ofSeconds(5)).toCompletableFuture().get(5, TimeUnit.SECONDS);
             } catch (Exception ignored) {
                 // keep tearing down
             }
@@ -106,14 +106,14 @@ class ArmeriaFactoriesTest {
                 OtlpReceiverConfig.defaults(OtlpReceiverFactory.grpc().defaultPort()).withEphemeralPort());
         gw.exporter(E, OtlpExporterFactory.grpc(),
                 OtlpExporterConfig.defaults(OtlpExporterFactory.grpc().defaultPort())
-                        .toBuilder().setEndpoint("localhost", sink.port()).build());
+                        .toBuilder().endpoint("localhost", sink.port()).build());
         gw.pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(), List.of(E)));
         runtime = gw.build();
         runtime.start();
 
         var graphPort = graphPort();
         var sent = Fixtures.traceData(Fixtures.span("GET /cart", Span.Kind.SERVER));
-        var wireClient = OtlpExporter.grpcBuilder().setEndpoint("localhost", graphPort).build();
+        var wireClient = OtlpExporter.grpcBuilder().endpoint("localhost", graphPort).build().start();
         client = wireClient;
 
         var result = wireClient.export(TRACES, sent).toCompletableFuture().join();
@@ -137,14 +137,14 @@ class ArmeriaFactoriesTest {
                 OtlpReceiverConfig.defaults(OtlpReceiverFactory.http().defaultPort()).withEphemeralPort());
         gw.exporter(E, OtlpExporterFactory.http(),
                 OtlpExporterConfig.defaults(OtlpExporterFactory.http().defaultPort())
-                        .toBuilder().setEndpoint("localhost", sink.port()).build());
+                        .toBuilder().endpoint("localhost", sink.port()).build());
         gw.pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(), List.of(E)));
         runtime = gw.build();
         runtime.start();
 
         var graphPort = graphPort();
         var sent = Fixtures.traceData(Fixtures.span("GET /cart", Span.Kind.SERVER));
-        var wireClient = OtlpExporter.httpBuilder().setEndpoint("localhost", graphPort).build();
+        var wireClient = OtlpExporter.httpBuilder().endpoint("localhost", graphPort).build().start();
         client = wireClient;
 
         var result = wireClient.export(TRACES, sent).toCompletableFuture().join();

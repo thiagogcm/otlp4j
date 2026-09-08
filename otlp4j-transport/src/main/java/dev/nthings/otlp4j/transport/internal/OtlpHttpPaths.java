@@ -1,8 +1,8 @@
 package dev.nthings.otlp4j.transport.internal;
 
 /// Shared OTLP/HTTP wire constants: the binary-protobuf content type and the per-signal request
-/// paths, used by the Armeria HTTP server routes and the Armeria HTTP client. These match the legacy
-/// OTLP/HTTP transport byte for byte so both backends drive the same paths.
+/// paths, used by the Armeria HTTP server routes and the Armeria HTTP client. Keeping these constants
+/// shared ensures both sides address the same OTLP endpoints.
 final class OtlpHttpPaths {
 
     private OtlpHttpPaths() {}

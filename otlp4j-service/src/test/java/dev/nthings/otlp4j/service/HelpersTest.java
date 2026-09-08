@@ -1,27 +1,25 @@
 package dev.nthings.otlp4j.service;
 
-import dev.nthings.otlp4j.codec.Payloads;
 import static dev.nthings.otlp4j.core.signal.SignalDescriptor.TRACES;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.nthings.otlp4j.core.component.ComponentId;
 import dev.nthings.otlp4j.core.component.ComponentKind;
 import dev.nthings.otlp4j.core.consumer.ConsumeContext;
-import dev.nthings.otlp4j.core.consumer.ConsumerCapabilities;
 import dev.nthings.otlp4j.core.consumer.SignalConsumer;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.result.Disposition;
 import dev.nthings.otlp4j.core.result.Provenance;
-import dev.nthings.otlp4j.core.signal.PayloadView;
-import dev.nthings.otlp4j.core.signal.TelemetryPayload;
+import dev.nthings.otlp4j.core.signal.Payload;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.service.internal.GraphNodeBoundary;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.function.BiFunction;
 import org.junit.jupiter.api.Test;
 
-/// Unit tests for the standalone service helpers: the delivery boundary normalization and the interim
-/// payload carrier.
+/// Unit tests for the graph's delivery boundary normalization.
 class HelpersTest {
 
     private static final Provenance PROV =
@@ -29,18 +27,13 @@ class HelpersTest {
 
     private final ConsumeContext ctx = new TestConsumeContext();
 
-    private final TelemetryPayload payload = Payloads.domain(TRACES, new TracesData(java.util.List.of()));
+    private final Payload<TracesData> payload = Payload.of(TRACES, new TracesData(List.of()));
 
-    private static SignalConsumer<TelemetryPayload> consumer(
-            java.util.function.BiFunction<ConsumeContext, TelemetryPayload, CompletionStage<DeliveryResult>> body) {
+    private static SignalConsumer<TracesData> consumer(
+            BiFunction<ConsumeContext, Payload<TracesData>, CompletionStage<DeliveryResult>> body) {
         return new SignalConsumer<>() {
             @Override
-            public ConsumerCapabilities capabilities() {
-                return ConsumerCapabilities.nonMutating();
-            }
-
-            @Override
-            public CompletionStage<DeliveryResult> consume(ConsumeContext context, TelemetryPayload data) {
+            public CompletionStage<DeliveryResult> consume(ConsumeContext context, Payload<TracesData> data) {
                 return body.apply(context, data);
             }
         };
@@ -102,11 +95,4 @@ class HelpersTest {
         assertThat(result).isInstanceOf(DeliveryResult.Rejected.class);
     }
 
-    @Test
-    void modelBatchPayloadReportsSignalAndCount() {
-        assertThat(payload.signal()).isEqualTo(TRACES);
-        assertThat(payload.itemCount()).isZero();
-        assertThat(payload.view(PayloadView.DOMAIN_IMMUTABLE)).isInstanceOf(TracesData.class);
-        assertThat(payload.toString()).contains("traces");
-    }
 }

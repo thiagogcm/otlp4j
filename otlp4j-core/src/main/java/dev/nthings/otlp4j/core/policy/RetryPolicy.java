@@ -1,9 +1,8 @@
 package dev.nthings.otlp4j.core.policy;
 
 /// The retry policy for a delivery: how many attempts to make, the backoff schedule between them,
-/// and whether to respect a server's retry-after hint. The default mirrors the legacy client retry
-/// (five attempts, the default backoff, honouring the server hint), so the behaviour is preserved
-/// when a transport translates this to its resilience library.
+/// and whether to respect a server's retry-after hint. A transport maps this neutral policy onto
+/// its own request/retry runtime.
 ///
 /// @param maxAttempts            the total number of attempts, at least one
 /// @param backoff                the backoff schedule between attempts

@@ -7,8 +7,7 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import org.jspecify.annotations.Nullable;
 
-/// The outcome of feeding one telemetry payload to a consumer, replacing the legacy `ConsumeResult`
-/// end to end.
+/// The outcome of feeding one telemetry payload to a consumer.
 ///
 /// Three variants map directly to OTLP partial-success semantics: [Accepted] for full success,
 /// [Partial] with an item-level rejection count, and [Rejected] for whole-payload failure. A
@@ -38,18 +37,18 @@ public sealed interface DeliveryResult
         }
     }
 
-    /// The downstream rejected `rejectedItems` items; `message` explains why. `rejectedItems` is
-    /// always strictly positive, since a zero-rejection partial is just an [Accepted].
+    /// The downstream rejected `rejectedItems` items; `message` explains why. Zero is valid when the
+    /// server returned a present partial-success block containing a warning but no rejected items.
     ///
-    /// @param rejectedItems the number of rejected items, at least one
+    /// @param rejectedItems the number of rejected items, non-negative
     /// @param message       a human-readable explanation, normalized to the empty string when null
     /// @param provenance    the producing component's provenance
     record Partial(long rejectedItems, String message, Provenance provenance) implements DeliveryResult {
 
         /// Validates the rejection count and normalizes the message.
         public Partial {
-            if (rejectedItems < 1) {
-                throw new IllegalArgumentException("rejectedItems must be >= 1, got " + rejectedItems);
+            if (rejectedItems < 0) {
+                throw new IllegalArgumentException("rejectedItems must be non-negative, got " + rejectedItems);
             }
             message = message == null ? "" : message;
             requireProvenance(provenance);
@@ -126,7 +125,7 @@ public sealed interface DeliveryResult
 
     /// A partial-success result with the given rejection count and message.
     ///
-    /// @param rejectedItems the number of rejected items, at least one
+    /// @param rejectedItems the number of rejected items, non-negative
     /// @param message       the explanation
     /// @param provenance    the producing component's provenance
     /// @return a partial result
@@ -277,8 +276,7 @@ public sealed interface DeliveryResult
     }
 
     /// Combines results from `peers` that all received the **same** payload in parallel (fan-out
-    /// semantics), preserving the merged provenance and downstream marker the legacy
-    /// `ConsumeResult.fanOutMerge` dropped:
+    /// semantics), preserving the merged provenance and downstream marker:
     ///
     ///   - Any [Rejected] wins. The merge is permanent if any rejecting peer is permanent, since
     ///     retrying cannot satisfy that peer. The reason, downstream flag, provenance, and cause are
@@ -305,6 +303,7 @@ public sealed interface DeliveryResult
         @Nullable Rejected firstRetryable = null;
         @Nullable Duration maxRetryAfter = null;
         var maxRejected = 0L;
+        var sawPartial = false;
         @Nullable StringBuilder messages = null;
         for (var peer : peers) {
             switch (peer) {
@@ -323,6 +322,7 @@ public sealed interface DeliveryResult
                     messages = appendMessage(messages, r.message());
                 }
                 case Partial(var rejectedItems, var message, var _) -> {
+                    sawPartial = true;
                     if (rejectedItems > maxRejected) {
                         maxRejected = rejectedItems;
                     }
@@ -348,7 +348,7 @@ public sealed interface DeliveryResult
                     attributed.downstream(),
                     attributed.provenance());
         }
-        if (maxRejected == 0) {
+        if (!sawPartial) {
             return new Accepted(fallbackProvenance);
         }
         return new Partial(maxRejected, messages == null ? "" : messages.toString(), fallbackProvenance);

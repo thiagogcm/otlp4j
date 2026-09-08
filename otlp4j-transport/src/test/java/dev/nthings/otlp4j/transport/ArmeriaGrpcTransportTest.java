@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
@@ -35,7 +36,7 @@ import org.junit.jupiter.api.Timeout;
 @DisplayName("Armeria OTLP/gRPC transport")
 class ArmeriaGrpcTransportTest {
 
-    private final List<ServerReceiver> receivers = new ArrayList<>();
+    private final List<OtlpReceiver> receivers = new ArrayList<>();
     private final List<AutoCloseable> closeables = new ArrayList<>();
 
     @AfterEach
@@ -49,7 +50,7 @@ class ArmeriaGrpcTransportTest {
         }
         for (var receiver : receivers) {
             try {
-                receiver.shutdownNow().toCompletableFuture().get(5, TimeUnit.SECONDS);
+                receiver.shutdown(Duration.ofSeconds(5)).toCompletableFuture().get(5, TimeUnit.SECONDS);
             } catch (Exception ignored) {
                 // keep tearing down
             }
@@ -107,10 +108,10 @@ class ArmeriaGrpcTransportTest {
         var receiver = startReceiver(OtlpReceiver.grpcBuilder()
                 .route(TRACES, Consumers.record(TRACES, received)));
         var exporter = OtlpExporter.grpcBuilder()
-                .setEndpoint("localhost", receiver.port())
-                .setCompression(Compression.GZIP)
-                .setTimeout(Duration.ofSeconds(5))
-                .build();
+                .endpoint("localhost", receiver.port())
+                .compression(Compression.GZIP)
+                .timeout(Duration.ofSeconds(5))
+                .build().start();
         closeables.add(exporter);
         var sent = TransportFixtures.richTraceData();
 
@@ -165,7 +166,7 @@ class ArmeriaGrpcTransportTest {
     @Test
     void oversizedMessageMapsToResourceExhausted() {
         var receiver = startReceiver(OtlpReceiver.grpcBuilder()
-                .setMaxInboundMessageSizeBytes(64)
+                .maxInboundMessageSizeBytes(64)
                 .route(TRACES, Consumers.accepting()));
         var exporter = exporterTo(receiver);
 
@@ -179,11 +180,11 @@ class ArmeriaGrpcTransportTest {
     @DisplayName("admission at capacity yields UNAVAILABLE 'receiver at capacity' with a pushback trailer")
     @Test
     void admissionAtCapacityYieldsUnavailableWithPushback() throws Exception {
-        var entered = new java.util.concurrent.CountDownLatch(1);
+        var entered = new CountDownLatch(1);
         var gate = new CompletableFuture<DeliveryResult>();
         var receiver = startReceiver(OtlpReceiver.grpcBuilder()
-                .setMaxInFlightRequests(1)
-                .setThrottleRetryAfter(Duration.ofSeconds(3))
+                .maxInFlightRequests(1)
+                .throttleRetryAfter(Duration.ofSeconds(3))
                 .route(TRACES, Consumers.gated(entered::countDown, gate)));
         var exporter = exporterTo(receiver);
         var batch = Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER));
@@ -224,17 +225,17 @@ class ArmeriaGrpcTransportTest {
                         .isEqualTo(Status.Code.UNAVAILABLE));
     }
 
-    private ServerReceiver startReceiver(OtlpReceiver.Builder builder) {
+    private OtlpReceiver startReceiver(OtlpReceiver.Builder builder) {
         var receiver = builder.ephemeralPort().build();
         receivers.add(receiver);
         return receiver.start();
     }
 
-    private ClientExporter exporterTo(ServerReceiver receiver) {
+    private OtlpExporter exporterTo(OtlpReceiver receiver) {
         var exporter = OtlpExporter.grpcBuilder()
-                .setEndpoint("localhost", receiver.port())
-                .setTimeout(Duration.ofSeconds(5))
-                .build();
+                .endpoint("localhost", receiver.port())
+                .timeout(Duration.ofSeconds(5))
+                .build().start();
         closeables.add(exporter);
         return exporter;
     }

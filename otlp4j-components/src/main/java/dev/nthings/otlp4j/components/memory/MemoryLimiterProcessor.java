@@ -7,12 +7,11 @@ import dev.nthings.otlp4j.core.component.ComponentKind;
 import dev.nthings.otlp4j.core.component.Processor;
 import dev.nthings.otlp4j.core.component.ShutdownContext;
 import dev.nthings.otlp4j.core.consumer.ConsumeContext;
-import dev.nthings.otlp4j.core.consumer.ConsumerCapabilities;
 import dev.nthings.otlp4j.core.consumer.SignalConsumer;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.result.Provenance;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
-import dev.nthings.otlp4j.core.signal.TelemetryPayload;
+import dev.nthings.otlp4j.core.signal.Payload;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -27,20 +26,21 @@ import org.jspecify.annotations.Nullable;
 /// The built-in memory limiter processor. It samples a used-memory gauge every check interval through a
 /// shared [MemoryLimiter] core and reacts to the sampled state on the consume path: in the hard state it
 /// refuses ingress with a retryable throttled result carrying a retry-after hint, so the receiver emits
-/// gRPC pushback or an HTTP `Retry-After` header end to end; in the soft state it requests a best-effort
-/// collection no more than once per check interval and forwards the payload; in the normal state it
-/// forwards unchanged. Recovery is automatic: once a later sample reads used memory back under the soft
-/// threshold the limiter returns to normal and payloads are admitted again.
+/// gRPC pushback or an HTTP `Retry-After` header end to end; in the soft state it requests an optional
+/// best-effort collection no more than once per check interval and forwards the payload; in the normal
+/// state it forwards unchanged. Recovery is automatic: once a later sample reads used memory back under
+/// the soft threshold the limiter returns to normal and payloads are admitted again. The built-in factory
+/// uses a no-op collection action and never calls `System.gc()` by default.
 ///
 /// The processor is non-mutating: it inspects nothing in the payload and forwards the input identity
 /// untouched, so it supports every signal.
-public final class MemoryLimiterProcessor implements Processor<TelemetryPayload> {
+public final class MemoryLimiterProcessor<T> implements Processor<T> {
 
     private final Provenance provenance;
     private final MemoryLimiter limiter;
     private final long checkIntervalNanos;
     private final Duration retryAfter;
-    private final SignalConsumer<TelemetryPayload> next;
+    private final SignalConsumer<T> next;
     private final LongSupplier nanoTime;
     private final Runnable collect;
 
@@ -62,11 +62,11 @@ public final class MemoryLimiterProcessor implements Processor<TelemetryPayload>
     /// @param collect       the best-effort collection action requested in the soft state
     MemoryLimiterProcessor(
             ComponentId id,
-            SignalDescriptor<?> signal,
+            SignalDescriptor<T> signal,
             MemoryLimiter limiter,
             Duration checkInterval,
             Duration retryAfter,
-            SignalConsumer<TelemetryPayload> next,
+            SignalConsumer<T> next,
             LongSupplier nanoTime,
             Runnable collect) {
         this.provenance = new Provenance(id, ComponentKind.PROCESSOR, signal);
@@ -81,12 +81,7 @@ public final class MemoryLimiterProcessor implements Processor<TelemetryPayload>
     }
 
     @Override
-    public ConsumerCapabilities capabilities() {
-        return ConsumerCapabilities.nonMutating();
-    }
-
-    @Override
-    public CompletionStage<DeliveryResult> consume(ConsumeContext context, TelemetryPayload data) {
+    public CompletionStage<DeliveryResult> consume(ConsumeContext context, Payload<T> data) {
         if (closed) {
             return CompletableFuture.completedFuture(
                     DeliveryResult.shuttingDown("memory limiter is shutting down", provenance));
@@ -108,7 +103,7 @@ public final class MemoryLimiterProcessor implements Processor<TelemetryPayload>
         var now = nanoTime.getAsLong();
         var last = lastCollectNanos.get();
         if (now - last >= checkIntervalNanos && lastCollectNanos.compareAndSet(last, now)) {
-            collect.run();
+                collect.run();
         }
     }
 

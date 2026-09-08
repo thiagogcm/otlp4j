@@ -6,7 +6,6 @@ import dev.nthings.otlp4j.core.component.Processor;
 import dev.nthings.otlp4j.core.component.ProcessorFactory;
 import dev.nthings.otlp4j.core.consumer.SignalConsumer;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
-import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 
 /// The factory for the built-in filter processor, type `filter`.
 ///
@@ -37,10 +36,8 @@ public final class FilterProcessorFactory implements ProcessorFactory<FilterConf
     }
 
     @Override
-    public <T extends TelemetryPayload> Processor<T> create(
+    public <T> Processor<T> create(
             CreateContext ctx, FilterConfig config, SignalDescriptor<T> signal, SignalConsumer<T> next) {
-        Processor<TelemetryPayload> processor = new FilterProcessor(
-                ctx.id(), signal, config.include(), config.exclude(), SignalConsumer.asPayload(next));
-        return ProcessorFactory.asTypedProcessor(processor);
+        return new FilterProcessor<>(ctx.id(), signal, config.include(), config.exclude(), next);
     }
 }

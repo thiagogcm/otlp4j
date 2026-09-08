@@ -13,9 +13,9 @@
     <artifactId>otlp4j-codec</artifactId>
     <name>otlp4j-codec</name>
     <description>Marshalling between the otlp4j domain model and the generated OTLP protobuf
-        messages. JPMS module dev.nthings.otlp4j.codec — shared by the gRPC and HTTP transports and
-        free of any gRPC dependency in code (it touches only protobuf messages, never the service
-        stubs). Its package is exported only to the two transport modules.</description>
+        messages. JPMS module dev.nthings.otlp4j.codec - shared by the consolidated OTLP transport
+        and free of any gRPC dependency in code (it touches only protobuf messages, never the service
+        stubs). Its package is exported only to the bundled implementation modules.</description>
 
     <properties>
         <!-- Internal module: no exported packages, so no Javadoc report (compiler doclint still runs). -->

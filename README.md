@@ -1,42 +1,58 @@
 # otlp4j
 
-![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/thiagogcm/otlp4j?utm_source=oss&utm_medium=github&utm_campaign=thiagogcm%2Fotlp4j&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)
+otlp4j is a small, JPMS-modular Java 25 library for receiving, processing, and exporting [OpenTelemetry Protocol (OTLP)](https://opentelemetry.io/docs/specs/otlp/) telemetry in-process. It is useful when an application, test, or tool needs an OTLP data plane without running a separate collector process.
 
-otlp4j is a JPMS-modular Java library for receiving, processing, and exporting [OpenTelemetry Protocol (OTLP)](https://opentelemetry.io/docs/specs/otlp/) telemetry. It is an in-process OTLP gateway and pipeline: you assemble a graph of receivers, processors, exporters, and connectors, and a runtime starts them in dependency order and moves telemetry batches through them. The component model deliberately mirrors the OpenTelemetry Collector's, so a receiver, processor, exporter, or connector means here what it means there, expressed as typed Java with immutable records and no protobuf on the public surface.
+The primary API is a typed pipeline over immutable domain batches. Applications submit traces, metrics, logs, or profiles; processors compose transformations and filters; an OTLP exporter sends the result over gRPC or HTTP. The pipeline owns a mutable component runtime during its lifecycle. The lower-level gateway API is available when a graph needs multiple receivers, fan-out, connectors, or independently named components.
 
-The project is currently experimental `0.1.0-SNAPSHOT` and requires JDK 25. Its built-in transport carries OTLP over **gRPC** and **HTTP** (binary protobuf, `application/x-protobuf`) for traces, metrics, logs, and experimental profiles, over plaintext or TLS, with authentication headers, gzip compression, and retries. Both wires are served by one consolidated transport module (`otlp4j-transport`, on Armeria).
+The project is experimental (`0.1.0-SNAPSHOT`) and intentionally makes breaking changes while the public API is consolidated. It requires JDK 25 and has no compatibility layer for earlier snapshots.
 
-> [!WARNING]
-> This project was developed with the assistance of AI agents and has not undergone thorough testing. Please report any issues you encounter.
+## A first pipeline
 
-## Positioning vs OpenTelemetry Java SDK
+This pipeline filters and transforms immutable trace batches before exporting them. `start()` owns transport startup, `submit()` reports direct admission or rejection according to the configured component policy, and `flush()` reports asynchronous downstream losses after buffered acceptance.
 
-Use otlp4j for OTLP data-plane work: receiving, processing, observing, routing, and forwarding telemetry batches that already exist as OTLP. Use the official OpenTelemetry Java API/SDK for application instrumentation: tracer/meter/logger APIs, span lifecycle, context propagation, resource detectors, and metric instruments. The `Span`, `Metric`, and `LogRecord` builders in otlp4j are OTLP model-construction helpers for batches moving through a gateway, not an application instrumentation SDK. A common setup instruments code with OpenTelemetry Java, then routes that emitted OTLP through an embedded otlp4j gateway for local processing or forwarding control. See [comparison.md](docs/comparison.md) for how otlp4j relates to the SDK and the Collector.
+`flush(timeout)` captures in-progress deliveries at each application input, then snapshots downstream buffers as they are reached. Submissions concurrent with a downstream snapshot may be included; exact global exclusion requires barrier propagation through every buffering component.
 
-## Capabilities
+```java
+import static dev.nthings.otlp4j.core.signal.SignalDescriptor.TRACES;
 
-- Immutable, proto-free domain records for all four OTLP signals (traces, metrics, logs, experimental profiles), with the generated protobuf and gRPC types confined to the transport module.
-- The four Collector-shaped component kinds (receiver, processor, exporter, connector) behind typed factories in `otlp4j-core`, assembled into a validated service graph that starts in reverse-topological order and shuts down in topological order with rollback on a failed start.
-- One consolidated OTLP transport carrying both gRPC (default port 4317) and HTTP (4318) on Armeria, with plaintext or TLS (including mutual TLS), gzip compression, per-attempt and total timeouts, and retry with server `Retry-After` / `RetryInfo` honoring. Two graph factories, `OtlpReceiverFactory` and `OtlpExporterFactory`, each protocol-parameterized through `grpc()` / `http()`.
-- Built-in components in `otlp4j-components`: a batch processor, a memory-limiter processor, filter and routing processors driven by a match engine, and a trace-to-metric span-count connector.
-- Delivery results (`Accepted` / `Partial` / `Rejected`, with a retryable-versus-permanent disposition) mapped to OTLP partial-success and gRPC/HTTP status on the wire, plus receiver admission control (in-flight request and byte caps).
-- Self-observability through the pluggable `GatewayMetrics` SPI: counters and gauges for export outcomes, admission rejections, tap drops, and connector counts, no-op by default, with a logging adapter shipped in the samples module.
-- Ergonomic seams that keep trivial components short: `ComponentConfig.NONE` for a component that needs no config, `ProcessorFactory.of(...)` for an inline batch transform, `ExporterFactory.of(...)` for an inline terminal sink, and `GatewayRuntime.boundPort(id)` for reading a receiver's bound port.
+import dev.nthings.otlp4j.model.TracesData;
+import dev.nthings.otlp4j.service.Pipeline;
+import dev.nthings.otlp4j.transport.OtlpExporterConfig;
+import dev.nthings.otlp4j.transport.OtlpExporterFactory;
+import java.time.Duration;
 
-## Use from Maven
+try (var traces = Pipeline.builder(TRACES)
+        .filter(batch -> batch.spanCount() > 0)
+        .map(MyTransforms::redactSensitiveFields)
+        .to(OtlpExporterFactory.grpc(), OtlpExporterConfig.defaults(4317))
+        .build()) {
+    traces.start();
+    var result = traces.submit(batch).toCompletableFuture().join();
+    var report = traces.flush(Duration.ofSeconds(5)).toCompletableFuture().join();
+}
+```
 
-The snapshot coordinates are intended for a local reactor build. Install them first:
+`Pipeline.Builder` also accepts configured processors through `via(factory, config)`, and multiple terminal exporters through repeated `to(...)` calls. `Pipeline` is generic over its signal, so a trace pipeline cannot accidentally receive a metrics batch.
+
+## Maven dependencies
+
+Install the snapshot locally while the project is experimental:
 
 ```sh
 ./mvnw -B install
 ```
 
-Compile against the core contracts, the transport that carries both OTLP/gRPC and OTLP/HTTP, and the built-in components. Your code names the transport factories and the built-ins directly, so all three are compile dependencies:
+For the first pipeline, depend directly on the model, service, and transport modules:
 
 ```xml
 <dependency>
   <groupId>dev.nthings.otlp4j</groupId>
-  <artifactId>otlp4j-core</artifactId>
+  <artifactId>otlp4j-model</artifactId>
+  <version>0.1.0-SNAPSHOT</version>
+</dependency>
+<dependency>
+  <groupId>dev.nthings.otlp4j</groupId>
+  <artifactId>otlp4j-service</artifactId>
   <version>0.1.0-SNAPSHOT</version>
 </dependency>
 <dependency>
@@ -44,75 +60,125 @@ Compile against the core contracts, the transport that carries both OTLP/gRPC an
   <artifactId>otlp4j-transport</artifactId>
   <version>0.1.0-SNAPSHOT</version>
 </dependency>
-<dependency>
-  <groupId>dev.nthings.otlp4j</groupId>
-  <artifactId>otlp4j-components</artifactId>
-  <version>0.1.0-SNAPSHOT</version>
-</dependency>
 ```
 
-## Hello, gateway
+Add `otlp4j-components` for the built-in processors and connectors. Add `otlp4j-opentelemetry` only when adapting official OpenTelemetry Java SDK exporters.
 
-A gateway is built from `Gateway.builder()`. Each registration returns a typed handle; pipelines wire handles, not strings, so referencing an unregistered or wrong-kind component is a compile error. This one receives OTLP/gRPC on an ephemeral port, drops empty trace batches, and forwards the rest to another OTLP endpoint:
+## Maven modules
+
+The core runtime is split so protocol implementation details do not leak into application code:
+
+| Module | Purpose |
+| --- | --- |
+| `otlp4j-model` | Immutable, proto-free OTLP domain records for traces, metrics, logs, and profiles |
+| `otlp4j-core` | Signal descriptors, payloads, component contracts, delivery results, policies, and telemetry SPI |
+| `otlp4j-service` | Typed `Pipeline` API, advanced `Gateway` graph builder, lifecycle, and validation |
+| `otlp4j-transport` | Armeria OTLP/gRPC and OTLP/HTTP receiver and exporter factories, TLS, compression, retry, and admission control |
+| `otlp4j-codec` | Internal domain/protobuf marshalling used by bundled transport and components |
+| `otlp4j-proto` | Generated OTLP protobuf and gRPC classes, qualified-exported only to internal modules |
+| `otlp4j-components` | Batch, memory-limiter, filter, routing, and span-count connector components |
+| `otlp4j-opentelemetry` | Optional bridge boundary for the official OpenTelemetry Java SDK exporters |
+| `otlp4j-samples` | Runnable examples, including an embedded in-process pipeline |
+| `otlp4j-testing` | Shared fixtures and protocol/conformance test support |
+| `otlp4j-conformance` | Black-box OTLP wire and policy conformance runner |
+| `otlp4j-coverage` | Aggregate JaCoCo report |
+
+The JMH benchmark harness is outside the default reactor and is enabled with `-Pbench`.
+
+## Advanced gateway graphs
+
+Use `Gateway.builder()` when the application needs network receivers, multiple pipelines, typed component handles, or signal-to-signal connectors:
 
 ```java
-var gw = Gateway.builder();
+import static dev.nthings.otlp4j.core.signal.SignalDescriptor.TRACES;
 
-var in = gw.receiver(ComponentId.parse("in"), OtlpReceiverFactory.grpc(),
+import dev.nthings.otlp4j.core.component.ComponentId;
+import dev.nthings.otlp4j.core.pipeline.PipelineId;
+import dev.nthings.otlp4j.service.Gateway;
+import dev.nthings.otlp4j.transport.OtlpExporterConfig;
+import dev.nthings.otlp4j.transport.OtlpExporterFactory;
+import dev.nthings.otlp4j.transport.OtlpReceiverConfig;
+import dev.nthings.otlp4j.transport.OtlpReceiverFactory;
+
+var gateway = Gateway.builder();
+var input = gateway.receiver(
+        ComponentId.parse("in"),
+        OtlpReceiverFactory.grpc(),
         OtlpReceiverConfig.defaults(4317).withEphemeralPort());
+var output = gateway.exporter(
+        ComponentId.parse("out"),
+        OtlpExporterFactory.grpc(),
+        OtlpExporterConfig.defaults(4317));
 
-var dropEmpty = gw.processor(ComponentId.parse("drop-empty"),
-        ProcessorFactory.of("drop-empty", TRACES,
-                traces -> traces.spanCount() == 0 ? null : traces, Payloads.DOMAIN));
-
-var out = gw.exporter(ComponentId.parse("out"), OtlpExporterFactory.grpc(),
-        OtlpExporterConfig.builder(4317).setHost("collector.example.com").build());
-
-gw.pipeline(PipelineId.of(TRACES), p -> p.from(in).via(dropEmpty).to(out));
-
-GatewayRuntime gateway = gw.build();
-gateway.start();
-int port = gateway.boundPort(in.id()).orElseThrow(); // the ephemeral receiver port
-// ... telemetry flows ...
-gateway.close(); // topological shutdown within the grace period
+gateway.pipeline(PipelineId.of(TRACES), path -> path.from(input).to(output));
+try (var runtime = gateway.build()) {
+    runtime.start();
+    int port = runtime.boundPort(input.id()).orElseThrow();
+    // OTLP traffic can now enter at `port`.
+}
 ```
 
-`TRACES` is `SignalDescriptor.TRACES`; `Payloads.DOMAIN` (from `otlp4j-codec`) is the emit seam a domain-transform processor writes through. A processor that carries configuration takes a factory and a config record instead of the inline `ProcessorFactory.of` form, exactly as the built-in `BatchProcessorFactory`, `FilterProcessorFactory`, `RoutingProcessorFactory`, `MemoryLimiterProcessorFactory`, and `SpanCountConnectorFactory` do. The [samples module](otlp4j-samples/src/main/java/dev/nthings/otlp4j/samples/OtlpE2eDemo.java) shows a full two-hop demo wiring enrich, redact, filter, batch, and a span-count connector.
+The handle-based DSL catches wrong component kinds and handles from another builder before runtime construction. `Gateway.compile(GatewayConfig)` remains available for callers that build the declarative configuration records directly. Start and shutdown are derived from the graph and are bounded by `ServiceOptions`.
 
-For a standalone exporter or receiver outside a graph, `OtlpExporter.grpcBuilder()` / `OtlpExporter.httpBuilder()` and `OtlpReceiver.grpcBuilder()` / `OtlpReceiver.httpBuilder()` build the same transport directly.
+## SDK bridge
 
-## Modules
+`otlp4j-opentelemetry` is deliberately isolated from the protocol-neutral modules. It is the place for adapters between the official OpenTelemetry Java SDK's trace, metric, and log exporters and otlp4j's in-process inputs. Applications that only submit OTLP domain batches do not need this module. Use the official SDK for instrumentation, context propagation, sampling, and aggregation; use otlp4j for an embedded OTLP data plane.
 
-| Module              | Role                                                                                                                        |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `otlp4j-model`      | JDK-only immutable OTLP domain records for the four signals                                                                 |
-| `otlp4j-proto`      | Generated OTLP messages and gRPC stubs, qualified-exported only to the codec and transport                                  |
-| `otlp4j-core`       | Component SPI (four kinds plus factories), signal descriptors, the opaque `TelemetryPayload` and its views, delivery results, neutral policies, and the `GatewayMetrics` SPI |
-| `otlp4j-codec`      | Model-to-proto marshalling behind the proto-free `Payloads` facade                                                          |
-| `otlp4j-service`    | Declarative `GatewayConfig`, the JGraphT service graph, validation diagnostics, and the `Gateway` builder and `GatewayRuntime` |
-| `otlp4j-transport`  | The consolidated OTLP/gRPC and OTLP/HTTP transport on Armeria: two graph factories and two standalone entry points          |
-| `otlp4j-components` | Built-in batch, memory-limiter, filter, and routing processors, and the span-count connector                               |
-| `otlp4j-samples`    | Runnable end-to-end demo and the `LoggingGatewayMetrics` sample adapter                                                     |
-| `otlp4j-testing`    | Shared reactor fixtures, the reusable conformance and policy suites, and `RecordingGatewayMetrics`                          |
-| `otlp4j-conformance`| Armeria instantiations of the conformance and policy suites                                                                |
-| `otlp4j-coverage`   | Aggregate JaCoCo report                                                                                                     |
+The adapters borrow their `TelemetryInput`; they snapshot SDK data into the immutable model, and their `shutdown()` drains accepted input work without closing or stopping the input. Close the SDK provider before its borrowed pipeline. SDK exporter shutdown waits for outstanding input submissions and then performs the adapter's bounded input flush, so an input implementation must complete its submission stages:
 
-The `otlp4j-benchmarks` JMH module builds only under the `-Pbench` profile, so the default reactor is eleven modules. See [Public API](docs/public-api.md) for the exported-package map and [Architecture](docs/architecture.md) for the component model, payload design, graph lifecycle, and transport internals.
+```java
+var traces = Pipeline.builder(SignalDescriptor.TRACES)
+        .to(OtlpExporterFactory.grpc(), OtlpExporterConfig.defaults(4317))
+        .build();
+var sdkExporter = SdkExporters.spans(traces);
+var tracerProvider = SdkTracerProvider.builder()
+        .addSpanProcessor(SimpleSpanProcessor.create(sdkExporter))
+        .build();
+
+try (traces; tracerProvider) {
+    traces.start();
+    // Instrumentation uses tracerProvider; completed spans enter the pipeline.
+}
+```
+
+Use `SdkExporters.metrics(metricsInput)` for the default cumulative aggregation temporality, or pass an explicit official `AggregationTemporalitySelector` when the SDK reader requires a different policy. `SdkExporters.logs(logsInput)` provides the equivalent log-record adapter.
+
+The bridge targets OpenTelemetry Java SDK 1.65.0 and maps every field exposed by its exporter interfaces. The SDK does not expose OTLP point flags, exponential-histogram zero thresholds, resource or scope dropped-attribute counts, or OTLP metric metadata; the adapter emits the model defaults for those fields (zero flags/counts/threshold and empty metadata). It preserves span and link remote-context bits and snapshots mutable SDK collections and byte values before submission.
 
 ## Build
 
-The Maven wrapper uses Maven 3.9.16; the build accepts Maven 3.9.9 or newer.
+The Maven wrapper uses Maven 3.9.16 and the build requires Maven 3.9.9 or newer:
 
 ```sh
 ./mvnw -B verify
 ```
 
-This runs the tests, coverage checks, Protobuf generation, and Javadoc lint. If [`just`](https://just.systems/) is installed, `just ci` also checks the `justfile` format before running the same verification.
+If `just` is installed, `just ci` checks the recipe formatting and runs the same verification. Generate the checked-in schema mirror and protobuf sources with:
 
-## Current limits
+```sh
+just update-protos
+just proto
+```
 
-- One consolidated transport applies the full configuration surface: TLS, headers, compression, and retry on the client; TLS, `bindHost`, and the receiver-hardening admission limits on the server. A non-wildcard `bindHost` (for example `127.0.0.1`) binds that specific interface; a wildcard host binds every interface. Compression is asymmetric: the client requests gzip and the server transparently decodes it, with no server-side switch.
-- OTLP/HTTP carries binary protobuf (`application/x-protobuf`) only (no JSON) and POSTs each signal to its standard path (`/v1/traces`, `/v1/metrics`, `/v1/logs`, `/v1development/profiles`). The HTTP receiver rejects any other `Content-Type` with `415 Unsupported Media Type` (an absent header is tolerated). The scheme follows TLS (`http` when disabled, otherwise `https`); an endpoint path prefix is applied.
-- Profiles track OpenTelemetry `v1development`. `ProfilesData` exposes top-level resource and scope metadata for inspection but forwards the profile payload losslessly via opaque passthrough, so it re-emits byte-for-byte; the profile body itself is not introspectable.
-- Queues are in-memory only: there is no persistent or on-disk sending queue, no YAML configuration format, and no authentication or extension subsystem. A pipeline is assembled and configured in Java.
-- A signal reaching a receiver with no downstream is rejected retryably. Wire every signal that must be processed into a pipeline.
+The mirrored schemas are pinned to upstream `opentelemetry-proto` v1.11.0 and retain their Apache License 2.0 headers.
+
+## Boundaries and current limits
+
+- OTLP/HTTP uses binary protobuf (`application/x-protobuf`) and the standard signal paths; JSON is not implemented.
+- Queues are in-memory only. There is no persistent sending queue, YAML configuration, extension host, or authentication subsystem.
+- Profiles use the experimental `v1development` schema. The profile body is preserved opaquely for lossless forwarding rather than exposed as a fully modeled domain type.
+- The built-in batch processor does not support profiles, because merging distinct profile dictionaries would require re-indexing. Forward profiles one-to-one or use a component that preserves their dictionary ownership.
+- Protobuf and gRPC generated classes stay behind the codec/transport JPMS boundary.
+- Delivery results distinguish accepted, partial, and retryable/permanent rejection outcomes. A successful submission to an in-process input means admission, not completion of every downstream export; call `flush()` when a drain report is needed.
+
+The default hardening and buffering limits are deliberately explicit:
+
+| Surface | Default |
+| --- | --- |
+| Batch trigger | 8192 items or 1 second; no hard item/byte batch cap |
+| Batch delivery queue | 1024 entries, one consumer, `OverflowPolicy.FAIL` |
+| Batch admission | 1024 accepted submissions, 64 MiB exact serialized bytes, 1024 metadata partitions |
+| Receiver request | 64 MiB maximum decoded export request |
+| Exporter messages | 64 MiB maximum request and 4 MiB maximum response |
+
+See [Architecture](docs/architecture.md), [Public API](docs/public-api.md), and [Comparison](docs/comparison.md) for the design and integration trade-offs. The [samples](otlp4j-samples/README.md) contain a complete runnable example.

@@ -8,32 +8,34 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/// Unit tests for the consumer-package value types: [ConsumerCapabilities], [ClientMetadata], and
+/// Unit tests for the consumer-package value types: [ClientMetadata], [ConsumeContext], and
 /// [Deadline].
 class ConsumerTypesTest {
 
     @Test
-    @DisplayName("consumer capabilities expose the mutation flag and shared instances")
-    void capabilities() {
-        assertThat(ConsumerCapabilities.nonMutating().mutatesData()).isFalse();
-        assertThat(ConsumerCapabilities.mutating().mutatesData()).isTrue();
-        assertThat(new ConsumerCapabilities(true)).isEqualTo(ConsumerCapabilities.mutating());
-    }
-
-    @Test
     @DisplayName("client metadata defensively copies its headers and offers an empty instance")
     void clientMetadata() {
-        var headers = new java.util.HashMap<String, List<String>>();
-        headers.put("x-tenant", List.of("acme"));
+        var headers = new HashMap<String, List<String>>();
+        var tenantValues = new ArrayList<>(List.of("acme"));
+        headers.put("x-tenant", tenantValues);
         var metadata = new ClientMetadata(Optional.empty(), headers);
         headers.put("x-added", List.of("late"));
         assertThat(metadata.headers()).containsOnlyKeys("x-tenant");
+
+        tenantValues.add("mutated");
+        assertThat(metadata.headers().get("x-tenant")).containsExactly("acme");
 
         Principal principal = () -> "svc";
         var authed = new ClientMetadata(Optional.of(principal), Map.of());
@@ -46,6 +48,81 @@ class ConsumerTypesTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new ClientMetadata(Optional.empty(), null))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("consume context factories provide immutable defaults and explicit values")
+    void consumeContextFactories() {
+        var defaults = ConsumeContext.defaults();
+        assertThat(defaults.metadata()).isEqualTo(ClientMetadata.empty());
+        assertThat(defaults.deadline().isExpired(Clock.systemUTC())).isFalse();
+        assertThat(defaults.isCancelled()).isFalse();
+
+        var metadata = new ClientMetadata(Optional.empty(), Map.of("x", List.of("y")));
+        var deadline = Deadline.after(Duration.ofSeconds(1), Clock.systemUTC());
+        var context = ConsumeContext.of(metadata, deadline);
+        assertThat(context.metadata()).isSameAs(metadata);
+        assertThat(context.deadline()).isSameAs(deadline);
+
+        var expired = ConsumeContext.of(
+                ClientMetadata.empty(), new Deadline(Instant.now().minusSeconds(1)));
+        var callbackCalled = new AtomicBoolean();
+        expired.onCancel(() -> callbackCalled.set(true));
+        assertThat(expired.isCancelled()).isTrue();
+        assertThat(callbackCalled).isTrue();
+    }
+
+    @Test
+    @DisplayName("deadline cancellation invokes every callback once without a polling call")
+    void scheduledCancellationCallbacks() throws InterruptedException {
+        var context = ConsumeContext.of(
+                ClientMetadata.empty(), Deadline.after(Duration.ofMillis(80), Clock.systemUTC()));
+        var callbacks = new CountDownLatch(2);
+        var calls = new AtomicInteger();
+        context.onCancel(() -> {
+            calls.incrementAndGet();
+            callbacks.countDown();
+            throw new IllegalStateException("callback failure");
+        });
+        context.onCancel(() -> {
+            calls.incrementAndGet();
+            callbacks.countDown();
+        });
+
+        assertThat(callbacks.await(2, TimeUnit.SECONDS)).isTrue();
+        assertThat(calls.get()).isEqualTo(2);
+        assertThat(context.isCancelled()).isTrue();
+        assertThat(calls.get()).isEqualTo(2);
+
+        var lateCalls = new AtomicInteger();
+        context.onCancel(lateCalls::incrementAndGet);
+        assertThat(lateCalls.get()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("a blocked cancellation callback does not delay unrelated deadlines")
+    void blockedCallbackDoesNotBlockDeadlineScheduler() throws InterruptedException {
+        var first = ConsumeContext.of(
+                ClientMetadata.empty(), Deadline.after(Duration.ofMillis(80), Clock.systemUTC()));
+        var second = ConsumeContext.of(
+                ClientMetadata.empty(), Deadline.after(Duration.ofMillis(160), Clock.systemUTC()));
+        var firstStarted = new CountDownLatch(1);
+        var releaseFirst = new CountDownLatch(1);
+        var secondCancelled = new CountDownLatch(1);
+
+        first.onCancel(() -> {
+            firstStarted.countDown();
+            try {
+                releaseFirst.await(2, TimeUnit.SECONDS);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        second.onCancel(secondCancelled::countDown);
+
+        assertThat(firstStarted.await(2, TimeUnit.SECONDS)).isTrue();
+        assertThat(secondCancelled.await(2, TimeUnit.SECONDS)).isTrue();
+        releaseFirst.countDown();
     }
 
     @Test

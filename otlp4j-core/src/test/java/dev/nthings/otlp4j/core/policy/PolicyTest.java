@@ -4,12 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/// Unit tests for the neutral policy records and enums: their defaults, their invariants, and the
-/// preserved legacy default numbers.
+/// Unit tests for the neutral policy records and enums: their defaults and invariants.
 class PolicyTest {
 
     @Test
@@ -61,7 +61,7 @@ class PolicyTest {
     @Test
     @DisplayName("batch policy validates its sizes and defensively copies the metadata keys")
     void batchPolicy() {
-        var keys = new java.util.ArrayList<>(List.of("x-tenant"));
+        var keys = new ArrayList<>(List.of("x-tenant"));
         var batch = new BatchPolicy(100, 200, 1_000_000, Duration.ofSeconds(1), keys);
         keys.add("late");
         assertThat(batch.metadataKeys()).containsExactly("x-tenant");
@@ -89,28 +89,26 @@ class PolicyTest {
     @Test
     @DisplayName("delivery queue policy validates its sizes and overflow")
     void deliveryQueuePolicy() {
-        var queue = new DeliveryQueuePolicy(1000, 4, OverflowPolicy.BLOCK, true);
+        var queue = new DeliveryQueuePolicy(1000, 4, OverflowPolicy.FAIL);
         assertThat(queue.queueSize()).isEqualTo(1000);
         assertThat(queue.numConsumers()).isEqualTo(4);
-        assertThat(queue.overflow()).isEqualTo(OverflowPolicy.BLOCK);
-        assertThat(queue.waitForResult()).isTrue();
+        assertThat(queue.overflow()).isEqualTo(OverflowPolicy.FAIL);
 
-        assertThatThrownBy(() -> new DeliveryQueuePolicy(0, 1, OverflowPolicy.FAIL, false))
+        assertThatThrownBy(() -> new DeliveryQueuePolicy(0, 1, OverflowPolicy.FAIL))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new DeliveryQueuePolicy(1, 0, OverflowPolicy.FAIL, false))
+        assertThatThrownBy(() -> new DeliveryQueuePolicy(1, 0, OverflowPolicy.FAIL))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new DeliveryQueuePolicy(1, 1, null, false))
+        assertThatThrownBy(() -> new DeliveryQueuePolicy(1, 1, null))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
-    @DisplayName("the overflow enum has the four relocated values")
+    @DisplayName("the overflow enum has only non-blocking values")
     void overflowPolicy() {
         assertThat(OverflowPolicy.values())
                 .containsExactly(
                         OverflowPolicy.DROP_OLDEST,
                         OverflowPolicy.DROP_NEWEST,
-                        OverflowPolicy.BLOCK,
                         OverflowPolicy.FAIL);
         for (var value : OverflowPolicy.values()) {
             assertThat(OverflowPolicy.valueOf(value.name())).isEqualTo(value);

@@ -1,23 +1,27 @@
 package dev.nthings.otlp4j.components.batch;
 
-import dev.nthings.otlp4j.codec.Payloads;
+import dev.nthings.otlp4j.codec.PayloadWire;
 import dev.nthings.otlp4j.components.internal.DeliveryQueue;
+import dev.nthings.otlp4j.components.internal.ExactBatchSplitter;
 import dev.nthings.otlp4j.core.component.ComponentContext;
 import dev.nthings.otlp4j.core.component.ComponentId;
 import dev.nthings.otlp4j.core.component.ComponentKind;
 import dev.nthings.otlp4j.core.component.FlushContext;
 import dev.nthings.otlp4j.core.component.Processor;
 import dev.nthings.otlp4j.core.component.ShutdownContext;
+import dev.nthings.otlp4j.core.consumer.ClientMetadata;
 import dev.nthings.otlp4j.core.consumer.ConsumeContext;
-import dev.nthings.otlp4j.core.consumer.ConsumerCapabilities;
+import dev.nthings.otlp4j.core.consumer.Deadline;
 import dev.nthings.otlp4j.core.consumer.SignalConsumer;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
+import dev.nthings.otlp4j.core.result.FlushReport;
 import dev.nthings.otlp4j.core.result.Provenance;
-import dev.nthings.otlp4j.core.signal.PayloadView;
+import dev.nthings.otlp4j.core.signal.Payload;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
-import dev.nthings.otlp4j.core.signal.TelemetryPayload;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,25 +33,21 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.LongSupplier;
 import org.jspecify.annotations.Nullable;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-/// The built-in batch processor. It buffers incoming payloads, partitioned by the metadata-key
-/// combination read from the consume context, and flushes each buffer when its accumulated item count
-/// reaches the target size, its accumulated byte size reaches the byte cap, or the flush timeout
-/// elapses since the buffer's first item. On flush it merges the buffered domain batches through the
-/// signal's `merge` and, when a send-batch maximum size is set, splits the merged batch into
-/// item-capped units through the signal's `split`, so the batching logic is entirely generic over the
-/// signal with no per-signal switch. Each unit is handed to the bounded [DeliveryQueue].
+/// A generic OTLP batch processor. Incoming submissions are first admitted into one global bounded
+/// accounting domain, then accumulated by the configured metadata key. The limits include every
+/// submission still buffered, queued, or in flight; no hidden waiter queue exists. A flush captures
+/// the work observed at this processor's barrier and returns a bounded report after that work reaches
+/// the downstream consumer. Concurrent submissions may race with the barrier and be included in the
+/// same report; an exact global exclusion requires a barrier through every buffering component.
 ///
-/// The processor is non-mutating: it emits fresh merged and split batches and never mutates an input.
-///
-/// @param <M> the signal's domain batch type this processor buffers, merges, and splits
-public final class BatchProcessor<M> implements Processor<TelemetryPayload> {
-
-    private static final Logger LOG = LoggerFactory.getLogger(BatchProcessor.class);
+/// Profiles are intentionally excluded by [BatchProcessorFactory]: distinct opaque dictionaries
+/// cannot be merged without re-indexing. Profile payloads therefore remain one-to-one downstream.
+public final class BatchProcessor<M> implements Processor<M> {
 
     private final SignalDescriptor<M> signal;
     private final int sendBatchSize;
@@ -55,94 +55,160 @@ public final class BatchProcessor<M> implements Processor<TelemetryPayload> {
     private final long sendBatchMaxBytes;
     private final long timeoutNanos;
     private final List<String> metadataKeys;
-    private final SignalConsumer<TelemetryPayload> next;
+    private final int maxPendingSubmissions;
+    private final long maxPendingBytes;
+    private final int maxPartitions;
+    private final SignalConsumer<M> next;
     private final Provenance provenance;
-    private final DeliveryQueue<TelemetryPayload> queue;
+    private final DeliveryQueue<M> queue;
+    private final LongSupplier nanoTime;
 
     private final Object lock = new Object();
     private final Map<MetadataBatchKey, Batch> buffers = new HashMap<>();
-    private final AtomicBoolean shutdownStarted = new AtomicBoolean();
+    private final AtomicReference<CompletableFuture<Void>> shutdownResult = new AtomicReference<>();
+    private final AtomicReference<FailureAccumulator> failures = new AtomicReference<>(new FailureAccumulator());
+    private final AtomicLong pendingSubmissions = new AtomicLong();
+    private final AtomicLong pendingBytes = new AtomicLong();
 
     private volatile boolean closed;
     private volatile @Nullable ScheduledExecutorService scheduler;
 
-    /// Builds a batch processor for `signal` forwarding to `next`, honouring `config`.
-    ///
-    /// @param id       the component identity
-    /// @param signal   the signal this processor buffers, merges, and splits
-    /// @param config   the batch configuration
-    /// @param next     the downstream consumer the delivery queue drains into
-    /// @param nanoTime the monotonic nanosecond source the delivery queue's degraded window reads
     BatchProcessor(
             ComponentId id,
             SignalDescriptor<M> signal,
             BatchProcessorConfig config,
-            SignalConsumer<TelemetryPayload> next,
+            SignalConsumer<M> next,
             LongSupplier nanoTime) {
-        this.signal = signal;
+        this.signal = Objects.requireNonNull(signal, "signal");
         this.sendBatchSize = config.batch().sendBatchSize();
         this.sendBatchMaxSize = config.batch().sendBatchMaxSize();
         this.sendBatchMaxBytes = config.batch().sendBatchMaxBytes();
         this.timeoutNanos = config.batch().timeout().toNanos();
         this.metadataKeys = config.batch().metadataKeys();
-        this.next = next;
+        this.maxPendingSubmissions = config.maxPendingSubmissions();
+        this.maxPendingBytes = config.maxPendingBytes();
+        this.maxPartitions = config.maxPartitions();
+        this.next = Objects.requireNonNull(next, "next");
+        this.nanoTime = Objects.requireNonNull(nanoTime, "nanoTime");
         this.provenance = new Provenance(id, ComponentKind.PROCESSOR, signal);
         this.queue = new DeliveryQueue<>(config.delivery(), config.degradedWindow(), next, provenance, nanoTime);
     }
 
     @Override
-    public ConsumerCapabilities capabilities() {
-        return ConsumerCapabilities.nonMutating();
-    }
-
-    @Override
-    public CompletionStage<DeliveryResult> consume(ConsumeContext context, TelemetryPayload data) {
-        if (closed) {
-            return CompletableFuture.completedFuture(
-                    DeliveryResult.shuttingDown("batch processor is shutting down", provenance));
+    public CompletionStage<DeliveryResult> consume(ConsumeContext context, Payload<M> data) {
+        Objects.requireNonNull(context, "context");
+        Objects.requireNonNull(data, "data");
+        if (context.isCancelled()) {
+            return completed(DeliveryResult.permanent("submission is cancelled", provenance));
         }
-        var in = signal.batchType().cast(data.view(PayloadView.DOMAIN_IMMUTABLE));
-        var items = data.itemCount();
-        var bytes = data.estimatedSerializedSize();
-        var key = computeKey(context);
+        if (context.deadline().isExpired(Clock.systemUTC())) {
+            return completed(DeliveryResult.timedOut("submission deadline elapsed", provenance));
+        }
+        long bytes;
+        long items;
+        M in;
+        try {
+            bytes = PayloadWire.size(data);
+            items = data.itemCount();
+            // Batching necessarily materialises the domain. Do this before admission so an
+            // indivisible item that cannot satisfy the exact byte cap is rejected atomically.
+            in = data.data();
+        } catch (Throwable failure) {
+            return completed(DeliveryResult.permanentFrom("batch materialisation", failure, provenance));
+        }
+        if (sendBatchMaxBytes > 0) {
+            try {
+                ExactBatchSplitter.split(signal, in, 0, sendBatchMaxBytes);
+            } catch (Throwable failure) {
+                return completed(DeliveryResult.permanentFrom("batch item exceeds byte cap", failure, provenance));
+            }
+        }
+        final MetadataBatchKey key;
+        final ConsumeContext detachedContext;
+        try {
+            // Capture metadata and construct the detached downstream context before reserving any
+            // admission capacity. A malformed context must not leave a reserved slot or a partially
+            // appended batch if metadata access itself fails.
+            var metadata = Objects.requireNonNull(context.metadata(), "context metadata");
+            key = computeKey(metadata);
+            detachedContext = ConsumeContext.of(metadata, Deadline.never());
+        } catch (Throwable failure) {
+            return completed(DeliveryResult.permanentFrom("batch context capture", failure, provenance));
+        }
         Batch snapshot;
         synchronized (lock) {
-            var batch = buffers.computeIfAbsent(key, k -> new Batch());
+            if (closed) {
+                return completed(DeliveryResult.shuttingDown("batch processor is shutting down", provenance));
+            }
+            if (!admit(key, bytes)) {
+                return completed(DeliveryResult.admissionRefused(
+                        "batch processor admission limit reached", null, provenance));
+            }
+            var batch = buffers.get(key);
+            if (batch == null) {
+                batch = new Batch();
+                buffers.put(key, batch);
+            }
             var wasEmpty = batch.parts.isEmpty();
             batch.parts.add(in);
             batch.items += items;
             batch.bytes += bytes;
-            batch.lastContext = context;
+            batch.submissions++;
+            // Accepted work must not retain a transport request's cancellation/deadline state. Keep
+            // immutable client metadata for routing while giving downstream delivery its own lifetime.
+            batch.lastContext = detachedContext;
             if (wasEmpty) {
                 scheduleTimeout(batch, key);
             }
             snapshot = shouldFlush(batch) ? removeLocked(key) : null;
+            if (snapshot != null) {
+                // The flush is performed while holding the same admission lock. Therefore a concurrent
+                // flush cannot establish a barrier between removing this snapshot and queue admission.
+                enqueue(snapshot);
+            }
         }
-        if (snapshot == null) {
-            return DeliveryResult.acceptedStage(provenance);
-        }
-        return combine(enqueue(context, snapshot.parts));
+        return completed(DeliveryResult.accepted(provenance));
     }
 
-    private MetadataBatchKey computeKey(ConsumeContext context) {
+    private boolean admit(MetadataBatchKey key, long bytes) {
+        if (pendingSubmissions.get() >= maxPendingSubmissions) {
+            return false;
+        }
+        if (bytes < 0 || bytes > maxPendingBytes) {
+            return false;
+        }
+        var current = pendingBytes.get();
+        if (current > maxPendingBytes - bytes) {
+            return false;
+        }
+        if (!buffers.containsKey(key) && buffers.size() >= maxPartitions) {
+            return false;
+        }
+        pendingSubmissions.incrementAndGet();
+        pendingBytes.addAndGet(bytes);
+        return true;
+    }
+
+    private void release(long submissions, long bytes) {
+        pendingSubmissions.addAndGet(-submissions);
+        pendingBytes.addAndGet(-bytes);
+    }
+
+    private MetadataBatchKey computeKey(ClientMetadata metadata) {
         if (metadataKeys.isEmpty()) {
             return MetadataBatchKey.GLOBAL;
         }
-        var headers = context.metadata().headers();
+        var headers = metadata.headers();
         var values = new ArrayList<@Nullable List<String>>(metadataKeys.size());
         for (var key : metadataKeys) {
-            // A key absent from the headers stores null, distinct from a present-but-empty value list,
-            // so unset and empty metadata are distinct batch partitions, matching the Collector.
-            values.add(headers.get(key));
+            var value = headers.get(key);
+            values.add(value == null ? null : List.copyOf(value));
         }
         return new MetadataBatchKey(values);
     }
 
     private boolean shouldFlush(Batch batch) {
-        if (batch.items >= sendBatchSize) {
-            return true;
-        }
-        return sendBatchMaxBytes > 0 && batch.bytes >= sendBatchMaxBytes;
+        return batch.items >= sendBatchSize || sendBatchMaxBytes > 0 && batch.bytes >= sendBatchMaxBytes;
     }
 
     private void scheduleTimeout(Batch batch, MetadataBatchKey key) {
@@ -154,20 +220,14 @@ public final class BatchProcessor<M> implements Processor<TelemetryPayload> {
     }
 
     private void onTimeout(MetadataBatchKey key) {
-        Batch snapshot;
         synchronized (lock) {
-            snapshot = removeLocked(key);
+            var snapshot = removeLocked(key);
+            if (snapshot != null && !snapshot.parts.isEmpty()) {
+                enqueue(snapshot);
+            }
         }
-        if (snapshot == null || snapshot.parts.isEmpty()) {
-            return;
-        }
-        // A timeout flush is not returned to any caller, so failures are logged, not signalled upstream.
-        var context = Objects.requireNonNull(snapshot.lastContext, "buffered context");
-        enqueue(context, snapshot.parts).forEach(stage -> stage.whenComplete(this::logFlushOutcome));
     }
 
-    /// Removes and returns the batch under `key`, cancelling its pending timeout. Returns null when no
-    /// batch is buffered under the key (a concurrent flush already claimed it). Must hold the lock.
     private @Nullable Batch removeLocked(MetadataBatchKey key) {
         var batch = buffers.remove(key);
         if (batch != null && batch.timer != null) {
@@ -176,49 +236,26 @@ public final class BatchProcessor<M> implements Processor<TelemetryPayload> {
         return batch;
     }
 
-    /// Merges the buffered parts, splits the merged batch when a send-batch maximum size is set, and
-    /// enqueues each unit into the delivery queue, returning the per-unit delivery stages in order.
-    private List<CompletionStage<DeliveryResult>> enqueue(ConsumeContext context, List<M> parts) {
-        var merged = signal.merge(parts);
-        var units = sendBatchMaxSize > 0 ? signal.split(merged, sendBatchMaxSize) : List.of(merged);
-        var stages = new ArrayList<CompletionStage<DeliveryResult>>(units.size());
-        for (var unit : units) {
-            stages.add(queue.offer(context, Payloads.domain(signal, unit)));
-        }
-        return stages;
-    }
-
-    /// Combines the per-unit delivery stages of one flush into a single result: the first rejection
-    /// wins, otherwise the first partial, otherwise acceptance.
-    private CompletionStage<DeliveryResult> combine(List<CompletionStage<DeliveryResult>> stages) {
-        if (stages.size() == 1) {
-            return stages.get(0);
-        }
-        var futures = stages.stream().map(CompletionStage::toCompletableFuture).toList();
-        return CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new))
-                .thenApply(ignored -> reduce(futures));
-    }
-
-    private DeliveryResult reduce(List<CompletableFuture<DeliveryResult>> futures) {
-        DeliveryResult firstPartial = null;
-        for (var future : futures) {
-            var result = future.join();
-            if (result instanceof DeliveryResult.Rejected) {
-                return result;
+    private void enqueue(Batch batch) {
+        var context = Objects.requireNonNull(batch.lastContext, "buffered context");
+        List<Payload<M>> units;
+        try {
+            var merged = signal.merge(batch.parts);
+            units = ExactBatchSplitter.split(signal, merged, sendBatchMaxSize, sendBatchMaxBytes);
+        } catch (Throwable failure) {
+            release(batch.submissions, batch.bytes);
+            failures.get().record(batch.items, failure);
+            if (failure instanceof Error fatal) {
+                throw fatal;
             }
-            if (result instanceof DeliveryResult.Partial && firstPartial == null) {
-                firstPartial = result;
-            }
+            return;
         }
-        return firstPartial != null ? firstPartial : DeliveryResult.accepted(provenance);
-    }
-
-    private void logFlushOutcome(@Nullable DeliveryResult result, @Nullable Throwable failure) {
-        if (failure != null) {
-            LOG.warn("batch flush failed for {}", provenance.componentId(), failure);
-        } else if (result instanceof DeliveryResult.Rejected rejected) {
-            LOG.warn("batch flush rejected downstream for {}: {}",
-                    provenance.componentId(), rejected.message());
+        var release = new ReleaseOnce(batch.submissions, batch.bytes);
+        var result = queue.offerAll(context, units, release::run);
+        if (result.result() instanceof DeliveryResult.Rejected) {
+            // Immediate refusal is already included in the queue's flush accumulator. Release the
+            // batch accounting because no queue completion callback will run.
+            release.run();
         }
     }
 
@@ -234,68 +271,139 @@ public final class BatchProcessor<M> implements Processor<TelemetryPayload> {
     }
 
     @Override
-    public CompletionStage<Void> forceFlush(FlushContext context) {
-        flushAll();
-        queue.awaitDrained(context.deadline());
-        return CompletableFuture.completedFuture(null);
+    public CompletionStage<FlushReport> flush(FlushContext context) {
+        Objects.requireNonNull(context, "context");
+        var deadline = new FlushDeadline(nanoTime.getAsLong(), context.deadline());
+        final FailureAccumulator local;
+        synchronized (lock) {
+            for (var key : new ArrayList<>(buffers.keySet())) {
+                var snapshot = removeLocked(key);
+                if (snapshot != null && !snapshot.parts.isEmpty()) {
+                    enqueue(snapshot);
+                }
+            }
+            // Swap under the same lock used by consume/enqueue. If a concurrent flush times out,
+            // its local failures can then be merged into whichever accumulator owns the next barrier
+            // without racing a getAndSet and orphaning the late merge.
+            local = failures.getAndSet(new FailureAccumulator());
+        }
+        var drained = queue.flush(deadline.remaining());
+        var result = new CompletableFuture<FlushReport>();
+        drained.whenComplete((ignored, failure) -> {
+            if (failure != null) {
+                // A timeout has no report result. Preserve local merge/materialisation failures for
+                // the next successful barrier instead of silently losing them with the exceptional stage.
+                synchronized (lock) {
+                    failures.get().merge(local);
+                }
+                result.completeExceptionally(failure);
+            } else {
+                try {
+                    result.complete(local.report().plus(ignored));
+                } catch (Throwable mergeFailure) {
+                    result.completeExceptionally(mergeFailure);
+                }
+            }
+        });
+        return result;
     }
 
     @Override
     public CompletionStage<Void> shutdown(ShutdownContext context) {
-        if (!shutdownStarted.compareAndSet(false, true)) {
-            return CompletableFuture.completedFuture(null);
+        Objects.requireNonNull(context, "context");
+        var existing = shutdownResult.get();
+        if (existing != null) {
+            return existing;
         }
-        closed = true;
-        flushAll();
-        queue.drainAndStop(context.deadline());
-        var exec = scheduler;
-        if (exec != null) {
-            exec.shutdownNow();
+        var terminal = new CompletableFuture<Void>();
+        if (!shutdownResult.compareAndSet(null, terminal)) {
+            return Objects.requireNonNull(shutdownResult.get());
         }
-        return CompletableFuture.completedFuture(null);
+
+        try {
+            var deadline = new FlushDeadline(nanoTime.getAsLong(), context.deadline());
+            final FailureAccumulator local;
+            synchronized (lock) {
+                closed = true;
+                for (var key : new ArrayList<>(buffers.keySet())) {
+                    var snapshot = removeLocked(key);
+                    if (snapshot != null && !snapshot.parts.isEmpty()) {
+                        enqueue(snapshot);
+                    }
+                }
+                local = failures.getAndSet(new FailureAccumulator());
+            }
+            var drained = queue.drainAndStop(deadline.remaining());
+            drained.whenComplete((report, failure) -> {
+                if (failure != null) {
+                    synchronized (lock) {
+                        failures.get().merge(local);
+                    }
+                    terminal.completeExceptionally(failure);
+                    return;
+                }
+                try {
+                    var combined = local.report().plus(report);
+                    if (combined.isSuccess()) {
+                        terminal.complete(null);
+                    } else {
+                        var firstFailure = combined.firstFailure();
+                        terminal.completeExceptionally(firstFailure != null
+                                ? firstFailure
+                                : new IllegalStateException("batch processor shutdown lost telemetry"));
+                    }
+                } catch (Throwable mergeFailure) {
+                    terminal.completeExceptionally(mergeFailure);
+                }
+            });
+            var exec = scheduler;
+            if (exec != null) {
+                exec.shutdownNow();
+            }
+        } catch (Throwable failure) {
+            terminal.completeExceptionally(failure);
+        }
+        return terminal;
     }
 
-    /// Flushes every buffered partition, enqueuing each into the delivery queue and logging any
-    /// per-flush failure, since a flush at flush-all time is not returned to any caller.
-    private void flushAll() {
-        List<Batch> snapshots = new ArrayList<>();
-        synchronized (lock) {
-            for (var key : new ArrayList<>(buffers.keySet())) {
-                snapshots.add(removeLocked(key));
-            }
+    private static <T> CompletionStage<T> completed(T result) {
+        return CompletableFuture.completedFuture(result);
+    }
+
+    private final class ReleaseOnce {
+        private final long submissions;
+        private final long bytes;
+        private final AtomicBoolean released = new AtomicBoolean();
+
+        private ReleaseOnce(long submissions, long bytes) {
+            this.submissions = submissions;
+            this.bytes = bytes;
         }
-        for (var batch : snapshots) {
-            if (batch == null || batch.parts.isEmpty()) {
-                continue;
+
+        void run() {
+            if (released.compareAndSet(false, true)) {
+                release(submissions, bytes);
             }
-            var context = Objects.requireNonNull(batch.lastContext, "buffered context");
-            enqueue(context, batch.parts).forEach(stage -> stage.whenComplete(this::logFlushOutcome));
         }
     }
 
-    /// One metadata-keyed accumulator: the buffered domain batches, the running item and byte totals,
-    /// the most recent delivery context (used for a timeout or flush-all flush), and the pending
-    /// timeout task. A non-static inner class so its buffered parts are typed to the enclosing
-    /// processor's signal batch type.
     private final class Batch {
         private final List<M> parts = new ArrayList<>();
         private long items;
         private long bytes;
+        private long submissions;
         private @Nullable ConsumeContext lastContext;
         private @Nullable ScheduledFuture<?> timer;
     }
 
-    /// A batch partition key: the ordered list of the configured metadata keys' header values, with a
-    /// null element for an unset key so it is distinct from a present-but-empty value list. The empty
-    /// key set collapses to the shared [#GLOBAL] partition.
     private static final class MetadataBatchKey {
-
         private static final MetadataBatchKey GLOBAL = new MetadataBatchKey(List.of());
-
         private final List<@Nullable List<String>> values;
 
         private MetadataBatchKey(List<@Nullable List<String>> values) {
-            this.values = values;
+            // List.copyOf rejects null elements, but null distinguishes an unset metadata key from
+            // an explicitly empty header list and is part of the partition key.
+            this.values = Collections.unmodifiableList(new ArrayList<>(values));
         }
 
         @Override
@@ -306,6 +414,50 @@ public final class BatchProcessor<M> implements Processor<TelemetryPayload> {
         @Override
         public int hashCode() {
             return values.hashCode();
+        }
+    }
+
+    private final class FailureAccumulator {
+        private long rejected;
+        private long failed;
+        private @Nullable Throwable first;
+
+        synchronized void record(long items, Throwable failure) {
+            rejected += items;
+            failed++;
+            if (first == null) {
+                first = failure;
+            }
+        }
+
+        synchronized void merge(FailureAccumulator other) {
+            rejected += other.rejected;
+            failed += other.failed;
+            if (first == null) {
+                first = other.first;
+            }
+        }
+
+        synchronized FlushReport report() {
+            return new FlushReport(rejected, 0, failed, first);
+        }
+    }
+
+    private final class FlushDeadline {
+        private long end;
+
+        private FlushDeadline(long start, Duration duration) {
+            long nanos;
+            try {
+                nanos = duration.toNanos();
+                end = Math.addExact(start, nanos);
+            } catch (ArithmeticException e) {
+                end = Long.MAX_VALUE;
+            }
+        }
+
+        Duration remaining() {
+            return Duration.ofNanos(Math.max(0, end - nanoTime.getAsLong()));
         }
     }
 }

@@ -1,124 +1,63 @@
 package dev.nthings.otlp4j.codec;
 
 import com.google.protobuf.MessageLite;
-import dev.nthings.otlp4j.core.signal.PayloadView;
+import dev.nthings.otlp4j.core.signal.Payload;
+import dev.nthings.otlp4j.core.signal.RoutingMetadata;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
-import dev.nthings.otlp4j.core.signal.TelemetryPayload;
-import java.io.IOException;
-import java.io.OutputStream;
+import java.util.Objects;
 
-/// The domain-carrying payload: it carries an immutable domain batch (a `TracesData` and friends)
-/// together with its [SignalCodec], and materialises the proto export request only if it is exported
-/// or sized. Its authoritative representation is the domain batch, so counting reads the batch in
-/// hand with no materialisation. This is the payload a domain-view processor emits through
-/// [Payloads#domain] and the payload the standalone `ClientExporter.export(signal, batch)` builds.
-///
-/// The lazily materialised proto request is cached under a per-instance guard with a `volatile`
-/// field, which gives safe publication to peers on other threads. Both the carried domain record and
-/// the cached proto message are immutable, so the payload is share-safe and `copyForMutation` returns
-/// `this`.
-///
-/// @param <T>    the domain batch type
-/// @param <REQ>  the signal's proto export-request message
-/// @param <RESP> the signal's proto export-response message
-public final class DomainRequestPayload<T, REQ extends MessageLite, RESP extends MessageLite>
-        implements TelemetryPayload {
+/// A codec-backed domain payload. The generated request is encoded lazily and memoized so repeated
+/// exporters or retries share one immutable wire message.
+final class DomainRequestPayload<T, REQ extends MessageLite, RESP extends MessageLite> implements Payload<T> {
 
     private final SignalCodec<T, REQ, RESP> codec;
-    private final T batch;
-
-    private final Object requestGuard = new Object();
+    private final T data;
+    private final RoutingMetadata routingMetadata;
     private volatile REQ request;
 
-    DomainRequestPayload(SignalCodec<T, REQ, RESP> codec, T batch) {
-        if (codec == null) {
-            throw new IllegalArgumentException("codec must be non-null");
-        }
-        if (batch == null) {
-            throw new IllegalArgumentException("batch must be non-null");
-        }
-        this.codec = codec;
-        this.batch = batch;
+    DomainRequestPayload(SignalCodec<T, REQ, RESP> codec, T data) {
+        this.codec = Objects.requireNonNull(codec, "codec");
+        this.data = Objects.requireNonNull(data, "data");
+        this.routingMetadata = codec.routingMetadata(data);
     }
 
     @Override
-    public SignalDescriptor<?> signal() {
+    public SignalDescriptor<T> signal() {
         return codec.descriptor();
     }
 
     @Override
+    public T data() {
+        return data;
+    }
+
+    @Override
     public long itemCount() {
-        return codec.descriptor().itemCount(batch);
+        return codec.descriptor().itemCount(data);
     }
 
-    /// The exact serialized byte length of the OTLP export request this batch would write, from
-    /// `MessageLite.getSerializedSize()`. This forces the one proto materialisation, which is cached.
-    ///
-    /// @return the serialized size in bytes
     @Override
-    public long estimatedSerializedSize() {
-        return protoRequest().getSerializedSize();
+    public RoutingMetadata routingMetadata() {
+        return routingMetadata;
     }
 
-    /// Returns the requested representation. [PayloadView#DOMAIN_IMMUTABLE] is the carried batch at
-    /// zero cost; [PayloadView#PROTO_REQUEST] is the proto request, materialised and cached on first
-    /// request; [PayloadView#ROUTING_METADATA] is the cheap routing surface read from only the domain
-    /// batch's resource wrappers. Any other view fails closed with an `IllegalArgumentException`
-    /// naming the view.
-    ///
-    /// @param view the requested view
-    /// @param <V>  the view's return type
-    /// @return the requested representation
     @Override
-    @SuppressWarnings("unchecked")
-    public <V> V view(PayloadView<V> view) {
-        if (view == PayloadView.DOMAIN_IMMUTABLE) {
-            return (V) batch;
-        }
-        if (view == PayloadView.PROTO_REQUEST) {
-            return (V) protoRequest();
-        }
-        if (view == PayloadView.ROUTING_METADATA) {
-            return (V) codec.routingMetadata(batch);
-        }
-        throw new IllegalArgumentException("unsupported payload view: " + view);
+    public Payload<T> withData(T replacement) {
+        Objects.requireNonNull(replacement, "replacement");
+        return replacement == data ? this : new DomainRequestPayload<>(codec, replacement);
     }
 
-    /// Returns a payload safe to mutate without disturbing this instance. The carried domain record
-    /// and the cached proto message are immutable, so sharing is safe and this returns `this`.
-    ///
-    /// @return this payload
-    @Override
-    public TelemetryPayload copyForMutation() {
-        return this;
-    }
-
-    /// Serialises the OTLP export request to `out` with `MessageLite.writeTo(OutputStream)`, writing
-    /// the one lazily materialised message.
-    ///
-    /// @param out the stream to write to
-    /// @throws IOException if the stream write fails
-    @Override
-    public void writeTo(OutputStream out) throws IOException {
-        protoRequest().writeTo(out);
-    }
-
-    private REQ protoRequest() {
-        var r = request;
-        if (r == null) {
-            synchronized (requestGuard) {
-                r = request;
-                if (r == null) {
-                    r = codec.toProto(batch);
-                    request = r;
+    REQ request() {
+        var value = request;
+        if (value == null) {
+            synchronized (this) {
+                value = request;
+                if (value == null) {
+                    value = codec.toProto(data);
+                    request = value;
                 }
             }
         }
-        return r;
-    }
-
-    @Override
-    public String toString() {
-        return "DomainRequestPayload(" + codec.descriptor().signalName() + ", items=" + itemCount() + ")";
+        return value;
     }
 }

@@ -2,6 +2,7 @@ package dev.nthings.otlp4j.transport.internal;
 
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.MessageLite;
+import com.google.rpc.Status;
 import com.linecorp.armeria.common.HttpData;
 import com.linecorp.armeria.common.HttpHeaderNames;
 import com.linecorp.armeria.common.HttpResponse;
@@ -10,25 +11,30 @@ import com.linecorp.armeria.common.MediaType;
 import com.linecorp.armeria.common.ResponseHeaders;
 import com.linecorp.armeria.common.AggregatedHttpRequest;
 import com.linecorp.armeria.server.HttpService;
+import com.linecorp.armeria.server.ServiceRequestContext;
 import dev.nthings.otlp4j.codec.DeliveryResultStatuses;
+import dev.nthings.otlp4j.codec.PayloadWire;
 import dev.nthings.otlp4j.codec.SignalCodec;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.transport.internal.AdmissionControl;
 import java.io.ByteArrayOutputStream;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.time.Duration;
+import java.time.Clock;
 import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutionException;
 import java.util.zip.GZIPInputStream;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /// Builds the per-signal OTLP/HTTP [HttpService]s served by the Armeria server, and maps a decoded
-/// request and its [DeliveryResult] onto an HTTP response. The mapping mirrors the legacy OTLP/HTTP
-/// transport:
+/// request and its [DeliveryResult] onto an HTTP response:
 ///
 /// - POST-only (the route restricts the method, so a GET yields `405`).
 /// - `application/x-protobuf` content type required; `application/json` and other types yield `415`,
@@ -57,16 +63,22 @@ final class HttpProtocolMapping {
     /// @param admission  the shared admission control
     /// @return the HTTP service
     static HttpService service(
-            SignalCodec<?, ?, ?> codec, PayloadDispatch dispatch, int maxBytes, AdmissionControl admission) {
+            SignalCodec<?, ?, ?> codec, PayloadDispatch dispatch, int maxBytes, AdmissionControl admission,
+            Clock clock) {
         return (ctx, req) -> HttpResponse.of(
                 req.aggregate()
                         // Run the decode and dispatch on Armeria's blocking-task executor rather than
                         // the connection's I/O event loop, so a blocking SignalConsumer cannot stall the
                         // shared event loop and every other connection multiplexed onto it.
                         .thenComposeAsync(
-                                agg -> handle(agg, codec, dispatch, maxBytes, admission),
+                                agg -> handle(agg, codec, dispatch, maxBytes, admission, ctx, clock),
                                 ctx.blockingTaskExecutor())
                         .exceptionally(HttpProtocolMapping::onError));
+    }
+
+    static HttpService service(
+            SignalCodec<?, ?, ?> codec, PayloadDispatch dispatch, int maxBytes, AdmissionControl admission) {
+        return service(codec, dispatch, maxBytes, admission, Clock.systemUTC());
     }
 
     private static <T, REQ extends MessageLite, RESP extends MessageLite> CompletionStage<HttpResponse> handle(
@@ -74,7 +86,9 @@ final class HttpProtocolMapping {
             SignalCodec<T, REQ, RESP> codec,
             PayloadDispatch dispatch,
             int maxBytes,
-            AdmissionControl admission) {
+            AdmissionControl admission,
+            ServiceRequestContext context,
+            Clock clock) {
         if (!isProtobuf(agg.contentType())) {
             var ct = agg.contentType();
             return completed(text(HttpStatus.UNSUPPORTED_MEDIA_TYPE,
@@ -107,9 +121,21 @@ final class HttpProtocolMapping {
             return completed(text(HttpStatus.BAD_REQUEST, "malformed protobuf: " + e.getMessage()));
         }
 
-        return dispatch.dispatch(codec.proto(request))
-                .handle((result, error) -> mapResult(codec, result, error))
-                .whenComplete((response, error) -> permit.close());
+        var consumeContext = ReceiverConsumeContext.http(context, clock);
+        try {
+            return dispatch.dispatch(consumeContext, PayloadWire.proto(codec, request))
+                    .handle((result, error) -> mapResult(codec, result, error))
+                    .whenComplete((response, error) -> {
+                        consumeContext.complete();
+                        permit.close();
+                    });
+        } catch (Throwable failure) {
+            // A dispatcher is allowed to reject synchronously. Release admission before mapping the
+            // failure so a broken consumer cannot strand the global request/byte slot.
+            consumeContext.complete();
+            permit.close();
+            return completed(mapResult(codec, null, failure));
+        }
     }
 
     private static <T, REQ extends MessageLite, RESP extends MessageLite> HttpResponse mapResult(
@@ -171,7 +197,7 @@ final class HttpProtocolMapping {
         var out = new ByteArrayOutputStream(Math.min(maxBytes, 64 * 1024));
         var buffer = new byte[8192];
         var total = 0;
-        try (InputStream in = new GZIPInputStream(new java.io.ByteArrayInputStream(gzipped))) {
+        try (InputStream in = new GZIPInputStream(new ByteArrayInputStream(gzipped))) {
             int read;
             while ((read = in.read(buffer)) != -1) {
                 total += read;
@@ -192,22 +218,51 @@ final class HttpProtocolMapping {
 
     private static Throwable unwrap(Throwable error) {
         return error.getCause() != null
-                && (error instanceof java.util.concurrent.CompletionException
-                        || error instanceof java.util.concurrent.ExecutionException)
+                && (error instanceof CompletionException || error instanceof ExecutionException)
                 ? error.getCause()
                 : error;
     }
 
     private static HttpResponse text(HttpStatus status, @Nullable String message) {
-        return HttpResponse.of(status, MediaType.PLAIN_TEXT_UTF_8, message == null ? "" : message);
+        return statusResponse(status, message, null);
     }
 
     private static HttpResponse textWithRetryAfter(HttpStatus status, long seconds, @Nullable String message) {
         var headers = ResponseHeaders.builder(status)
-                .contentType(MediaType.PLAIN_TEXT_UTF_8)
+                .contentType(PROTOBUF)
                 .add(HttpHeaderNames.RETRY_AFTER, Long.toString(seconds))
                 .build();
-        return HttpResponse.of(headers, HttpData.ofUtf8(message == null ? "" : message));
+        return HttpResponse.of(headers, HttpData.wrap(statusBody(status, message)));
+    }
+
+    private static HttpResponse statusResponse(
+            HttpStatus status, @Nullable String message, @Nullable Duration retryAfter) {
+        var builder = ResponseHeaders.builder(status).contentType(PROTOBUF);
+        if (retryAfter != null) {
+            builder.add(
+                    HttpHeaderNames.RETRY_AFTER,
+                    Long.toString(DeliveryResultStatuses.retryAfterSeconds(retryAfter)));
+        }
+        return HttpResponse.of(builder.build(), HttpData.wrap(statusBody(status, message)));
+    }
+
+    private static byte[] statusBody(HttpStatus status, @Nullable String message) {
+        return Status.newBuilder()
+                .setCode(grpcCode(status.code()))
+                .setMessage(message == null ? "" : message)
+                .build()
+                .toByteArray();
+    }
+
+    private static int grpcCode(int httpStatus) {
+        return switch (httpStatus) {
+            case 400, 415 -> 3;
+            case 408, 504 -> 4;
+            case 413, 429 -> 8;
+            case 500 -> 13;
+            case 503 -> 14;
+            default -> 2;
+        };
     }
 
     private static CompletionStage<HttpResponse> completed(HttpResponse response) {

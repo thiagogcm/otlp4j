@@ -3,16 +3,15 @@ package dev.nthings.otlp4j.components;
 import static dev.nthings.otlp4j.core.signal.SignalDescriptor.TRACES;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import dev.nthings.otlp4j.codec.Payloads;
 import dev.nthings.otlp4j.components.batch.BatchProcessorConfig;
 import dev.nthings.otlp4j.components.batch.BatchProcessorFactory;
-import dev.nthings.otlp4j.components.internal.MatchRule;
-import dev.nthings.otlp4j.components.internal.MatchSpec;
 import dev.nthings.otlp4j.components.memory.MemoryLimiterProcessorFactory;
 import dev.nthings.otlp4j.components.routing.FilterConfig;
 import dev.nthings.otlp4j.components.routing.FilterProcessorFactory;
 import dev.nthings.otlp4j.components.routing.RoutingConfig;
 import dev.nthings.otlp4j.components.routing.RoutingProcessorFactory;
+import dev.nthings.otlp4j.components.routing.MatchRule;
+import dev.nthings.otlp4j.components.routing.MatchSpec;
 import dev.nthings.otlp4j.components.support.GraphReceiverFactory;
 import dev.nthings.otlp4j.components.support.TestConsumeContext;
 import dev.nthings.otlp4j.core.component.ComponentConfig;
@@ -23,7 +22,7 @@ import dev.nthings.otlp4j.core.policy.BatchPolicy;
 import dev.nthings.otlp4j.core.policy.DeliveryQueuePolicy;
 import dev.nthings.otlp4j.core.policy.OverflowPolicy;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
-import dev.nthings.otlp4j.core.signal.TelemetryPayload;
+import dev.nthings.otlp4j.core.signal.Payload;
 import dev.nthings.otlp4j.model.Attributes;
 import dev.nthings.otlp4j.model.InstrumentationScope;
 import dev.nthings.otlp4j.model.Resource;
@@ -61,8 +60,8 @@ class GatewayBuiltinsBootTest {
     @DisplayName("data flows through memory-limiter, filter, batch, and routing; batch flushes on shutdown")
     @Test
     void allFourBuiltInsCarryDataAndBatchDrainsOnShutdown() {
-        var checkoutReceived = new CopyOnWriteArrayList<TelemetryPayload>();
-        var billingReceived = new CopyOnWriteArrayList<TelemetryPayload>();
+        var checkoutReceived = new CopyOnWriteArrayList<Payload<?>>();
+        var billingReceived = new CopyOnWriteArrayList<Payload<?>>();
         var recv = new GraphReceiverFactory();
 
         var gw = Gateway.builder();
@@ -113,7 +112,7 @@ class GatewayBuiltinsBootTest {
 
     /// A routing branch that forwards only payloads whose `service.name` equals `service`.
     private static RoutingConfig routeService(String service) {
-        return new RoutingConfig(matchService(service), false);
+        return new RoutingConfig(matchService(service));
     }
 
     private static MatchSpec matchService(String service) {
@@ -124,23 +123,26 @@ class GatewayBuiltinsBootTest {
     private static BatchProcessorConfig holdingBatch() {
         return new BatchProcessorConfig(
                 new BatchPolicy(1_000_000, 0, 0, Duration.ofMinutes(10), List.of()),
-                new DeliveryQueuePolicy(1024, 1, OverflowPolicy.BLOCK, false),
-                Duration.ofSeconds(5));
+                new DeliveryQueuePolicy(1024, 1, OverflowPolicy.FAIL),
+                Duration.ofSeconds(5),
+                BatchProcessorConfig.DEFAULT_MAX_PENDING_SUBMISSIONS,
+                BatchProcessorConfig.DEFAULT_MAX_PENDING_BYTES,
+                BatchProcessorConfig.DEFAULT_MAX_PARTITIONS);
     }
 
-    private static ExporterFactory<ComponentConfig.None> capturingInto(List<TelemetryPayload> sink) {
+    private static ExporterFactory<ComponentConfig.None> capturingInto(List<Payload<?>> sink) {
         return ExporterFactory.of("capture", (ctx, data, provenance) -> {
             sink.add(data);
             return DeliveryResult.acceptedStage(provenance);
         });
     }
 
-    private static TelemetryPayload tracesFor(String serviceName, int spanCount) {
+    private static Payload<TracesData> tracesFor(String serviceName, int spanCount) {
         var spans = new ArrayList<Span>();
         for (var i = 0; i < spanCount; i++) {
             spans.add(Fixtures.span("span-" + i, Span.Kind.SERVER));
         }
         var resource = Resource.of(Attributes.builder().put("service.name", serviceName).build());
-        return Payloads.domain(TRACES, TracesData.of(resource, InstrumentationScope.EMPTY, spans));
+        return Payload.of(TRACES, TracesData.of(resource, InstrumentationScope.EMPTY, spans));
     }
 }

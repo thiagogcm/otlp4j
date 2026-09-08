@@ -24,7 +24,7 @@ class AdmissionControlMetricsTest {
     void cappedControlReportsRejectionsAndInFlight() {
         var registry = new RecordingGatewayMetrics();
         var admission = AdmissionControl.of(
-                OtlpReceiverConfig.builder(4317).setMaxInFlightRequests(1).build(), registry);
+                OtlpReceiverConfig.builder(4317).maxInFlightRequests(1).build(), registry);
 
         var permit = admission.tryAcquire(() -> 40);
         assertThat(permit).isNotNull();
@@ -73,7 +73,7 @@ class AdmissionControlMetricsTest {
     void closeUnregistersGaugesIdempotently() {
         var registry = new RecordingGatewayMetrics();
         var admission = AdmissionControl.of(
-                OtlpReceiverConfig.builder(4317).setMaxInFlightBytes(1000).build(), registry);
+                OtlpReceiverConfig.builder(4317).maxInFlightBytes(1000).build(), registry);
 
         var permit = admission.tryAcquire(() -> 50);
         assertThat(permit).isNotNull();

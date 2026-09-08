@@ -14,6 +14,7 @@ import dev.nthings.otlp4j.core.result.DeliveryReason;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.result.Disposition;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
+import dev.nthings.otlp4j.model.TracesData;
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
@@ -29,8 +30,8 @@ class MemoryLimiterProcessorTest {
     private final AtomicLong nanos = new AtomicLong(1_000);
     private final AtomicLong collects = new AtomicLong();
     private final MemoryLimiter limiter = new MemoryLimiter(used::get, 100, 200);
-    private final RecordingConsumer next = new RecordingConsumer();
-    private final MemoryLimiterProcessor processor = new MemoryLimiterProcessor(
+    private final RecordingConsumer<TracesData> next = new RecordingConsumer<>();
+    private final MemoryLimiterProcessor<TracesData> processor = new MemoryLimiterProcessor<>(
             ComponentId.parse("memory_limiter"),
             SignalDescriptor.TRACES,
             limiter,

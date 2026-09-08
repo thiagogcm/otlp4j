@@ -7,7 +7,6 @@ import dev.nthings.otlp4j.core.component.Processor;
 import dev.nthings.otlp4j.core.component.ProcessorFactory;
 import dev.nthings.otlp4j.core.consumer.SignalConsumer;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
-import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 
 /// The factory for the built-in memory limiter processor, type `memory_limiter`.
 ///
@@ -38,19 +37,18 @@ public final class MemoryLimiterProcessorFactory implements ProcessorFactory<Mem
     }
 
     @Override
-    public <T extends TelemetryPayload> Processor<T> create(
+    public <T> Processor<T> create(
             CreateContext ctx, MemoryLimiterConfig config, SignalDescriptor<T> signal, SignalConsumer<T> next) {
         var limiter = new MemoryLimiter(
                 MemoryLimiter.heapGauge(), config.softLimitBytes(), config.hardLimitBytes());
-        Processor<TelemetryPayload> processor = new MemoryLimiterProcessor(
+        return new MemoryLimiterProcessor<>(
                 ctx.id(),
                 signal,
                 limiter,
                 config.checkInterval(),
                 config.retryAfter(),
-                SignalConsumer.asPayload(next),
+                next,
                 System::nanoTime,
-                System::gc);
-        return ProcessorFactory.asTypedProcessor(processor);
+                () -> {});
     }
 }

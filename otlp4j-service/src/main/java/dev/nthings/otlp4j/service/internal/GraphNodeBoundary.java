@@ -4,14 +4,14 @@ import dev.nthings.otlp4j.core.consumer.ConsumeContext;
 import dev.nthings.otlp4j.core.consumer.SignalConsumer;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.result.Provenance;
-import dev.nthings.otlp4j.core.signal.TelemetryPayload;
+import dev.nthings.otlp4j.core.signal.Payload;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
 /// The single place a component invocation is normalized into a [DeliveryResult]. Wrapping every
 /// consume call so a thrown exception, a null returned stage, or a failed stage becomes a delivery
-/// result carrying the node's [Provenance] replaces the scattered exception normalization the fluent
-/// pipeline spread across its sources and transports. The normalization matches the framework-wide
+/// result carrying the node's [Provenance] gives every graph edge the same failure semantics.
+/// The normalization matches the framework-wide
 /// convention `DeliveryResult.permanentFrom` codifies: a `CompletionException` is unwrapped, an
 /// `Error` is rethrown, and an interrupt is restored.
 public final class GraphNodeBoundary {
@@ -25,10 +25,10 @@ public final class GraphNodeBoundary {
     /// @param provenance the provenance to stamp on a normalized failure
     /// @param context    the per-invocation delivery context
     /// @param data       the payload to deliver
-    /// @param <T>        the payload type
-    /// @return a stage completing with the delivery result, never completing exceptionally
-    public static <T extends TelemetryPayload> CompletionStage<DeliveryResult> deliver(
-            SignalConsumer<T> consumer, Provenance provenance, ConsumeContext context, T data) {
+    /// @param <T>        the signal domain type
+    /// @return a stage completing with the delivery result; fatal errors remain exceptional
+    public static <T> CompletionStage<DeliveryResult> deliver(
+            SignalConsumer<T> consumer, Provenance provenance, ConsumeContext context, Payload<T> data) {
         CompletionStage<DeliveryResult> stage;
         try {
             stage = consumer.consume(context, data);

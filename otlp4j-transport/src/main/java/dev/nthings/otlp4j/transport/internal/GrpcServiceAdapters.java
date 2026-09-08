@@ -3,8 +3,10 @@ package dev.nthings.otlp4j.transport.internal;
 import com.google.protobuf.MessageLite;
 import dev.nthings.otlp4j.codec.DeliveryResultStatuses;
 import dev.nthings.otlp4j.codec.SignalCodec;
+import dev.nthings.otlp4j.codec.PayloadWire;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
-import dev.nthings.otlp4j.transport.internal.AdmissionControl;
+import dev.nthings.otlp4j.core.signal.Payload;
+import com.linecorp.armeria.server.ServiceRequestContext;
 import io.grpc.BindableService;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
@@ -21,16 +23,17 @@ import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceRequest;
 import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceResponse;
 import io.opentelemetry.proto.collector.trace.v1.TraceServiceGrpc;
 import java.util.List;
+import java.time.Clock;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /// Builds the four OTLP collector gRPC services that decode OTLP requests and dispatch to per-signal
 /// handlers, registered on the Armeria server through `GrpcService`.
 ///
-/// The [DeliveryResult] to gRPC status contract drives client retries and mirrors the legacy gRPC
-/// transport exactly:
+/// The [DeliveryResult] to gRPC status contract drives client retries consistently:
 ///
 /// - [DeliveryResult.Accepted] / [DeliveryResult.Partial] map to a normal OTLP response with the
 ///   appropriate `partial_success`.
@@ -55,16 +58,51 @@ final class GrpcServiceAdapters {
     /// @param dispatch  the per-signal dispatch seam
     /// @param admission the shared admission control
     /// @return the four bindable OTLP collector services
-    static List<BindableService> create(PayloadDispatch dispatch, AdmissionControl admission) {
+    static List<BindableService> create(
+            PayloadDispatch dispatch, AdmissionControl admission, Clock clock) {
         return List.of(
                 new TraceServiceAdapter(
-                        request -> dispatch.dispatch(SignalCodec.TRACES.proto(request)), admission),
+                        request -> dispatchWithContext(
+                                dispatch,
+                                () -> ReceiverConsumeContext.grpc(
+                                        clock, RequestMetadata.current(), ServiceRequestContext.current()),
+                                PayloadWire.proto(SignalCodec.TRACES, request)),
+                        admission),
                 new MetricsServiceAdapter(
-                        request -> dispatch.dispatch(SignalCodec.METRICS.proto(request)), admission),
+                        request -> dispatchWithContext(
+                                dispatch,
+                                () -> ReceiverConsumeContext.grpc(
+                                        clock, RequestMetadata.current(), ServiceRequestContext.current()),
+                                PayloadWire.proto(SignalCodec.METRICS, request)),
+                        admission),
                 new LogsServiceAdapter(
-                        request -> dispatch.dispatch(SignalCodec.LOGS.proto(request)), admission),
+                        request -> dispatchWithContext(
+                                dispatch,
+                                () -> ReceiverConsumeContext.grpc(
+                                        clock, RequestMetadata.current(), ServiceRequestContext.current()),
+                                PayloadWire.proto(SignalCodec.LOGS, request)),
+                        admission),
                 new ProfilesServiceAdapter(
-                        request -> dispatch.dispatch(SignalCodec.PROFILES.proto(request)), admission));
+                        request -> dispatchWithContext(
+                                dispatch,
+                                () -> ReceiverConsumeContext.grpc(
+                                        clock, RequestMetadata.current(), ServiceRequestContext.current()),
+                                PayloadWire.proto(SignalCodec.PROFILES, request)),
+                        admission));
+    }
+
+    private static CompletionStage<DeliveryResult> dispatchWithContext(
+            PayloadDispatch dispatch,
+            Supplier<ReceiverConsumeContext> contextFactory,
+            Payload<?> payload) {
+        var context = contextFactory.get();
+        try {
+            return dispatch.dispatch(context, payload)
+                    .whenComplete((result, failure) -> context.complete());
+        } catch (Throwable failure) {
+            context.complete();
+            throw failure;
+        }
     }
 
     /// Decodes `request` and dispatches to the signal handler, holding an admission permit for the

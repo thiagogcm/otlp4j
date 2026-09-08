@@ -7,6 +7,9 @@ import dev.nthings.otlp4j.core.policy.BackoffPolicy;
 import dev.nthings.otlp4j.transport.internal.ArmeriaRetryRules.Decision;
 import dev.nthings.otlp4j.transport.internal.ArmeriaRetryRules.Kind;
 import java.time.Duration;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Base64;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -149,8 +152,8 @@ class ArmeriaRetryRulesTest {
         @DisplayName("an RFC 1123 absolute date in the future parses to a positive delay")
         @Test
         void absoluteDateInFuture() {
-            var at = java.time.ZonedDateTime.now(java.time.ZoneOffset.UTC).plusSeconds(30);
-            var header = at.format(java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME);
+            var at = ZonedDateTime.now(ZoneOffset.UTC).plusSeconds(30);
+            var header = at.format(DateTimeFormatter.RFC_1123_DATE_TIME);
             var delay = ArmeriaRetryRules.parseRetryAfter(header);
             assertThat(delay).isNotNull();
             // Whole-second header resolution, so the delay lands in a generous window around 30s.
@@ -160,8 +163,8 @@ class ArmeriaRetryRulesTest {
         @DisplayName("an RFC 1123 absolute date in the past yields no delay")
         @Test
         void absoluteDateInPast() {
-            var at = java.time.ZonedDateTime.now(java.time.ZoneOffset.UTC).minusSeconds(30);
-            var header = at.format(java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME);
+            var at = ZonedDateTime.now(ZoneOffset.UTC).minusSeconds(30);
+            var header = at.format(DateTimeFormatter.RFC_1123_DATE_TIME);
             assertThat(ArmeriaRetryRules.parseRetryAfter(header)).isNull();
         }
 

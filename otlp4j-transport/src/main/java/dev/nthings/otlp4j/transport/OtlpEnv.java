@@ -25,9 +25,9 @@ import org.jspecify.annotations.Nullable;
 /// `_COMPRESSION`, `_CERTIFICATE`, `_CLIENT_CERTIFICATE`, `_CLIENT_KEY`, `_INSECURE`, and
 /// `_PROTOCOL` (validated only; see below). Deliberately NOT implemented: the per-signal
 /// `OTEL_EXPORTER_OTLP_{TRACES,METRICS,LOGS}_*` endpoint/header/timeout overrides, because this
-/// gateway is one endpoint, one channel, four facets (one [OtlpExporterConfig]), while the per-signal
-/// variables exist to route different signals to different endpoints, a capability the
-/// single-client model does not have; and any server-side (receiver) environment configuration.
+/// gateway is one endpoint, one channel, four signal routes (one [OtlpExporterConfig]), while the
+/// per-signal variables exist to route different signals to different endpoints, which this
+/// single-client model does not support; and any server-side (receiver) environment configuration.
 /// Both gaps are intentional and documented here rather than silently ignored.
 ///
 /// `OTEL_EXPORTER_OTLP_PROTOCOL` is recognized for fail-fast spec-compatibility validation only:
@@ -63,7 +63,7 @@ final class OtlpEnv {
         if (timeout != null) {
             var parsed = parseTimeout(timeout);
             if (!builder.timeoutExplicit) {
-                builder.setTimeout(parsed);
+                builder.timeout(parsed);
             }
         }
         var headers = value(env, HEADERS);
@@ -75,7 +75,7 @@ final class OtlpEnv {
         if (compression != null) {
             var parsed = parseCompression(compression);
             if (!builder.compressionExplicit) {
-                builder.setCompression(parsed);
+                builder.compression(parsed);
             }
         }
         var protocol = value(env, PROTOCOL);
@@ -109,16 +109,16 @@ final class OtlpEnv {
         // Resolve TLS eagerly so malformed cert vars fail fast even when TLS was set explicitly.
         var tls = endpoint.secure() ? resolveTls(env) : Tls.disabled();
         if (!builder.hostExplicit) {
-            builder.setHost(endpoint.host());
+            builder.host(endpoint.host());
         }
         if (!builder.portExplicit && endpoint.port() != -1) {
-            builder.setPort(endpoint.port());
+            builder.port(endpoint.port());
         }
         if (!builder.pathExplicit) {
-            builder.setPath(endpoint.path());
+            builder.path(endpoint.path());
         }
         if (!builder.tlsExplicit) {
-            builder.setTls(tls);
+            builder.tls(tls);
         }
     }
 
@@ -140,9 +140,9 @@ final class OtlpEnv {
             return;
         }
         if (insecure) {
-            builder.setTls(Tls.disabled());
+            builder.tls(Tls.disabled());
         } else if (resolved != null) {
-            builder.setTls(resolved);
+            builder.tls(resolved);
         }
     }
 

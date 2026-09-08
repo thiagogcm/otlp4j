@@ -4,7 +4,7 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 
 mvn := "./mvnw"
 batch := "-B"
-modules := "otlp4j-model otlp4j-proto otlp4j-core otlp4j-codec otlp4j-transport-common otlp4j-service otlp4j-transport-otlp otlp4j-samples otlp4j-testing otlp4j-conformance otlp4j-coverage otlp4j-benchmarks"
+modules := "otlp4j-model otlp4j-proto otlp4j-core otlp4j-codec otlp4j-service otlp4j-transport otlp4j-opentelemetry otlp4j-components otlp4j-samples otlp4j-testing otlp4j-conformance otlp4j-coverage otlp4j-benchmarks"
 sample_module := "otlp4j-samples"
 sample_test := "OtlpE2eDemoTest"
 coverage_index := "otlp4j-coverage/target/site/jacoco-aggregate/index.html"
@@ -83,10 +83,6 @@ coverage:
 native:
     {{ mvn }} {{ batch }} -pl {{ sample_module }} -am package -Pnative
 
-# Build the jlink sample runtime image profile.
-jlink:
-    {{ mvn }} {{ batch }} -pl {{ sample_module }} -am package -Pjlink
-
 # Regenerate the conformance TLS material by running the committed openssl script directly, so its
 # `#!/usr/bin/env bash` shebang is honored rather than the recipe interpreter. Only needed if the
 # test CA is rotated.
@@ -111,8 +107,9 @@ bench-baseline date=`date +%Y-%m-%d`:
 # The copied opentelemetry/ subtree is a verbatim mirror: don't hand-edit it.
 # otlp4j notes live in otlp4j-proto/src/main/proto/README.md, outside the mirror.
 update-protos:
-    git submodule update --remote --force --init -- opentelemetry-proto
-    cp -r opentelemetry-proto/opentelemetry otlp4j-proto/src/main/proto/
+    git submodule update --init -- opentelemetry-proto
+    rm -rf otlp4j-proto/src/main/proto/opentelemetry
+    cp -R opentelemetry-proto/opentelemetry otlp4j-proto/src/main/proto/
 
 # Generate protobuf and gRPC sources.
 proto:

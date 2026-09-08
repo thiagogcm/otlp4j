@@ -7,7 +7,7 @@
 /// [dev.nthings.otlp4j.testing.policy.ExportObservation]) through the
 /// [dev.nthings.otlp4j.testing.policy.PolicyExporterUnderTest] seam, so a concrete runner in
 /// otlp4j-conformance supplies one seam implementation per transport and the same suite runs on both
-/// legacy transports today and gates the future Armeria transport with no edit.
+/// wire protocols with no edit.
 ///
 /// [dev.nthings.otlp4j.testing.policy.ProgrammedOtlpServer] is the small fake collector the seam boots
 /// per export; it replays a script and records per-attempt arrivals so the suite can read attempt counts

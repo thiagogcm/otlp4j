@@ -50,7 +50,7 @@ public enum DiagnosticCode {
 
     /// A connector's exporting pipelines span more than one distinct input signal, or its receiving
     /// pipelines span more than one distinct output signal, so it would bridge more than one distinct
-    /// signal pair. Phase 1 represents a connector as a single graph node carrying one signal pair, so
+    /// signal pair. The graph represents a connector as a single node carrying one signal pair, so
     /// it cannot faithfully attribute the several input or output signals to one shared instance.
     CONNECTOR_MULTIPLE_DISTINCT_PAIRS,
 

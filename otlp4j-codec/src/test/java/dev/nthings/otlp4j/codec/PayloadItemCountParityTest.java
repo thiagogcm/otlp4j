@@ -14,7 +14,7 @@ import org.junit.jupiter.api.Test;
 
 /// Pins the agreement between the proto-walking item counter and the domain item counter: for the
 /// same telemetry a [ProtoRequestPayload] and a [DomainRequestPayload] report the same
-/// [dev.nthings.otlp4j.core.signal.TelemetryPayload#itemCount].
+/// [dev.nthings.otlp4j.core.signal.Payload#itemCount].
 ///
 /// The logs and profiles fixtures deliberately carry more than one scope per resource, so a proto
 /// counter that flattened the resource then scope then item hierarchy to two levels would miscount

@@ -121,7 +121,7 @@ class MapperEdgeCaseTest {
                 .isInstanceOf(DeliveryResult.Accepted.class);
     }
 
-    @DisplayName("LogsMapper.deliveryResult maps partial_success to Accepted, Partial, or Rejected")
+    @DisplayName("LogsMapper.deliveryResult preserves every present partial_success block")
     @Test
     void logsDeliveryResultDecisionTable() {
         assertThat(LogsMapper.deliveryResult(ExportLogsServiceResponse.getDefaultInstance(), PROV))
@@ -131,8 +131,8 @@ class MapperEdgeCaseTest {
         assertThat(LogsMapper.deliveryResult(ExportLogsServiceResponse.newBuilder()
                         .setPartialSuccess(ExportLogsPartialSuccess.getDefaultInstance())
                         .build(), PROV))
-                .as("empty partial_success block -> accepted")
-                .isInstanceOf(DeliveryResult.Accepted.class);
+                .as("empty partial_success block -> terminal warning")
+                .isEqualTo(new DeliveryResult.Partial(0, "", PROV));
 
         var withCount = LogsMapper.deliveryResult(ExportLogsServiceResponse.newBuilder()
                 .setPartialSuccess(ExportLogsPartialSuccess.newBuilder()
@@ -148,21 +148,20 @@ class MapperEdgeCaseTest {
                 .setPartialSuccess(ExportLogsPartialSuccess.newBuilder()
                         .setErrorMessage("log warning"))
                 .build(), PROV);
-        assertThat(messageOnly).isInstanceOf(DeliveryResult.Rejected.class);
-        var r = (DeliveryResult.Rejected) messageOnly;
-        assertThat(r.message()).isEqualTo("log warning");
+        assertThat(messageOnly).isEqualTo(new DeliveryResult.Partial(0, "log warning", PROV));
     }
 
-    @DisplayName("TraceMapper.deliveryResult with empty partial_success block is Accepted")
+    @DisplayName("TraceMapper.deliveryResult with empty partial_success block is Partial")
     @Test
     void traceDeliveryResultWithAnEmptyPartialSuccessBlockIsAccepted() {
         var response = ExportTraceServiceResponse.newBuilder()
                 .setPartialSuccess(ExportTracePartialSuccess.getDefaultInstance())
                 .build();
-        assertThat(TraceMapper.deliveryResult(response, PROV)).isInstanceOf(DeliveryResult.Accepted.class);
+        assertThat(TraceMapper.deliveryResult(response, PROV))
+                .isEqualTo(new DeliveryResult.Partial(0, "", PROV));
     }
 
-    @DisplayName("TraceMapper.deliveryResult with message only and zero count is Rejected")
+    @DisplayName("TraceMapper.deliveryResult with message only and zero count is Partial")
     @Test
     void traceDeliveryResultWithAMessageOnlyIsRejected() {
         var response = ExportTraceServiceResponse.newBuilder()
@@ -171,11 +170,11 @@ class MapperEdgeCaseTest {
                 .build();
 
         var result = TraceMapper.deliveryResult(response, PROV);
-        assertThat(result).isInstanceOf(DeliveryResult.Rejected.class);
-        assertThat(((DeliveryResult.Rejected) result).message()).isEqualTo("warning: clock skew detected");
+        assertThat(result)
+                .isEqualTo(new DeliveryResult.Partial(0, "warning: clock skew detected", PROV));
     }
 
-    @DisplayName("MetricsMapper.deliveryResult maps partial_success to Accepted, Partial, or Rejected")
+    @DisplayName("MetricsMapper.deliveryResult preserves every present partial_success block")
     @Test
     void metricsDeliveryResultDecisionTable() {
         assertThat(MetricsMapper.deliveryResult(ExportMetricsServiceResponse.getDefaultInstance(), PROV))
@@ -184,7 +183,7 @@ class MapperEdgeCaseTest {
         assertThat(MetricsMapper.deliveryResult(ExportMetricsServiceResponse.newBuilder()
                         .setPartialSuccess(ExportMetricsPartialSuccess.getDefaultInstance())
                         .build(), PROV))
-                .isInstanceOf(DeliveryResult.Accepted.class);
+                .isEqualTo(new DeliveryResult.Partial(0, "", PROV));
 
         var withCount = MetricsMapper.deliveryResult(ExportMetricsServiceResponse.newBuilder()
                 .setPartialSuccess(ExportMetricsPartialSuccess.newBuilder()
@@ -200,19 +199,19 @@ class MapperEdgeCaseTest {
                 .setPartialSuccess(ExportMetricsPartialSuccess.newBuilder()
                         .setErrorMessage("metadata warning"))
                 .build(), PROV);
-        assertThat(messageOnly).isInstanceOf(DeliveryResult.Rejected.class);
+        assertThat(messageOnly).isEqualTo(new DeliveryResult.Partial(0, "metadata warning", PROV));
     }
 
-    @DisplayName("ProfilesMapper.deliveryResult maps partial_success to Accepted, Partial, or Rejected")
+    @DisplayName("ProfilesMapper.deliveryResult preserves every present partial_success block")
     @Test
     void profilesDeliveryResultDecisionTable() {
         assertThat(ProfilesMapper.deliveryResult(ExportProfilesServiceResponse.getDefaultInstance(), PROV))
                 .isInstanceOf(DeliveryResult.Accepted.class);
 
         assertThat(ProfilesMapper.deliveryResult(ExportProfilesServiceResponse.newBuilder()
-                        .setPartialSuccess(ExportProfilesPartialSuccess.getDefaultInstance())
+                .setPartialSuccess(ExportProfilesPartialSuccess.getDefaultInstance())
                         .build(), PROV))
-                .isInstanceOf(DeliveryResult.Accepted.class);
+                .isEqualTo(new DeliveryResult.Partial(0, "", PROV));
 
         var withCount = ProfilesMapper.deliveryResult(ExportProfilesServiceResponse.newBuilder()
                 .setPartialSuccess(ExportProfilesPartialSuccess.newBuilder()
@@ -227,6 +226,6 @@ class MapperEdgeCaseTest {
                 .setPartialSuccess(ExportProfilesPartialSuccess.newBuilder()
                         .setErrorMessage("profiles warning"))
                 .build(), PROV);
-        assertThat(messageOnly).isInstanceOf(DeliveryResult.Rejected.class);
+        assertThat(messageOnly).isEqualTo(new DeliveryResult.Partial(0, "profiles warning", PROV));
     }
 }

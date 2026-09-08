@@ -9,14 +9,14 @@ import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.result.Disposition;
 import dev.nthings.otlp4j.core.result.Provenance;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
-import dev.nthings.otlp4j.core.signal.TelemetryPayload;
+import dev.nthings.otlp4j.core.signal.Payload;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicReference;
 import org.jspecify.annotations.Nullable;
 
-/// The per-signal consumer slot a [ServerReceiver] routes one signal's decoded payloads through.
+/// The per-signal consumer slot a [OtlpReceiver] routes one signal's decoded payloads through.
 ///
 /// A single graph consumer is attached at wiring time; a second attach throws. A decoded payload is
 /// forwarded verbatim to the attached consumer, whose [DeliveryResult] flows back to the transport
@@ -32,7 +32,7 @@ public final class SignalSource<T> {
     private final SignalDescriptor<T> signal;
     private final Provenance provenance;
     private final DeliveryResult noConsumerResult;
-    private final AtomicReference<@Nullable SignalConsumer<TelemetryPayload>> attached = new AtomicReference<>();
+    private final AtomicReference<@Nullable SignalConsumer<T>> attached = new AtomicReference<>();
 
     public SignalSource(SignalDescriptor<T> signal, ComponentId receiverId) {
         this.signal = Objects.requireNonNull(signal, "signal");
@@ -51,7 +51,7 @@ public final class SignalSource<T> {
     /// Attaches the single graph consumer for this signal. A second attach throws.
     ///
     /// @param consumer the graph consumer routed for this signal
-    public void attach(SignalConsumer<TelemetryPayload> consumer) {
+    public void attach(SignalConsumer<T> consumer) {
         Objects.requireNonNull(consumer, "consumer");
         if (!attached.compareAndSet(null, consumer)) {
             throw new IllegalStateException(
@@ -64,7 +64,7 @@ public final class SignalSource<T> {
     /// @param context the per-invocation delivery context
     /// @param payload the decoded payload
     /// @return a stage completing with the delivery result
-    public CompletionStage<DeliveryResult> dispatch(ConsumeContext context, TelemetryPayload payload) {
+    public CompletionStage<DeliveryResult> dispatch(ConsumeContext context, Payload<T> payload) {
         var consumer = attached.get();
         if (consumer == null) {
             return CompletableFuture.completedFuture(noConsumerResult);

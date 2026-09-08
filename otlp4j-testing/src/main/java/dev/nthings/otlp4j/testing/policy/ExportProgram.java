@@ -8,7 +8,7 @@ import java.util.Objects;
 /// One programmed export: the neutral policies that configure the exporter under test and the script
 /// the programmed server replays. The script's length and contents drive the server one attempt at a
 /// time; the policies drive the exporter's retry and timeout behaviour. A single program runs unchanged
-/// on both legacy transports through the seam.
+/// on both wire protocols through the seam.
 ///
 /// @param retry   the retry policy the exporter is configured with
 /// @param timeout the timeout policy the exporter is configured with

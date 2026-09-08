@@ -19,7 +19,9 @@ import io.grpc.Status;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
@@ -35,7 +37,7 @@ class ArmeriaExtraCoverageTest {
 
     private static final MediaType PROTOBUF = MediaType.parse("application/x-protobuf");
 
-    private final List<ServerReceiver> receivers = new ArrayList<>();
+    private final List<OtlpReceiver> receivers = new ArrayList<>();
     private final List<AutoCloseable> closeables = new ArrayList<>();
 
     @AfterEach
@@ -49,14 +51,14 @@ class ArmeriaExtraCoverageTest {
         }
         for (var receiver : receivers) {
             try {
-                receiver.shutdownNow().toCompletableFuture().get(5, TimeUnit.SECONDS);
+                receiver.shutdown(Duration.ofSeconds(5)).toCompletableFuture().get(5, TimeUnit.SECONDS);
             } catch (Exception ignored) {
                 // keep tearing down
             }
         }
     }
 
-    private ServerReceiver start(OtlpReceiver.Builder builder) {
+    private OtlpReceiver start(OtlpReceiver.Builder builder) {
         var receiver = builder.ephemeralPort().build().start();
         receivers.add(receiver);
         return receiver;
@@ -74,18 +76,17 @@ class ArmeriaExtraCoverageTest {
         var httpSeen = new AtomicReference<TracesData>();
         var receiver = start(OtlpReceiver.builder()
                 .route(TRACES, Consumers.of(p -> {
-                    var data = TRACES.batchType().cast(
-                            p.view(dev.nthings.otlp4j.core.signal.PayloadView.DOMAIN_IMMUTABLE));
+                    var data = p.data();
                     grpcSeen.compareAndSet(null, data);
                     httpSeen.set(data);
                     return DeliveryResult.accepted(Consumers.PROV);
                 })));
 
         var grpcExporter = OtlpExporter.grpcBuilder()
-                .setEndpoint("localhost", receiver.port()).setTimeout(Duration.ofSeconds(5)).build();
+                .endpoint("localhost", receiver.port()).timeout(Duration.ofSeconds(5)).build().start();
         closeables.add(grpcExporter);
         var httpExporter = OtlpExporter.httpBuilder()
-                .setEndpoint("localhost", receiver.port()).setTimeout(Duration.ofSeconds(5)).build();
+                .endpoint("localhost", receiver.port()).timeout(Duration.ofSeconds(5)).build().start();
         closeables.add(httpExporter);
 
         var sent = TransportFixtures.richTraceData();
@@ -104,10 +105,10 @@ class ArmeriaExtraCoverageTest {
         var receiver = start(OtlpReceiver.grpcBuilder()
                 .route(TRACES, Consumers.record(TRACES, received)));
         var exporter = OtlpExporter.grpcBuilder()
-                .setEndpoint("localhost", receiver.port())
+                .endpoint("localhost", receiver.port())
                 .addHeader("authorization", "Bearer token")
-                .setTimeout(Duration.ofSeconds(5))
-                .build();
+                .timeout(Duration.ofSeconds(5))
+                .build().start();
         closeables.add(exporter);
         var sent = TransportFixtures.richTraceData();
 
@@ -123,11 +124,11 @@ class ArmeriaExtraCoverageTest {
         var receiver = start(OtlpReceiver.httpBuilder()
                 .route(TRACES, Consumers.record(TRACES, received)));
         var exporter = OtlpExporter.httpBuilder()
-                .setEndpoint("localhost", receiver.port())
-                .setPath("")
+                .endpoint("localhost", receiver.port())
+                .path("")
                 .addHeader("authorization", "Bearer token")
-                .setTimeout(Duration.ofSeconds(5))
-                .build();
+                .timeout(Duration.ofSeconds(5))
+                .build().start();
         closeables.add(exporter);
         var sent = TransportFixtures.richTraceData();
 
@@ -142,7 +143,7 @@ class ArmeriaExtraCoverageTest {
         var receiver = start(OtlpReceiver.grpcBuilder()
                 .route(TRACES, Consumers.retryableWithCause("downstream flaked", new IllegalStateException("boom"))));
         var exporter = OtlpExporter.grpcBuilder()
-                .setEndpoint("localhost", receiver.port()).setTimeout(Duration.ofSeconds(5)).build();
+                .endpoint("localhost", receiver.port()).timeout(Duration.ofSeconds(5)).build().start();
         closeables.add(exporter);
 
         assertThatThrownBy(() -> exporter.export(TRACES, TransportFixtures.richTraceData())
@@ -166,10 +167,10 @@ class ArmeriaExtraCoverageTest {
     @DisplayName("admission at capacity without a throttle hint yields 429 and no Retry-After")
     @Test
     void httpAdmissionNoHintYields429() throws Exception {
-        var entered = new java.util.concurrent.CountDownLatch(1);
-        var gate = new java.util.concurrent.CompletableFuture<DeliveryResult>();
+        var entered = new CountDownLatch(1);
+        var gate = new CompletableFuture<DeliveryResult>();
         var receiver = start(OtlpReceiver.httpBuilder()
-                .setMaxInFlightRequests(1)
+                .maxInFlightRequests(1)
                 .route(TRACES, Consumers.gated(entered::countDown, gate)));
         var client = WebClient.of("http://localhost:" + receiver.port());
 

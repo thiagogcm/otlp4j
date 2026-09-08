@@ -4,8 +4,7 @@ package dev.nthings.otlp4j.core.component;
 /// port. This is not extended by `Component` and not implemented by every component; a receiver that
 /// binds a socket implements it alongside `Receiver`, so a caller holding a live component can
 /// downcast and read the OS-assigned bound port after start. This is how a caller reads a
-/// graph-booted receiver's ephemeral port, the graph-runtime equivalent of the legacy
-/// `Receiver.port()`.
+/// graph-booted receiver's ephemeral port.
 public interface NetworkBound {
 
     /// The bound port, valid only after the component has started. For a receiver bound to an

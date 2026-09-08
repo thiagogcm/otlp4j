@@ -2,98 +2,68 @@ package dev.nthings.otlp4j.transport;
 
 import dev.nthings.otlp4j.core.component.ComponentId;
 import dev.nthings.otlp4j.core.component.ComponentKind;
-import dev.nthings.otlp4j.core.consumer.ConsumeContext;
-import dev.nthings.otlp4j.core.consumer.ConsumerCapabilities;
 import dev.nthings.otlp4j.core.consumer.SignalConsumer;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.result.Provenance;
-import dev.nthings.otlp4j.core.signal.PayloadView;
+import dev.nthings.otlp4j.core.signal.Payload;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
-import dev.nthings.otlp4j.core.signal.TelemetryPayload;
+import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 
-/// Test-only [SignalConsumer] factories that let the Armeria transport tests route decoded payloads
-/// with the same brevity the legacy per-signal sinks gave them.
+/** Test-only typed consumer factories. */
 final class Consumers {
 
-    /// A generic sink provenance; the wire mapping never reads it, so one shared value suffices.
     static final Provenance PROV =
             new Provenance(ComponentId.parse("sink"), ComponentKind.EXPORTER, SignalDescriptor.TRACES);
 
     private Consumers() {}
 
-    /// A consumer applying `fn` to the payload and completing at once.
-    static SignalConsumer<TelemetryPayload> of(Function<TelemetryPayload, DeliveryResult> fn) {
-        return new SignalConsumer<>() {
-            @Override
-            public ConsumerCapabilities capabilities() {
-                return ConsumerCapabilities.nonMutating();
-            }
-
-            @Override
-            public CompletionStage<DeliveryResult> consume(ConsumeContext context, TelemetryPayload data) {
-                return CompletableFuture.completedFuture(fn.apply(data));
-            }
-        };
+    static <T> SignalConsumer<T> of(Function<Payload<T>, DeliveryResult> fn) {
+        return (context, data) -> CompletableFuture.completedFuture(fn.apply(data));
     }
 
-    /// A consumer that accepts every payload.
-    static SignalConsumer<TelemetryPayload> accepting() {
+    static <T> SignalConsumer<T> accepting() {
         return of(p -> DeliveryResult.accepted(PROV));
     }
 
-    /// A consumer that records the decoded batch of `signal` and accepts.
-    static <T> SignalConsumer<TelemetryPayload> record(SignalDescriptor<T> signal, AtomicReference<? super T> sink) {
+    static <T> SignalConsumer<T> record(
+            SignalDescriptor<T> signal, AtomicReference<? super T> sink) {
         return of(p -> {
-            sink.set(signal.batchType().cast(p.view(PayloadView.DOMAIN_IMMUTABLE)));
+            sink.set(p.data());
             return DeliveryResult.accepted(PROV);
         });
     }
 
-    /// A consumer reporting a partial-success rejection of `rejected` items.
-    static SignalConsumer<TelemetryPayload> partial(long rejected, String message) {
+    static <T> SignalConsumer<T> partial(long rejected, String message) {
         return of(p -> DeliveryResult.partial(rejected, message, PROV));
     }
 
-    /// A consumer reporting a retryable rejection with a throttle hint.
-    static SignalConsumer<TelemetryPayload> throttled(java.time.Duration retryAfter, String message) {
+    static <T> SignalConsumer<T> throttled(Duration retryAfter, String message) {
         return of(p -> DeliveryResult.throttled(retryAfter, message, PROV));
     }
 
-    /// A consumer reporting a permanent rejection.
-    static SignalConsumer<TelemetryPayload> permanent(String message) {
+    static <T> SignalConsumer<T> permanent(String message) {
         return of(p -> DeliveryResult.permanent(message, PROV));
     }
 
-    /// A consumer reporting a retryable rejection carrying a diagnostic cause.
-    static SignalConsumer<TelemetryPayload> retryableWithCause(String message, Throwable cause) {
+    static <T> SignalConsumer<T> retryableWithCause(String message, Throwable cause) {
         return of(p -> DeliveryResult.retryable(message, cause, PROV));
     }
 
-    /// A consumer that throws `error` synchronously, exercising the transport error path.
-    static SignalConsumer<TelemetryPayload> throwing(RuntimeException error) {
+    static <T> SignalConsumer<T> throwing(RuntimeException error) {
         return of(p -> {
             throw error;
         });
     }
 
-    /// A consumer that signals entry through `onEnter` and completes with the supplied `gate` stage,
-    /// for admission-control tests that hold a slot open.
-    static SignalConsumer<TelemetryPayload> gated(Runnable onEnter, CompletionStage<DeliveryResult> gate) {
-        return new SignalConsumer<>() {
-            @Override
-            public ConsumerCapabilities capabilities() {
-                return ConsumerCapabilities.nonMutating();
-            }
-
-            @Override
-            public CompletionStage<DeliveryResult> consume(ConsumeContext context, TelemetryPayload data) {
-                onEnter.run();
-                return gate;
-            }
+    static <T> SignalConsumer<T> gated(
+            Runnable onEnter, CompletionStage<DeliveryResult> gate) {
+        return (context, data) -> {
+            onEnter.run();
+            return gate;
         };
     }
 }

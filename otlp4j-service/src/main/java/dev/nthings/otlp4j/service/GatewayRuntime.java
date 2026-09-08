@@ -7,169 +7,221 @@ import dev.nthings.otlp4j.core.component.ComponentKind;
 import dev.nthings.otlp4j.core.component.FlushContext;
 import dev.nthings.otlp4j.core.component.NetworkBound;
 import dev.nthings.otlp4j.core.component.ShutdownContext;
+import dev.nthings.otlp4j.core.consumer.ConsumeContext;
+import dev.nthings.otlp4j.core.consumer.TelemetryInput;
+import dev.nthings.otlp4j.core.result.DeliveryResult;
+import dev.nthings.otlp4j.core.result.FlushReport;
+import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.service.config.ServiceOptions;
+import dev.nthings.otlp4j.service.internal.ApplicationInput;
 import dev.nthings.otlp4j.service.internal.graph.ServiceGraph;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Supplier;
 
-/// The started gateway: the built components plus the graph's topological order, the declared
-/// replacement for the fluent pipeline's discovered lifecycle. It owns the components and derives
-/// start and shutdown order from the graph, not from registration order.
-///
-/// [#start()] starts the data-path components in reverse topological order, so a downstream is live
-/// before the upstream that feeds it and receivers start last. Each start is bounded by the service
-/// start deadline; on any start failure the already-started components are shut down in reverse start
-/// order and the failure is rethrown, so a half-started gateway never serves.
-/// [#shutdown(Duration)] walks the data path in forward topological order so receivers stop first and
-/// in-flight work drains into still-open exporters, best-effort with the first error rethrown at the
-/// end. [#component(ComponentKind, ComponentId)] (and its convenience
-/// [#component(ComponentId)] overload for an unambiguous id) is the only path from a post-construction
-/// runtime to a live component instance, which a caller downcasts to a capability such as
-/// [dev.nthings.otlp4j.core.component.NetworkBound] to read, for example, a receiver's bound port.
-/// Live components are keyed by the composite (kind, id), so a receiver and an exporter that reuse one
-/// id resolve to distinct instances rather than colliding.
+/// Owns one validated component graph. Start runs downstream first; shutdown runs upstream first.
+/// Every lifecycle operation has one total monotonic budget, including synchronous component code.
+/// A runtime starts once and shutdown is idempotent. Failures are observable from flush and close.
+/// If component code outlives its deadline, cleanup continues best-effort after that code yields;
+/// the caller still observes the timeout. Lifecycle invocations never overlap on that component.
 public final class GatewayRuntime implements AutoCloseable {
-
-    private static final Logger LOG = LoggerFactory.getLogger(GatewayRuntime.class);
-
+    private enum State { NEW, STARTING, RUNNING, CLOSED }
     private final ServiceGraph graph;
-
     private final ComponentContext base;
-
     private final ServiceOptions options;
-
-    /// Data-path components in reverse topological order, which is their start order.
     private final List<ComponentRef> dataPathStartOrder;
-
-    /// Live components keyed by the composite (kind, id), so a receiver and an exporter that share an
-    /// id do not collide. A multi-signal exporter, realized as one per-signal facet node per signal,
-    /// resolves to the first facet built under its (kind, id) key.
     private final Map<ComponentKey, Component> byKey;
+    private final Map<Component, Semaphore> lifecycleGates = new IdentityHashMap<>();
+    private final ReentrantLock operations = new ReentrantLock();
+    private volatile State state = State.NEW;
+    private volatile boolean closing;
+    private CompletionStage<Void> shutdown;
+    private FlushReport deferredReport = FlushReport.empty();
+    // At most one outstanding flush per component. A caller timeout never discards its report.
+    private final Map<Component, CompletableFuture<FlushReport>> pendingFlushes = new IdentityHashMap<>();
 
-    GatewayRuntime(
-            ServiceGraph graph,
-            ComponentContext base,
-            ServiceOptions options,
-            List<ComponentRef> dataPathStartOrder) {
+    GatewayRuntime(ServiceGraph graph, ComponentContext base, ServiceOptions options,
+                   List<ComponentRef> dataPathStartOrder) {
         this.graph = graph;
         this.base = base;
         this.options = options;
-        this.dataPathStartOrder = List.copyOf(dataPathStartOrder);
+        // An actual shared component owns its lifecycle once, even when several nodes reference it.
+        var seen = new IdentityHashMap<Component, Boolean>();
+        var unique = new ArrayList<ComponentRef>();
         var keyed = new LinkedHashMap<ComponentKey, Component>();
-        for (var ref : this.dataPathStartOrder) {
+        for (var ref : dataPathStartOrder) {
             keyed.putIfAbsent(ref.key(), ref.component());
+            if (seen.put(ref.component(), Boolean.TRUE) == null) {
+                unique.add(ref);
+                lifecycleGates.put(ref.component(), new Semaphore(1));
+            }
         }
+        this.dataPathStartOrder = List.copyOf(unique);
         this.byKey = Map.copyOf(keyed);
     }
 
-    /// Starts the gateway: the data-path components in reverse topological order, each bounded by the
-    /// start deadline. On any failure the already-started components are shut down in reverse start
-    /// order and the failure is rethrown.
-    ///
-    /// @throws GatewayStartException if a component fails to start, times out, or the thread is
-    ///     interrupted
     public void start() {
-        var started = new ArrayList<ComponentRef>();
+        operations.lock();
         try {
-            for (var ref : dataPathStartOrder) {
-                startOne(ref);
-                started.add(ref);
+            if (state != State.NEW || closing) {
+                throw new IllegalStateException("gateway cannot start in state " + state);
             }
-        } catch (Error | RuntimeException failure) {
-            // await() rethrows an Error cause as an Error and every other start failure as a
-            // GatewayStartException, so this covers both: roll back before the failure escapes, so an
-            // Error-typed start failure cannot leave a half-started gateway serving.
-            rollback(started);
-            throw failure;
-        }
-    }
-
-    private void startOne(ComponentRef ref) {
-        await(ref, ref.component().start(base), options.startDeadline(), "start");
-    }
-
-    private void rollback(List<ComponentRef> started) {
-        var reverse = new ArrayList<>(started);
-        Collections.reverse(reverse);
-        for (var ref : reverse) {
+            state = State.STARTING;
+            var budget = new Budget(options.startDeadline());
             try {
-                shutdownOne(ref, options.shutdownDeadline());
-            } catch (Error | RuntimeException rollbackFailure) {
-                // Best-effort: an Error from one component's rollback shutdown must not abort the
-                // rollback of the components still started behind it.
-                LOG.warn("rollback shutdown of {} failed", ref.id(), rollbackFailure);
+                for (var ref : dataPathStartOrder) {
+                    if (closing) { throw new IllegalStateException("shutdown requested during start"); }
+                    await(ref, () -> ref.component().start(base), budget, "start");
+                }
+                if (closing) { throw new IllegalStateException("shutdown requested during start"); }
+                state = State.RUNNING;
+            } catch (Error | RuntimeException failure) {
+                // Factories may have acquired resources before start, and the failing start may
+                // have partially initialized its component. Release every created component.
+                rollback(failure);
+                state = State.CLOSED;
+                throw failure;
+            }
+        } finally {
+            operations.unlock();
+        }
+    }
+
+    private void rollback(Throwable primary) {
+        var budget = new Budget(options.shutdownDeadline());
+        for (var ref : dataPathStartOrder.reversed()) {
+            try {
+                await(ref, () -> ref.component().shutdown(new ShutdownContext(budget.remaining())), budget, "rollback");
+            } catch (Error | RuntimeException failure) {
+                if (failure != primary) { primary.addSuppressed(failure); }
             }
         }
     }
 
-    /// Flushes every component best-effort within `deadline`, in forward data-path order.
-    ///
-    /// @param deadline the per-component flush deadline
-    public void forceFlush(Duration deadline) {
-        var context = new FlushContext(deadline);
-        Throwable first = null;
-        for (var ref : forwardDataPath()) {
-            first = flushOne(ref, context, first);
+    /// Drains prior input calls, then captures downstream buffer barriers in data-flow order.
+    /// Concurrent submissions may be included before a downstream barrier is captured, but cannot
+    /// extend that barrier afterward. Reports losses following buffered acceptance.
+    public CompletionStage<FlushReport> flush(Duration timeout) {
+        var budget = new Budget(timeout);
+        var inputBarriers = new IdentityHashMap<Component, CompletionStage<FlushReport>>();
+        for (var ref : dataPathStartOrder) {
+            if (ref.component() instanceof ApplicationInput<?> source) {
+                inputBarriers.put(source, source.flush(new FlushContext(budget.remaining())));
+            }
         }
-        rethrowIfPresent(first, "forceFlush");
+        return asynchronous(budget, false, () -> {
+            requireRunning();
+            var report = deferredReport;
+            Throwable first = null;
+            for (var ref : dataPathStartOrder.reversed()) {
+                try {
+                    if (inputBarriers.containsKey(ref.component())) {
+                        // Input barriers contain no loss report and do not cancel submissions.
+                        await(ref, () -> inputBarriers.get(ref.component()), budget, "flush");
+                        continue;
+                    }
+                    var previous = pendingFlushes.get(ref.component());
+                    if (previous != null) {
+                        report = report.plus(awaitFlush(ref, previous, budget));
+                    }
+                    var current = invokeFlush(ref,
+                            () -> ref.component().flush(new FlushContext(budget.remaining())));
+                    report = report.plus(awaitFlush(ref, current, budget));
+                } catch (Error | RuntimeException failure) {
+                    first = accumulate(first, failure);
+                    if (budget.remainingNanos() == 0) { break; }
+                }
+            }
+            deferredReport = first == null ? FlushReport.empty() : report;
+            rethrow(first);
+            return report;
+        });
     }
 
-    private Throwable flushOne(ComponentRef ref, FlushContext context, Throwable first) {
-        try {
-            await(ref, ref.component().forceFlush(context), context.deadline(), "forceFlush");
-            return first;
-        } catch (Error | RuntimeException failure) {
-            // Best-effort: accumulate an Error-typed flush failure like any other and keep flushing
-            // the remaining components; rethrowIfPresent re-surfaces it (as an Error) at the end.
-            LOG.warn("forceFlush of {} failed", ref.id(), failure);
-            return first == null ? failure : first;
-        }
+    /// Requests shutdown immediately. Repeated calls observe the original operation and its result.
+    public synchronized CompletionStage<Void> shutdown(Duration timeout) {
+        if (shutdown != null) { return shutdown; }
+        var budget = new Budget(timeout);
+        closing = true;
+        shutdown = asynchronous(budget, true, () -> {
+            if (state == State.CLOSED) { return null; }
+            Throwable first = deferredReport.isSuccess() ? null
+                    : new IllegalStateException("unreported delivery loss: " + deferredReport, deferredReport.firstFailure());
+            for (var ref : dataPathStartOrder.reversed()) {
+                try {
+                    var pending = pendingFlushes.get(ref.component());
+                    if (pending != null) {
+                        var report = awaitFlush(ref, pending, budget);
+                        if (!report.isSuccess()) {
+                            first = accumulate(first, new IllegalStateException(
+                                    "unreported delivery loss: " + report, report.firstFailure()));
+                        }
+                    }
+                } catch (Error | RuntimeException failure) {
+                    first = accumulate(first, failure);
+                }
+                try {
+                    await(ref, () -> ref.component().shutdown(new ShutdownContext(budget.remaining())), budget, "shutdown");
+                } catch (Error | RuntimeException failure) {
+                    first = accumulate(first, failure);
+                }
+            }
+            state = State.CLOSED;
+            rethrow(first);
+            return null;
+        });
+        return shutdown;
     }
 
-    /// Shuts the gateway down: the data path in forward topological order so receivers stop first.
-    /// Best-effort, with the first error rethrown at the end.
-    ///
-    /// @param deadline the per-component shutdown deadline
-    public void shutdown(Duration deadline) {
-        Throwable first = null;
-        for (var ref : forwardDataPath()) {
-            first = shutdownBestEffort(ref, deadline, first);
+    /// Resolves a typed application input belonging to this graph definition.
+    @SuppressWarnings("unchecked")
+    public <T> TelemetryInput<T> input(InputHandle<T> handle) {
+        Objects.requireNonNull(handle, "handle");
+        var component = byKey.get(new ComponentKey(ComponentKind.RECEIVER, handle.id()));
+        if (!(component instanceof ApplicationInput<?> candidate) || !candidate.belongsTo(handle.owner())) {
+            throw new IllegalArgumentException("input handle does not belong to this gateway");
         }
-        rethrowIfPresent(first, "shutdown");
+        var source = (ApplicationInput<T>) candidate;
+        return new TelemetryInput<>() {
+            @Override public SignalDescriptor<T> signal() { return handle.signal(); }
+            @Override public CompletionStage<DeliveryResult> submit(T batch) {
+                return submit(batch, ConsumeContext.defaults());
+            }
+            @Override public CompletionStage<DeliveryResult> submit(T batch, ConsumeContext context) {
+                requireRunning();
+                return source.submit(batch, context);
+            }
+            @Override public CompletionStage<FlushReport> flush(Duration timeout) {
+                return GatewayRuntime.this.flush(timeout);
+            }
+        };
     }
 
-    private Throwable shutdownBestEffort(ComponentRef ref, Duration deadline, Throwable first) {
-        try {
-            shutdownOne(ref, deadline);
-            return first;
-        } catch (Error | RuntimeException failure) {
-            // Best-effort: an Error from one component's shutdown must not abort the shutdown of the
-            // components behind it; rethrowIfPresent re-surfaces it at the end.
-            LOG.warn("shutdown of {} failed", ref.id(), failure);
-            return first == null ? failure : first;
-        }
-    }
-
-    private void shutdownOne(ComponentRef ref, Duration deadline) {
-        await(ref, ref.component().shutdown(new ShutdownContext(deadline)), deadline, "shutdown");
+    private void requireRunning() {
+        if (state != State.RUNNING || closing) { throw new IllegalStateException("gateway is not running"); }
     }
 
     /// The live component built under `kind` and `id`, if any. This is the unambiguous lookup: it
     /// resolves a component even when another component of a different kind shares the same id (a
     /// Collector-style `otlp` receiver alongside an `otlp` exporter, for example). A multi-signal
     /// exporter resolves to one of its per-signal facets.
+    /// This is an advanced inspection escape hatch. Components remain owned by the runtime: callers
+    /// must not invoke their lifecycle methods or close them independently.
     ///
     /// @param kind the component kind
     /// @param id   the component id
@@ -217,62 +269,149 @@ public final class GatewayRuntime implements AutoCloseable {
                 : OptionalInt.empty();
     }
 
-    /// A DOT-style dump of the service graph, replacing the fluent pipeline's description.
-    ///
-    /// @return the graph dump
-    public String describe() {
-        return graph.describe();
-    }
 
-    /// Shuts the gateway down within the configured shutdown deadline, swallowing a failure as a WARN
-    /// log rather than throwing, so the runtime can be used in a try-with-resources block.
+    public String describe() { return graph.describe(); }
+
     @Override
     public void close() {
+        shutdown(options.shutdownDeadline()).toCompletableFuture().join();
+    }
+
+    private <T> CompletionStage<T> asynchronous(Budget budget, boolean cleanup, Supplier<T> operation) {
+        var result = new CompletableFuture<T>();
+        Thread.ofVirtual().name("otlp-gateway-lifecycle").start(() -> {
+            boolean locked = false;
+            try {
+                if (cleanup) { operations.lock(); locked = true; }
+                else { locked = operations.tryLock(budget.remainingNanos(), TimeUnit.NANOSECONDS); }
+                if (!locked) { throw new TimeoutException("gateway lifecycle deadline expired waiting for another operation"); }
+                result.complete(operation.get());
+            }
+            catch (Throwable failure) { result.completeExceptionally(failure); }
+            finally { if (locked) { operations.unlock(); } }
+        });
+        if (cleanup) { result.orTimeout(budget.remainingNanos(), TimeUnit.NANOSECONDS); }
+        return result.minimalCompletionStage();
+    }
+
+    private <T> T await(ComponentRef ref, Supplier<CompletionStage<T>> action, Budget budget, String phase) {
+        var result = new CompletableFuture<T>();
+        var pending = new AtomicReference<CompletableFuture<T>>();
+        var gate = lifecycleGates.get(ref.component());
+        boolean cleanup = phase.equals("shutdown") || phase.equals("rollback");
+        var invocation = Thread.ofVirtual().name("otlp-component-" + phase).start(() -> {
+            boolean acquired = false;
+            try {
+                gate.acquire();
+                acquired = true;
+                if (result.isCancelled()) {
+                    gate.release();
+                    return;
+                }
+                var stage = Objects.requireNonNull(action.get(), "component returned a null stage").toCompletableFuture();
+                pending.set(stage);
+                stage.whenComplete((value, failure) -> {
+                    gate.release();
+                    if (failure != null) { result.completeExceptionally(failure); }
+                    else { result.complete(value); }
+                });
+                acquired = false;
+                if (result.isCancelled()) { stage.cancel(true); }
+            } catch (Throwable failure) {
+                if (acquired) { gate.release(); }
+                result.completeExceptionally(failure);
+            }
+        });
         try {
-            shutdown(options.shutdownDeadline());
-        } catch (RuntimeException failure) {
-            LOG.warn("gateway shutdown failed during close()", failure);
+            return result.get(budget.remainingNanos(), TimeUnit.NANOSECONDS);
+        } catch (TimeoutException timeout) {
+            if (!cleanup) { cancel(result, pending, invocation); }
+            throw new GatewayLifecycleException(ref.id(), phase + " exceeded the gateway deadline", timeout);
+        } catch (InterruptedException interrupted) {
+            if (!cleanup) { cancel(result, pending, invocation); }
+            Thread.currentThread().interrupt();
+            throw new GatewayLifecycleException(ref.id(), phase + " was interrupted", interrupted);
+        } catch (ExecutionException execution) {
+            var cause = execution.getCause();
+            if (cause instanceof Error error) { throw error; }
+            throw new GatewayLifecycleException(ref.id(), phase + " of " + ref.id() + " failed", cause);
         }
     }
 
-    private List<ComponentRef> forwardDataPath() {
-        return reversed(dataPathStartOrder);
-    }
-
-    private static List<ComponentRef> reversed(List<ComponentRef> refs) {
-        var copy = new ArrayList<>(refs);
-        Collections.reverse(copy);
-        return copy;
-    }
-
-    private void await(ComponentRef ref, CompletionStage<Void> stage, Duration deadline, String phase) {
-        try {
-            stage.toCompletableFuture().get(deadline.toMillis(), TimeUnit.MILLISECONDS);
-        } catch (TimeoutException timeout) {
-            throw new GatewayStartException(
-                    ref.id(), phase + " of " + ref.id() + " timed out after " + deadline, timeout);
-        } catch (ExecutionException execution) {
-            var cause = execution.getCause() == null ? execution : execution.getCause();
-            if (cause instanceof Error error) {
-                throw error;
+    private CompletableFuture<FlushReport> invokeFlush(
+            ComponentRef ref, Supplier<CompletionStage<FlushReport>> action) {
+        var result = new CompletableFuture<FlushReport>();
+        pendingFlushes.put(ref.component(), result);
+        var gate = lifecycleGates.get(ref.component());
+        Thread.ofVirtual().name("otlp-component-flush").start(() -> {
+            boolean acquired = false;
+            try {
+                gate.acquire();
+                acquired = true;
+                Objects.requireNonNull(action.get(), "component returned a null flush stage")
+                        .toCompletableFuture().whenComplete((report, failure) -> {
+                            gate.release();
+                            if (failure != null) { result.completeExceptionally(failure); }
+                            else if (report == null) {
+                                result.completeExceptionally(new NullPointerException("component returned a null flush report"));
+                            } else { result.complete(report); }
+                        });
+                acquired = false;
+            } catch (Throwable failure) {
+                if (acquired) { gate.release(); }
+                result.completeExceptionally(failure);
             }
-            throw new GatewayStartException(ref.id(), phase + " of " + ref.id() + " failed", cause);
+        });
+        return result;
+    }
+
+    private FlushReport awaitFlush(ComponentRef ref, CompletableFuture<FlushReport> result, Budget budget) {
+        try {
+            var report = result.get(budget.remainingNanos(), TimeUnit.NANOSECONDS);
+            pendingFlushes.remove(ref.component());
+            return report;
+        } catch (TimeoutException timeout) {
+            throw new GatewayLifecycleException(ref.id(), "flush exceeded the gateway deadline", timeout);
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
-            throw new GatewayStartException(ref.id(), phase + " of " + ref.id() + " was interrupted", interrupted);
+            throw new GatewayLifecycleException(ref.id(), "flush was interrupted", interrupted);
+        } catch (ExecutionException execution) {
+            pendingFlushes.remove(ref.component());
+            var cause = execution.getCause();
+            if (cause instanceof Error error) { throw error; }
+            throw new GatewayLifecycleException(ref.id(), "flush of " + ref.id() + " failed", cause);
         }
     }
 
-    private static void rethrowIfPresent(Throwable first, String phase) {
-        if (first == null) {
-            return;
+    private static <T> void cancel(CompletableFuture<T> result,
+                                   AtomicReference<CompletableFuture<T>> pending, Thread invocation) {
+        result.cancel(true);
+        var stage = pending.get();
+        if (stage != null) { stage.cancel(true); }
+        invocation.interrupt();
+    }
+
+    private static Throwable accumulate(Throwable first, Throwable failure) {
+        if (first == null) { return failure; }
+        if (first != failure) { first.addSuppressed(failure); }
+        return first;
+    }
+
+    private static void rethrow(Throwable failure) {
+        if (failure instanceof Error error) { throw error; }
+        if (failure instanceof RuntimeException runtime) { throw runtime; }
+        if (failure != null) { throw new IllegalStateException("gateway lifecycle failed", failure); }
+    }
+
+    private static final class Budget {
+        private final long started = System.nanoTime();
+        private final long timeoutNanos;
+        Budget(Duration timeout) {
+            Objects.requireNonNull(timeout, "timeout");
+            if (timeout.isNegative()) { throw new IllegalArgumentException("timeout must be non-negative"); }
+            timeoutNanos = TimeUnit.NANOSECONDS.convert(timeout);
         }
-        if (first instanceof Error error) {
-            throw error;
-        }
-        if (first instanceof RuntimeException runtime) {
-            throw runtime;
-        }
-        throw new IllegalStateException(phase + " failed", first);
+        long remainingNanos() { return Math.max(0, timeoutNanos - (System.nanoTime() - started)); }
+        Duration remaining() { return Duration.ofNanos(remainingNanos()); }
     }
 }

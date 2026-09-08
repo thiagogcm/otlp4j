@@ -11,8 +11,7 @@ import dev.nthings.otlp4j.core.component.ComponentId;
 import dev.nthings.otlp4j.core.component.ExporterFactory;
 import dev.nthings.otlp4j.core.pipeline.PipelineId;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
-import dev.nthings.otlp4j.core.signal.PayloadView;
-import dev.nthings.otlp4j.core.signal.TelemetryPayload;
+import dev.nthings.otlp4j.core.signal.Payload;
 import dev.nthings.otlp4j.model.Metric;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.NumberPoint;
@@ -35,7 +34,7 @@ class SpanCountConnectorFactoryTest {
     @DisplayName("derives a delta-sum count metric from a traces batch and emits it into the metrics pipeline")
     @Test
     void derivesAndEmitsTheCountMetric() {
-        var received = new CopyOnWriteArrayList<TelemetryPayload>();
+        var received = new CopyOnWriteArrayList<Payload<?>>();
         var recv = new GraphReceiverFactory();
 
         var gw = Gateway.builder();
@@ -56,7 +55,7 @@ class SpanCountConnectorFactoryTest {
         assertThat(received).hasSize(1);
         assertThat(received.get(0).signal()).isEqualTo(METRICS);
 
-        var metrics = (MetricsData) received.get(0).view(PayloadView.DOMAIN_IMMUTABLE);
+        var metrics = (MetricsData) received.get(0).data();
         assertThat(metrics.metrics()).singleElement().satisfies(metric -> {
             assertThat(metric.name()).isEqualTo("otlp4j.connector.span.count");
             assertThat(longValueOf(metric)).isEqualTo(3L);

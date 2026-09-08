@@ -13,6 +13,7 @@ import dev.nthings.otlp4j.testing.TransportFixtures;
 import dev.nthings.otlp4j.transport.ScriptedCollector.Step;
 import dev.nthings.otlp4j.transport.ScriptedCollector.Wire;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionException;
@@ -23,8 +24,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 /// End-to-end retry, backoff, and deadline translation over the real Armeria client, driven against an
-/// in-module scripted collector. These exercise the same wiring the Phase 3 policy semantics suite
-/// drives in Lot 3, so they de-risk that lot: exact attempt counts, exact retry-instrument counts, the
+/// in-module scripted collector. These exercise the same wiring as the policy semantics suite, including
+/// exact attempt counts, exact retry-instrument counts, the
 /// gRPC negative-pushback stop-retry, positive pushback and `RetryInfo` folding, HTTP `Retry-After`
 /// folding, and the per-attempt and total deadlines.
 @Timeout(120)
@@ -196,15 +197,15 @@ class ArmeriaRetryPolicyTest {
         try (var collector = ScriptedCollector.start(wire, script)) {
             var telemetry = new RecordingGatewayMetrics();
             var config = OtlpExporterConfig.builder(4317)
-                    .setHost("127.0.0.1")
-                    .setPort(collector.port())
-                    .setTimeout(perAttempt)
-                    .setTotalTimeout(total)
-                    .setRetryPolicy(retry)
+                    .host("127.0.0.1")
+                    .port(collector.port())
+                    .timeout(perAttempt)
+                    .totalTimeout(total)
+                    .retryPolicy(retry)
                     .build();
             var exporter = switch (wire) {
-                case GRPC -> OtlpExporter.grpcBuilder().setConfig(config).telemetry(telemetry).build();
-                case HTTP -> OtlpExporter.httpBuilder().setConfig(config).telemetry(telemetry).build();
+                case GRPC -> OtlpExporter.grpcBuilder().config(config).telemetry(telemetry).build().start();
+                case HTTP -> OtlpExporter.httpBuilder().config(config).telemetry(telemetry).build().start();
             };
             DeliveryResult result = null;
             Throwable failure = null;
@@ -251,7 +252,7 @@ class ArmeriaRetryPolicyTest {
     }
 
     private static List<Step> repeat(Step step, int count) {
-        var list = new java.util.ArrayList<Step>(count);
+        var list = new ArrayList<Step>(count);
         for (int i = 0; i < count; i++) {
             list.add(step);
         }

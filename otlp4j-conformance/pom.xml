@@ -16,8 +16,8 @@
         implementation that boots a real OTLP/gRPC or OTLP/HTTP receiver on an ephemeral port, plus
         the two concrete JUnit subclasses that execute the reusable conformance suites shipped in
         otlp4j-testing. This module sits below the transports in the reactor, so its dependency on
-        both the transports and otlp4j-testing is acyclic; it is the only place a transport or model
-        type appears, so when Phase 1 breaks the API only the seam implementation changes. Produces
+        both the transport and otlp4j-testing is acyclic; it is the only place transport or model
+        types appear in the conformance bootstrap. Produces
         no artifact of its own beyond its test coverage, which feeds the coverage aggregate. Kept
         non-modular (no module-info.java) so the harness reads otlp4j-proto's qualified-exported
         packages on the classpath.</description>

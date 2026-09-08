@@ -5,7 +5,6 @@ import dev.nthings.otlp4j.core.component.CreateContext;
 import dev.nthings.otlp4j.core.component.Exporter;
 import dev.nthings.otlp4j.core.component.ExporterFactory;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
-import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 
 /// An exporter's declarative entry in a [GatewayConfig]: the factory paired with its typed
 /// configuration. The entry hides the factory's config type parameter behind [#create], which
@@ -31,9 +30,9 @@ public record ExporterEntry<C extends ComponentConfig>(ExporterFactory<C> factor
     ///
     /// @param ctx    the create context (identity and base context)
     /// @param signal the signal this exporter operates on
-    /// @param <T>    the payload type
+    /// @param <T>    the signal domain type
     /// @return the exporter
-    public <T extends TelemetryPayload> Exporter<T> create(CreateContext ctx, SignalDescriptor<T> signal) {
+    public <T> Exporter<T> create(CreateContext ctx, SignalDescriptor<T> signal) {
         return factory.create(ctx, config, signal);
     }
 }

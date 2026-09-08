@@ -6,25 +6,26 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.nthings.otlp4j.core.consumer.SignalConsumer;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
-import dev.nthings.otlp4j.core.signal.TelemetryPayload;
+import dev.nthings.otlp4j.core.signal.Payload;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
-/// Graceful and forceful shutdown stop the Armeria receiver and release its port, on both protocols. A
+/// Graceful shutdown stops the Armeria receiver and releases its port, on both protocols. A
 /// served request completes before shutdown, a request held in-flight when `shutdown(Duration)` is
 /// called drains to its real result within the deadline, `shutdown(Duration)` settles within its
-/// deadline and then refuses a fresh connection, and `shutdownNow()` returns promptly and also refuses
-/// a fresh connection.
+/// deadline and then refuses a fresh connection.
 ///
 /// The server is built with a non-zero graceful-shutdown quiet period, so Armeria installs its real
 /// drain tracker and waits for in-flight requests to complete before it tears connections down. A zero
@@ -34,7 +35,7 @@ import org.junit.jupiter.api.Timeout;
 @DisplayName("Armeria graceful shutdown")
 class ArmeriaGracefulShutdownTest {
 
-    private final List<ServerReceiver> receivers = new ArrayList<>();
+    private final List<OtlpReceiver> receivers = new ArrayList<>();
     private final List<AutoCloseable> closeables = new ArrayList<>();
 
     @AfterEach
@@ -48,7 +49,7 @@ class ArmeriaGracefulShutdownTest {
         }
         for (var receiver : receivers) {
             try {
-                receiver.shutdownNow().toCompletableFuture().get(5, TimeUnit.SECONDS);
+                receiver.shutdown(Duration.ofSeconds(5)).toCompletableFuture().get(5, TimeUnit.SECONDS);
             } catch (Exception ignored) {
                 // keep tearing down
             }
@@ -79,18 +80,6 @@ class ArmeriaGracefulShutdownTest {
         gracefulDrainsInFlight(false);
     }
 
-    @DisplayName("gRPC: shutdownNow returns promptly and stops accepting")
-    @Test
-    void grpcForcefulStopsAccepting() throws Exception {
-        forcefulStopsAccepting(true);
-    }
-
-    @DisplayName("HTTP: shutdownNow returns promptly and stops accepting")
-    @Test
-    void httpForcefulStopsAccepting() throws Exception {
-        forcefulStopsAccepting(false);
-    }
-
     private void gracefulStopsAccepting(boolean grpc) throws Exception {
         var receiver = startReceiver(grpc, Consumers.accepting());
         var port = receiver.port();
@@ -107,8 +96,8 @@ class ArmeriaGracefulShutdownTest {
     }
 
     private void gracefulDrainsInFlight(boolean grpc) throws Exception {
-        var entered = new java.util.concurrent.CountDownLatch(1);
-        var gate = new java.util.concurrent.CompletableFuture<DeliveryResult>();
+        var entered = new CountDownLatch(1);
+        var gate = new CompletableFuture<DeliveryResult>();
         var receiver = startReceiver(grpc, Consumers.gated(entered::countDown, gate));
         var port = receiver.port();
         var batch = Fixtures.traceData(Fixtures.span("drain", Span.Kind.SERVER));
@@ -127,34 +116,24 @@ class ArmeriaGracefulShutdownTest {
         shutdown.get(20, TimeUnit.SECONDS);
     }
 
-    private void forcefulStopsAccepting(boolean grpc) throws Exception {
-        var receiver = startReceiver(grpc, Consumers.accepting());
-        var port = receiver.port();
-        var batch = Fixtures.traceData(Fixtures.span("forceful", Span.Kind.SERVER));
-
-        receiver.shutdownNow().toCompletableFuture().get(10, TimeUnit.SECONDS);
-
-        assertRefused(grpc, port, batch);
-    }
-
     private void assertRefused(boolean grpc, int port, TracesData batch) {
         var exporter = exporterTo(grpc, port);
         assertThatThrownBy(() -> exporter.export(TRACES, batch).toCompletableFuture().join())
                 .isInstanceOf(CompletionException.class);
     }
 
-    private ServerReceiver startReceiver(boolean grpc, SignalConsumer<TelemetryPayload> consumer) {
+    private OtlpReceiver startReceiver(boolean grpc, SignalConsumer<TracesData> consumer) {
         var builder = grpc ? OtlpReceiver.grpcBuilder() : OtlpReceiver.httpBuilder();
         var receiver = builder.route(TRACES, consumer).ephemeralPort().build();
         receivers.add(receiver);
         return receiver.start();
     }
 
-    private ClientExporter exporterTo(boolean grpc, int port) {
+    private OtlpExporter exporterTo(boolean grpc, int port) {
         var exporter = (grpc ? OtlpExporter.grpcBuilder() : OtlpExporter.httpBuilder())
-                .setEndpoint("localhost", port)
-                .setTimeout(Duration.ofSeconds(5))
-                .build();
+                .endpoint("localhost", port)
+                .timeout(Duration.ofSeconds(5))
+                .build().start();
         closeables.add(exporter);
         return exporter;
     }

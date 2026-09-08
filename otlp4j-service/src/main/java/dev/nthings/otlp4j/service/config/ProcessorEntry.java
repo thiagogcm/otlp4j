@@ -6,7 +6,6 @@ import dev.nthings.otlp4j.core.component.Processor;
 import dev.nthings.otlp4j.core.component.ProcessorFactory;
 import dev.nthings.otlp4j.core.consumer.SignalConsumer;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
-import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 
 /// A processor's declarative entry in a [GatewayConfig]: the factory paired with its typed
 /// configuration. The entry hides the factory's config type parameter behind [#create], which
@@ -34,9 +33,9 @@ public record ProcessorEntry<C extends ComponentConfig>(ProcessorFactory<C> fact
     /// @param ctx    the create context (identity and base context)
     /// @param signal the signal this processor operates on
     /// @param next   the downstream consumer this processor forwards to
-    /// @param <T>    the payload type
+    /// @param <T>    the signal domain type
     /// @return the processor
-    public <T extends TelemetryPayload> Processor<T> create(
+    public <T> Processor<T> create(
             CreateContext ctx, SignalDescriptor<T> signal, SignalConsumer<T> next) {
         return factory.create(ctx, config, signal, next);
     }

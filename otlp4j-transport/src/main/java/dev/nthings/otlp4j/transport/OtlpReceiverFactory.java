@@ -11,8 +11,8 @@ import dev.nthings.otlp4j.transport.internal.ReceiverComponentAdapter;
 /// The graph [ReceiverFactory] for the OTLP receiver, protocol-parameterized through [#grpc()] and
 /// [#http()]. Each factory creates one receiver serving every routed signal from one port by wiring
 /// the matching [OtlpReceiver] builder onto the graph consumers through a [ReceiverComponentAdapter],
-/// which also exposes the bound port through [dev.nthings.otlp4j.core.component.NetworkBound]. The
-/// protocol derives the component [#type()] (`otlp` for gRPC, `otlphttp` for HTTP) and the
+/// which exposes the bound port through the gateway runtime after startup. The protocol derives the
+/// component [#type()] (`otlp` for gRPC, `otlphttp` for HTTP) and the
 /// [#defaultPort()] (`4317` / `4318`).
 public final class OtlpReceiverFactory implements ReceiverFactory<OtlpReceiverConfig> {
 

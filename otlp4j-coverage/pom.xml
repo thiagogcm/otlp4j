@@ -53,6 +53,10 @@
         </dependency>
         <dependency>
             <groupId>dev.nthings.otlp4j</groupId>
+            <artifactId>otlp4j-opentelemetry</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.nthings.otlp4j</groupId>
             <artifactId>otlp4j-components</artifactId>
         </dependency>
         <dependency>

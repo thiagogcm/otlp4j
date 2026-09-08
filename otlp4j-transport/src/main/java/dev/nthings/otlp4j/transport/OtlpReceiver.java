@@ -1,12 +1,16 @@
 package dev.nthings.otlp4j.transport;
 
 import dev.nthings.otlp4j.core.component.ComponentId;
+import dev.nthings.otlp4j.core.consumer.ConsumeContext;
 import dev.nthings.otlp4j.core.consumer.SignalConsumer;
+import dev.nthings.otlp4j.core.result.DeliveryResult;
+import dev.nthings.otlp4j.core.signal.Payload;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
-import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import dev.nthings.otlp4j.core.telemetry.GatewayMetrics;
 import dev.nthings.otlp4j.transport.internal.ArmeriaOtlpServer;
 import dev.nthings.otlp4j.transport.internal.Protocol;
+import dev.nthings.otlp4j.transport.internal.ReceiverTap;
+import dev.nthings.otlp4j.transport.internal.SignalSource;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.EnumSet;
@@ -14,210 +18,237 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.atomic.AtomicReference;
 
-/// Builds [ServerReceiver]s that accept OTLP requests over Armeria and dispatch to the routed graph
-/// consumers.
-///
-/// One server can serve OTLP/gRPC, OTLP/HTTP, or both from a single port. [#grpcBuilder()] serves
-/// gRPC only (default bind `localhost:4317`), [#httpBuilder()] serves HTTP only (default bind
-/// `localhost:4318`), and [#builder()] serves both. Call [ServerReceiver#start()] on the built
-/// receiver to bind the transport.
-///
-/// Enforced client-certificate authentication (mutual TLS) is set through
-/// [Builder#setClientAuth(ClientAuth)] and defaults to [ClientAuth#NONE].
-public final class OtlpReceiver {
+/** An owned OTLP receiver runtime backed by one Armeria server. */
+public final class OtlpReceiver implements AutoCloseable {
 
-    private OtlpReceiver() {}
+    private static final Duration DEFAULT_CLOSE_TIMEOUT = Duration.ofSeconds(10);
 
-    /// A builder serving OTLP/gRPC only, default bind `localhost:4317`.
-    ///
-    /// @return the gRPC receiver builder
+    private enum State { NEW, STARTED, STOPPING, STOPPED }
+
+    private final Map<SignalDescriptor<?>, SignalSource<?>> sources = new LinkedHashMap<>();
+    private final ReceiverTap tap;
+    private final ArmeriaOtlpServer server;
+    private final AtomicReference<State> state = new AtomicReference<>(State.NEW);
+    private CompletionStage<Void> shutdownStage;
+
+    private OtlpReceiver(
+            ComponentId id,
+            GatewayMetrics telemetry,
+            ArmeriaOtlpServer server,
+            Map<SignalDescriptor<?>, ? extends SignalConsumer<?>> routes) {
+        this.tap = new ReceiverTap(telemetry);
+        for (var signal : SignalDescriptor.values()) {
+            sources.put(signal, new SignalSource<>(signal, id));
+        }
+        routes.forEach((signal, consumer) -> attachUnchecked(signal, consumer));
+        this.server = server;
+    }
+
     public static Builder grpcBuilder() {
-        return new Builder(EnumSet.of(Protocol.GRPC), OtlpReceiverConfig.builder(4317), "OTLP/gRPC");
+        return new Builder(EnumSet.of(Protocol.GRPC), OtlpReceiverConfig.builder(4317));
     }
 
-    /// A builder serving OTLP/HTTP only, default bind `localhost:4318`.
-    ///
-    /// @return the HTTP receiver builder
     public static Builder httpBuilder() {
-        return new Builder(EnumSet.of(Protocol.HTTP), OtlpReceiverConfig.builder(4318), "OTLP/HTTP");
+        return new Builder(EnumSet.of(Protocol.HTTP), OtlpReceiverConfig.builder(4318));
     }
 
-    /// A builder serving both OTLP/gRPC and OTLP/HTTP from one port, default bind `localhost:4317`.
-    ///
-    /// @return the dual-protocol receiver builder
     public static Builder builder() {
-        return new Builder(EnumSet.of(Protocol.GRPC, Protocol.HTTP), OtlpReceiverConfig.builder(4317), "OTLP");
+        return new Builder(
+                EnumSet.of(Protocol.GRPC, Protocol.HTTP), OtlpReceiverConfig.builder(4317));
     }
 
-    /// Builder for an OTLP [ServerReceiver]. The wire knobs are held on an [OtlpReceiverConfig.Builder]
-    /// and build the same [OtlpReceiverConfig] the graph factory consumes; [#build()] wires the built
-    /// config into an [ArmeriaOtlpServer] behind a [ServerReceiver] with the routed graph consumers
-    /// attached.
+    /** Starts the socket synchronously. Calls after a successful start are idempotent. */
+    public synchronized OtlpReceiver start() {
+        var current = state.get();
+        if (current == State.STARTED) {
+            return this;
+        }
+        if (current != State.NEW) {
+            throw new IllegalStateException("receiver is already stopped");
+        }
+        try {
+            server.start();
+        } catch (Exception failure) {
+            tap.close();
+            throw failure instanceof RuntimeException runtime
+                    ? runtime
+                    : new IllegalStateException("failed to start receiver", failure);
+        }
+        state.set(State.STARTED);
+        return this;
+    }
+
+    public boolean isStarted() {
+        return state.get() == State.STARTED;
+    }
+
+    public int port() {
+        return server.port();
+    }
+
+    public synchronized CompletionStage<Void> shutdown(Duration timeout) {
+        Objects.requireNonNull(timeout, "timeout");
+        if (timeout.isNegative()) {
+            throw new IllegalArgumentException("timeout must be non-negative");
+        }
+        if (shutdownStage != null) {
+            return shutdownStage;
+        }
+        if (state.get() == State.NEW) {
+            state.set(State.STOPPED);
+            tap.close();
+            shutdownStage = CompletableFuture.completedStage(null);
+            return shutdownStage;
+        }
+        state.set(State.STOPPING);
+        var result = new CompletableFuture<Void>();
+        shutdownStage = result.minimalCompletionStage();
+        server.shutdown(timeout).whenComplete((ignored, failure) -> {
+            tap.close();
+            state.set(State.STOPPED);
+            if (failure == null) {
+                result.complete(null);
+            } else {
+                result.completeExceptionally(failure);
+            }
+        });
+        return shutdownStage;
+    }
+
+    @Override
+    public void close() {
+        shutdown(DEFAULT_CLOSE_TIMEOUT).toCompletableFuture().join();
+    }
+
+    private CompletionStage<DeliveryResult> dispatch(ConsumeContext context, Payload<?> payload) {
+        Objects.requireNonNull(context, "context");
+        Objects.requireNonNull(payload, "payload");
+        tap.publish(payload);
+        return dispatchTyped(context, payload);
+    }
+
+    private <T> CompletionStage<DeliveryResult> dispatchTyped(
+            ConsumeContext context, Payload<T> payload) {
+        return sourceFor(payload.signal()).dispatch(context, payload);
+    }
+
+    private <T> SignalSource<T> sourceFor(SignalDescriptor<T> signal) {
+        @SuppressWarnings("unchecked")
+        var source = (SignalSource<T>) sources.get(signal);
+        return source;
+    }
+
+    private <T> void attach(SignalDescriptor<T> signal, SignalConsumer<T> consumer) {
+        sourceFor(signal).attach(consumer);
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private void attachUnchecked(SignalDescriptor<?> signal, SignalConsumer<?> consumer) {
+        attach((SignalDescriptor) signal, (SignalConsumer) consumer);
+    }
+
+    /** Builder for an owned receiver. */
     public static final class Builder {
 
         private final Set<Protocol> protocols;
         private OtlpReceiverConfig.Builder config;
-        private final String transportName;
-        private final Map<SignalDescriptor<?>, SignalConsumer<TelemetryPayload>> routes = new LinkedHashMap<>();
+        private final Map<SignalDescriptor<?>, SignalConsumer<?>> routes = new LinkedHashMap<>();
         private ComponentId id = ComponentId.parse("otlp");
         private Clock clock = Clock.systemUTC();
-        private GatewayMetrics gatewayMetrics = GatewayMetrics.noop();
+        private GatewayMetrics telemetry = GatewayMetrics.noop();
 
-        private Builder(Set<Protocol> protocols, OtlpReceiverConfig.Builder config, String transportName) {
-            this.protocols = protocols;
-            this.config = Objects.requireNonNull(config, "config");
-            this.transportName = Objects.requireNonNull(transportName, "transportName");
+        private Builder(Set<Protocol> protocols, OtlpReceiverConfig.Builder config) {
+            this.protocols = Set.copyOf(protocols);
+            this.config = config;
         }
 
-        /// Replaces the whole server config at once; later setters override individual fields.
-        ///
-        /// @param config the replacement config
-        /// @return this builder
-        public Builder setConfig(OtlpReceiverConfig config) {
-            this.config = config.toBuilder();
+        public Builder config(OtlpReceiverConfig config) {
+            this.config = Objects.requireNonNull(config, "config").toBuilder();
             return this;
         }
 
-        /// Sets the bind host and port.
-        ///
-        /// @param bindHost the bind host
-        /// @param port     the bind port
-        /// @return this builder
-        public Builder setEndpoint(String bindHost, int port) {
-            config.setBindHost(bindHost).setPort(port);
+        public Builder endpoint(String bindHost, int port) {
+            config.bindHost(bindHost).port(port);
             return this;
         }
 
-        /// Sets the bind port.
-        ///
-        /// @param port the bind port
-        /// @return this builder
-        public Builder setPort(int port) {
-            config.setPort(port);
+        public Builder port(int port) {
+            config.port(port);
             return this;
         }
 
-        /// Binds an ephemeral port (port `0`); read the actual port from the built [ServerReceiver]'s
-        /// `port()`.
-        ///
-        /// @return this builder
         public Builder ephemeralPort() {
-            return setPort(0);
+            return port(0);
         }
 
-        /// Selects the server TLS mode (e.g. [Tls#custom] to serve TLS). Defaults to plaintext.
-        ///
-        /// @param tls the TLS mode
-        /// @return this builder
-        public Builder setTls(Tls tls) {
-            config.setTls(tls);
+        public Builder tls(Tls tls) {
+            config.tls(tls);
             return this;
         }
 
-        /// Caps a single decoded export request; guards against memory-exhausting oversized requests.
-        /// Defaults to 4 MiB.
-        ///
-        /// @param bytes the per-request cap in bytes
-        /// @return this builder
-        public Builder setMaxInboundMessageSizeBytes(int bytes) {
-            config.setMaxInboundMessageSizeBytes(bytes);
+        public Builder maxInboundMessageSizeBytes(int bytes) {
+            config.maxInboundMessageSizeBytes(bytes);
             return this;
         }
 
-        /// Caps decoded export requests in flight across every connection; excess requests are rejected
-        /// retryably ("at capacity"). `0` (the default) disables the cap.
-        ///
-        /// @param max the global in-flight request cap
-        /// @return this builder
-        public Builder setMaxInFlightRequests(int max) {
-            config.setMaxInFlightRequests(max);
+        public Builder maxInFlightRequests(int max) {
+            config.maxInFlightRequests(max);
             return this;
         }
 
-        /// Caps decoded request bytes in flight across every connection; excess requests are rejected
-        /// retryably ("at capacity"). A request is always admitted when nothing else is in flight. `0`
-        /// (the default) disables the cap.
-        ///
-        /// @param bytes the global in-flight byte cap
-        /// @return this builder
-        public Builder setMaxInFlightBytes(long bytes) {
-            config.setMaxInFlightBytes(bytes);
+        public Builder maxInFlightBytes(long bytes) {
+            config.maxInFlightBytes(bytes);
             return this;
         }
 
-        /// Sets the retry-after hint attached to admission rejections (gRPC pushback trailer / HTTP
-        /// `Retry-After`). Unset (the default) emits no hint.
-        ///
-        /// @param throttleRetryAfter the hint attached to "at capacity" rejections
-        /// @return this builder
-        public Builder setThrottleRetryAfter(Duration throttleRetryAfter) {
-            config.setThrottleRetryAfter(throttleRetryAfter);
+        public Builder throttleRetryAfter(Duration retryAfter) {
+            config.throttleRetryAfter(retryAfter);
             return this;
         }
 
-        /// Sets how the server treats a client certificate during the TLS handshake. Under
-        /// [ClientAuth#REQUIRE] a certless client is rejected at the handshake (enforced mutual TLS);
-        /// under [ClientAuth#OPTIONAL] a presented certificate is verified but a certless client still
-        /// succeeds; under the default [ClientAuth#NONE] no client certificate is requested. Requesting
-        /// or requiring a client certificate needs a trust anchor, supplied through the server TLS mode
-        /// ([Tls.Custom] `trustFile` or [Tls.Inline] `trust`); an enforced or optional mode without one
-        /// fails at start.
-        ///
-        /// @param clientAuth the client-authentication mode
-        /// @return this builder
-        public Builder setClientAuth(ClientAuth clientAuth) {
-            config.setClientAuth(clientAuth);
+        public Builder clientAuth(ClientAuth clientAuth) {
+            config.clientAuth(clientAuth);
             return this;
         }
 
-        /// Routes `consumer` as the graph consumer for `signal`. A second route for the same signal
-        /// replaces the first.
-        ///
-        /// @param signal   the signal to route
-        /// @param consumer the graph consumer for that signal
-        /// @return this builder
-        public Builder route(SignalDescriptor<?> signal, SignalConsumer<TelemetryPayload> consumer) {
-            routes.put(Objects.requireNonNull(signal, "signal"), Objects.requireNonNull(consumer, "consumer"));
+        public <T> Builder route(SignalDescriptor<T> signal, SignalConsumer<T> consumer) {
+            routes.put(
+                    Objects.requireNonNull(signal, "signal"),
+                    Objects.requireNonNull(consumer, "consumer"));
             return this;
         }
 
-        /// Sets the receiver component identity, attributed to no-consumer rejections. Defaults to the
-        /// `otlp` type with no name.
-        ///
-        /// @param id the receiver component identity
-        /// @return this builder
         public Builder componentId(ComponentId id) {
             this.id = Objects.requireNonNull(id, "id");
             return this;
         }
 
-        /// Sets the clock that stamps each consume deadline. Defaults to the system UTC clock.
-        ///
-        /// @param clock the clock
-        /// @return this builder
         public Builder clock(Clock clock) {
             this.clock = Objects.requireNonNull(clock, "clock");
             return this;
         }
 
-        /// Sets the [GatewayMetrics] registry the receiver reports to (default [GatewayMetrics#noop]).
-        ///
-        /// @param telemetry the self-observability registry
-        /// @return this builder
         public Builder telemetry(GatewayMetrics telemetry) {
-            this.gatewayMetrics = Objects.requireNonNull(telemetry, "telemetry");
+            this.telemetry = Objects.requireNonNull(telemetry, "telemetry");
             return this;
         }
 
-        /// Builds the receiver: finishes the config, opens the wire server, and wraps it in a
-        /// [ServerReceiver] with the routed graph consumers attached.
-        ///
-        /// @return the receiver; call [ServerReceiver#start()] to bind the transport
-        public ServerReceiver build() {
+        public OtlpReceiver build() {
             var built = config.build();
-            return new ServerReceiver(transportName, id, clock, gatewayMetrics,
-                    disp -> new ArmeriaOtlpServer(built, disp, gatewayMetrics, protocols), routes);
+            // Constructing the Armeria server does not bind or allocate a client/server event loop.
+            OtlpReceiver[] holder = new OtlpReceiver[1];
+            var server = new ArmeriaOtlpServer(
+                    built,
+                    (context, payload) -> holder[0].dispatch(context, payload),
+                    telemetry,
+                    protocols,
+                    clock);
+            holder[0] = new OtlpReceiver(id, telemetry, server, routes);
+            return holder[0];
         }
     }
 }

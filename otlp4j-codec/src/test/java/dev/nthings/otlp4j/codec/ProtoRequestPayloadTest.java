@@ -3,106 +3,75 @@ package dev.nthings.otlp4j.codec;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import dev.nthings.otlp4j.core.signal.PayloadView;
+import dev.nthings.otlp4j.core.signal.Payload;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
+import dev.nthings.otlp4j.model.Span;
+import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.testing.Fixtures;
+import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceRequest;
+import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceResponse;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/// Unit contract for [ProtoRequestPayload]: it answers from the carried proto request without
-/// materialising the domain, and materialises the domain only when the immutable view is requested.
-@DisplayName("ProtoRequestPayload")
+/// Unit contract for a protobuf-backed payload: forwarding and routing stay pass-through until a
+/// typed domain operation is requested.
+@DisplayName("Proto-backed payload")
 class ProtoRequestPayloadTest {
 
     private static ProtoRequestPayload<
-            dev.nthings.otlp4j.model.TracesData,
-            io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceRequest,
-            io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceResponse> tracePayload() {
+            TracesData,
+            ExportTraceServiceRequest,
+            ExportTraceServiceResponse> tracePayload() {
         var batch = Fixtures.traceData(
-                Fixtures.span("a", dev.nthings.otlp4j.model.Span.Kind.SERVER),
-                Fixtures.span("b", dev.nthings.otlp4j.model.Span.Kind.CLIENT));
-        var request = SignalCodec.TRACES.toProto(batch);
-        return new ProtoRequestPayload<>(SignalCodec.TRACES, request);
+                Fixtures.span("a", Span.Kind.SERVER), Fixtures.span("b", Span.Kind.CLIENT));
+        return new ProtoRequestPayload<>(SignalCodec.TRACES, SignalCodec.TRACES.toProto(batch));
     }
 
-    @DisplayName("signal, item count, and size answer from the proto request")
     @Test
+    @DisplayName("signal, count, size, and request answer from the carried proto")
     void answersFromProto() {
         var batch = Fixtures.traceData(
-                Fixtures.span("a", dev.nthings.otlp4j.model.Span.Kind.SERVER),
-                Fixtures.span("b", dev.nthings.otlp4j.model.Span.Kind.CLIENT));
+                Fixtures.span("a", Span.Kind.SERVER), Fixtures.span("b", Span.Kind.CLIENT));
         var request = SignalCodec.TRACES.toProto(batch);
         var payload = new ProtoRequestPayload<>(SignalCodec.TRACES, request);
 
         assertThat(payload.signal()).isEqualTo(SignalDescriptor.TRACES);
-        assertThat(payload.itemCount()).isEqualTo(SignalCodec.TRACES.protoItemCount(request));
         assertThat(payload.itemCount()).isEqualTo(2L);
-        assertThat(payload.estimatedSerializedSize()).isEqualTo(request.getSerializedSize());
+        assertThat(PayloadWire.size(payload)).isEqualTo(request.getSerializedSize());
+        assertThat(PayloadWire.request(SignalCodec.TRACES, payload)).isSameAs(request);
     }
 
-    @DisplayName("PROTO_REQUEST is the carried message; DOMAIN_IMMUTABLE decodes it")
     @Test
-    void views() {
-        var batch = Fixtures.traceData(Fixtures.span("a", dev.nthings.otlp4j.model.Span.Kind.SERVER));
-        var request = SignalCodec.TRACES.toProto(batch);
-        var payload = new ProtoRequestPayload<>(SignalCodec.TRACES, request);
-
-        assertThat(payload.view(PayloadView.PROTO_REQUEST)).isSameAs(request);
-        assertThat(payload.view(PayloadView.DOMAIN_IMMUTABLE)).isEqualTo(SignalCodec.TRACES.toDomain(request));
-    }
-
-    @DisplayName("writeTo serialises the carried message")
-    @Test
+    @DisplayName("wire writing preserves the carried request")
     void writesProtoBytes() throws IOException {
-        var batch = Fixtures.traceData(Fixtures.span("a", dev.nthings.otlp4j.model.Span.Kind.SERVER));
-        var request = SignalCodec.TRACES.toProto(batch);
-        var payload = new ProtoRequestPayload<>(SignalCodec.TRACES, request);
-
+        var payload = tracePayload();
         var out = new ByteArrayOutputStream();
-        payload.writeTo(out);
-        assertThat(out.toByteArray()).isEqualTo(request.toByteArray());
+        PayloadWire.write(SignalCodec.TRACES, payload, out);
+        assertThat(out.toByteArray()).isEqualTo(PayloadWire.request(SignalCodec.TRACES, payload).toByteArray());
+        assertThat(payload.dataMaterialized()).isFalse();
     }
 
-    @DisplayName("copyForMutation shares the immutable backing")
     @Test
-    void copyShares() {
+    @DisplayName("data decodes lazily and withData creates a domain-backed replacement")
+    void decodesLazily() {
         var payload = tracePayload();
-        assertThat(payload.copyForMutation()).isSameAs(payload);
+        assertThat(payload.dataMaterialized()).isFalse();
+        assertThat(payload.data()).isNotNull();
+        assertThat(payload.dataMaterialized()).isTrue();
+        assertThat(payload.withData(payload.data())).isSameAs(payload);
+        var replacement = Fixtures.traceData(Fixtures.span("c", Span.Kind.CLIENT));
+        Payload<TracesData> replaced = payload.withData(replacement);
+        assertThat(replaced.data()).isSameAs(replacement);
     }
 
-    @DisplayName("an unknown view fails closed")
     @Test
-    void unknownViewThrows() {
-        var payload = tracePayload();
-        assertThatThrownBy(() -> payload.view(null)).isInstanceOf(IllegalArgumentException.class);
-    }
-
     @DisplayName("null request and null codec are rejected")
-    @Test
     void rejectsNulls() {
         assertThatThrownBy(() -> new ProtoRequestPayload<>(SignalCodec.TRACES, null))
-                .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new ProtoRequestPayload<>(
-                null, SignalCodec.TRACES.toProto(Fixtures.traceData())))
-                .isInstanceOf(IllegalArgumentException.class);
-    }
-
-    @DisplayName("a pass-through export never materialises the domain until it is viewed")
-    @Test
-    void passThroughDoesNotMaterialiseDomain() throws IOException {
-        var payload = tracePayload();
-
-        payload.signal();
-        payload.itemCount();
-        payload.estimatedSerializedSize();
-        payload.view(PayloadView.PROTO_REQUEST);
-        payload.writeTo(new ByteArrayOutputStream());
-
-        assertThat(payload.domainMaterialised()).isFalse();
-
-        payload.view(PayloadView.DOMAIN_IMMUTABLE);
-        assertThat(payload.domainMaterialised()).isTrue();
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> new ProtoRequestPayload<>(null, SignalCodec.TRACES.toProto(Fixtures.traceData())))
+                .isInstanceOf(NullPointerException.class);
     }
 }

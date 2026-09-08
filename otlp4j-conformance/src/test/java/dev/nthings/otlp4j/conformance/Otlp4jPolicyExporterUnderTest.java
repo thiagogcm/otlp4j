@@ -12,7 +12,6 @@ import dev.nthings.otlp4j.testing.policy.ExportObservation;
 import dev.nthings.otlp4j.testing.policy.ExportProgram;
 import dev.nthings.otlp4j.testing.policy.PolicyExporterUnderTest;
 import dev.nthings.otlp4j.testing.policy.ProgrammedOtlpServer;
-import dev.nthings.otlp4j.transport.ClientExporter;
 import dev.nthings.otlp4j.transport.OtlpExporter;
 import java.time.Duration;
 import java.util.concurrent.CancellationException;
@@ -26,9 +25,8 @@ import java.util.concurrent.CompletionException;
 /// retry is reclaimed, snapshots the server's recorded arrivals, and returns the neutral observation.
 ///
 /// One instance drives one protocol on the consolidated Armeria transport, the only production
-/// transport. Its capability declarations describe what that backend actually does: the Armeria
-/// backend folds gRPC RetryInfo on both protocols and cancels an in-flight retry at the total
-/// deadline. The suite reads these hooks to branch its expectations.
+/// transport. The transport folds gRPC RetryInfo on both protocols and cancels an in-flight retry at
+/// the total deadline; the reusable suite asserts those guarantees directly.
 final class Otlp4jPolicyExporterUnderTest implements PolicyExporterUnderTest {
 
     /// Bounded grace for tearing the exporter down between the caller stage settling and the arrival
@@ -90,20 +88,20 @@ final class Otlp4jPolicyExporterUnderTest implements PolicyExporterUnderTest {
 
     /// Builds a real exporter pointed at the programmed server, configured with the program's policies
     /// through the public config surface: the per-attempt timeout maps to the client timeout and the
-    /// total timeout to the total budget, so the interim translation completed in Lot 1 is exercised.
+    /// total timeout to the configured total budget.
     /// The exporter reports to `telemetry`, so the real wire client's per-attempt retry counting is
     /// observable through the exporter's `otlp4j.exporter.export.retries` instrument.
-    private ClientExporter buildExporter(int port, ExportProgram program, RecordingGatewayMetrics telemetry) {
+    private OtlpExporter buildExporter(int port, ExportProgram program, RecordingGatewayMetrics telemetry) {
         var config = OtlpExporterConfig.builder(4317)
-                .setHost("127.0.0.1")
-                .setPort(port)
-                .setTimeout(program.timeout().perAttempt())
-                .setTotalTimeout(program.timeout().total())
-                .setRetryPolicy(program.retry())
+                .host("127.0.0.1")
+                .port(port)
+                .timeout(program.timeout().perAttempt())
+                .totalTimeout(program.timeout().total())
+                .retryPolicy(program.retry())
                 .build();
         return switch (protocol) {
-            case GRPC -> OtlpExporter.grpcBuilder().setConfig(config).telemetry(telemetry).build();
-            case HTTP -> OtlpExporter.httpBuilder().setConfig(config).telemetry(telemetry).build();
+            case GRPC -> OtlpExporter.grpcBuilder().config(config).telemetry(telemetry).build().start();
+            case HTTP -> OtlpExporter.httpBuilder().config(config).telemetry(telemetry).build().start();
         };
     }
 
@@ -114,18 +112,6 @@ final class Otlp4jPolicyExporterUnderTest implements PolicyExporterUnderTest {
     @Override
     public Protocol protocol() {
         return protocol;
-    }
-
-    @Override
-    public boolean honorsGrpcRetryInfo() {
-        // The Armeria client reads grpc-status-details-bin RetryInfo on both protocols.
-        return true;
-    }
-
-    @Override
-    public boolean cancelsRetriesAtTotalDeadline() {
-        // The Armeria client's total responseTimeout interrupts an already-scheduled retry.
-        return true;
     }
 
     @Override

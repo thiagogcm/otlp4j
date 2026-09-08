@@ -19,19 +19,14 @@ import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.Warmup;
 
-/// Isolates the pure marshalling cost the Phase 2 payload redesign targets.
+/// Isolates pure OTLP request marshalling cost.
 ///
 /// [#parseDecodeEncodeSerialize] parses a proto export request from wire bytes, decodes it to the
-/// domain model, re-encodes the domain model back to a proto request, and serializes it to bytes.
-/// That is the parse plus toDomain plus toProto plus serialize round trip a transport performed before
-/// Phase 2, with no socket or thread involved, so a Phase 2 improvement can be attributed to the codec
-/// rather than the transport. [#parseSerialize] parses the same wire bytes and serializes the parsed
-/// proto message straight back with no domain step in between, which is the codec-level shape of a
-/// Phase 2 same-protocol pass-through: a receiver-decoded request that an exporter writes unchanged.
-/// The delta between the two, on the same signal and size, is the codec-attributable Phase 2 win; the
-/// [ReceiveForwardExportBenchmark] `passthrough` versus `domainview` comparison confirms the same win
-/// end to end, across a real transport hop. Both benchmarks parameterize on signal (traces, metrics,
-/// logs) and payload size (small and large).
+/// domain model, re-encodes the domain model back to a proto request, and serializes it to bytes. The
+/// operation starts from wire bytes and has no socket or thread involved. [#parseSerialize] parses the
+/// same wire bytes and serializes the parsed proto message straight back with no domain step in
+/// between, representing a same-protocol relay. Both benchmarks parameterize on signal (traces,
+/// metrics, logs) and payload size (small and large).
 @State(Scope.Benchmark)
 @BenchmarkMode({Mode.Throughput, Mode.AverageTime})
 @OutputTimeUnit(TimeUnit.MICROSECONDS)
@@ -73,9 +68,7 @@ public class CodecMarshallingBenchmark {
         }
     }
 
-    /// Parses, decodes, re-encodes, and serializes one request. The pre-Phase-2 domain round trip a
-    /// transport performed on every request, regardless of whether anything downstream touched the
-    /// domain.
+    /// Parses, decodes, re-encodes, and serializes one request through the immutable domain model.
     ///
     /// @return the re-serialized request bytes
     /// @throws InvalidProtocolBufferException if the pre-built bytes fail to parse
@@ -85,8 +78,7 @@ public class CodecMarshallingBenchmark {
     }
 
     /// Parses one request and serializes the parsed proto message straight back, with no domain
-    /// materialisation. The codec-level shape of the Phase 2 same-protocol pass-through: what a
-    /// receiver decodes is exactly what an exporter writes.
+    /// materialisation.
     ///
     /// @return the re-serialized request bytes
     /// @throws InvalidProtocolBufferException if the pre-built bytes fail to parse

@@ -18,7 +18,7 @@ import org.jspecify.annotations.Nullable;
 /// Non-blocking: [#tryAcquire] either returns a [Permit] (closed exactly once when the request's
 /// dispatch completes) or null, in which case the transport rejects retryably - gRPC
 /// `UNAVAILABLE` "receiver at capacity" with an optional pushback trailer, HTTP `429` with an
-/// optional `Retry-After` header (see [OtlpReceiverConfig.Builder#setThrottleRetryAfter]).
+/// optional `Retry-After` header (see [OtlpReceiverConfig.Builder#throttleRetryAfter]).
 ///
 /// Progress guarantee: a request is always admitted when nothing else is in flight, so a single
 /// request larger than the byte cap cannot starve forever. A limit of `0` disables that
@@ -29,7 +29,7 @@ import org.jspecify.annotations.Nullable;
 /// supplied, [#of(OtlpReceiverConfig, GatewayMetrics)] always builds a per-instance counting control (even
 /// when both caps are disabled) so the most common uncapped deployment still reports the
 /// `otlp4j.receiver.admission.in_flight.requests`/`.bytes` gauges and a (zero) `.rejected` counter.
-/// The instance is [AutoCloseable]: the owning server closes it in `shutdown`/`shutdownNow` to
+/// The instance is [AutoCloseable]: the owning server closes it in `shutdown` to
 /// unregister the gauges.
 public final class AdmissionControl implements AutoCloseable {
 

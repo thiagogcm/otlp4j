@@ -13,6 +13,6 @@ public enum ClientAuth {
     /// handshake, and a presented certificate is verified against the configured trust anchor.
     OPTIONAL,
     /// A client certificate is required: a certless client is rejected at the TLS handshake. This is
-    /// the enforced mutual-TLS capability.
+    /// the enforced mutual-TLS mode.
     REQUIRE
 }

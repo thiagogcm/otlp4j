@@ -1,11 +1,10 @@
 package dev.nthings.otlp4j.service.internal;
 
 import dev.nthings.otlp4j.core.consumer.ConsumeContext;
-import dev.nthings.otlp4j.core.consumer.ConsumerCapabilities;
 import dev.nthings.otlp4j.core.consumer.SignalConsumer;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.result.Provenance;
-import dev.nthings.otlp4j.core.signal.TelemetryPayload;
+import dev.nthings.otlp4j.core.signal.Payload;
 import java.util.concurrent.CompletionStage;
 
 /// Wraps one component consumer so every delivery through it is normalized by
@@ -15,8 +14,8 @@ import java.util.concurrent.CompletionStage;
 /// on the receiving end. Capabilities pass through unchanged so a fan-out upstream still reads the
 /// wrapped consumer's mutation declaration.
 ///
-/// @param <T> the payload type
-public final class GuardedConsumer<T extends TelemetryPayload> implements SignalConsumer<T> {
+/// @param <T> the signal domain type
+public final class GuardedConsumer<T> implements SignalConsumer<T> {
 
     private final SignalConsumer<T> delegate;
 
@@ -32,12 +31,7 @@ public final class GuardedConsumer<T extends TelemetryPayload> implements Signal
     }
 
     @Override
-    public ConsumerCapabilities capabilities() {
-        return delegate.capabilities();
-    }
-
-    @Override
-    public CompletionStage<DeliveryResult> consume(ConsumeContext context, T data) {
+    public CompletionStage<DeliveryResult> consume(ConsumeContext context, Payload<T> data) {
         return GraphNodeBoundary.deliver(delegate, provenance, context, data);
     }
 }

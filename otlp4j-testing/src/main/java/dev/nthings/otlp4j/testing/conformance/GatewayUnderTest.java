@@ -7,9 +7,8 @@ import java.util.Optional;
 ///
 /// The suite drives whatever this returns purely over HTTP and gRPC; it never names a
 /// receiver, exporter, pipeline, or result type. A concrete implementation lives in
-/// otlp4j-conformance and is the only place transport and model types appear. When Phase 1
-/// replaces the fluent runtime with the service graph, only that implementation changes; every
-/// test in this package compiles and passes unchanged.
+/// otlp4j-conformance and is the only place transport and model types appear. The shared tests stay
+/// independent of the concrete service graph implementation.
 public interface GatewayUnderTest extends AutoCloseable {
 
     /// The base URI of the OTLP/HTTP endpoint, for example `https://127.0.0.1:53412`. The four

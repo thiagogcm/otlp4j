@@ -3,7 +3,6 @@ package dev.nthings.otlp4j.service.internal;
 import dev.nthings.otlp4j.core.consumer.SignalConsumer;
 import dev.nthings.otlp4j.core.consumer.SignalConsumers;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
-import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import java.util.Map;
 import java.util.Set;
 
@@ -34,7 +33,7 @@ public final class RoutedConsumers implements SignalConsumers {
 
     @Override
     @SuppressWarnings("unchecked")
-    public <T extends TelemetryPayload> SignalConsumer<T> consumer(SignalDescriptor<T> signal) {
+    public <T> SignalConsumer<T> consumer(SignalDescriptor<T> signal) {
         var consumer = bySignal.get(signal);
         if (consumer == null) {
             throw new IllegalArgumentException("no consumer routed for signal " + signal);

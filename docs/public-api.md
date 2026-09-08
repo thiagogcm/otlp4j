@@ -1,54 +1,147 @@
 # Public API
 
-This is a map of every exported package to its purpose and the types you build against. Application code depends on `otlp4j-core` (the contracts, which re-exports `otlp4j-model` transitively), `otlp4j-transport` (the OTLP/gRPC and OTLP/HTTP transport), and `otlp4j-service` (the graph runtime); add `otlp4j-components` for the built-in components. The generated proto module is not user-facing (its packages are qualified-exported only to the codec and transport), and `otlp4j-codec` is an internal marshalling module exported only to the bundled transports and components.
+The application-facing API is intentionally small and typed. Use `Pipeline` for one in-process signal flow, `Gateway` for a named multi-component graph, and `OtlpExporter` or the transport factories for OTLP wire delivery. Generated protobuf and gRPC classes are not part of the application surface.
 
-Every exported type is `@NullMarked`: a reference is non-null unless annotated `@Nullable`.
+All exported packages are JPMS modules. Public reference types are non-null by default where the module declares `@NullMarked`; nullable values are annotated explicitly.
 
-## otlp4j-model
+## The shortest path: `Pipeline`
 
-**`dev.nthings.otlp4j.model`** is the proto-free OTLP domain. The four signal batches are `TracesData`, `MetricsData`, `LogsData`, and `ProfilesData`, each with nested resource/scope records and fluent builders (`Span.builder()`, `Metric`, `LogRecord`, `NumberPoint`, and so on). The attribute model is `Attributes`, `AttributeValue`, `Resource`, and `InstrumentationScope`. These are the records a processor or exporter reads once a payload is materialized to the domain.
+`dev.nthings.otlp4j.service.Pipeline<T>` owns a typed graph for one signal. Its builder creates an application input, accepts synchronous `filter` and `map` stages, accepts configured `ProcessorFactory` stages through `via`, and terminates in one or more `ExporterFactory` stages with `to`.
 
-## otlp4j-core
+```java
+var traces = Pipeline.builder(SignalDescriptor.TRACES)
+        .filter(batch -> batch.spanCount() > 0)
+        .map(MyTransforms::redact)
+        .to(OtlpExporterFactory.grpc(), OtlpExporterConfig.defaults(4317))
+        .build();
 
-The contracts every other module builds on. Proto-free; re-exports the model transitively.
+try (traces) {
+    traces.start();
+    DeliveryResult result = traces.submit(batch).toCompletableFuture().join();
+    FlushReport report = traces.flush(Duration.ofSeconds(5)).toCompletableFuture().join();
+}
+```
 
-| Package | Purpose | Key types |
+Without buffering, `submit` completes with the direct downstream delivery outcome. Acceptance by an explicit buffer transfers ownership; use `flush` to observe subsequent partial rejections, failures, and drops. Direct delivery outcomes are not reported again by flush. Flush captures each application input's in-progress deliveries first; downstream buffers snapshot when their component is reached, so concurrent submissions may be included. Exact global exclusion requires barrier propagation through every buffering component. `shutdown` is explicit; `close` applies the runtime's configured shutdown deadline.
+
+## Domain model: `otlp4j-model`
+
+`dev.nthings.otlp4j.model` contains immutable, proto-free records:
+
+- `TracesData`, `MetricsData`, `LogsData`, and `ProfilesData` are signal batches.
+- `Resource`, `InstrumentationScope`, and `Attributes` carry common metadata.
+- `Span`, `Metric`, `LogRecord`, and the point/exemplar records carry signal items.
+- `AttributeValue` represents OTLP scalar, bytes, array, and map values.
+
+The module has no transport or service dependency and can be used to construct batches independently.
+
+## Contracts: `otlp4j-core`
+
+`dev.nthings.otlp4j.core` is the protocol-neutral contract layer and re-exports the model module.
+
+| Package | Main types | Role |
 | --- | --- | --- |
-| `core.component` | The component SPI and its four factory kinds, plus the lifecycle and context objects. | `Component`, `ComponentId`, `ComponentKind`, `ComponentConfig` (and `ComponentConfig.NONE`), `ComponentContext`, `Receiver`/`ReceiverFactory`, `Processor`/`ProcessorFactory`, `Exporter`/`ExporterFactory`, `Connector`/`ConnectorFactory`, `CreateContext`, `FlushContext`, `ShutdownContext`, `NetworkBound`, `SharedComponents`, `SignalSupport`, `PayloadFactory` |
-| `core.consumer` | The consume SPI the graph wires components through. | `SignalConsumer`, `SignalConsumers`, `ConsumeContext`, `ConsumerCapabilities`, `ClientMetadata`, `Deadline` |
-| `core.signal` | Signal identity, the opaque payload, and its views. | `SignalDescriptor` (`TRACES`/`METRICS`/`LOGS`/`PROFILES`), `SignalPair`, `TelemetryPayload`, `PayloadView` (`DOMAIN_IMMUTABLE` and the metadata views), `RoutingMetadata` |
-| `core.result` | The delivery outcome vocabulary. | `DeliveryResult` (`Accepted`/`Partial`/`Rejected`), `Disposition`, `DeliveryReason`, `Provenance` |
-| `core.policy` | The neutral policy records components and the transport configure with. | `BatchPolicy`, `DeliveryQueuePolicy`, `OverflowPolicy`, `RetryPolicy`, `BackoffPolicy`, `TimeoutPolicy` |
-| `core.pipeline` | Pipeline identity. | `PipelineId` (`of(signal)` / `of(signal, name)`) |
-| `core.telemetry` | The self-observability SPI. | `GatewayMetrics` (with `noop()`), `GatewayMetrics.LongCounter`, `GatewayMetrics.Registration` |
+| `core.signal` | `SignalDescriptor`, `SignalPair`, `Payload`, `RoutingMetadata` | Typed signals, immutable payloads, item counts, and routing metadata |
+| `core.consumer` | `SignalConsumer`, `SignalConsumers`, `TelemetryInput`, `ConsumeContext`, `ClientMetadata`, `Deadline` | In-process delivery and request context |
+| `core.component` | `Component`, `Receiver`/`Processor`/`Exporter`/`Connector`, their factories, `ComponentId`, `ComponentConfig` | Component lifecycle and extension contracts |
+| `core.result` | `DeliveryResult`, `Disposition`, `DeliveryReason`, `Provenance`, `FlushReport` | Accepted, partial, retryable, and permanent outcomes |
+| `core.policy` | `BatchPolicy`, `DeliveryQueuePolicy`, `RetryPolicy`, `BackoffPolicy`, `TimeoutPolicy` | Shared bounded-delivery and retry policy values |
+| `core.pipeline` | `PipelineId` | Named signal-pipeline identity |
+| `core.telemetry` | `GatewayMetrics` | Optional self-observability SPI; no-op by default |
 
-The inline factory seams live here as statics: `ProcessorFactory.of(type, signal, transform, payloads)` and `ExporterFactory.of(type, terminal)`.
+`ProcessorFactory.map(type, signal, mapper)` and `ProcessorFactory.filter(type, signal, predicate)` cover the common synchronous transforms. `ExporterFactory.of(type, terminal)` creates a terminal exporter from a callback. Components that need richer behavior implement the corresponding factory contract directly.
 
-## otlp4j-codec
+## Graph runtime: `otlp4j-service`
 
-**`dev.nthings.otlp4j.codec`** is the model-to-proto marshalling layer, an internal module usable only by the bundled transports and components. The one type application-level code names is the `Payloads` facade: `Payloads.domain(signal, batch)` constructs a domain-backed payload, and `Payloads.DOMAIN` is the `PayloadFactory` emit seam an inline `ProcessorFactory.of` transform writes through. `SignalCodec` is the per-signal marshalling entry the transport uses; the mappers behind it are package-private.
+`dev.nthings.otlp4j.service` provides the advanced graph API:
 
-## otlp4j-service
+```java
+var graph = Gateway.builder();
+var receiver = graph.receiver(
+        ComponentId.parse("in"),
+        OtlpReceiverFactory.grpc(),
+        OtlpReceiverConfig.defaults(4317).withEphemeralPort());
+var exporter = graph.exporter(
+        ComponentId.parse("out"),
+        OtlpExporterFactory.grpc(),
+        OtlpExporterConfig.defaults(4317));
+graph.pipeline(PipelineId.of(TRACES), path -> path.from(receiver).to(exporter));
 
-The graph runtime.
+try (var runtime = graph.build()) {
+    runtime.start();
+    int port = runtime.boundPort(receiver.id()).orElseThrow();
+}
+```
 
-| Package | Purpose | Key types |
-| --- | --- | --- |
-| `service` | The builder, the runtime, and the typed pipeline-wiring handles. | `Gateway` (`builder()` / `compile(config)`), `GatewayBuilder`, `GatewayRuntime` (`start`, `shutdown`, `forceFlush`, `close`, `boundPort`), `PipelineBuilder`, `ReceiverHandle`/`ProcessorHandle`/`ExporterHandle`/`ConnectorHandle`, `PipelineSource`/`PipelineTarget`, `ComponentRef`, `GatewayStartException` |
-| `service.config` | The declarative artifact a programmatic or future YAML caller constructs directly. | `GatewayConfig`, `PipelineConfig`, `ServiceOptions`, and the typed `ReceiverEntry`/`ProcessorEntry`/`ExporterEntry`/`ConnectorEntry` |
-| `service.validation` | The validation diagnostics. | `Diagnostic`, `DiagnosticCode`, `GraphValidationException` |
+The builder returns typed `ReceiverHandle`, `ProcessorHandle`, `ExporterHandle`, and `ConnectorHandle` values. `PipelineBuilder.from`, `via`, and `to` accept only handles of the right kind. `Gateway.compile(GatewayConfig)` is the direct configuration path for loaders and tools.
 
-## otlp4j-transport
+`GatewayRuntime` owns component startup, flush, shutdown, and graph inspection. Start order brings downstream components up before their inputs; shutdown stops inputs first and drains toward exporters. Start failures roll back every component created for the graph, including a component whose `start` call failed or was not reached. `boundPort` reads an ephemeral network receiver after startup.
 
-**`dev.nthings.otlp4j.transport`** is the consolidated OTLP transport on Armeria. The graph factories are `OtlpReceiverFactory` and `OtlpExporterFactory`, each with `grpc()` and `http()` statics; their configs are `OtlpReceiverConfig` and `OtlpExporterConfig` (with `defaults(port)`, `builder(port)`, and `withEphemeralPort()`). The standalone entry points are `OtlpReceiver` and `OtlpExporter` (`grpcBuilder()` / `httpBuilder()`), building `ServerReceiver` and `ClientExporter`. The shared config value types are `Tls`, `Headers`, `Compression`, and `OtlpEnv` (the `OTEL_EXPORTER_OTLP_*` environment binding). Armeria, Netty, and proto types stay in the unexported `internal` package.
+`ServiceOptions` bounds lifecycle waiting, but Java cannot forcibly stop a component operation that ignores cancellation or interruption. Such an operation can finish after the caller's deadline; the runtime retains its late result and continues cleanup when the operation yields.
 
-## otlp4j-components
+Application inputs in a gateway are represented by typed `InputHandle<T>` values. Resolve one from the built runtime with `runtime.input(handle)`; the resulting `TelemetryInput<T>` is valid only while that runtime is running and remains owned by the runtime.
 
-The built-in components, each a factory plus its config record. Depends only on the core contracts and the codec facade, so a component here assembles into any graph without dragging in a server or client runtime.
+## Wire transport: `otlp4j-transport`
 
-| Package | Component | Types |
-| --- | --- | --- |
-| `components.batch` | Batching processor. | `BatchProcessorFactory`, `BatchProcessorConfig` |
-| `components.memory` | Memory-limiter processor. | `MemoryLimiterProcessorFactory`, `MemoryLimiterConfig` |
-| `components.routing` | Filter and routing processors over a match engine. | `FilterProcessorFactory`/`FilterConfig`, `RoutingProcessorFactory`/`RoutingConfig` |
-| `components.connector` | Trace-to-metric span-count connector. | `SpanCountConnectorFactory`, `SpanCountConnectorConfig` |
+`dev.nthings.otlp4j.transport` contains the Armeria implementation for OTLP/gRPC and OTLP/HTTP:
+
+- `OtlpReceiverFactory.grpc()` and `.http()` create graph receivers.
+- `OtlpExporterFactory.grpc()` and `.http()` create graph exporters.
+- `OtlpReceiverConfig` and `OtlpExporterConfig` configure endpoints, TLS, headers, compression, retry, timeouts, and admission limits.
+- `OtlpExporter.grpcBuilder()` and `.httpBuilder()` provide an owned standalone exporter for callers that do not need a graph.
+- `OtlpReceiver.grpcBuilder()`, `.httpBuilder()`, and the dual-protocol `.builder()` provide owned standalone receivers with typed routes.
+- `Tls`, `ClientAuth`, `Compression`, `Headers`, and `OtlpEnv` are transport configuration values.
+
+The transport accepts binary protobuf over the standard OTLP paths. Protocol, Netty, and generated types remain behind the module's internal boundary.
+
+Owned transports are unstarted until `start()`. Their `shutdown(timeout)` stages are idempotent and preserve failures for subsequent `close()` calls. Receiver shutdown is graceful: expiry of the caller's budget is reported while Armeria finishes cleanup within its configured drain window. There is no force-stop API.
+
+The default limits are part of the configuration records and can be raised or lowered explicitly:
+
+| Surface                  | Default                               |
+| ------------------------ | ------------------------------------- |
+| Receiver decoded request | 64 MiB maximum per export request     |
+| Exporter request         | 64 MiB maximum per serialized request |
+| Exporter response        | 4 MiB maximum per response            |
+
+## Built-ins: `otlp4j-components`
+
+The built-in module exports independent factory/config pairs for batching, memory limiting, filtering, routing, and trace-to-metric span counting:
+
+| Package | Types |
+| --- | --- |
+| `components.batch` | `BatchProcessorFactory`, `BatchProcessorConfig` |
+| `components.memory` | `MemoryLimiterProcessorFactory`, `MemoryLimiterConfig` |
+| `components.routing` | `FilterProcessorFactory`, `FilterConfig`, `RoutingProcessorFactory`, `RoutingConfig`, `MatchRule`, `MatchSpec` |
+| `components.connector` | `SpanCountConnectorFactory`, `SpanCountConnectorConfig` |
+
+`BatchProcessorConfig.defaults()` targets 8192 items or one second, with no hard batch item/byte cap. Its delivery queue holds 1024 entries, uses one consumer, and applies `OverflowPolicy.FAIL`. The processor also bounds accepted work at 1024 submissions, 64 MiB of exact serialized bytes, and 1024 metadata partitions. The processor rejects profiles at graph validation time; it cannot merge distinct opaque profile dictionaries without re-indexing.
+
+## Optional SDK bridge: `otlp4j-opentelemetry`
+
+The bridge module is the dependency boundary for adapters to the official OpenTelemetry Java SDK. It depends on the SDK trace, metrics, and logs exporter contracts while the model, core, service, and transport modules remain independent of the SDK. Add it only when an application needs to connect an SDK exporter to an in-process otlp4j input.
+
+The adapters borrow their `TelemetryInput`; they snapshot SDK data into the immutable model, and their `shutdown()` drains accepted input work without closing or stopping the input. Close the SDK provider before its borrowed pipeline. SDK exporter shutdown waits for outstanding input submissions and then performs the adapter's bounded input flush, so an input implementation must complete its submission stages:
+
+```java
+var traces = Pipeline.builder(SignalDescriptor.TRACES)
+        .to(OtlpExporterFactory.grpc(), OtlpExporterConfig.defaults(4317))
+        .build();
+var sdkExporter = SdkExporters.spans(traces);
+var tracerProvider = SdkTracerProvider.builder()
+        .addSpanProcessor(SimpleSpanProcessor.create(sdkExporter))
+        .build();
+
+try (traces; tracerProvider) {
+    traces.start();
+    // Instrumentation uses tracerProvider; completed spans enter the pipeline.
+}
+```
+
+Use `SdkExporters.metrics(metricsInput)` for the default cumulative aggregation temporality, or pass an explicit official `AggregationTemporalitySelector` when the SDK reader requires a different policy. `SdkExporters.logs(logsInput)` provides the equivalent log-record adapter.
+
+The bridge targets OpenTelemetry Java SDK 1.65.0 and maps all fields exposed by its exporter interfaces. SDK exporter data has no OTLP point flags, exponential-histogram zero threshold, resource or instrumentation-scope dropped-attribute counts, or metric metadata; those model fields therefore use their defaults (zero flags/counts/threshold and empty metadata). Span and link remote context bits are preserved, and SDK collections and byte values are snapshotted before submission.
+
+## Internal modules
+
+`otlp4j-codec` maps domain payloads to generated protobuf messages. `otlp4j-proto` contains generated messages and gRPC stubs. Their packages are qualified-exported only to the bundled implementation modules and should not be used as application dependencies.

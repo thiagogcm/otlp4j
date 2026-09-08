@@ -1,11 +1,13 @@
 package dev.nthings.otlp4j.testing.policy;
 
 import com.google.protobuf.Any;
+import com.google.rpc.RetryInfo;
 import io.grpc.Grpc;
 import io.grpc.InsecureServerCredentials;
 import io.grpc.Metadata;
 import io.grpc.Server;
 import io.grpc.Status;
+import io.grpc.StatusRuntimeException;
 import io.grpc.protobuf.StatusProto;
 import io.grpc.stub.StreamObserver;
 import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceRequest;
@@ -15,6 +17,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.Duration;
 import java.util.List;
+import static com.google.protobuf.Duration.newBuilder;
 import java.util.concurrent.TimeUnit;
 
 /// The OTLP/gRPC variant of [ProgrammedOtlpServer], serving the trace export service over grpc-netty.
@@ -99,21 +102,20 @@ final class GrpcProgrammedServer extends ProgrammedOtlpServer {
 
     /// A retryable `UNAVAILABLE` carrying a `grpc-retry-pushback-ms` trailer. A negative value tells the
     /// client to stop retrying; a positive value is a backoff hint.
-    private static io.grpc.StatusRuntimeException pushback(long millis) {
+    private static StatusRuntimeException pushback(long millis) {
         var trailers = new Metadata();
         trailers.put(PUSHBACK_KEY, Long.toString(millis));
         return Status.UNAVAILABLE.withDescription("programmed throttle").asRuntimeException(trailers);
     }
 
-    /// A retryable rejection carrying a `grpc-status-details-bin` RetryInfo detail. The legacy client
-    /// reads only the pushback trailer, so it ignores this detail; a transport that folds RetryInfo will
-    /// honour it.
-    private static io.grpc.StatusRuntimeException retryInfo(Duration retryAfter) {
-        var delay = com.google.protobuf.Duration.newBuilder()
+    /// A retryable rejection carrying a `grpc-status-details-bin` RetryInfo detail. Clients that fold
+    /// RetryInfo honour the requested delay.
+    private static StatusRuntimeException retryInfo(Duration retryAfter) {
+        var delay = newBuilder()
                 .setSeconds(retryAfter.getSeconds())
                 .setNanos(retryAfter.getNano())
                 .build();
-        var detail = com.google.rpc.RetryInfo.newBuilder().setRetryDelay(delay).build();
+        var detail = RetryInfo.newBuilder().setRetryDelay(delay).build();
         var status = com.google.rpc.Status.newBuilder()
                 .setCode(Status.Code.UNAVAILABLE.value())
                 .setMessage("programmed retryinfo")

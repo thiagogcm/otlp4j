@@ -7,6 +7,7 @@ import io.grpc.ManagedChannel;
 import io.grpc.Metadata;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
+import io.grpc.stub.AbstractStub;
 import io.grpc.TlsChannelCredentials;
 import io.opentelemetry.proto.collector.logs.v1.ExportLogsServiceRequest;
 import io.opentelemetry.proto.collector.logs.v1.LogsServiceGrpc;
@@ -21,6 +22,7 @@ import io.opentelemetry.proto.metrics.v1.ResourceMetrics;
 import io.opentelemetry.proto.profiles.v1development.ResourceProfiles;
 import io.opentelemetry.proto.trace.v1.ResourceSpans;
 import java.io.IOException;
+import java.io.ByteArrayInputStream;
 import java.io.UncheckedIOException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -100,7 +102,7 @@ public final class GrpcWireClient implements AutoCloseable {
         }
     }
 
-    private static <S extends io.grpc.stub.AbstractStub<S>> S compress(S stub, boolean gzip) {
+    private static <S extends AbstractStub<S>> S compress(S stub, boolean gzip) {
         return gzip ? stub.withCompression("gzip") : stub;
     }
 
@@ -119,10 +121,10 @@ public final class GrpcWireClient implements AutoCloseable {
             return switch (tls) {
                 case NONE -> InsecureChannelCredentials.create();
                 case SERVER_AUTH -> TlsChannelCredentials.newBuilder()
-                        .trustManager(new java.io.ByteArrayInputStream(serverTrustPem))
+                        .trustManager(new ByteArrayInputStream(serverTrustPem))
                         .build();
                 case MUTUAL -> TlsChannelCredentials.newBuilder()
-                        .trustManager(new java.io.ByteArrayInputStream(serverTrustPem))
+                        .trustManager(new ByteArrayInputStream(serverTrustPem))
                         .keyManager(TlsTestMaterial.clientCertStream(), TlsTestMaterial.clientKeyStream())
                         .build();
             };

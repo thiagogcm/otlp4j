@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.nthings.otlp4j.components.support.MaterialisationTrackingPayload;
 import dev.nthings.otlp4j.components.support.TestConsumeContext;
+import dev.nthings.otlp4j.components.routing.MatchRule;
 import dev.nthings.otlp4j.model.TracesData;
 import org.junit.jupiter.api.Test;
 
@@ -107,7 +108,7 @@ class MatchRuleTest {
         var rule = MatchRule.builder()
                 .domainPredicate(batch -> ((TracesData) batch).spanCount() == 2)
                 .build();
-        var tracked = new MaterialisationTrackingPayload(traces(2));
+        var tracked = new MaterialisationTrackingPayload<>(traces(2));
 
         assertThat(rule.matches(tracked, EMPTY_CONTEXT)).isTrue();
         assertThat(tracked.domainRequested()).isTrue();
@@ -119,7 +120,7 @@ class MatchRuleTest {
                 .resourceAttribute("service.name", "checkout")
                 .header("x-tenant", "acme")
                 .build();
-        var tracked = new MaterialisationTrackingPayload(traces(1));
+        var tracked = new MaterialisationTrackingPayload<>(traces(1));
 
         assertThat(rule.matches(tracked, TestConsumeContext.withHeader("x-tenant", "acme"))).isTrue();
         assertThat(tracked.domainRequested())
@@ -135,7 +136,7 @@ class MatchRuleTest {
                     throw new AssertionError("domain predicate must not run once an earlier condition fails");
                 })
                 .build();
-        var tracked = new MaterialisationTrackingPayload(traces(1));
+        var tracked = new MaterialisationTrackingPayload<>(traces(1));
 
         assertThat(rule.matches(tracked, EMPTY_CONTEXT)).isFalse();
         assertThat(tracked.domainRequested()).isFalse();

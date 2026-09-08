@@ -10,7 +10,6 @@ import dev.nthings.otlp4j.core.component.CreateContext;
 import dev.nthings.otlp4j.core.component.Processor;
 import dev.nthings.otlp4j.core.consumer.SignalConsumer;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
-import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import org.junit.jupiter.api.Test;
 
 class RoutingProcessorFactoryTest {
@@ -33,11 +32,9 @@ class RoutingProcessorFactoryTest {
         assertThat(create(SignalDescriptor.PROFILES)).isNotNull();
     }
 
-    @SuppressWarnings("unchecked")
-    private Processor<TelemetryPayload> create(SignalDescriptor<?> signal) {
+    private <T> Processor<T> create(SignalDescriptor<T> signal) {
         var ctx = new CreateContext(ComponentId.parse("routing"), baseContext());
-        var typed = (SignalDescriptor<TelemetryPayload>) signal;
-        SignalConsumer<TelemetryPayload> next = new RecordingConsumer();
-        return factory.create(ctx, factory.defaultConfig(), typed, next);
+        SignalConsumer<T> next = new RecordingConsumer<>();
+        return factory.create(ctx, factory.defaultConfig(), signal, next);
     }
 }

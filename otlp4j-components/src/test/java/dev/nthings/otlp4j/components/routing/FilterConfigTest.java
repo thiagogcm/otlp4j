@@ -3,15 +3,14 @@ package dev.nthings.otlp4j.components.routing;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import dev.nthings.otlp4j.components.internal.MatchSpec;
 import org.junit.jupiter.api.Test;
 
 class FilterConfigTest {
 
     @Test
-    void defaultsAreATransparentPassThrough() {
+    void defaultsUseExplicitCatchAllAndNoMatchSpecs() {
         var defaults = FilterConfig.defaults();
-        assertThat(defaults.include().rules()).isEmpty();
+        assertThat(defaults.include()).isEqualTo(MatchSpec.all());
         assertThat(defaults.exclude().rules()).isEmpty();
     }
 

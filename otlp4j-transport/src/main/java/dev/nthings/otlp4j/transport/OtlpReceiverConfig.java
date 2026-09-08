@@ -36,8 +36,8 @@ public record OtlpReceiverConfig(
         @Nullable Duration throttleRetryAfter)
         implements ComponentConfig {
 
-    /// gRPC's own default decoded-message cap (4 MiB); used when the builder is left untouched.
-    public static final int DEFAULT_MAX_INBOUND_MESSAGE_SIZE_BYTES = 4 * 1024 * 1024;
+    /// Default decoded request cap (64 MiB); used when the builder is left untouched.
+    public static final int DEFAULT_MAX_INBOUND_MESSAGE_SIZE_BYTES = 64 * 1024 * 1024;
 
     /// Validates the components and the hardening limits.
     public OtlpReceiverConfig {
@@ -60,7 +60,7 @@ public record OtlpReceiverConfig(
         }
     }
 
-    /// The default receiver config for `port`: bound to `localhost:port`, plaintext, the shared 4 MiB
+    /// The default receiver config for `port`: bound to `localhost:port`, plaintext, the shared 64 MiB
     /// decoded-request cap, no admission limits, and no throttle hint.
     ///
     /// @param port the default bind port for the transport (`4317` for gRPC, `4318` for HTTP)
@@ -84,20 +84,20 @@ public record OtlpReceiverConfig(
     /// @return a builder pre-populated from this config
     public Builder toBuilder() {
         var b = new Builder(port)
-                .setBindHost(bindHost)
-                .setTls(tls)
-                .setClientAuth(clientAuth)
-                .setMaxInboundMessageSizeBytes(maxInboundMessageSizeBytes)
-                .setMaxInFlightRequests(maxInFlightRequests)
-                .setMaxInFlightBytes(maxInFlightBytes);
+                .bindHost(bindHost)
+                .tls(tls)
+                .clientAuth(clientAuth)
+                .maxInboundMessageSizeBytes(maxInboundMessageSizeBytes)
+                .maxInFlightRequests(maxInFlightRequests)
+                .maxInFlightBytes(maxInFlightBytes);
         if (throttleRetryAfter != null) {
-            b.setThrottleRetryAfter(throttleRetryAfter);
+            b.throttleRetryAfter(throttleRetryAfter);
         }
         return b;
     }
 
-    /// A copy of this config bound to an ephemeral port (`0`); read the OS-assigned port back through
-    /// the started receiver's [dev.nthings.otlp4j.core.component.NetworkBound] capability.
+    /// A copy of this config bound to an ephemeral port (`0`); read the OS-assigned port from the
+    /// runtime after startup.
     ///
     /// @return an ephemeral-port copy
     public OtlpReceiverConfig withEphemeralPort() {
@@ -126,7 +126,7 @@ public record OtlpReceiverConfig(
         ///
         /// @param host the bind host
         /// @return this builder
-        public Builder setBindHost(String host) {
+        public Builder bindHost(String host) {
             this.bindHost = host;
             return this;
         }
@@ -135,7 +135,7 @@ public record OtlpReceiverConfig(
         ///
         /// @param port the bind port
         /// @return this builder
-        public Builder setPort(int port) {
+        public Builder port(int port) {
             this.port = port;
             return this;
         }
@@ -144,7 +144,7 @@ public record OtlpReceiverConfig(
         ///
         /// @param tls the TLS mode
         /// @return this builder
-        public Builder setTls(Tls tls) {
+        public Builder tls(Tls tls) {
             this.tls = tls;
             return this;
         }
@@ -158,17 +158,17 @@ public record OtlpReceiverConfig(
         ///
         /// @param clientAuth the client-authentication mode
         /// @return this builder
-        public Builder setClientAuth(ClientAuth clientAuth) {
+        public Builder clientAuth(ClientAuth clientAuth) {
             this.clientAuth = Objects.requireNonNull(clientAuth, "clientAuth");
             return this;
         }
 
-        /// Caps the size of a single decoded export request (default 4 MiB); guards against
+        /// Caps the size of a single decoded export request (default 64 MiB); guards against
         /// memory-exhausting oversized requests.
         ///
         /// @param bytes the per-request cap in bytes
         /// @return this builder
-        public Builder setMaxInboundMessageSizeBytes(int bytes) {
+        public Builder maxInboundMessageSizeBytes(int bytes) {
             this.maxInboundMessageSizeBytes = bytes;
             return this;
         }
@@ -178,7 +178,7 @@ public record OtlpReceiverConfig(
         ///
         /// @param max the global in-flight request cap
         /// @return this builder
-        public Builder setMaxInFlightRequests(int max) {
+        public Builder maxInFlightRequests(int max) {
             this.maxInFlightRequests = max;
             return this;
         }
@@ -189,7 +189,7 @@ public record OtlpReceiverConfig(
         ///
         /// @param bytes the global in-flight byte cap
         /// @return this builder
-        public Builder setMaxInFlightBytes(long bytes) {
+        public Builder maxInFlightBytes(long bytes) {
             this.maxInFlightBytes = bytes;
             return this;
         }
@@ -200,7 +200,7 @@ public record OtlpReceiverConfig(
         ///
         /// @param throttleRetryAfter the hint attached to "at capacity" rejections
         /// @return this builder
-        public Builder setThrottleRetryAfter(Duration throttleRetryAfter) {
+        public Builder throttleRetryAfter(Duration throttleRetryAfter) {
             this.throttleRetryAfter = throttleRetryAfter;
             return this;
         }

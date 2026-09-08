@@ -13,8 +13,10 @@ import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.Base64;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
+import java.nio.charset.StandardCharsets;
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManagerFactory;
@@ -120,7 +122,7 @@ public final class TlsTestMaterial {
 
     private static List<X509Certificate> parseCertificates(byte[] pem) throws GeneralSecurityException {
         var factory = CertificateFactory.getInstance("X.509");
-        var certs = new java.util.ArrayList<X509Certificate>();
+        var certs = new ArrayList<X509Certificate>();
         for (var cert : factory.generateCertificates(new ByteArrayInputStream(pem))) {
             certs.add((X509Certificate) cert);
         }
@@ -128,7 +130,7 @@ public final class TlsTestMaterial {
     }
 
     private static PrivateKey parsePrivateKey(byte[] pem) throws GeneralSecurityException {
-        var base64 = PEM_KEY.matcher(new String(pem, java.nio.charset.StandardCharsets.US_ASCII))
+        var base64 = PEM_KEY.matcher(new String(pem, StandardCharsets.US_ASCII))
                 .replaceAll("");
         var der = Base64.getDecoder().decode(base64);
         return KeyFactory.getInstance("RSA").generatePrivate(new PKCS8EncodedKeySpec(der));

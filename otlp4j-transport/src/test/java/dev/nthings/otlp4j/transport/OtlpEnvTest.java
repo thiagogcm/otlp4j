@@ -305,7 +305,7 @@ class OtlpEnvTest {
     void builderWinsAfterEnv() {
         var cfg = OtlpExporterConfig.builder(4317)
                 .fromEnvironment(Map.of(OtlpEnv.ENDPOINT, "http://collector:4317")::get)
-                .setEndpoint("override", 9999)
+                .endpoint("override", 9999)
                 .build();
 
         assertThat(cfg.host()).isEqualTo("override");
@@ -316,7 +316,7 @@ class OtlpEnvTest {
     @Test
     void settersWinRegardlessOfOrder() {
         var cfg = OtlpExporterConfig.builder(4317)
-                .setEndpoint("pre", 1)
+                .endpoint("pre", 1)
                 .fromEnvironment(Map.of(OtlpEnv.ENDPOINT, "http://collector:4317")::get)
                 .build();
 
@@ -329,7 +329,7 @@ class OtlpEnvTest {
     void envIsLowestPrecedencePerField() {
         // Port is set explicitly; the env endpoint still supplies host and TLS but not the port.
         var cfg = OtlpExporterConfig.builder(4317)
-                .setPort(9999)
+                .port(9999)
                 .fromEnvironment(Map.of(OtlpEnv.ENDPOINT, "https://collector:4317")::get)
                 .build();
 
@@ -342,7 +342,7 @@ class OtlpEnvTest {
     @Test
     void malformedEnvFailsFastEvenWhenExplicit() {
         assertThatThrownBy(() -> OtlpExporterConfig.builder(4317)
-                        .setTimeout(Duration.ofSeconds(1))
+                        .timeout(Duration.ofSeconds(1))
                         .fromEnvironment(Map.of(OtlpEnv.TIMEOUT, "abc")::get)
                         .build())
                 .isInstanceOf(IllegalArgumentException.class);

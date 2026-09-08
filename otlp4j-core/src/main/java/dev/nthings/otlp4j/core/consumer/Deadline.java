@@ -26,7 +26,20 @@ public record Deadline(Instant at) {
     /// @param clock  the clock to read now from
     /// @return the deadline
     public static Deadline after(Duration budget, Clock clock) {
+        if (budget == null || budget.isNegative()) {
+            throw new IllegalArgumentException("budget must be non-null and non-negative");
+        }
+        if (clock == null) {
+            throw new IllegalArgumentException("clock must be non-null");
+        }
         return new Deadline(clock.instant().plus(budget));
+    }
+
+    /// A deadline that does not expire during normal operation.
+    ///
+    /// @return the maximum representable instant
+    public static Deadline never() {
+        return new Deadline(Instant.MAX);
     }
 
     /// The time remaining until this deadline as of `clock`, which may be zero or negative once the
@@ -35,6 +48,9 @@ public record Deadline(Instant at) {
     /// @param clock the clock to read now from
     /// @return the remaining duration
     public Duration remaining(Clock clock) {
+        if (clock == null) {
+            throw new IllegalArgumentException("clock must be non-null");
+        }
         return Duration.between(clock.instant(), at);
     }
 
@@ -43,6 +59,9 @@ public record Deadline(Instant at) {
     /// @param clock the clock to read now from
     /// @return true once now is at or past the deadline
     public boolean isExpired(Clock clock) {
+        if (clock == null) {
+            throw new IllegalArgumentException("clock must be non-null");
+        }
         return !clock.instant().isBefore(at);
     }
 }

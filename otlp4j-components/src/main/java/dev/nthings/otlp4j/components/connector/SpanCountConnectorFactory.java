@@ -3,7 +3,6 @@ package dev.nthings.otlp4j.components.connector;
 import static dev.nthings.otlp4j.core.signal.SignalDescriptor.METRICS;
 import static dev.nthings.otlp4j.core.signal.SignalDescriptor.TRACES;
 
-import dev.nthings.otlp4j.codec.Payloads;
 import dev.nthings.otlp4j.core.component.ComponentContext;
 import dev.nthings.otlp4j.core.component.ComponentId;
 import dev.nthings.otlp4j.core.component.ComponentKind;
@@ -12,11 +11,11 @@ import dev.nthings.otlp4j.core.component.ConnectorFactory;
 import dev.nthings.otlp4j.core.component.CreateContext;
 import dev.nthings.otlp4j.core.component.ShutdownContext;
 import dev.nthings.otlp4j.core.consumer.ConsumeContext;
-import dev.nthings.otlp4j.core.consumer.ConsumerCapabilities;
 import dev.nthings.otlp4j.core.consumer.SignalConsumer;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.signal.SignalPair;
-import dev.nthings.otlp4j.core.signal.TelemetryPayload;
+import dev.nthings.otlp4j.core.signal.Payload;
+import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.Attributes;
 import dev.nthings.otlp4j.model.InstrumentationScope;
 import dev.nthings.otlp4j.model.Metric;
@@ -74,38 +73,40 @@ public final class SpanCountConnectorFactory implements ConnectorFactory<SpanCou
     }
 
     @Override
+    @SuppressWarnings("unchecked")
     public Connector create(
             CreateContext ctx, SpanCountConnectorConfig config, SignalPair<?, ?> pair, SignalConsumer<?> next) {
-        return new SpanCountConnector(ctx.id(), config, SignalConsumer.asPayload(next));
+        if (!PAIRS.contains(pair)) {
+            throw new IllegalArgumentException("unsupported connector pair: " + pair);
+        }
+        // ConnectorFactory currently receives wildcard pair/consumer values because a connector can
+        // bridge arbitrary signal types. The compiler validates the pair before this factory is called;
+        // the cast is the one boundary that should disappear when that factory becomes pair-generic.
+        return new SpanCountConnector(ctx.id(), config, (SignalConsumer<MetricsData>) next);
     }
 
     /// The connector component. It consumes a traces payload, counts its items through the payload's own
     /// item count, builds a single-point delta-sum metric over the window since the last count, and
     /// forwards it to the receiving metrics pipeline. Its result is the downstream metrics pipeline's
     /// result, so a metric that the downstream rejects surfaces to the traces side.
-    private static final class SpanCountConnector implements Connector, SignalConsumer<TelemetryPayload> {
+    private static final class SpanCountConnector implements Connector, SignalConsumer<TracesData> {
 
         private final SpanCountConnectorConfig config;
 
-        private final SignalConsumer<TelemetryPayload> next;
+        private final SignalConsumer<MetricsData> next;
 
         private final AtomicLong previousFlushNanos = new AtomicLong(nowEpochNanos());
 
-        SpanCountConnector(ComponentId id, SpanCountConnectorConfig config, SignalConsumer<TelemetryPayload> next) {
+        SpanCountConnector(ComponentId id, SpanCountConnectorConfig config, SignalConsumer<MetricsData> next) {
             this.config = config;
             this.next = next;
         }
 
         @Override
-        public ConsumerCapabilities capabilities() {
-            return ConsumerCapabilities.nonMutating();
-        }
-
-        @Override
-        public CompletionStage<DeliveryResult> consume(ConsumeContext context, TelemetryPayload data) {
+        public CompletionStage<DeliveryResult> consume(ConsumeContext context, Payload<TracesData> data) {
             var count = data.itemCount();
             var metrics = deltaSum(count);
-            return next.consume(context, Payloads.domain(METRICS, metrics));
+            return next.consume(context, Payload.of(METRICS, metrics));
         }
 
         /// A single-point DELTA sum over the window since the previous count, carrying `count`.

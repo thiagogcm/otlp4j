@@ -202,9 +202,9 @@ public abstract class PolicySemanticsSuite {
         }
     }
 
-    // --- RetryInfo handling status (capability-gated) ------------------------------------------
+    // --- RetryInfo handling --------------------------------------------------------------------
 
-    @DisplayName("RetryInfo is folded only where the transport honors it")
+    @DisplayName("RetryInfo is folded into the next retry delay")
     @Test
     void retryInfoFoldedWhereHonored() {
         try (var seam = newSeam()) {
@@ -213,13 +213,7 @@ public abstract class PolicySemanticsSuite {
                     new ProgrammedResponse.RetryInfo(Duration.ofMillis(500)),
                     new ProgrammedResponse.Ok())));
             assertThat(obs.attempts()).isEqualTo(2);
-            if (seam.honorsGrpcRetryInfo()) {
-                assertThat(firstGap(obs)).isGreaterThanOrEqualTo(Duration.ofMillis(500).minus(LOWER_TOLERANCE));
-            } else {
-                // The legacy gRPC client ignores grpc-status-details-bin RetryInfo and falls back to its
-                // own backoff, so the gap stays at the computed cap. This pins the documented Phase 4 gap.
-                assertThat(firstGap(obs)).isLessThanOrEqualTo(Duration.ofMillis(80).plus(UPPER_TOLERANCE));
-            }
+            assertThat(firstGap(obs)).isGreaterThanOrEqualTo(Duration.ofMillis(500).minus(LOWER_TOLERANCE));
         }
     }
 
@@ -251,14 +245,9 @@ public abstract class PolicySemanticsSuite {
             // is what proves total is wired and distinct from perAttempt.
             assertThat(obs.totalElapsed()).isGreaterThanOrEqualTo(Duration.ofMillis(500));
             assertThat(obs.totalElapsed()).isLessThanOrEqualTo(Duration.ofMillis(600).plus(UPPER_TOLERANCE));
-            if (seam.cancelsRetriesAtTotalDeadline()) {
-                // Only a transport that cancels in-flight retry scheduling can promise no attempt arrives
-                // after the total deadline; legacy cannot, and the fake server's over-script tolerance
-                // absorbs any straggler.
-                assertThat(obs.attempts())
-                        .isLessThanOrEqualTo(4)
-                        .isGreaterThanOrEqualTo(1);
-            }
+            // The total deadline also cancels a retry that is waiting in the backoff scheduler, so a
+            // timed-out delivery cannot continue producing attempts after its caller stage settles.
+            assertThat(obs.attempts()).isLessThanOrEqualTo(4).isGreaterThanOrEqualTo(1);
         }
     }
 
@@ -281,13 +270,9 @@ public abstract class PolicySemanticsSuite {
                     List.of(new ProgrammedResponse.Hang(Duration.ofSeconds(3)))));
             assertThat(obs.outcome()).isEqualTo(Outcome.TIMED_OUT);
             assertThat(obs.totalElapsed()).isLessThanOrEqualTo(budget.plus(UPPER_TOLERANCE));
-            // On legacy the exact straggler count is inherent no-cancel behaviour, which is precisely
-            // what cancelsRetriesAtTotalDeadline() gates; pinning it to one on legacy would assert the
-            // absence of a documented limitation, so assert only the floor there.
-            assertThat(obs.attempts()).isGreaterThanOrEqualTo(1);
-            if (seam.cancelsRetriesAtTotalDeadline()) {
-                assertThat(obs.attempts()).isEqualTo(1);
-            }
+            // A single total/per-attempt budget allows exactly one attempt: no retry can outlive the
+            // caller-visible deadline.
+            assertThat(obs.attempts()).isEqualTo(1);
         }
     }
 

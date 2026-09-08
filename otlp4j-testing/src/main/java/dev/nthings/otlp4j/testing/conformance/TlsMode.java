@@ -2,9 +2,8 @@ package dev.nthings.otlp4j.testing.conformance;
 
 /// The TLS posture a scenario asks the gateway and wire client to take.
 ///
-/// [#MUTUAL] pins current reality: the servers authenticate themselves but neither request nor
-/// verify a client certificate, so a client that presents one still succeeds. Enforced and
-/// verified mutual authentication is a later transport capability, not a Phase 0 behavior.
+/// [#MUTUAL] describes a client that presents a certificate. Whether the server requires that
+/// certificate is configured by the transport-specific receiver settings.
 public enum TlsMode {
 
     /// Plaintext. No certificate material is loaded and the wire client connects insecurely.

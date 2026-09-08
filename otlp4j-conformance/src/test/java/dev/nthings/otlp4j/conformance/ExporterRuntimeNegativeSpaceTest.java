@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 
 import dev.nthings.otlp4j.core.policy.RetryPolicy;
 import dev.nthings.otlp4j.core.policy.TimeoutPolicy;
-import dev.nthings.otlp4j.transport.ClientExporter;
 import dev.nthings.otlp4j.transport.OtlpExporter;
 import dev.nthings.otlp4j.transport.OtlpExporterConfig;
 import java.io.File;
@@ -67,7 +66,7 @@ final class ExporterRuntimeNegativeSpaceTest {
     /// module's compiled classes root for the whole-module class scan and to locate its
     /// `module-info.class` for the transitive requirement guard.
     private static final List<Class<?>> EXPORTER_RUNTIME_MODULE_REPRESENTATIVES =
-            List.of(ClientExporter.class, OtlpExporter.class);
+            List.of(OtlpExporter.class);
 
     @DisplayName("no public exporter type's signature names a Resilience4j type")
     @Test
@@ -124,25 +123,25 @@ final class ExporterRuntimeNegativeSpaceTest {
 
         // The exporter config's own builder accepts the two neutral policies directly, by their
         // neutral types, and nothing resilience-library flavoured stands in their place.
-        assertThatCode(() -> OtlpExporterConfig.Builder.class.getMethod("setRetryPolicy", RetryPolicy.class))
-                .as("OtlpExporterConfig.Builder exposes setRetryPolicy(RetryPolicy)")
+        assertThatCode(() -> OtlpExporterConfig.Builder.class.getMethod("retryPolicy", RetryPolicy.class))
+                .as("OtlpExporterConfig.Builder exposes retryPolicy(RetryPolicy)")
                 .doesNotThrowAnyException();
         assertThatCode(
-                        () -> OtlpExporterConfig.Builder.class.getMethod("setTimeoutPolicy", TimeoutPolicy.class))
-                .as("OtlpExporterConfig.Builder exposes setTimeoutPolicy(TimeoutPolicy)")
+                        () -> OtlpExporterConfig.Builder.class.getMethod("timeoutPolicy", TimeoutPolicy.class))
+                .as("OtlpExporterConfig.Builder exposes timeoutPolicy(TimeoutPolicy)")
                 .doesNotThrowAnyException();
 
         // The exporter entry-point builder exposes the same neutral retry policy setter, by its neutral
         // type; it does not widen or replace it with a resilience library type.
-        assertThatCode(() -> OtlpExporter.Builder.class.getMethod("setRetryPolicy", RetryPolicy.class))
-                .as("OtlpExporter.Builder exposes setRetryPolicy(RetryPolicy)")
+        assertThatCode(() -> OtlpExporter.Builder.class.getMethod("retryPolicy", RetryPolicy.class))
+                .as("OtlpExporter.Builder exposes retryPolicy(RetryPolicy)")
                 .doesNotThrowAnyException();
     }
 
     @DisplayName("the transport carries no transitive Resilience4j module requirement")
     @Test
     void transportHasNoTransitiveResilience4jRequirement() {
-        assertNoTransitiveResilience4jRequirement(ClientExporter.class);
+        assertNoTransitiveResilience4jRequirement(OtlpExporter.class);
     }
 
     @DisplayName("the transport entry points carry no transitive Resilience4j module requirement")

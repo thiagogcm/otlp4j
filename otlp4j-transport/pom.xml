@@ -14,7 +14,7 @@
     <name>otlp4j-transport</name>
     <description>The OTLP transport: OtlpExporter and OtlpReceiver (standalone entry points) and the
         OtlpExporterFactory / OtlpReceiverFactory graph factories, serving and speaking OTLP/gRPC and
-        OTLP/HTTP from one Armeria + Netty runtime. JPMS module dev.nthings.otlp4j.transport; the
+        OTLP/HTTP from one Armeria and Netty runtime. JPMS module dev.nthings.otlp4j.transport; the
         Armeria, Netty, and proto internals stay confined to the unexported internal package.</description>
 
     <dependencies>

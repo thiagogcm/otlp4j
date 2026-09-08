@@ -19,6 +19,7 @@
         <module>otlp4j-codec</module>
         <module>otlp4j-service</module>
         <module>otlp4j-transport</module>
+        <module>otlp4j-opentelemetry</module>
         <module>otlp4j-components</module>
         <module>otlp4j-samples</module>
         <module>otlp4j-testing</module>
@@ -38,48 +39,45 @@
         <maven.compiler.release>25</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
-        <protobuf.version>4.35.1</protobuf.version>
-        <grpc.version>1.82.0</grpc.version>
-        <!-- com.google.rpc.Status / RetryInfo, used directly by the consolidated transport for the
-             grpc-status-details-bin RetryInfo trailer. Not managed by grpc-bom, so it is pinned here to
-             the version grpc-protobuf 1.82.0 resolves transitively. -->
-        <proto-google-common-protos.version>2.64.1</proto-google-common-protos.version>
-        <armeria.version>1.40.0</armeria.version>
-        <!-- Netty is pinned explicitly and permanently. Neither grpc-bom nor armeria-bom manages any
-             io.netty artifact, so wherever both grpc-netty (Netty 4.1.x) and Armeria (Netty 4.2.x)
-             reach one module (otlp4j-conformance, otlp4j-benchmarks, and permanently the grpc-netty
-             test fixtures in otlp4j-testing) nearest-wins mediation would otherwise pick grpc-netty's
-             older line. Importing netty-bom forces the whole aggregate to Armeria's validated line;
-             grpc-netty 1.82.0 runs correctly on it. -->
-        <netty.version>4.2.15.Final</netty.version>
-        <slf4j.version>2.0.18</slf4j.version>
-        <logback.version>1.5.34</logback.version>
-        <jspecify.version>1.0.0</jspecify.version>
-        <junit.version>6.1.0</junit.version>
+        <protobuf.version>4.36.1</protobuf.version>
+        <grpc.version>1.84.0</grpc.version>
+        <!-- com.google.rpc.Status / RetryInfo are used directly by the consolidated transport for
+             the grpc-status-details-bin RetryInfo trailer. This artifact is not managed by grpc-bom,
+             so keep its version explicit. -->
+        <proto-google-common-protos.version>2.76.0</proto-google-common-protos.version>
+        <armeria.version>1.41.1</armeria.version>
+        <!-- Keep all Netty artifacts on one current patch line across Armeria and gRPC. -->
+        <netty.version>4.2.17.Final</netty.version>
+        <slf4j.version>2.0.19</slf4j.version>
+        <logback.version>1.6.3</logback.version>
+        <jspecify.version>1.0.1</jspecify.version>
+        <junit.version>6.1.3</junit.version>
         <assertj.version>3.27.7</assertj.version>
         <awaitility.version>4.3.0</awaitility.version>
         <!-- A real explicit module (module org.jgrapht.core, verified against the jar's
              module-info.class), consumed internally by otlp4j-service; no org.jgrapht type ever
              appears in an exported signature. -->
-        <jgrapht.version>1.5.2</jgrapht.version>
+        <jgrapht.version>1.5.3</jgrapht.version>
         <!-- JMH is used only by the otlp4j-benchmarks module, which builds solely under the
              `bench` profile and never in the default reactor. Pinned here so the module POM
              stays version-free. -->
         <jmh.version>1.37</jmh.version>
 
-        <protobuf-maven-plugin.version>5.1.5</protobuf-maven-plugin.version>
+        <protobuf-maven-plugin.version>5.1.8</protobuf-maven-plugin.version>
         <maven-clean-plugin.version>3.5.0</maven-clean-plugin.version>
-        <maven-compiler-plugin.version>3.15.0</maven-compiler-plugin.version>
+        <maven-compiler-plugin.version>3.16.0</maven-compiler-plugin.version>
         <maven-resources-plugin.version>3.5.0</maven-resources-plugin.version>
-        <maven-surefire-plugin.version>3.5.6</maven-surefire-plugin.version>
+        <maven-surefire-plugin.version>3.6.0</maven-surefire-plugin.version>
         <maven-javadoc-plugin.version>3.12.0</maven-javadoc-plugin.version>
-        <maven-jar-plugin.version>3.5.0</maven-jar-plugin.version>
+        <maven-jar-plugin.version>3.5.1</maven-jar-plugin.version>
         <maven-install-plugin.version>3.1.4</maven-install-plugin.version>
         <maven-deploy-plugin.version>3.1.4</maven-deploy-plugin.version>
         <maven-enforcer-plugin.version>3.6.3</maven-enforcer-plugin.version>
-        <flatten-maven-plugin.version>1.7.3</flatten-maven-plugin.version>
-        <native-maven-plugin.version>1.1.2</native-maven-plugin.version>
+        <flatten-maven-plugin.version>1.8.0</flatten-maven-plugin.version>
+        <native-maven-plugin.version>1.1.12</native-maven-plugin.version>
         <jacoco-maven-plugin.version>0.8.15</jacoco-maven-plugin.version>
+        <maven-dependency-plugin.version>3.11.0</maven-dependency-plugin.version>
+        <opentelemetry.version>1.65.0</opentelemetry.version>
     </properties>
 
     <dependencyManagement>
@@ -113,6 +111,11 @@
             <dependency>
                 <groupId>dev.nthings.otlp4j</groupId>
                 <artifactId>otlp4j-transport</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>dev.nthings.otlp4j</groupId>
+                <artifactId>otlp4j-opentelemetry</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -151,14 +154,13 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
-            <!-- Not part of grpc-bom; pinned to the version grpc-protobuf resolves transitively. -->
+            <!-- Not part of grpc-bom; this is used directly by the transport's status mapping. -->
             <dependency>
                 <groupId>com.google.api.grpc</groupId>
                 <artifactId>proto-google-common-protos</artifactId>
                 <version>${proto-google-common-protos.version}</version>
             </dependency>
-            <!-- Imported after protobuf-bom and grpc-bom so nearest-definition keeps protobuf
-                 4.35.1 and grpc 1.82.0 under Armeria (runtime-verified in the Phase 4 spike). -->
+            <!-- Imported after protobuf-bom and grpc-bom so the project-level pins remain explicit. -->
             <dependency>
                 <groupId>com.linecorp.armeria</groupId>
                 <artifactId>armeria-bom</artifactId>
@@ -166,8 +168,7 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
-            <!-- Permanent Netty pin: forces the whole Netty aggregate to Armeria's validated line
-                 wherever grpc-netty and Armeria meet. See the netty.version property comment. -->
+            <!-- Keep Armeria and gRPC on the same Netty patch line wherever they meet. -->
             <dependency>
                 <groupId>io.netty</groupId>
                 <artifactId>netty-bom</artifactId>
@@ -179,6 +180,14 @@
                 <groupId>org.junit</groupId>
                 <artifactId>junit-bom</artifactId>
                 <version>${junit.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <dependency>
+                <groupId>io.opentelemetry</groupId>
+                <artifactId>opentelemetry-bom</artifactId>
+                <version>${opentelemetry.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -322,6 +331,11 @@
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-surefire-plugin</artifactId>
                     <version>${maven-surefire-plugin.version}</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-dependency-plugin</artifactId>
+                    <version>${maven-dependency-plugin.version}</version>
                 </plugin>
                 <plugin>
                     <groupId>org.graalvm.buildtools</groupId>

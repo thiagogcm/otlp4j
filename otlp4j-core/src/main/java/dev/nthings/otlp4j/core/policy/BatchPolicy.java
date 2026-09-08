@@ -4,8 +4,7 @@ import java.time.Duration;
 import java.util.List;
 
 /// The batching policy for a batch processor: the target and maximum batch sizes by item count and
-/// by byte size, the flush timeout, and the metadata keys a batch is partitioned by. This is shape
-/// only in the first milestone; the batch processor that consumes it lands in a later phase. The
+/// by byte size, the flush timeout, and the metadata keys a batch is partitioned by. The
 /// `metadataKeys` list makes metadata-keyed batching expressible, which depends on the receiver
 /// capturing client metadata into the consume context.
 ///

@@ -30,8 +30,35 @@ import org.junit.jupiter.api.io.TempDir;
 @DisplayName("Armeria transport TLS")
 class ArmeriaTlsTest {
 
-    private final List<ServerReceiver> receivers = new ArrayList<>();
+    private final List<OtlpReceiver> receivers = new ArrayList<>();
     private final List<AutoCloseable> closeables = new ArrayList<>();
+
+    @DisplayName("in-memory TLS material is defensively copied")
+    @Test
+    void inlineMaterialIsDefensivelyCopied() {
+        var cert = new byte[] {1};
+        var key = new byte[] {2};
+        var trust = new byte[] {3};
+        var tls = (Tls.Inline) Tls.custom(cert, key, trust);
+
+        cert[0] = 9;
+        key[0] = 9;
+        trust[0] = 9;
+        assertThat(tls.cert()).containsExactly(1);
+        assertThat(tls.key()).containsExactly(2);
+        assertThat(tls.trust()).containsExactly(3);
+
+        tls.cert()[0] = 8;
+        tls.key()[0] = 8;
+        tls.trust()[0] = 8;
+        assertThat(tls.cert()).containsExactly(1);
+        assertThat(tls.key()).containsExactly(2);
+        assertThat(tls.trust()).containsExactly(3);
+
+        assertThat(tls)
+                .isEqualTo(Tls.custom(new byte[] {1}, new byte[] {2}, new byte[] {3}))
+                .hasSameHashCodeAs(Tls.custom(new byte[] {1}, new byte[] {2}, new byte[] {3}));
+    }
 
     @AfterEach
     void teardown() {
@@ -44,7 +71,7 @@ class ArmeriaTlsTest {
         }
         for (var receiver : receivers) {
             try {
-                receiver.shutdownNow().toCompletableFuture().get(5, TimeUnit.SECONDS);
+                receiver.shutdown(Duration.ofSeconds(5)).toCompletableFuture().get(5, TimeUnit.SECONDS);
             } catch (Exception ignored) {
                 // keep tearing down
             }
@@ -56,7 +83,7 @@ class ArmeriaTlsTest {
     void inlineTlsRoundTripsGrpc() {
         var received = new AtomicReference<TracesData>();
         var receiver = OtlpReceiver.grpcBuilder()
-                .setTls(Tls.custom(TlsTestMaterial.serverCertPem(), TlsTestMaterial.serverKeyPem(), null))
+                .tls(Tls.custom(TlsTestMaterial.serverCertPem(), TlsTestMaterial.serverKeyPem(), null))
                 .route(TRACES, Consumers.record(TRACES, received))
                 .ephemeralPort()
                 .build()
@@ -64,10 +91,10 @@ class ArmeriaTlsTest {
         receivers.add(receiver);
 
         var exporter = OtlpExporter.grpcBuilder()
-                .setEndpoint("localhost", receiver.port())
-                .setTls(Tls.trust(TlsTestMaterial.caPem()))
-                .setTimeout(Duration.ofSeconds(5))
-                .build();
+                .endpoint("localhost", receiver.port())
+                .tls(Tls.trust(TlsTestMaterial.caPem()))
+                .timeout(Duration.ofSeconds(5))
+                .build().start();
         closeables.add(exporter);
         var sent = TransportFixtures.richTraceData();
 
@@ -85,7 +112,7 @@ class ArmeriaTlsTest {
 
         var received = new AtomicReference<TracesData>();
         var receiver = OtlpReceiver.httpBuilder()
-                .setTls(Tls.custom(certFile, keyFile, null))
+                .tls(Tls.custom(certFile, keyFile, null))
                 .route(TRACES, Consumers.record(TRACES, received))
                 .ephemeralPort()
                 .build()
@@ -93,10 +120,10 @@ class ArmeriaTlsTest {
         receivers.add(receiver);
 
         var exporter = OtlpExporter.httpBuilder()
-                .setEndpoint("localhost", receiver.port())
-                .setTls(Tls.trust(caFile))
-                .setTimeout(Duration.ofSeconds(5))
-                .build();
+                .endpoint("localhost", receiver.port())
+                .tls(Tls.trust(caFile))
+                .timeout(Duration.ofSeconds(5))
+                .build().start();
         closeables.add(exporter);
         var sent = TransportFixtures.richTraceData();
 
@@ -109,7 +136,7 @@ class ArmeriaTlsTest {
     @Test
     void untrustedClientFailsHandshake() {
         var receiver = OtlpReceiver.grpcBuilder()
-                .setTls(Tls.custom(TlsTestMaterial.serverCertPem(), TlsTestMaterial.serverKeyPem(), null))
+                .tls(Tls.custom(TlsTestMaterial.serverCertPem(), TlsTestMaterial.serverKeyPem(), null))
                 .route(TRACES, Consumers.accepting())
                 .ephemeralPort()
                 .build()
@@ -118,10 +145,10 @@ class ArmeriaTlsTest {
 
         // System-trust client does not trust the self-signed test CA, so the handshake fails.
         var exporter = OtlpExporter.grpcBuilder()
-                .setEndpoint("localhost", receiver.port())
-                .setTls(Tls.systemTrust())
-                .setTimeout(Duration.ofSeconds(5))
-                .build();
+                .endpoint("localhost", receiver.port())
+                .tls(Tls.systemTrust())
+                .timeout(Duration.ofSeconds(5))
+                .build().start();
         closeables.add(exporter);
 
         assertThatThrownBy(() -> exporter.export(TRACES, TransportFixtures.richTraceData())

@@ -1,6 +1,5 @@
 package dev.nthings.otlp4j.service;
 
-import dev.nthings.otlp4j.codec.Payloads;
 import static dev.nthings.otlp4j.core.signal.SignalDescriptor.METRICS;
 import static dev.nthings.otlp4j.core.signal.SignalDescriptor.TRACES;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -9,7 +8,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import dev.nthings.otlp4j.core.component.ComponentId;
 import dev.nthings.otlp4j.core.pipeline.PipelineId;
 import dev.nthings.otlp4j.core.signal.SignalPair;
-import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.service.config.ConnectorEntry;
 import dev.nthings.otlp4j.service.config.ExporterEntry;
 import dev.nthings.otlp4j.service.config.PipelineConfig;
@@ -21,10 +19,11 @@ import dev.nthings.otlp4j.service.validation.DiagnosticCode;
 import dev.nthings.otlp4j.service.validation.GraphValidationException;
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 /// Value-type and config coverage: entry accessors and validation, the component registry lookups,
-/// the config records' invariants, the payload's invariants, and the diagnostic types.
+/// the config records' invariants and the diagnostic types.
 class ValueTypesTest {
 
     private static final ComponentId ID = ComponentId.parse("x");
@@ -70,21 +69,14 @@ class ValueTypesTest {
     }
 
     @Test
-    void domainPayloadRejectsNulls() {
-        assertThatThrownBy(() -> Payloads.domain(null, new TracesData(List.of())))
-                .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> Payloads.domain(TRACES, null)).isInstanceOf(IllegalArgumentException.class);
-    }
-
-    @Test
     void diagnosticTypesRenderAndValidate() {
         var pid = PipelineId.of(TRACES);
         var d = Diagnostic.of(DiagnosticCode.CYCLE_DETECTED, "loop", ID, pid);
         assertThat(d.toString()).contains("CYCLE_DETECTED").contains("component=x").contains("pipeline=traces");
         assertThat(Diagnostic.ofPipeline(DiagnosticCode.EMPTY_PIPELINE, "empty", pid).component()).isEmpty();
-        assertThatThrownBy(() -> new Diagnostic(null, "m", java.util.Optional.empty(), java.util.Optional.empty()))
+        assertThatThrownBy(() -> new Diagnostic(null, "m", Optional.empty(), Optional.empty()))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new Diagnostic(DiagnosticCode.EMPTY_PIPELINE, null, java.util.Optional.empty(), java.util.Optional.empty()))
+        assertThatThrownBy(() -> new Diagnostic(DiagnosticCode.EMPTY_PIPELINE, null, Optional.empty(), Optional.empty()))
                 .isInstanceOf(IllegalArgumentException.class);
 
         var ex = new GraphValidationException(List.of(d));

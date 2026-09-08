@@ -12,22 +12,16 @@
 
     <artifactId>otlp4j-service</artifactId>
     <name>otlp4j-service</name>
-    <description>The otlp4j graph runtime: the declarative gateway configuration model, the
-        JGraphT-backed service graph builder, validation diagnostics, and the started gateway
-        runtime that replaces the fluent pipeline's discovered lifecycle with a declared one. JPMS
-        module dev.nthings.otlp4j.service - depends only on otlp4j-core; no transport module is a
-        dependency and none depends on this module. This module ships the complete component registry,
-        service graph, gateway builder, and started gateway runtime.</description>
+    <description>The otlp4j graph runtime: the typed in-process Pipeline API, the declarative gateway
+        configuration model, the JGraphT-backed service graph builder, validation diagnostics, and the
+        started gateway runtime. JPMS module dev.nthings.otlp4j.service - depends only on otlp4j-core;
+        no transport module is a dependency and none depends on this module. This module ships the
+        complete component registry, service graph, gateway builder, and started gateway runtime.</description>
 
     <dependencies>
         <dependency>
             <groupId>dev.nthings.otlp4j</groupId>
             <artifactId>otlp4j-core</artifactId>
-        </dependency>
-        <!-- Logging facade for the runtime's shutdown, rollback, and flush warnings. -->
-        <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-api</artifactId>
         </dependency>
         <!-- Internal graph representation only; no org.jgrapht type appears in any exported
              signature of this module. -->
@@ -39,13 +33,6 @@
         <dependency>
             <groupId>org.jspecify</groupId>
             <artifactId>jspecify</artifactId>
-        </dependency>
-        <!-- Test scope only: the graph runtime tests build TelemetryPayload carriers through the
-             codec payload facade (Payloads); the runtime itself never names codec. -->
-        <dependency>
-            <groupId>dev.nthings.otlp4j</groupId>
-            <artifactId>otlp4j-codec</artifactId>
-            <scope>test</scope>
         </dependency>
     </dependencies>
 

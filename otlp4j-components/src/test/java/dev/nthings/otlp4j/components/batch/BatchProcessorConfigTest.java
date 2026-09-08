@@ -13,34 +13,52 @@ import org.junit.jupiter.api.Test;
 class BatchProcessorConfigTest {
 
     private static final BatchPolicy BATCH = new BatchPolicy(8192, 0, 0, Duration.ofSeconds(1), List.of());
-    private static final DeliveryQueuePolicy DELIVERY = new DeliveryQueuePolicy(1024, 1, OverflowPolicy.BLOCK, false);
+    private static final DeliveryQueuePolicy DELIVERY = new DeliveryQueuePolicy(1024, 1, OverflowPolicy.FAIL);
 
     @Test
-    void defaultsCarryTheDocumentedValues() {
+    void defaultsCarryTheBoundedAdmissionValues() {
         var config = BatchProcessorConfig.defaults();
         assertThat(config.batch().sendBatchSize()).isEqualTo(8192);
-        assertThat(config.batch().sendBatchMaxSize()).isZero();
-        assertThat(config.batch().sendBatchMaxBytes()).isZero();
-        assertThat(config.batch().timeout()).isEqualTo(Duration.ofSeconds(1));
-        assertThat(config.batch().metadataKeys()).isEmpty();
         assertThat(config.delivery().queueSize()).isEqualTo(1024);
         assertThat(config.delivery().numConsumers()).isEqualTo(1);
-        assertThat(config.delivery().overflow()).isEqualTo(OverflowPolicy.BLOCK);
-        assertThat(config.delivery().waitForResult()).isFalse();
+        assertThat(config.delivery().overflow()).isEqualTo(OverflowPolicy.FAIL);
+        assertThat(config.maxPendingSubmissions()).isEqualTo(1024);
+        assertThat(config.maxPendingBytes()).isEqualTo(64L * 1024 * 1024);
+        assertThat(config.maxPartitions()).isEqualTo(1024);
         assertThat(config.degradedWindow()).isEqualTo(Duration.ofSeconds(5));
     }
 
     @Test
     void rejectsNullDegradedWindow() {
-        assertThatThrownBy(() -> new BatchProcessorConfig(BATCH, DELIVERY, null))
-                .isInstanceOf(IllegalArgumentException.class)
+        assertThatThrownBy(() -> config(null)).isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("degradedWindow");
     }
 
     @Test
+    void rejectsNullWrappedPolicies() {
+        assertThatThrownBy(() -> new BatchProcessorConfig(null, DELIVERY, Duration.ZERO, 1, 1, 1))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("batch");
+        assertThatThrownBy(() -> new BatchProcessorConfig(BATCH, null, Duration.ZERO, 1, 1, 1))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("delivery");
+    }
+
+    @Test
     void rejectsNegativeDegradedWindow() {
-        assertThatThrownBy(() -> new BatchProcessorConfig(BATCH, DELIVERY, Duration.ofSeconds(-1)))
-                .isInstanceOf(IllegalArgumentException.class)
+        assertThatThrownBy(() -> config(Duration.ofSeconds(-1))).isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("degradedWindow");
+    }
+
+    @Test
+    void rejectsNonPositiveAdmissionLimits() {
+        assertThatThrownBy(() -> new BatchProcessorConfig(BATCH, DELIVERY, Duration.ZERO, 0, 1, 1))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("maxPendingSubmissions");
+        assertThatThrownBy(() -> new BatchProcessorConfig(BATCH, DELIVERY, Duration.ZERO, 1, 0, 1))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("maxPendingBytes");
+        assertThatThrownBy(() -> new BatchProcessorConfig(BATCH, DELIVERY, Duration.ZERO, 1, 1, 0))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("maxPartitions");
+    }
+
+    private static BatchProcessorConfig config(Duration degradedWindow) {
+        return new BatchProcessorConfig(BATCH, DELIVERY, degradedWindow, 1, 1, 1);
     }
 }

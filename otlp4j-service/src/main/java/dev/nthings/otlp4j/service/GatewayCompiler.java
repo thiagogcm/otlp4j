@@ -15,7 +15,6 @@ import dev.nthings.otlp4j.core.pipeline.PipelineId;
 import dev.nthings.otlp4j.core.result.Provenance;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.core.signal.SignalPair;
-import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import dev.nthings.otlp4j.service.config.ConnectorEntry;
 import dev.nthings.otlp4j.service.config.ExporterEntry;
 import dev.nthings.otlp4j.service.config.GatewayConfig;
@@ -40,6 +39,7 @@ import dev.nthings.otlp4j.service.validation.GraphValidationException;
 import dev.nthings.otlp4j.core.telemetry.GatewayMetrics;
 import java.time.Clock;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -63,8 +63,7 @@ import org.jspecify.annotations.Nullable;
 ///
 /// This is the single materialization path both construction forms reach: the fluent
 /// [GatewayBuilder] compiles its handles to a config and hands it here, and the declarative
-/// [Gateway#compile] passes a directly-built config here. The existence and signal-support lookups a
-/// separate registry class once owned fold in as the private map helpers at the foot of this class.
+/// [Gateway#compile] passes a directly-built config here.
 final class GatewayCompiler {
 
     private final GatewayConfig config;
@@ -253,7 +252,7 @@ final class GatewayCompiler {
                     diagnostics.add(Diagnostic.ofComponent(
                             DiagnosticCode.CONNECTOR_MULTIPLE_DISTINCT_PAIRS,
                             "connector " + connId + " bridges more than one distinct signal pair (inputs "
-                                    + inputSignals + ", outputs " + outputSignals + "); Phase 1 represents a "
+                                    + inputSignals + ", outputs " + outputSignals + "); the graph represents a "
                                     + "connector as a single node carrying one signal pair",
                             connId));
                 }
@@ -415,48 +414,61 @@ final class GatewayCompiler {
         var order = graph.topoOrder();
         var inConsumer = new HashMap<Node, SignalConsumer<?>>();
         var dataPathStartOrder = new ArrayList<ComponentRef>();
-        // One shared-component cache for the whole build: an exporter id that terminates several
-        // signals is backed by exactly one underlying instance, its per-signal facets sharing it.
-        var shared = new SharedComponents();
-        for (var node : order.reverse()) {
-            switch (node) {
-                case ExporterNode exporter -> {
-                    var ctx = new CreateContext(exporter.id(), base, shared);
-                    var provenance = new Provenance(exporter.id(), ComponentKind.EXPORTER, exporter.signal());
-                    var built = buildExporter(exporter(exporter.id()), ctx, exporter.signal(), provenance);
-                    inConsumer.put(node, built.guarded());
-                    dataPathStartOrder.add(
-                            new ComponentRef(ComponentKind.EXPORTER, exporter.id(), built.component()));
-                }
-                case ProcessorNode processor -> {
-                    var next = singleDownstream(graph, node, inConsumer);
-                    var ctx = new CreateContext(processor.id(), base, shared);
-                    var provenance = new Provenance(processor.id(), ComponentKind.PROCESSOR, processor.signal());
-                    var built = buildProcessor(
-                            processor(processor.id()), ctx, processor.signal(), next, provenance);
-                    inConsumer.put(node, built.guarded());
-                    dataPathStartOrder.add(
-                            new ComponentRef(ComponentKind.PROCESSOR, processor.id(), built.component()));
-                }
-                case ConnectorNode connector -> {
-                    var next = singleDownstream(graph, node, inConsumer);
-                    var ctx = new CreateContext(connector.id(), base, shared);
-                    var built = buildConnector(connector(connector.id()), ctx, connector.pair(), next);
-                    inConsumer.put(node, built.guarded());
-                    dataPathStartOrder.add(
-                            new ComponentRef(ComponentKind.CONNECTOR, connector.id(), built.component()));
-                }
-                case FanOutNode fanOut -> inConsumer.put(node, fanOut(downstreams(graph, node, inConsumer)));
-                case ReceiverNode receiver -> {
-                    var bundle = new LinkedHashMap<SignalDescriptor<?>, SignalConsumer<?>>();
-                    for (var edge : graph.outgoing(node)) {
-                        bundle.put(edge.signal(), inConsumer.get(graph.target(edge)));
+        // Share across signals, but never across component kinds: receiver and exporter ids may match.
+        var shared = new EnumMap<ComponentKind, SharedComponents>(ComponentKind.class);
+        try {
+            for (var node : order.reverse()) {
+                switch (node) {
+                    case ExporterNode exporter -> {
+                        var ctx = new CreateContext(exporter.id(), base,
+                                shared.computeIfAbsent(ComponentKind.EXPORTER, _ -> new SharedComponents()));
+                        var provenance = new Provenance(exporter.id(), ComponentKind.EXPORTER, exporter.signal());
+                        var built = buildExporter(exporter(exporter.id()), ctx, exporter.signal(), provenance);
+                        inConsumer.put(node, built.guarded());
+                        dataPathStartOrder.add(
+                                new ComponentRef(ComponentKind.EXPORTER, exporter.id(), built.component()));
                     }
-                    var ctx = new CreateContext(receiver.id(), base, shared);
-                    var built = receiver(receiver.id()).create(ctx, new RoutedConsumers(bundle));
-                    dataPathStartOrder.add(new ComponentRef(ComponentKind.RECEIVER, receiver.id(), built));
+                    case ProcessorNode processor -> {
+                        var next = singleDownstream(graph, node, inConsumer);
+                        var ctx = new CreateContext(processor.id(), base,
+                                shared.computeIfAbsent(ComponentKind.PROCESSOR, _ -> new SharedComponents()));
+                        var provenance = new Provenance(processor.id(), ComponentKind.PROCESSOR, processor.signal());
+                        var built = buildProcessor(
+                                processor(processor.id()), ctx, processor.signal(), next, provenance);
+                        inConsumer.put(node, built.guarded());
+                        dataPathStartOrder.add(
+                                new ComponentRef(ComponentKind.PROCESSOR, processor.id(), built.component()));
+                    }
+                    case ConnectorNode connector -> {
+                        var next = singleDownstream(graph, node, inConsumer);
+                        var ctx = new CreateContext(connector.id(), base,
+                                shared.computeIfAbsent(ComponentKind.CONNECTOR, _ -> new SharedComponents()));
+                        var built = buildConnector(connector(connector.id()), ctx, connector.pair(), next);
+                        inConsumer.put(node, built.guarded());
+                        dataPathStartOrder.add(
+                                new ComponentRef(ComponentKind.CONNECTOR, connector.id(), built.component()));
+                    }
+                    case FanOutNode fanOut -> inConsumer.put(node, fanOut(downstreams(graph, node, inConsumer)));
+                    case ReceiverNode receiver -> {
+                        var bundle = new LinkedHashMap<SignalDescriptor<?>, SignalConsumer<?>>();
+                        for (var edge : graph.outgoing(node)) {
+                            bundle.put(edge.signal(), inConsumer.get(graph.target(edge)));
+                        }
+                        var ctx = new CreateContext(receiver.id(), base,
+                                shared.computeIfAbsent(ComponentKind.RECEIVER, _ -> new SharedComponents()));
+                        var built = receiver(receiver.id()).create(ctx, new RoutedConsumers(bundle));
+                        dataPathStartOrder.add(new ComponentRef(ComponentKind.RECEIVER, receiver.id(), built));
+                    }
                 }
             }
+        } catch (Error | RuntimeException failure) {
+            try {
+                new GatewayRuntime(graph, base, config.service(), dataPathStartOrder)
+                        .shutdown(config.service().shutdownDeadline()).toCompletableFuture().join();
+            } catch (Error | RuntimeException cleanupFailure) {
+                failure.addSuppressed(cleanupFailure);
+            }
+            throw failure;
         }
         return new GatewayRuntime(graph, base, config.service(), dataPathStartOrder);
     }
@@ -486,14 +498,14 @@ final class GatewayCompiler {
 
     private record Built(Component component, SignalConsumer<?> guarded) {}
 
-    private static <T extends TelemetryPayload> Built buildExporter(
+    private static <T> Built buildExporter(
             ExporterEntry<?> entry, CreateContext ctx, SignalDescriptor<?> signal, Provenance provenance) {
         SignalDescriptor<T> typed = castSignal(signal);
         Exporter<T> exporter = entry.create(ctx, typed);
         return new Built(exporter, new GuardedConsumer<>(exporter, provenance));
     }
 
-    private static <T extends TelemetryPayload> Built buildProcessor(
+    private static <T> Built buildProcessor(
             ProcessorEntry<?> entry,
             CreateContext ctx,
             SignalDescriptor<?> signal,
@@ -517,7 +529,7 @@ final class GatewayCompiler {
         return new Built(connector, guard(asConsumer, provenance));
     }
 
-    private static <T extends TelemetryPayload> SignalConsumer<T> fanOut(List<SignalConsumer<?>> peers) {
+    private static <T> SignalConsumer<T> fanOut(List<SignalConsumer<?>> peers) {
         var typed = new ArrayList<SignalConsumer<T>>(peers.size());
         for (var peer : peers) {
             typed.add(GatewayCompiler.<T>castConsumer(peer));
@@ -525,18 +537,18 @@ final class GatewayCompiler {
         return new FanOutConsumer<>(typed);
     }
 
-    private static <T extends TelemetryPayload> SignalConsumer<T> guard(
+    private static <T> SignalConsumer<T> guard(
             SignalConsumer<?> consumer, Provenance provenance) {
         return new GuardedConsumer<>(GatewayCompiler.<T>castConsumer(consumer), provenance);
     }
 
     @SuppressWarnings("unchecked")
-    private static <T extends TelemetryPayload> SignalDescriptor<T> castSignal(SignalDescriptor<?> signal) {
+    private static <T> SignalDescriptor<T> castSignal(SignalDescriptor<?> signal) {
         return (SignalDescriptor<T>) signal;
     }
 
     @SuppressWarnings("unchecked")
-    private static <T extends TelemetryPayload> SignalConsumer<T> castConsumer(SignalConsumer<?> consumer) {
+    private static <T> SignalConsumer<T> castConsumer(SignalConsumer<?> consumer) {
         return (SignalConsumer<T>) consumer;
     }
 

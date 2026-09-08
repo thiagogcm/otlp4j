@@ -11,15 +11,18 @@ import dev.nthings.otlp4j.core.component.CreateContext;
 import dev.nthings.otlp4j.core.component.Exporter;
 import dev.nthings.otlp4j.core.component.ExporterFactory;
 import dev.nthings.otlp4j.core.component.FlushContext;
+import dev.nthings.otlp4j.core.component.Receiver;
+import dev.nthings.otlp4j.core.component.ReceiverFactory;
 import dev.nthings.otlp4j.core.component.ShutdownContext;
 import dev.nthings.otlp4j.core.component.SignalSupport;
 import dev.nthings.otlp4j.core.consumer.ConsumeContext;
-import dev.nthings.otlp4j.core.consumer.ConsumerCapabilities;
+import dev.nthings.otlp4j.core.consumer.SignalConsumers;
 import dev.nthings.otlp4j.core.pipeline.PipelineId;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
+import dev.nthings.otlp4j.core.result.FlushReport;
 import dev.nthings.otlp4j.core.result.Provenance;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
-import dev.nthings.otlp4j.core.signal.TelemetryPayload;
+import dev.nthings.otlp4j.core.signal.Payload;
 import dev.nthings.otlp4j.service.config.PipelineConfig;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -38,6 +41,32 @@ class SharedExporterInstanceTest {
 
     private static final ComponentId R = ComponentId.parse("otlp");
     private static final ComponentId E = ComponentId.parse("otlpexp");
+
+    @Test
+    void receiverAndExporterWithSameIdNeverShareCachedResources() {
+        var clientBuilds = new AtomicInteger();
+        var receiverBuilds = new AtomicInteger();
+        var gateway = Gateway.builder();
+        var receiver = gateway.receiver(R, new ReceiverFactory<Fakes.Config>() {
+            @Override public String type() { return "otlp"; }
+            @Override public ComponentKind kind() { return ComponentKind.RECEIVER; }
+            @Override public Fakes.Config defaultConfig() { return Fakes.Config.ok(); }
+            @Override public Receiver create(CreateContext context, Fakes.Config config, SignalConsumers consumers) {
+                context.sharedComponents().computeIfAbsent(context.id(), () -> {
+                    receiverBuilds.incrementAndGet();
+                    return new Object();
+                });
+                return new Fakes.ReceiverImpl(context.id(), new Fakes.Log(), config, consumers);
+            }
+        });
+        var exporter = gateway.exporter(R, new SharedCountingExporterFactory("otlp", clientBuilds, new AtomicInteger()));
+        gateway.pipeline(PipelineId.of(TRACES), p -> p.from(receiver).to(exporter));
+        try (var runtime = gateway.build()) {
+            runtime.start();
+            assertThat(receiverBuilds.get()).isEqualTo(1);
+            assertThat(clientBuilds.get()).isEqualTo(1);
+        }
+    }
 
     @Test
     void oneExporterIdAcrossTwoSignalPipelinesBuildsOneUnderlyingInstance() {
@@ -96,7 +125,7 @@ class SharedExporterInstanceTest {
         }
 
         @Override
-        public <T extends TelemetryPayload> Exporter<T> create(
+        public <T> Exporter<T> create(
                 CreateContext ctx, Fakes.Config config, SignalDescriptor<T> signal) {
             // Build the underlying client once per id; every later per-signal facet of the same id
             // reuses it. This is the shared-component guarantee the graph builder provides.
@@ -110,7 +139,7 @@ class SharedExporterInstanceTest {
     }
 
     /// A minimal per-signal exporter facet with a no-op lifecycle; its identity is all the test reads.
-    private static final class CountingExporter<T extends TelemetryPayload> implements Exporter<T> {
+    private static final class CountingExporter<T> implements Exporter<T> {
 
         private final ComponentId id;
         private final SignalDescriptor<T> signal;
@@ -119,14 +148,8 @@ class SharedExporterInstanceTest {
             this.id = id;
             this.signal = signal;
         }
-
         @Override
-        public ConsumerCapabilities capabilities() {
-            return ConsumerCapabilities.nonMutating();
-        }
-
-        @Override
-        public CompletionStage<DeliveryResult> consume(ConsumeContext context, T data) {
+        public CompletionStage<DeliveryResult> consume(ConsumeContext context, Payload<T> data) {
             return CompletableFuture.completedFuture(
                     DeliveryResult.accepted(new Provenance(id, ComponentKind.EXPORTER, signal)));
         }
@@ -137,8 +160,8 @@ class SharedExporterInstanceTest {
         }
 
         @Override
-        public CompletionStage<Void> forceFlush(FlushContext context) {
-            return CompletableFuture.completedFuture(null);
+        public CompletionStage<FlushReport> flush(FlushContext context) {
+            return CompletableFuture.completedFuture(FlushReport.empty());
         }
 
         @Override

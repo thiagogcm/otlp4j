@@ -6,7 +6,7 @@
 @SuppressWarnings("module")
 module dev.nthings.otlp4j.transport {
     requires dev.nthings.otlp4j.model;
-    // The codec payload facade (Payloads), the signal codecs, and the delivery-result status mapping.
+    // The codec payload bridge, signal codecs, and delivery-result status mapping.
     requires dev.nthings.otlp4j.codec;
     // The config records expose the neutral core policies, and the exporter runtime, receiver runtime,
     // and graph adapters name core component, consumer, result, and signal types directly, so read core
@@ -28,6 +28,7 @@ module dev.nthings.otlp4j.transport {
     requires com.linecorp.armeria.grpc;
     // Netty SslContextBuilder / ClientAuth for the TLS mapping.
     requires io.netty.handler;
+    requires io.netty.common;
     requires org.slf4j;
 
     exports dev.nthings.otlp4j.transport;

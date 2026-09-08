@@ -1,5 +1,6 @@
 package dev.nthings.otlp4j.core.component;
 
+import dev.nthings.otlp4j.core.result.FlushReport;
 import java.time.Duration;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
@@ -9,13 +10,14 @@ import java.util.concurrent.CompletionStage;
 /// A gateway component with a deadline-bounded lifecycle, using the Collector lifecycle vocabulary.
 ///
 /// [#start(ComponentContext)] brings the component live and is bounded by the service start
-/// deadline. [#forceFlush(FlushContext)] pushes buffered telemetry downstream without tearing the
+/// deadline. [#flush(FlushContext)] pushes buffered telemetry downstream without tearing the
 /// component down and defaults to a no-op, because only a buffering component has anything to flush.
 /// [#shutdown(ShutdownContext)] drains in-flight work and releases resources within its deadline.
+/// Implementations must make [#shutdown(ShutdownContext)] safe before [#start(ComponentContext)],
+/// after a partially failed start, and on repeated calls; shutdown is idempotent.
 /// [#close()] is the try-with-resources idiom: it shuts down within the [#DEFAULT_GRACE_PERIOD] and
-/// swallows a drain failure or timeout as a WARN log rather than throwing, since a throw during
-/// teardown would mask the primary exception being unwound. Call [#shutdown(ShutdownContext)]
-/// directly when the drain outcome must be observed.
+/// rethrows a drain failure or timeout as an [IllegalStateException]. Call
+/// [#shutdown(ShutdownContext)] directly when the drain outcome must be observed as a stage.
 public interface Component extends AutoCloseable {
 
     /// The grace period [#close()] drains within: ten seconds, applied uniformly by every component.
@@ -27,19 +29,21 @@ public interface Component extends AutoCloseable {
     /// @return a stage that completes when the component is live, or exceptionally on failure
     CompletionStage<Void> start(ComponentContext context);
 
-    /// Pushes buffered telemetry downstream without tearing the component down. The default does
-    /// nothing; only a buffering component overrides it.
+    /// Drains a snapshot of buffered or in-flight telemetry without tearing the component down.
+    /// Reports delivery losses after buffered acceptance; direct delivery outcomes remain on their
+    /// original submission stages. The default completes immediately for components with no work
+    /// of their own to drain.
     ///
     /// @param context the flush context carrying the deadline
-    /// @return a stage that completes when flushed
-    default CompletionStage<Void> forceFlush(FlushContext context) {
-        return CompletableFuture.completedFuture(null);
+    /// @return a stage that completes with the flush report
+    default CompletionStage<FlushReport> flush(FlushContext context) {
+        return CompletableFuture.completedFuture(FlushReport.empty());
     }
 
     /// Drains in-flight work and releases resources within the context's deadline.
     ///
     /// @param context the shutdown context carrying the deadline
-    /// @return a stage that completes on clean drain or exceptionally on timeout
+    /// @return a stage that completes on clean drain or exceptionally on failure or timeout
     CompletionStage<Void> shutdown(ShutdownContext context);
 
     /// Synchronous drain within the [#DEFAULT_GRACE_PERIOD] for the try-with-resources idiom. A drain

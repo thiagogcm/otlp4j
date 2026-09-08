@@ -1,6 +1,6 @@
 # End-to-end sample
 
-`OtlpE2eDemo` exercises the public API and the bundled OTLP/gRPC transport together. The sample builds its component graph with `Gateway.builder()` on `otlp4j-core` and `otlp4j-service`, wires the consolidated Armeria transport through `otlp4j-transport` (`OtlpReceiverFactory.grpc()` / `OtlpExporterFactory.grpc()` with the neutral `OtlpReceiverConfig` / `OtlpExporterConfig`), and adds the built-in batch processor and span-count connector from `otlp4j-components`; it never imports the generated proto or gRPC stub types, which stay encapsulated in `otlp4j-proto`.
+`EmbeddedPipelineDemo` is the shortest example: it builds a typed trace pipeline, filters and maps immutable domain batches, and exports them over OTLP/gRPC without exposing generated types. `OtlpE2eDemo` exercises the public API and the bundled OTLP/gRPC transport together. The end-to-end sample builds its component graph with `Gateway.builder()` on `otlp4j-core` and `otlp4j-service`, wires the consolidated Armeria transport through `otlp4j-transport` (`OtlpReceiverFactory.grpc()` / `OtlpExporterFactory.grpc()` with the neutral `OtlpReceiverConfig` / `OtlpExporterConfig`), and adds the built-in batch processor and span-count connector from `otlp4j-components`; it never imports the generated proto or gRPC stub types, which stay encapsulated in `otlp4j-proto`.
 
 ## Scenario
 
@@ -38,7 +38,6 @@ No external collector is required.
 
 ```sh
 ./mvnw -B -pl otlp4j-samples -am package -Pnative
-./mvnw -B -pl otlp4j-samples -am package -Pjlink
 ```
 
-The `native` profile requires a GraalVM JDK. The `jlink` profile creates the pure API/sample runtime image; the gRPC/Netty stack (automatic modules) remains outside the linked image.
+The `native` profile requires a GraalVM JDK.

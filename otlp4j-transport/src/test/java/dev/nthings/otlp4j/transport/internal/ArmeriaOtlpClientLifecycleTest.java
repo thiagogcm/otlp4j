@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.linecorp.armeria.server.Server;
 import dev.nthings.otlp4j.transport.OtlpExporterConfig;
 import dev.nthings.otlp4j.transport.Tls;
+import dev.nthings.otlp4j.transport.ClientAuth;
 import dev.nthings.otlp4j.testing.conformance.TlsTestMaterial;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -16,17 +17,18 @@ import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
 /// Construction, TLS-mapping, and teardown contract for [ArmeriaOtlpClient] and [ArmeriaTls] in
-/// isolation. Constructing a client builds its stubs or web client and its TLS client factory without
+/// isolation. Starting a client builds its stubs or web client and its TLS client factory without
 /// connecting, so every [Tls] variant's client-factory branch is exercised cheaply.
 @Timeout(60)
 @DisplayName("ArmeriaOtlpClient and ArmeriaTls")
 class ArmeriaOtlpClientLifecycleTest {
 
     private static OtlpExporterConfig config(Tls tls) {
-        return OtlpExporterConfig.builder(4317).setEndpoint("localhost", 4317).setTls(tls).build();
+        return OtlpExporterConfig.builder(4317).endpoint("localhost", 4317).tls(tls).build();
     }
 
-    private static void shutdown(ArmeriaOtlpClient client) {
+    private static void startAndShutdown(ArmeriaOtlpClient client) {
+        client.start();
         client.shutdown(Duration.ofSeconds(5)).toCompletableFuture().join();
     }
 
@@ -34,24 +36,28 @@ class ArmeriaOtlpClientLifecycleTest {
     @Test
     void plaintextGrpcDrains() {
         var client = new ArmeriaOtlpClient(config(Tls.disabled()), Protocol.GRPC);
-        assertThatCode(() -> shutdown(client)).doesNotThrowAnyException();
+        assertThatCode(() -> startAndShutdown(client)).doesNotThrowAnyException();
+        assertThatThrownBy(client::start).isInstanceOf(IllegalStateException.class);
+        assertThatCode(() -> client.shutdown(Duration.ZERO).toCompletableFuture().join())
+                .doesNotThrowAnyException();
     }
 
     @DisplayName("a plaintext HTTP client closes through try-with-resources")
     @Test
     void plaintextHttpCloses() {
         var client = new ArmeriaOtlpClient(config(Tls.disabled()), Protocol.HTTP);
+        client.start();
         assertThatCode(client::close).doesNotThrowAnyException();
     }
 
-    @DisplayName("forceFlush is a no-op that completes")
+    @DisplayName("flush is a no-op that completes")
     @Test
-    void forceFlushCompletes() {
+    void flushCompletes() {
         var client = new ArmeriaOtlpClient(config(Tls.disabled()), Protocol.GRPC);
         try {
-            client.forceFlush(Duration.ofSeconds(1)).toCompletableFuture().join();
+            client.flush(Duration.ofSeconds(1)).toCompletableFuture().join();
         } finally {
-            shutdown(client);
+            startAndShutdown(client);
         }
     }
 
@@ -59,14 +65,14 @@ class ArmeriaOtlpClientLifecycleTest {
     @Test
     void systemTrustHttpDrains() {
         var client = new ArmeriaOtlpClient(config(Tls.systemTrust()), Protocol.HTTP);
-        assertThatCode(() -> shutdown(client)).doesNotThrowAnyException();
+        assertThatCode(() -> startAndShutdown(client)).doesNotThrowAnyException();
     }
 
     @DisplayName("an in-memory trust-only client builds a trust factory and drains")
     @Test
     void inlineTrustOnlyDrains() {
         var client = new ArmeriaOtlpClient(config(Tls.trust(TlsTestMaterial.caPem())), Protocol.GRPC);
-        assertThatCode(() -> shutdown(client)).doesNotThrowAnyException();
+        assertThatCode(() -> startAndShutdown(client)).doesNotThrowAnyException();
     }
 
     @DisplayName("an in-memory mutual-TLS client builds a key-and-trust factory and drains")
@@ -75,7 +81,7 @@ class ArmeriaOtlpClientLifecycleTest {
         var tls = Tls.custom(
                 TlsTestMaterial.clientCertPem(), TlsTestMaterial.clientKeyPem(), TlsTestMaterial.caPem());
         var client = new ArmeriaOtlpClient(config(tls), Protocol.HTTP);
-        assertThatCode(() -> shutdown(client)).doesNotThrowAnyException();
+        assertThatCode(() -> startAndShutdown(client)).doesNotThrowAnyException();
     }
 
     @DisplayName("a file-based mutual-TLS client builds a key-and-trust factory and drains")
@@ -85,7 +91,7 @@ class ArmeriaOtlpClientLifecycleTest {
         var key = write(dir, "client-key.pem", TlsTestMaterial.clientKeyPem());
         var ca = write(dir, "ca.pem", TlsTestMaterial.caPem());
         var client = new ArmeriaOtlpClient(config(Tls.custom(cert, key, ca)), Protocol.GRPC);
-        assertThatCode(() -> shutdown(client)).doesNotThrowAnyException();
+        assertThatCode(() -> startAndShutdown(client)).doesNotThrowAnyException();
     }
 
     @DisplayName("an in-memory mutual-TLS client without extra trust drains")
@@ -93,7 +99,7 @@ class ArmeriaOtlpClientLifecycleTest {
     void inlineMutualNoTrustDrains() {
         var tls = Tls.custom(TlsTestMaterial.clientCertPem(), TlsTestMaterial.clientKeyPem(), null);
         var client = new ArmeriaOtlpClient(config(tls), Protocol.GRPC);
-        assertThatCode(() -> shutdown(client)).doesNotThrowAnyException();
+        assertThatCode(() -> startAndShutdown(client)).doesNotThrowAnyException();
     }
 
     @DisplayName("a file-based mutual-TLS client without extra trust drains")
@@ -102,22 +108,17 @@ class ArmeriaOtlpClientLifecycleTest {
         var cert = write(dir, "client-cert.pem", TlsTestMaterial.clientCertPem());
         var key = write(dir, "client-key.pem", TlsTestMaterial.clientKeyPem());
         var client = new ArmeriaOtlpClient(config(Tls.custom(cert, key, null)), Protocol.HTTP);
-        assertThatCode(() -> shutdown(client)).doesNotThrowAnyException();
+        assertThatCode(() -> startAndShutdown(client)).doesNotThrowAnyException();
     }
 
-    @DisplayName("an SSLContext client honours the trust manager only and drains")
-    @Test
-    void sslContextDrains() {
-        var tls = Tls.sslContext(sslContext(), trustManager());
-        var client = new ArmeriaOtlpClient(config(tls), Protocol.HTTP);
-        assertThatCode(() -> shutdown(client)).doesNotThrowAnyException();
-    }
-
-    @DisplayName("incomplete client mutual-TLS material is rejected at construction")
+    @DisplayName("incomplete client mutual-TLS material is rejected at startup")
     @Test
     void incompleteMutualRejected() {
         var tls = Tls.custom(TlsTestMaterial.clientCertPem(), (byte[]) null, TlsTestMaterial.caPem());
-        assertThatThrownBy(() -> new ArmeriaOtlpClient(config(tls), Protocol.GRPC))
+        assertThatThrownBy(() -> {
+            var client = new ArmeriaOtlpClient(config(tls), Protocol.GRPC);
+            client.start();
+        })
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("certificate and key");
     }
@@ -127,28 +128,9 @@ class ArmeriaOtlpClientLifecycleTest {
     void applyServerRejectsDisabled() {
         assertThatThrownBy(() -> ArmeriaTls.applyServer(
                         Server.builder(), Tls.disabled(),
-                        dev.nthings.otlp4j.transport.ClientAuth.NONE))
+                        ClientAuth.NONE))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Disabled");
-    }
-
-    private static javax.net.ssl.SSLContext sslContext() {
-        try {
-            return javax.net.ssl.SSLContext.getDefault();
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    private static javax.net.ssl.X509TrustManager trustManager() {
-        try {
-            var tmf = javax.net.ssl.TrustManagerFactory.getInstance(
-                    javax.net.ssl.TrustManagerFactory.getDefaultAlgorithm());
-            tmf.init((java.security.KeyStore) null);
-            return (javax.net.ssl.X509TrustManager) tmf.getTrustManagers()[0];
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
     }
 
     private static Path write(Path dir, String name, byte[] bytes) throws Exception {

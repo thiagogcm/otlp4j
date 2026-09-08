@@ -7,7 +7,6 @@ import dev.nthings.otlp4j.core.component.ProcessorFactory;
 import dev.nthings.otlp4j.core.component.SignalSupport;
 import dev.nthings.otlp4j.core.consumer.SignalConsumer;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
-import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 
 /// The factory for the built-in batch processor, type `batch`.
 ///
@@ -15,8 +14,7 @@ import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 /// traces, metrics, and logs, but not profiles, because profiles merge is not lossless across distinct
 /// dictionaries. A profiles pipeline that lists `batch` therefore fails graph validation before start
 /// rather than losing data at runtime.
-public final class BatchProcessorFactory
-        implements ProcessorFactory<BatchProcessorConfig>, SignalSupport {
+public final class BatchProcessorFactory implements ProcessorFactory<BatchProcessorConfig>, SignalSupport {
 
     /// The component type name.
     public static final String TYPE = "batch";
@@ -47,14 +45,11 @@ public final class BatchProcessorFactory
     }
 
     @Override
-    public <T extends TelemetryPayload> Processor<T> create(
+    public <T> Processor<T> create(
             CreateContext ctx, BatchProcessorConfig config, SignalDescriptor<T> signal, SignalConsumer<T> next) {
-        Processor<TelemetryPayload> processor = new BatchProcessor<>(
-                ctx.id(),
-                ProcessorFactory.asDomainDescriptor(signal),
-                config,
-                SignalConsumer.asPayload(next),
-                System::nanoTime);
-        return ProcessorFactory.asTypedProcessor(processor);
+        if (!supportsSignal(signal)) {
+            throw new IllegalArgumentException("batch processor does not support profiles");
+        }
+        return new BatchProcessor<>(ctx.id(), signal, config, next, System::nanoTime);
     }
 }

@@ -1,7 +1,6 @@
 package dev.nthings.otlp4j.transport.internal;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.nthings.otlp4j.transport.OtlpReceiverConfig;
@@ -10,8 +9,9 @@ import dev.nthings.otlp4j.core.component.ComponentId;
 import dev.nthings.otlp4j.core.component.ComponentKind;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.result.Provenance;
+import dev.nthings.otlp4j.core.consumer.ConsumeContext;
+import dev.nthings.otlp4j.core.signal.Payload;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
-import dev.nthings.otlp4j.core.signal.TelemetryPayload;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.EnumSet;
@@ -33,7 +33,7 @@ class ArmeriaOtlpServerLifecycleTest {
 
     private static final PayloadDispatch NO_OP = new PayloadDispatch() {
         @Override
-        public CompletionStage<DeliveryResult> dispatch(TelemetryPayload payload) {
+        public CompletionStage<DeliveryResult> dispatch(ConsumeContext context, Payload<?> payload) {
             return CompletableFuture.completedStage(DeliveryResult.accepted(PROV));
         }
     };
@@ -43,7 +43,7 @@ class ArmeriaOtlpServerLifecycleTest {
     private static final Set<Protocol> BOTH = EnumSet.of(Protocol.GRPC, Protocol.HTTP);
 
     private static OtlpReceiverConfig ephemeral() {
-        return OtlpReceiverConfig.builder(4317).setPort(0).build();
+        return OtlpReceiverConfig.builder(4317).port(0).build();
     }
 
     @DisplayName("an empty protocol set is rejected")
@@ -57,17 +57,11 @@ class ArmeriaOtlpServerLifecycleTest {
     @DisplayName("shutdown before start is a safe no-op")
     @Test
     void shutdownBeforeStartIsANoOp() {
-        assertThatCode(() -> new ArmeriaOtlpServer(ephemeral(), NO_OP, GRPC)
-                .shutdown(Duration.ofSeconds(1)).toCompletableFuture().join())
-                .doesNotThrowAnyException();
-    }
-
-    @DisplayName("shutdownNow before start is a safe no-op")
-    @Test
-    void shutdownNowBeforeStartIsANoOp() {
-        assertThatCode(() -> new ArmeriaOtlpServer(ephemeral(), NO_OP, HTTP)
-                .shutdownNow().toCompletableFuture().join())
-                .doesNotThrowAnyException();
+        var server = new ArmeriaOtlpServer(ephemeral(), NO_OP, GRPC);
+        var shutdown = server.shutdown(Duration.ZERO);
+        shutdown.toCompletableFuture().join();
+        assertThat(server.shutdown(Duration.ofSeconds(1)) == shutdown).isTrue();
+        assertThatThrownBy(server::start).isInstanceOf(IllegalStateException.class);
     }
 
     @DisplayName("port is zero before start")
@@ -87,7 +81,7 @@ class ArmeriaOtlpServerLifecycleTest {
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("already started");
         } finally {
-            server.shutdownNow().toCompletableFuture().join();
+            server.shutdown(Duration.ofSeconds(5)).toCompletableFuture().join();
         }
     }
 
@@ -115,13 +109,13 @@ class ArmeriaOtlpServerLifecycleTest {
     @DisplayName("a loopback-only bindHost binds successfully")
     @Test
     void loopbackBindStarts() throws Exception {
-        var config = OtlpReceiverConfig.builder(4317).setBindHost("127.0.0.1").setPort(0).build();
+        var config = OtlpReceiverConfig.builder(4317).bindHost("127.0.0.1").port(0).build();
         var server = new ArmeriaOtlpServer(config, NO_OP, GRPC);
         server.start();
         try {
             assertThat(server.port()).isPositive();
         } finally {
-            server.shutdownNow().toCompletableFuture().join();
+            server.shutdown(Duration.ofSeconds(5)).toCompletableFuture().join();
         }
     }
 
@@ -129,15 +123,15 @@ class ArmeriaOtlpServerLifecycleTest {
     @Test
     void hardeningKnobsStart() throws Exception {
         var config = OtlpReceiverConfig.builder(4317)
-                .setPort(0)
-                .setMaxInboundMessageSizeBytes(1024 * 1024)
+                .port(0)
+                .maxInboundMessageSizeBytes(1024 * 1024)
                 .build();
         var server = new ArmeriaOtlpServer(config, NO_OP, BOTH);
         server.start();
         try {
             assertThat(server.port()).isPositive();
         } finally {
-            server.shutdownNow().toCompletableFuture().join();
+            server.shutdown(Duration.ofSeconds(5)).toCompletableFuture().join();
         }
     }
 
@@ -145,30 +139,18 @@ class ArmeriaOtlpServerLifecycleTest {
     @Test
     void systemTrustRejected() {
         var server = new ArmeriaOtlpServer(
-                OtlpReceiverConfig.builder(4317).setPort(0).setTls(Tls.systemTrust()).build(), NO_OP, GRPC);
+                OtlpReceiverConfig.builder(4317).port(0).tls(Tls.systemTrust()).build(), NO_OP, GRPC);
         assertThatThrownBy(server::start)
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("SystemTrust");
-    }
-
-    @DisplayName("SslContext TLS is rejected for a server")
-    @Test
-    void sslContextRejected() throws Exception {
-        var ctx = javax.net.ssl.SSLContext.getDefault();
-        var trust = (javax.net.ssl.X509TrustManager) trustManager();
-        var server = new ArmeriaOtlpServer(
-                OtlpReceiverConfig.builder(4317).setPort(0).setTls(Tls.sslContext(ctx, trust)).build(), NO_OP, HTTP);
-        assertThatThrownBy(server::start)
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("SslContext");
     }
 
     @DisplayName("in-memory server TLS missing the key is rejected")
     @Test
     void incompleteInlineRejected() {
         var server = new ArmeriaOtlpServer(
-                OtlpReceiverConfig.builder(4317).setPort(0)
-                        .setTls(Tls.custom(new byte[] {1, 2, 3}, (byte[]) null, null)).build(),
+                OtlpReceiverConfig.builder(4317).port(0)
+                        .tls(Tls.custom(new byte[] {1, 2, 3}, (byte[]) null, null)).build(),
                 NO_OP, HTTP);
         assertThatThrownBy(server::start)
                 .isInstanceOf(IllegalArgumentException.class)
@@ -179,18 +161,12 @@ class ArmeriaOtlpServerLifecycleTest {
     @Test
     void incompleteCustomRejected() {
         var server = new ArmeriaOtlpServer(
-                OtlpReceiverConfig.builder(4317).setPort(0)
-                        .setTls(Tls.custom(Path.of("server.crt"), null, null)).build(),
+                OtlpReceiverConfig.builder(4317).port(0)
+                        .tls(Tls.custom(Path.of("server.crt"), null, null)).build(),
                 NO_OP, GRPC);
         assertThatThrownBy(server::start)
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("certificate and a key");
     }
 
-    private static javax.net.ssl.TrustManager trustManager() throws Exception {
-        var tmf = javax.net.ssl.TrustManagerFactory.getInstance(
-                javax.net.ssl.TrustManagerFactory.getDefaultAlgorithm());
-        tmf.init((java.security.KeyStore) null);
-        return tmf.getTrustManagers()[0];
-    }
 }

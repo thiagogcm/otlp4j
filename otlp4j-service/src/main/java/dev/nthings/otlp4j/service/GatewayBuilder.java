@@ -8,6 +8,8 @@ import dev.nthings.otlp4j.core.component.ExporterFactory;
 import dev.nthings.otlp4j.core.component.ProcessorFactory;
 import dev.nthings.otlp4j.core.component.ReceiverFactory;
 import dev.nthings.otlp4j.core.pipeline.PipelineId;
+import dev.nthings.otlp4j.core.signal.SignalDescriptor;
+import dev.nthings.otlp4j.service.internal.ApplicationInput;
 import dev.nthings.otlp4j.service.config.ConnectorEntry;
 import dev.nthings.otlp4j.service.config.ExporterEntry;
 import dev.nthings.otlp4j.service.config.GatewayConfig;
@@ -17,6 +19,7 @@ import dev.nthings.otlp4j.service.config.ReceiverEntry;
 import dev.nthings.otlp4j.service.config.ServiceOptions;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Consumer;
 
 /// The one fluent builder [Gateway#builder] returns. It registers components by id and collects
@@ -34,6 +37,8 @@ import java.util.function.Consumer;
 /// diagnostics.
 public final class GatewayBuilder {
 
+    private final Object owner = new Object();
+
     private final Map<ComponentId, ReceiverEntry<?>> receivers = new LinkedHashMap<>();
     private final Map<ComponentId, ProcessorEntry<?>> processors = new LinkedHashMap<>();
     private final Map<ComponentId, ExporterEntry<?>> exporters = new LinkedHashMap<>();
@@ -44,6 +49,13 @@ public final class GatewayBuilder {
 
     GatewayBuilder() {}
 
+    /// Registers a typed application input without opening a network listener.
+    public <T> InputHandle<T> input(ComponentId id, SignalDescriptor<T> signal) {
+        register(receivers, id, new ReceiverEntry<>(new ApplicationInput.Factory<>(signal, owner),
+                ComponentConfig.NONE));
+        return new InputHandle<>(id, signal, owner);
+    }
+
     /// Registers a receiver under `id`, created from `config`.
     ///
     /// @param id      the component id
@@ -53,8 +65,8 @@ public final class GatewayBuilder {
     /// @return a handle to the registered receiver
     public <C extends ComponentConfig> ReceiverHandle receiver(
             ComponentId id, ReceiverFactory<C> factory, C config) {
-        receivers.put(id, new ReceiverEntry<>(factory, config));
-        return new ReceiverHandle(id);
+        register(receivers, id, new ReceiverEntry<>(factory, config));
+        return new ReceiverHandle(id, owner);
     }
 
     /// Registers a receiver under `id`, created from the factory's default config.
@@ -76,8 +88,8 @@ public final class GatewayBuilder {
     /// @return a handle to the registered processor
     public <C extends ComponentConfig> ProcessorHandle processor(
             ComponentId id, ProcessorFactory<C> factory, C config) {
-        processors.put(id, new ProcessorEntry<>(factory, config));
-        return new ProcessorHandle(id);
+        register(processors, id, new ProcessorEntry<>(factory, config));
+        return new ProcessorHandle(id, owner);
     }
 
     /// Registers a processor under `id`, created from the factory's default config.
@@ -99,8 +111,8 @@ public final class GatewayBuilder {
     /// @return a handle to the registered exporter
     public <C extends ComponentConfig> ExporterHandle exporter(
             ComponentId id, ExporterFactory<C> factory, C config) {
-        exporters.put(id, new ExporterEntry<>(factory, config));
-        return new ExporterHandle(id);
+        register(exporters, id, new ExporterEntry<>(factory, config));
+        return new ExporterHandle(id, owner);
     }
 
     /// Registers an exporter under `id`, created from the factory's default config.
@@ -122,8 +134,8 @@ public final class GatewayBuilder {
     /// @return a handle to the registered connector
     public <C extends ComponentConfig> ConnectorHandle connector(
             ComponentId id, ConnectorFactory<C> factory, C config) {
-        connectors.put(id, new ConnectorEntry<>(factory, config));
-        return new ConnectorHandle(id);
+        register(connectors, id, new ConnectorEntry<>(factory, config));
+        return new ConnectorHandle(id, owner);
     }
 
     /// Registers a connector under `id`, created from the factory's default config.
@@ -144,9 +156,9 @@ public final class GatewayBuilder {
     /// @param spec the pipeline wiring block
     /// @return this builder
     public GatewayBuilder pipeline(PipelineId id, Consumer<PipelineBuilder> spec) {
-        var pb = new PipelineBuilder();
+        var pb = new PipelineBuilder(owner);
         spec.accept(pb);
-        pipelines.put(id, pb.toConfig());
+        register(pipelines, id, pb.toConfig());
         return this;
     }
 
@@ -157,7 +169,7 @@ public final class GatewayBuilder {
     /// @param spec the pipeline wiring
     /// @return this builder
     public GatewayBuilder pipeline(PipelineId id, PipelineConfig spec) {
-        pipelines.put(id, spec);
+        register(pipelines, id, spec);
         return this;
     }
 
@@ -196,5 +208,13 @@ public final class GatewayBuilder {
     /// @return the unstarted runtime
     public GatewayRuntime build(ComponentContext base) {
         return new GatewayCompiler(toConfig()).build(base);
+    }
+
+    private static <K, V> void register(Map<K, V> entries, K id, V value) {
+        Objects.requireNonNull(id, "id");
+        Objects.requireNonNull(value, "value");
+        if (entries.putIfAbsent(id, value) != null) {
+            throw new IllegalArgumentException("duplicate registration: " + id);
+        }
     }
 }

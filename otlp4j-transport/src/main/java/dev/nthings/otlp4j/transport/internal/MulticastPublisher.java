@@ -3,6 +3,7 @@ package dev.nthings.otlp4j.transport.internal;
 import dev.nthings.otlp4j.core.policy.OverflowPolicy;
 import dev.nthings.otlp4j.core.telemetry.GatewayMetrics;
 import java.util.Objects;
+import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Flow;
@@ -16,11 +17,6 @@ import org.jspecify.annotations.Nullable;
 /// Each subscription owns a bounded queue and a virtual-thread dispatcher. A slow
 /// subscriber drains its own queue under [TapOptions] without back-pressuring the producer.
 final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoCloseable {
-
-    private static final Flow.Subscription NO_OP_SUBSCRIPTION = new Flow.Subscription() {
-        @Override public void request(long n) {}
-        @Override public void cancel() {}
-    };
 
     private final CopyOnWriteArrayList<SubscriptionImpl<T>> subscriptions = new CopyOnWriteArrayList<>();
     private final LongAdder drops;
@@ -57,27 +53,42 @@ final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoCloseable {
     public void subscribe(Flow.Subscriber<? super T> subscriber, TapOptions options) {
         Objects.requireNonNull(subscriber, "subscriber");
         Objects.requireNonNull(options, "options");
-        if (closed) {
-            subscriber.onSubscribe(NO_OP_SUBSCRIPTION);
-            subscriber.onComplete();
+        var sub = new SubscriptionImpl<>(subscriber, options, drops, dropped, subscriptions);
+        // No signal may precede onSubscribe, and user code must never run under the roster lock.
+        try {
+            subscriber.onSubscribe(sub);
+        } catch (RuntimeException failure) {
+            sub.cancel();
             return;
         }
-        var sub = new SubscriptionImpl<>(subscriber, options, drops, dropped, subscriptions);
-        subscriptions.add(sub);
-        subscriber.onSubscribe(sub);
-        sub.startDispatcher();
+        boolean registered;
+        synchronized (this) {
+            registered = !closed && !sub.cancelled.get();
+            if (registered) {
+                subscriptions.add(sub);
+                // cancel() can run concurrently without taking this publisher's lock.
+                if (sub.cancelled.get()) {
+                    subscriptions.remove(sub);
+                    registered = false;
+                }
+            }
+        }
+        if (registered) { sub.startDispatcher(); }
+        else { sub.complete(); }
     }
 
     @Override
     public void close() {
-        if (closed) {
-            return;
+        List<SubscriptionImpl<T>> snapshot;
+        synchronized (this) {
+            if (closed) { return; }
+            closed = true;
+            snapshot = List.copyOf(subscriptions);
+            subscriptions.clear();
         }
-        closed = true;
-        for (var sub : subscriptions) {
+        for (var sub : snapshot) {
             sub.complete();
         }
-        subscriptions.clear();
     }
 
     private static final class SubscriptionImpl<T> implements Flow.Subscription {
@@ -119,9 +130,6 @@ final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoCloseable {
             if (cancelled.get()) {
                 return;
             }
-            // TapOptions rejects BLOCK at construction, so it never reaches this tap; the three
-            // reachable policies branch with if/else (a switch would need an uncoverable BLOCK arm,
-            // and this class is not jacoco-excluded).
             if (strategy == OverflowPolicy.DROP_OLDEST) {
                 if (!queue.offer(item)) {
                     if (queue.poll() != null) {
@@ -142,7 +150,7 @@ final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoCloseable {
         }
 
         void startDispatcher() {
-            if (dispatcherRunning.compareAndSet(false, true)) {
+            if (!cancelled.get() && dispatcherRunning.compareAndSet(false, true)) {
                 // Publish the field before start() so complete()/cancel() can interrupt the dispatcher.
                 var t = Thread.ofVirtual().name("otlp4j-tap-dispatcher").unstarted(this::dispatchLoop);
                 dispatcher = t;
@@ -199,7 +207,7 @@ final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoCloseable {
         }
 
         @Override
-        public void request(long n) {
+        public synchronized void request(long n) {
             if (n <= 0) {
                 completeExceptionally(new IllegalArgumentException("request must be positive"));
                 return;

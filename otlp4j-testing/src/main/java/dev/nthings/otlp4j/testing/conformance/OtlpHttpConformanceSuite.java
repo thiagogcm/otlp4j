@@ -191,8 +191,8 @@ public abstract class OtlpHttpConformanceSuite {
     @Test
     void mutualTlsClientCertificateIsAcceptedButNotRequired() {
         // The current servers do not request or verify a client certificate, so presenting one
-        // still succeeds. This pins the enforced-mTLS gap as an executable fact rather than a
-        // capability the code does not have.
+        // still succeeds. This keeps optional client-certificate behavior distinct from required
+        // mutual TLS, which is covered by the dedicated required-mTLS suite.
         var scenario = Scenario.builder(ConformanceSignal.TRACES).tls(TlsMode.MUTUAL).build();
         withHttp(scenario, (client, gw) ->
                 assertThat(client.export(ConformanceSignal.TRACES).httpStatus()).hasValue(200));

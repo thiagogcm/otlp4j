@@ -37,7 +37,7 @@ import org.jspecify.annotations.Nullable;
 ///
 /// 1. A negative gRPC `grpc-retry-pushback-ms` trailer is a stop-retry directive and wins outright over
 ///    every other signal: the delivery ends at a single attempt. This holds even when the policy
-///    disables respecting server hints, matching the legacy gRPC client.
+///    disables respecting server hints, preserving the explicit stop directive.
 /// 2. Otherwise, when the response is retryable and the policy respects server hints, a
 ///    `RetryInfo` in the `grpc-status-details-bin` trailer wins over a positive `grpc-retry-pushback-ms`
 ///    trailer, which in turn wins over the policy's own exponential backoff.
@@ -63,12 +63,14 @@ final class ArmeriaRetryRules {
     /// The OTLP/HTTP `Retry-After` response header; case-insensitive on lookup.
     static final String RETRY_AFTER = "retry-after";
 
-    /// gRPC status codes the client retries, mirroring the legacy gRPC transport exactly: `CANCELLED`,
-    /// `DEADLINE_EXCEEDED`, `RESOURCE_EXHAUSTED`, `ABORTED`, `OUT_OF_RANGE`, `UNAVAILABLE`, `DATA_LOSS`.
+    /// gRPC status codes the client retries: `CANCELLED`, `DEADLINE_EXCEEDED`, `RESOURCE_EXHAUSTED`,
+    /// `ABORTED`, `OUT_OF_RANGE`, `UNAVAILABLE`, `DATA_LOSS`. `RESOURCE_EXHAUSTED` is retryable only
+    /// when the response carries a valid positive `RetryInfo` delay.
     private static final Set<Integer> RETRYABLE_GRPC = Set.of(1, 4, 8, 10, 11, 14, 15);
 
-    /// HTTP statuses the client retries, mirroring the legacy OTLP/HTTP transport: 408, 429, 502, 503, 504.
-    private static final Set<Integer> RETRYABLE_HTTP = Set.of(408, 429, 502, 503, 504);
+    /// HTTP statuses the client retries: 429, 502, 503, and 504. Request timeout (408) is permanent
+    /// because it does not establish that retrying the request is safe.
+    private static final Set<Integer> RETRYABLE_HTTP = Set.of(429, 502, 503, 504);
 
     private ArmeriaRetryRules() {}
 
@@ -173,6 +175,9 @@ final class ArmeriaRetryRules {
             return Decision.stop();
         }
         var retryable = grpcStatus != null && RETRYABLE_GRPC.contains(grpcStatus);
+        if (grpcStatus != null && grpcStatus == 8 && retryInfoDelay == null) {
+            retryable = false;
+        }
         if (!retryable) {
             return Decision.noRetry();
         }

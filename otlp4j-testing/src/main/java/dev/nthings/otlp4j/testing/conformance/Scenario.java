@@ -37,7 +37,7 @@ public record Scenario(
     public static final long DEFAULT_MAX_IN_FLIGHT_BYTES = 64L * 1024 * 1024;
 
     /// Default decoded-message cap, generous enough that only the oversized case trips it.
-    public static final int DEFAULT_MAX_INBOUND_MESSAGE_SIZE_BYTES = 4 * 1024 * 1024;
+    public static final int DEFAULT_MAX_INBOUND_MESSAGE_SIZE_BYTES = 64 * 1024 * 1024;
 
     /// Starts a builder for the given signal, with all other fields defaulted to the values an
     /// ordinary accepted case wants: an [ProgrammedOutcome.Accepted] outcome, no held request,

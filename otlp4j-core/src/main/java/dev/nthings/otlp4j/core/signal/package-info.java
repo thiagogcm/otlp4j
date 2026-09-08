@@ -2,9 +2,8 @@
 /// one of the four OTLP signals: it owns the batch-level merge, item-count, and empty-batch
 /// operations directly over the immutable model records, so batch policy is core behaviour rather
 /// than model behaviour. `SignalPair` is a connector's input-to-output signal pairing.
-/// `TelemetryPayload` is the widened marker the graph carries: signal, item count, serialized size,
-/// memory mode, a lazily materialising view selector, a mutation-safe copy hook, and a direct
-/// serialisation to an output stream, all without naming a proto type.
+/// [Payload] is the immutable, typed domain value the graph carries. Wire-specific encoding belongs
+/// to the codec module and is not part of this core contract.
 @NullMarked
 package dev.nthings.otlp4j.core.signal;
 

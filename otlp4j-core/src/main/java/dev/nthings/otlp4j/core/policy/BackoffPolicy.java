@@ -4,9 +4,8 @@ import java.time.Duration;
 
 /// The backoff schedule between retry attempts: an exponential backoff with jitter, capped. The
 /// wait after attempt `n` starts at `initial`, grows by `multiplier` each attempt, is perturbed by
-/// up to `jitter` fraction, and never exceeds `max`. The defaults mirror the numbers the legacy
-/// client retry used (one second initial, `1.5` multiplier, `0.5` jitter, five second cap), so the
-/// behaviour is preserved when a transport translates this to its resilience library.
+/// up to `jitter` fraction, and never exceeds `max`. A transport maps this neutral schedule onto its
+/// own retry runtime.
 ///
 /// @param initial    the base wait before the first retry
 /// @param multiplier the per-attempt growth factor, at least `1.0`
