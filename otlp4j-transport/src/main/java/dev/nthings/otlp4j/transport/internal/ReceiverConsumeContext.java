@@ -3,6 +3,7 @@ package dev.nthings.otlp4j.transport.internal;
 import dev.nthings.otlp4j.core.consumer.ClientMetadata;
 import dev.nthings.otlp4j.core.consumer.ConsumeContext;
 import dev.nthings.otlp4j.core.consumer.Deadline;
+import dev.nthings.otlp4j.transport.OtlpReceiverConfig;
 import io.grpc.Metadata;
 import com.linecorp.armeria.common.HttpHeaders;
 import java.time.Clock;
@@ -25,7 +26,7 @@ import com.linecorp.armeria.server.ServiceRequestContext;
 /** Bridges Armeria and gRPC request state into the core consume context. */
 public final class ReceiverConsumeContext implements ConsumeContext {
 
-    private static final Duration DEFAULT_BUDGET = Duration.ofSeconds(30);
+    private static final Duration DEFAULT_BUDGET = OtlpReceiverConfig.DEFAULT_MAX_CLIENT_TIMEOUT;
     private static final ScheduledThreadPoolExecutor DEADLINE_EXECUTOR =
             new ScheduledThreadPoolExecutor(1,
                     Thread.ofPlatform().daemon().name("otlp4j-receiver-deadline-", 0).factory());

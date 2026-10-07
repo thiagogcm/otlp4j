@@ -40,20 +40,4 @@
         </dependency>
     </dependencies>
 
-    <build>
-        <plugins>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-compiler-plugin</artifactId>
-                <configuration>
-                    <!-- OpenTelemetry 1.65 publishes automatic modules. Their public SDK
-                         interfaces are intentionally re-exported by module-info, which javac
-                         warns about as a requires-transitive automatic-module directive. -->
-                    <compilerArgs combine.children="append">
-                        <arg>-Xlint:-requires-transitive-automatic</arg>
-                    </compilerArgs>
-                </configuration>
-            </plugin>
-        </plugins>
-    </build>
 </project>

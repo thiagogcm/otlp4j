@@ -30,14 +30,14 @@ public final class OtlpReceiverFactory implements ReceiverFactory<OtlpReceiverCo
     ///
     /// @return the gRPC receiver factory
     public static OtlpReceiverFactory grpc() {
-        return new OtlpReceiverFactory(Protocol.GRPC, "otlp", 4317);
+        return new OtlpReceiverFactory(Protocol.GRPC, "otlp", Ports.GRPC);
     }
 
     /// The OTLP/HTTP receiver factory (`otlphttp`, default port `4318`).
     ///
     /// @return the HTTP receiver factory
     public static OtlpReceiverFactory http() {
-        return new OtlpReceiverFactory(Protocol.HTTP, "otlphttp", 4318);
+        return new OtlpReceiverFactory(Protocol.HTTP, "otlphttp", Ports.HTTP);
     }
 
     /// The conventional port for this factory's protocol (`4317` for gRPC, `4318` for HTTP).

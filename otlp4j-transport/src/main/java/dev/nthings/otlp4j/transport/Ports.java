@@ -1,8 +1,15 @@
 package dev.nthings.otlp4j.transport;
 
-/// Validation for a TCP port, shared by the OTLP exporter and receiver configs so both reject an
+/// The conventional OTLP ports and the validation for a TCP port, shared by the OTLP exporter and
+/// receiver configs and factories so both default to one port per protocol and reject an
 /// out-of-range port with one message. Mirrors the [Headers] validation idiom.
 final class Ports {
+
+    /// The conventional OTLP/gRPC port.
+    static final int GRPC = 4317;
+
+    /// The conventional OTLP/HTTP port.
+    static final int HTTP = 4318;
 
     private Ports() {}
 

@@ -7,6 +7,7 @@ import static dev.nthings.otlp4j.core.signal.SignalDescriptor.TRACES;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import dev.nthings.otlp4j.core.consumer.Deadline;
 import dev.nthings.otlp4j.core.policy.BackoffPolicy;
 import dev.nthings.otlp4j.core.policy.RetryPolicy;
 import dev.nthings.otlp4j.transport.Compression;
@@ -18,9 +19,11 @@ import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.testing.Fixtures;
 import dev.nthings.otlp4j.testing.TransportFixtures;
 import io.grpc.Status;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -100,6 +103,29 @@ class ArmeriaGrpcTransportTest {
         assertThat(((DeliveryResult.Partial) result).rejectedItems()).isEqualTo(1L);
     }
 
+    @DisplayName("bounds a client-requested deadline to the configured cap and honours a shorter one")
+    @Test
+    void boundsClientRequestedDeadline() {
+        var seen = new AtomicReference<Deadline>();
+        var receiver = startReceiver(OtlpReceiver.grpcBuilder()
+                .maxClientTimeout(Duration.ofSeconds(5))
+                .route(TRACES, (context, payload) -> {
+                    seen.set(context.deadline());
+                    return CompletableFuture.completedFuture(DeliveryResult.accepted(Consumers.PROV));
+                }));
+        var clock = Clock.systemUTC();
+
+        assertThat(exporterTo(receiver, Duration.ofHours(1))
+                        .export(TRACES, TransportFixtures.richTraceData()).toCompletableFuture().join())
+                .isInstanceOf(DeliveryResult.Accepted.class);
+        assertThat(seen.get().remaining(clock)).isPositive().isLessThanOrEqualTo(Duration.ofSeconds(5));
+
+        assertThat(exporterTo(receiver, Duration.ofSeconds(2))
+                        .export(TRACES, TransportFixtures.richTraceData()).toCompletableFuture().join())
+                .isInstanceOf(DeliveryResult.Accepted.class);
+        assertThat(seen.get().remaining(clock)).isPositive().isLessThanOrEqualTo(Duration.ofSeconds(2));
+    }
+
     @DisplayName("gzip compression round-trips")
     @Test
     void gzipRoundTrips() {
@@ -140,9 +166,13 @@ class ArmeriaGrpcTransportTest {
     }
 
     private OtlpExporter exporterTo(OtlpReceiver receiver) {
+        return exporterTo(receiver, Duration.ofSeconds(5));
+    }
+
+    private OtlpExporter exporterTo(OtlpReceiver receiver, Duration timeout) {
         var exporter = OtlpExporter.grpcBuilder()
                 .endpoint("localhost", receiver.port())
-                .timeout(Duration.ofSeconds(5))
+                .timeout(timeout)
                 .retryPolicy(new RetryPolicy(1, BackoffPolicy.defaults(), false))
                 .build().start();
         closeables.add(exporter);

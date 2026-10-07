@@ -29,14 +29,14 @@ public final class OtlpExporterFactory implements ExporterFactory<OtlpExporterCo
     ///
     /// @return the gRPC exporter factory
     public static OtlpExporterFactory grpc() {
-        return new OtlpExporterFactory(Protocol.GRPC, "otlp", 4317);
+        return new OtlpExporterFactory(Protocol.GRPC, "otlp", Ports.GRPC);
     }
 
     /// The OTLP/HTTP exporter factory (`otlphttp`, default port `4318`).
     ///
     /// @return the HTTP exporter factory
     public static OtlpExporterFactory http() {
-        return new OtlpExporterFactory(Protocol.HTTP, "otlphttp", 4318);
+        return new OtlpExporterFactory(Protocol.HTTP, "otlphttp", Ports.HTTP);
     }
 
     /// The conventional port for this factory's protocol (`4317` for gRPC, `4318` for HTTP).

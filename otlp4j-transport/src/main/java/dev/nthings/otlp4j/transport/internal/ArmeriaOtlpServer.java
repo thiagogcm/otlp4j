@@ -3,6 +3,7 @@ package dev.nthings.otlp4j.transport.internal;
 import com.linecorp.armeria.server.Server;
 import com.linecorp.armeria.server.ServerBuilder;
 import com.linecorp.armeria.server.grpc.GrpcService;
+import com.linecorp.armeria.server.grpc.GrpcTimeoutPolicy;
 import dev.nthings.otlp4j.codec.SignalCodec;
 import dev.nthings.otlp4j.transport.OtlpReceiverConfig;
 import dev.nthings.otlp4j.transport.Tls;
@@ -135,9 +136,13 @@ public final class ArmeriaOtlpServer {
                     .maxRequestMessageLength(config.maxInboundMessageSizeBytes())
                     .maxResponseMessageLength(config.maxInboundMessageSizeBytes())
                     .intercept(RequestMetadata.interceptor())
-                    // Invoke the OTLP service methods on Armeria's blocking-task executor rather than
-                    // the I/O event loop, so a blocking SignalConsumer cannot stall the shared event
-                    // loop and every other connection multiplexed onto it.
+                    // A client picks its own deadline through grpc-timeout, and omitting it means no
+                    // deadline at all. Bound both so an untrusted client cannot hold a request open.
+                    .timeoutPolicy(GrpcTimeoutPolicy.useGrpcTimeoutHeader(config.maxClientTimeout()))
+                    // Invoke the OTLP service methods, and decode request messages, on Armeria's
+                    // blocking-task executor rather than the I/O event loop, so neither a blocking
+                    // SignalConsumer nor a large protobuf parse can stall the shared event loop and
+                    // every other connection multiplexed onto it.
                     .useBlockingTaskExecutor(true);
             GrpcServiceAdapters.create(dispatch, admissionControl, clock).forEach(grpc::addService);
             sb.service(grpc.build());

@@ -4,7 +4,6 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 
 mvn := "./mvnw"
 batch := "-B"
-modules := "otlp4j-model otlp4j-proto otlp4j-core otlp4j-codec otlp4j-service otlp4j-transport otlp4j-opentelemetry otlp4j-components otlp4j-samples otlp4j-testing otlp4j-conformance otlp4j-coverage otlp4j-benchmarks"
 sample_module := "otlp4j-samples"
 sample_test := "OtlpE2eDemoTest"
 coverage_index := "otlp4j-coverage/target/site/jacoco-aggregate/index.html"
@@ -34,10 +33,6 @@ doctor:
 # Run Maven in batch mode with arbitrary arguments.
 maven *args:
     {{ mvn }} {{ batch }} {{ args }}
-
-# Print reactor module names.
-modules:
-    @printf '%s\n' {{ modules }}
 
 # Remove Maven build output.
 clean:

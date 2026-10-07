@@ -82,12 +82,12 @@ public final class OtlpExporter implements AutoCloseable {
 
     /** Returns a gRPC exporter builder using port 4317. */
     public static Builder grpcBuilder() {
-        return new Builder(Protocol.GRPC, OtlpExporterConfig.builder(4317), "otlp/gRPC");
+        return new Builder(Protocol.GRPC, OtlpExporterConfig.builder(Ports.GRPC), "otlp/gRPC");
     }
 
     /** Returns an OTLP/HTTP exporter builder using port 4318. */
     public static Builder httpBuilder() {
-        return new Builder(Protocol.HTTP, OtlpExporterConfig.builder(4318), "otlp/HTTP");
+        return new Builder(Protocol.HTTP, OtlpExporterConfig.builder(Ports.HTTP), "otlp/HTTP");
     }
 
     /** Starts the wire client. Calls after the first successful start are idempotent. */

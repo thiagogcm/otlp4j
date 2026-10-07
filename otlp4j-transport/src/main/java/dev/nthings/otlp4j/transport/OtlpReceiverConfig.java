@@ -7,8 +7,8 @@ import org.jspecify.annotations.Nullable;
 
 /// The configuration for an OTLP receiver. It is the single source of truth the transport is built
 /// from: the bind address, TLS mode, and the hardening limits: the maximum decoded request size, the
-/// optional global admission caps on in-flight requests and decoded bytes, and the optional throttle
-/// retry-after hint. No third-party type appears on it. Both the gRPC and HTTP receiver factories
+/// longest deadline a gRPC client may request, the optional global admission caps on in-flight
+/// requests and decoded bytes, and the optional throttle retry-after hint. No third-party type appears on it. Both the gRPC and HTTP receiver factories
 /// accept this one record; each supplies its own default port through [#defaults(int)]. The wire
 /// server ([dev.nthings.otlp4j.transport.internal.ArmeriaOtlpServer]) consumes it directly.
 ///
@@ -22,6 +22,7 @@ import org.jspecify.annotations.Nullable;
 /// @param tls                        the server TLS mode
 /// @param clientAuth                 how the server treats a client certificate (enforced mutual TLS)
 /// @param maxInboundMessageSizeBytes the cap on a single decoded export request
+/// @param maxClientTimeout           the longest deadline a gRPC client may request through `grpc-timeout`
 /// @param maxInFlightRequests        the global in-flight request cap (`0` disables it)
 /// @param maxInFlightBytes           the global in-flight decoded-byte cap (`0` disables it)
 /// @param throttleRetryAfter         the hint attached to at-capacity rejections, may be null
@@ -31,6 +32,7 @@ public record OtlpReceiverConfig(
         Tls tls,
         ClientAuth clientAuth,
         int maxInboundMessageSizeBytes,
+        Duration maxClientTimeout,
         int maxInFlightRequests,
         long maxInFlightBytes,
         @Nullable Duration throttleRetryAfter)
@@ -39,15 +41,23 @@ public record OtlpReceiverConfig(
     /// Default decoded request cap (64 MiB); used when the builder is left untouched.
     public static final int DEFAULT_MAX_INBOUND_MESSAGE_SIZE_BYTES = 64 * 1024 * 1024;
 
+    /// Default cap on a client-requested gRPC deadline (30 seconds); used when the builder is left
+    /// untouched. It is also the budget granted when no request timeout is known.
+    public static final Duration DEFAULT_MAX_CLIENT_TIMEOUT = Duration.ofSeconds(30);
+
     /// Validates the components and the hardening limits.
     public OtlpReceiverConfig {
         Objects.requireNonNull(bindHost, "bindHost");
         Objects.requireNonNull(tls, "tls");
         Objects.requireNonNull(clientAuth, "clientAuth");
+        Objects.requireNonNull(maxClientTimeout, "maxClientTimeout");
         Ports.requireValid(port);
         if (maxInboundMessageSizeBytes <= 0) {
             throw new IllegalArgumentException(
                     "maxInboundMessageSizeBytes must be positive: " + maxInboundMessageSizeBytes);
+        }
+        if (maxClientTimeout.isZero() || maxClientTimeout.isNegative()) {
+            throw new IllegalArgumentException("maxClientTimeout must be positive: " + maxClientTimeout);
         }
         if (maxInFlightRequests < 0) {
             throw new IllegalArgumentException("maxInFlightRequests must be >= 0: " + maxInFlightRequests);
@@ -61,14 +71,15 @@ public record OtlpReceiverConfig(
     }
 
     /// The default receiver config for `port`: bound to `localhost:port`, plaintext, the shared 64 MiB
-    /// decoded-request cap, no admission limits, and no throttle hint.
+    /// decoded-request cap, the 30 second client-timeout cap, no admission limits, and no throttle
+    /// hint.
     ///
     /// @param port the default bind port for the transport (`4317` for gRPC, `4318` for HTTP)
     /// @return the default config
     public static OtlpReceiverConfig defaults(int port) {
         return new OtlpReceiverConfig(
                 "localhost", port, Tls.disabled(), ClientAuth.NONE, DEFAULT_MAX_INBOUND_MESSAGE_SIZE_BYTES,
-                0, 0L, null);
+                DEFAULT_MAX_CLIENT_TIMEOUT, 0, 0L, null);
     }
 
     /// A builder seeded with `port` as the bind port and all other builder defaults.
@@ -88,6 +99,7 @@ public record OtlpReceiverConfig(
                 .tls(tls)
                 .clientAuth(clientAuth)
                 .maxInboundMessageSizeBytes(maxInboundMessageSizeBytes)
+                .maxClientTimeout(maxClientTimeout)
                 .maxInFlightRequests(maxInFlightRequests)
                 .maxInFlightBytes(maxInFlightBytes);
         if (throttleRetryAfter != null) {
@@ -102,8 +114,8 @@ public record OtlpReceiverConfig(
     /// @return an ephemeral-port copy
     public OtlpReceiverConfig withEphemeralPort() {
         return new OtlpReceiverConfig(
-                bindHost, 0, tls, clientAuth, maxInboundMessageSizeBytes, maxInFlightRequests,
-                maxInFlightBytes, throttleRetryAfter);
+                bindHost, 0, tls, clientAuth, maxInboundMessageSizeBytes, maxClientTimeout,
+                maxInFlightRequests, maxInFlightBytes, throttleRetryAfter);
     }
 
     /// A fluent builder for [OtlpReceiverConfig].
@@ -114,6 +126,7 @@ public record OtlpReceiverConfig(
         private Tls tls = Tls.disabled();
         private ClientAuth clientAuth = ClientAuth.NONE;
         private int maxInboundMessageSizeBytes = DEFAULT_MAX_INBOUND_MESSAGE_SIZE_BYTES;
+        private Duration maxClientTimeout = DEFAULT_MAX_CLIENT_TIMEOUT;
         private int maxInFlightRequests = 0;
         private long maxInFlightBytes = 0L;
         private @Nullable Duration throttleRetryAfter = null;
@@ -173,6 +186,18 @@ public record OtlpReceiverConfig(
             return this;
         }
 
+        /// Caps the deadline a gRPC client may request through the `grpc-timeout` header (default 30
+        /// seconds). A longer deadline, or none at all, is replaced by this value, so an untrusted client
+        /// cannot hold a request open indefinitely; a shorter one is honoured as sent. OTLP/HTTP clients
+        /// cannot choose a deadline, so the cap does not apply to them.
+        ///
+        /// @param timeout the longest client-requested deadline, which must be positive
+        /// @return this builder
+        public Builder maxClientTimeout(Duration timeout) {
+            this.maxClientTimeout = timeout;
+            return this;
+        }
+
         /// Caps decoded export requests in flight across every connection; excess requests are rejected
         /// retryably ("at capacity"). `0` (the default) disables the cap.
         ///
@@ -210,8 +235,8 @@ public record OtlpReceiverConfig(
         /// @return the config
         public OtlpReceiverConfig build() {
             return new OtlpReceiverConfig(
-                    bindHost, port, tls, clientAuth, maxInboundMessageSizeBytes, maxInFlightRequests,
-                    maxInFlightBytes, throttleRetryAfter);
+                    bindHost, port, tls, clientAuth, maxInboundMessageSizeBytes, maxClientTimeout,
+                    maxInFlightRequests, maxInFlightBytes, throttleRetryAfter);
         }
     }
 }

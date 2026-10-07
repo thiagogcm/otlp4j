@@ -78,6 +78,7 @@ class OtlpComponentConfigTest {
                 .bindHost("0.0.0.0")
                 .port(9999)
                 .maxInboundMessageSizeBytes(1024)
+                .maxClientTimeout(Duration.ofSeconds(7))
                 .maxInFlightRequests(8)
                 .maxInFlightBytes(2048L)
                 .throttleRetryAfter(Duration.ofSeconds(1))
@@ -85,6 +86,7 @@ class OtlpComponentConfigTest {
         assertThat(config.bindHost()).isEqualTo("0.0.0.0");
         assertThat(config.port()).isEqualTo(9999);
         assertThat(config.maxInboundMessageSizeBytes()).isEqualTo(1024);
+        assertThat(config.maxClientTimeout()).isEqualTo(Duration.ofSeconds(7));
         assertThat(config.maxInFlightRequests()).isEqualTo(8);
         assertThat(config.maxInFlightBytes()).isEqualTo(2048L);
         assertThat(config.throttleRetryAfter()).isEqualTo(Duration.ofSeconds(1));
@@ -94,10 +96,12 @@ class OtlpComponentConfigTest {
     @Test
     void receiverEphemeralCopy() {
         var config = new OtlpReceiverConfig(
-                "0.0.0.0", 4317, Tls.disabled(), ClientAuth.NONE, 1024, 8, 2048L, Duration.ofSeconds(1));
+                "0.0.0.0", 4317, Tls.disabled(), ClientAuth.NONE, 1024, Duration.ofSeconds(7), 8, 2048L,
+                Duration.ofSeconds(1));
         var ephemeral = config.withEphemeralPort();
         assertThat(ephemeral.port()).isZero();
         assertThat(ephemeral.bindHost()).isEqualTo("0.0.0.0");
+        assertThat(ephemeral.maxClientTimeout()).isEqualTo(Duration.ofSeconds(7));
         assertThat(ephemeral.maxInFlightRequests()).isEqualTo(8);
     }
 
@@ -106,9 +110,20 @@ class OtlpComponentConfigTest {
     void receiverConfigValidates() {
         assertThatThrownBy(() -> OtlpReceiverConfig.defaults(-1))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new OtlpReceiverConfig(null, 0, Tls.disabled(), ClientAuth.NONE, 1, 0, 0, null))
+        var timeout = OtlpReceiverConfig.DEFAULT_MAX_CLIENT_TIMEOUT;
+        assertThatThrownBy(() -> new OtlpReceiverConfig(
+                        null, 0, Tls.disabled(), ClientAuth.NONE, 1, timeout, 0, 0, null))
                 .isInstanceOf(NullPointerException.class);
-        assertThatThrownBy(() -> new OtlpReceiverConfig("localhost", 0, Tls.disabled(), ClientAuth.NONE, 0, 0, 0, null))
+        assertThatThrownBy(() -> new OtlpReceiverConfig(
+                        "localhost", 0, Tls.disabled(), ClientAuth.NONE, 0, timeout, 0, 0, null))
                 .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new OtlpReceiverConfig(
+                        "localhost", 0, Tls.disabled(), ClientAuth.NONE, 1, null, 0, 0, null))
+                .isInstanceOf(NullPointerException.class);
+        for (var bad : new Duration[] {Duration.ZERO, Duration.ofSeconds(-1)}) {
+            assertThatThrownBy(() -> OtlpReceiverConfig.builder(4317).maxClientTimeout(bad).build())
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("maxClientTimeout");
+        }
     }
 }

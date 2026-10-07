@@ -49,16 +49,16 @@ public final class OtlpReceiver implements AutoCloseable {
     }
 
     public static Builder grpcBuilder() {
-        return new Builder(EnumSet.of(Protocol.GRPC), OtlpReceiverConfig.builder(4317));
+        return new Builder(EnumSet.of(Protocol.GRPC), OtlpReceiverConfig.builder(Ports.GRPC));
     }
 
     public static Builder httpBuilder() {
-        return new Builder(EnumSet.of(Protocol.HTTP), OtlpReceiverConfig.builder(4318));
+        return new Builder(EnumSet.of(Protocol.HTTP), OtlpReceiverConfig.builder(Ports.HTTP));
     }
 
     public static Builder builder() {
         return new Builder(
-                EnumSet.of(Protocol.GRPC, Protocol.HTTP), OtlpReceiverConfig.builder(4317));
+                EnumSet.of(Protocol.GRPC, Protocol.HTTP), OtlpReceiverConfig.builder(Ports.GRPC));
     }
 
     /** Starts the socket synchronously. Calls after a successful start are idempotent. */
@@ -192,6 +192,11 @@ public final class OtlpReceiver implements AutoCloseable {
 
         public Builder maxInboundMessageSizeBytes(int bytes) {
             config.maxInboundMessageSizeBytes(bytes);
+            return this;
+        }
+
+        public Builder maxClientTimeout(Duration timeout) {
+            config.maxClientTimeout(timeout);
             return this;
         }
 

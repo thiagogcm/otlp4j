@@ -143,6 +143,7 @@ public final class Otlp4jGatewayUnderTest implements GatewayUnderTest {
                 tls,
                 ClientAuth.NONE,
                 scenario.maxInboundMessageSizeBytes(),
+                OtlpReceiverConfig.DEFAULT_MAX_CLIENT_TIMEOUT,
                 scenario.maxInFlightRequests(),
                 scenario.maxInFlightBytes(),
                 scenario.throttleRetryAfter());

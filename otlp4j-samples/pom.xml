@@ -24,24 +24,17 @@
             <groupId>dev.nthings.otlp4j</groupId>
             <artifactId>otlp4j-core</artifactId>
         </dependency>
-        <!-- The proto-free codec payload facade (Payloads) the seed processors emit through. -->
-        <dependency>
-            <groupId>dev.nthings.otlp4j</groupId>
-            <artifactId>otlp4j-codec</artifactId>
-        </dependency>
         <!-- The service graph runtime the demo boots the gateway and the backend through. -->
         <dependency>
             <groupId>dev.nthings.otlp4j</groupId>
             <artifactId>otlp4j-service</artifactId>
         </dependency>
-        <!-- The neutral OTLP receiver and exporter configs the demo hands to the transport
-             factories. -->
+        <!-- The OTLP receiver and exporter configs and the concrete OTLP/gRPC factories the demo
+             hands to the service graph, from the consolidated Armeria transport. -->
         <dependency>
             <groupId>dev.nthings.otlp4j</groupId>
             <artifactId>otlp4j-transport</artifactId>
         </dependency>
-        <!-- The concrete OTLP/gRPC exporter and receiver factories the demo wires up, from the
-             consolidated Armeria transport. -->
         <!-- The built-in batch processor and span-count connector the demo gateway pipeline wires. -->
         <dependency>
             <groupId>dev.nthings.otlp4j</groupId>

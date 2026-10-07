@@ -100,7 +100,6 @@
                         <path>
                             <groupId>org.openjdk.jmh</groupId>
                             <artifactId>jmh-generator-annprocess</artifactId>
-                            <version>${jmh.version}</version>
                         </path>
                     </annotationProcessorPaths>
                 </configuration>
@@ -125,7 +124,6 @@
                             <goal>shade</goal>
                         </goals>
                         <configuration>
-                            <finalName>benchmarks</finalName>
                             <!-- This module only ever produces a shaded fat jar and is never
                                  installed or deployed, so the reduced POM serves no purpose. Leaving
                                  the plugin default on would write dependency-reduced-pom.xml into the

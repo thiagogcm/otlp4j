@@ -63,13 +63,14 @@ The shared exporter record requires positive byte caps no larger than `Integer.M
 
 ## Receiver admission and size limits
 
-`OtlpReceiverConfig` controls the bind interface, port, TLS, client-authentication mode, decoded-request limit, and optional in-flight admission caps.
+`OtlpReceiverConfig` controls the bind interface, port, TLS, client-authentication mode, decoded-request limit, client-timeout cap, and optional in-flight admission caps.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | `bindHost` | `localhost` | Listen on the local interface |
 | `tls`, `clientAuth` | Disabled, `NONE` | Plaintext without client-certificate authentication |
 | `maxInboundMessageSizeBytes` | 64 MiB | Maximum decoded export request |
+| `maxClientTimeout` | 30 seconds | Longest deadline a gRPC client may request |
 | `maxInFlightRequests` | `0` | Request-count admission cap disabled |
 | `maxInFlightBytes` | `0` | Decoded-byte admission cap disabled |
 | `throttleRetryAfter` | Absent | No server admission retry hint |
@@ -89,6 +90,8 @@ var receiverConfig = OtlpReceiverConfig.builder(4317)
         .throttleRetryAfter(Duration.ofSeconds(1))
         .build();
 ```
+
+A gRPC client chooses its own deadline through the `grpc-timeout` header, and omitting the header means no deadline. `maxClientTimeout` replaces a longer or absent deadline with the cap, so an untrusted client cannot hold a request open indefinitely, and honours a shorter deadline as sent. The consumer sees the bounded value through `ConsumeContext.deadline()`. OTLP/HTTP clients cannot choose a deadline, so the cap does not apply to them.
 
 Gzip requests are decoded transparently and checked against the decoded-size limit. The exporter selects request compression; receiver response compression is not configurable.
 
