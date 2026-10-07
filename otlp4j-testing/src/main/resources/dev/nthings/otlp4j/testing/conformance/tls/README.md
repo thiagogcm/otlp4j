@@ -1,25 +1,35 @@
-# Conformance suite TLS material
+# TLS test fixtures
 
-These five PEM files are the certificate material the OTLP wire conformance suite uses for its TLS cases. They are loaded from the classpath at runtime by `TlsTestMaterial`, so the harness needs no filesystem path and no build-time key generation.
+The wire conformance suites load these PEM fixtures from the classpath through `TlsTestMaterial`. Tests need no external certificate files or build-time key generation. This material is for tests.
 
-| File | What it is |
+| File | Purpose |
 | --- | --- |
-| `ca.pem` | Self-signed test CA certificate, the trust anchor a server-auth client verifies against. |
-| `server-cert.pem` | Server certificate, `CN=localhost`, with SAN `DNS:localhost` and `IP:127.0.0.1`, signed by the CA. |
-| `server-key.pem` | Server private key, unencrypted PKCS8, loaded directly by the servers. |
-| `client-cert.pem` | Client certificate signed by the CA, presented in the mutual TLS scenario. |
-| `client-key.pem` | Client private key, unencrypted PKCS8. |
+| `ca.pem` | Self-signed test CA and client trust anchor |
+| `server-cert.pem` | CA-signed localhost server certificate with `DNS:localhost` and `IP:127.0.0.1` subject alternative names |
+| `server-key.pem` | Unencrypted PKCS8 server private key |
+| `client-cert.pem` | CA-signed certificate for client-certificate scenarios |
+| `client-key.pem` | Unencrypted PKCS8 client private key |
 
-The keys are unencrypted PKCS8 because `PemSsl.privateKey` reads them with a `PKCS8EncodedKeySpec` and the gRPC `TlsServerCredentials` builder loads the same format. The certificates are issued with a hundred-year validity so they never expire during the life of the project, which means the material never needs routine rotation.
+The regeneration script uses long certificate validity to reduce routine expiry in local tests. PKCS8 keys match the fixture loader and TLS credential APIs.
 
-## Regenerating
+## Certificate-authentication coverage
 
-Run `regen.sh` directly so its `#!/usr/bin/env bash` shebang is honored, or use the wrapper recipe:
+| Scenario | What it checks |
+| --- | --- |
+| Shared server-authentication suite | Trusted server succeeds; untrusted server fails |
+| Shared client-certificate presentation scenario | A client with credentials can connect to a server configured with `ClientAuth.NONE`; this does not verify mutual authentication |
+| Dedicated required-mTLS suites | A trusted client certificate succeeds; a client without one is rejected |
 
-```
+The fixture files can support both presentation and required authentication. Receiver policy, not the presence of a client PEM file alone, determines whether the server verifies a client. See [TLS and client authentication](../../../../../../../../../../docs/transport.md#tls-and-client-authentication).
+
+## Regenerate the fixture set
+
+From the repository root, run:
+
+```sh
 just conformance-certs
 ```
 
-The script must run under bash, not a POSIX `/bin/sh` such as dash, because it uses process substitution (`<(...)`) for the server SAN extension. It regenerates the entire CA and both leaf certificates from scratch, then removes the transient CA key, serial, and CSR files so only the five committed PEMs remain. Regeneration is deterministic in structure but not in bytes: each run mints fresh random keys. Only regenerate when the test CA is deliberately rotated; a rotation changes the bytes of every file here.
+Alternatively, execute this directory's `regen.sh` directly so its Bash shebang is honored. The script uses process substitution and requires Bash and OpenSSL.
 
-The mutual TLS scenario in this resource covers optional client-certificate presentation. The current server authenticates itself but does not request or verify a client certificate, so `client-cert.pem` is presented by the client and ignored. Required mutual authentication is tested separately by the transport's required-mTLS suite.
+Regeneration creates fresh random keys, a new CA, and both leaf certificates. It replaces the full fixture set and removes temporary CA-key, serial, and CSR files. Regenerate the set together when rotating the test CA or changing certificate properties, then rerun the affected TLS suites.

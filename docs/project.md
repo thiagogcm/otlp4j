@@ -1,27 +1,55 @@
 ---
 title: "otlp4j"
-description: "Java library for receiving, processing, observing, and exporting OpenTelemetry Protocol telemetry"
+description: "An embeddable Java telemetry pipeline and OTLP gateway library"
 tags: ["Java", "OpenTelemetry", "OTLP"]
 ---
 
-## What it does
+# Project scope
 
-otlp4j is a Java library for applications and tools that need to work directly with [OpenTelemetry Protocol (OTLP)](https://opentelemetry.io/docs/specs/otlp/) data. It can receive, process, observe, route, and export traces, metrics, logs, and profiles through a typed Java API.
+otlp4j gives Java applications and tools control over telemetry that they receive or submit. Its purpose is to make filtering, transformation, routing, buffering, and export composable in Java while keeping generated protocol classes out of application code.
 
-It is suited to embedded telemetry gateways, test tools, specialized processors, and other Java software that needs more control over telemetry flows than simply sending data to a collector. Built-in capabilities include filtering and enrichment, batching, concurrent routing, live observation, and trace-to-metric span counting.
+## When it fits
 
-## Project status
+Use otlp4j when telemetry processing benefits from sharing the JVM's code, configuration, and lifecycle:
 
-otlp4j is experimental and currently released only as a `0.1.0-SNAPSHOT`, and it requires JDK 25. The API and behavior may change, and the project has not yet received the level of testing expected for production use. Breaking changes are expected while the API is consolidated; no compatibility layer is maintained between snapshots. Evaluate it carefully before using it for critical telemetry paths.
+- Apply application-specific enrichment or redaction before exporting data.
+- Receive OTLP in a Java service and route batches to selected destinations.
+- Connect trace processing to a metrics pipeline.
+- Build test receivers and capturing exporters without deploying a collector.
+- Adapt OpenTelemetry Java SDK exporter callbacks to local processing.
 
-## Current limitations
+Embedding also shares heap, CPU, and failure boundaries with the host application. If standard SDK export already meets the need, another local processing runtime may add little value. If telemetry infrastructure needs independent scaling, upgrades, or durable buffering, evaluate a separate collector. The [comparison guide](comparison.md) explains these choices.
 
-- The consolidated OTLP transport carries all four signals over gRPC and HTTP (binary protobuf) on Armeria, with plaintext or TLS (including mutual TLS, and `bindHost` interface selection on the receiver), authentication headers, gzip compression, and retries that honor a server `Retry-After` / `RetryInfo`.
-- Transport defaults cap receiver decoded requests and exporter requests at 64 MiB, and exporter responses at 4 MiB; the limits are configurable in the transport records.
-- Profiles track the experimental OpenTelemetry `v1development` schema; payloads round-trip losslessly via opaque passthrough, but the signal is not yet stable and the profile body is not introspectable.
-- The built-in batch processor supports traces, metrics, and logs, but not profiles because distinct opaque profile dictionaries cannot be merged losslessly.
-- The default batch processor uses a 1024-entry `FAIL` queue and bounds accepted work at 1024 submissions, 64 MiB of exact serialized bytes, and 1024 metadata partitions.
-- A pipeline is assembled and configured in Java (`Pipeline.builder(signal)` for a single typed flow, `Gateway.builder()` or a directly-built `GatewayConfig` for a graph): there is no YAML or other declarative configuration format, no authentication or extension subsystem, and queues are in-memory only (no persistent or on-disk sending queue).
-- Telemetry reaching a receiver with no configured downstream is rejected retryably, so every required signal must be wired into a pipeline explicitly.
+## Composition choices
 
-The project aims to provide a focused, Java-native foundation for custom OTLP workflows while keeping protocol-specific types out of application code. Feedback and issue reports are welcome, especially around interoperability and real-world telemetry workloads.
+| Need | Entry point |
+| --- | --- |
+| One typed signal flow with application submissions | [`Pipeline<T>`](pipelines.md) |
+| Several sources or pipelines, named components, or connectors | [`Gateway.builder()`](gateways.md) |
+| An owned wire client or receiver without a graph | [`OtlpExporter` or `OtlpReceiver`](transport.md#owned-transports) |
+| Instrumentation feeding an in-process input | [`SdkExporters`](sdk-integration.md) |
+
+The library processes telemetry. Use the OpenTelemetry Java API and SDK to create spans, aggregate application metrics, and manage instrumentation context.
+
+## Status and compatibility
+
+The build version is `0.1.0-SNAPSHOT` and requires JDK 25. Public APIs may change between snapshots; no compatibility layer is maintained between them. Install the snapshot from source using [Getting started](getting-started.md).
+
+The repository includes unit, property, integration, wire-conformance, and lifecycle tests. Their presence does not establish production suitability or a throughput guarantee. Evaluate the workloads and failure conditions your application must handle; see [Development](development.md).
+
+## Supported scope and limits
+
+| Area | Supported scope | Boundary |
+| --- | --- | --- |
+| Signals | Traces, metrics, logs, and profiles | Profiles use `v1development` and preserve opaque bodies and dictionaries; see [Domain model](model.md#profiles) |
+| Wire delivery | OTLP/gRPC and OTLP/HTTP binary protobuf | OTLP/JSON and other ingestion protocols are not implemented |
+| Processing | Java transforms, built-in processors, and connector contracts | Built-in batch merging excludes profiles; see [Components](components.md#batching) |
+| Configuration | Java builders and immutable configuration records | No bundled YAML loader or configuration-reload service |
+| Buffering | Bounded in-memory batching and delivery queues | No persistent queue or replay after process termination |
+| Security | TLS, client certificates, and outgoing headers | No bundled application authentication or authorization subsystem; see [Transport](transport.md#tls-and-client-authentication) |
+| Operational visibility | Optional `GatewayMetrics` SPI | No built-in storage, query engine, or telemetry UI |
+| Extensibility | Receiver, processor, exporter, and connector factories | No extension host or plugin-discovery service |
+
+Wire receivers require an explicit downstream route for each signal the application intends to accept. An unwired signal is refused retryably.
+
+For configuration defaults and their practical meaning, use the [component limits](components.md#batching-defaults) and [transport limits](transport.md#receiver-admission-and-size-limits). For delivery guarantees, use [Delivery and lifecycle](delivery.md).

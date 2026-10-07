@@ -1,7 +1,7 @@
 # Bundled OTLP schemas
 
-The `opentelemetry/` subtree is a verbatim mirror of upstream [opentelemetry-proto v1.11.0](https://github.com/open-telemetry/opentelemetry-proto/tree/v1.11.0), refreshed by `just update-protos`. Do not hand-edit files inside it; otlp4j notes belong in this file, which sits outside the mirror. The mirrored schemas remain available under the upstream [Apache License 2.0](https://github.com/open-telemetry/opentelemetry-proto/blob/v1.11.0/LICENSE).
+The `opentelemetry/` subtree mirrors the checked-out upstream [opentelemetry-proto](https://github.com/open-telemetry/opentelemetry-proto) schema source. It includes common and resource data, traces, metrics, logs, experimental `v1development` profiles, and collector-service definitions.
 
-These definitions generate otlp4j's internal message and gRPC service classes: common/resource data and collector services for traces, metrics, logs, and `v1development` profiles.
+Do not hand-edit files inside the mirror. Keep project-specific notes in this file and use the [schema-generation workflow](../../../../docs/development.md#generate-protocol-sources) to refresh and generate sources. Preserve the mirrored files' upstream Apache License 2.0 headers.
 
-Generated packages are qualified-exported only to the codec and transport modules (`otlp4j-codec`, `otlp4j-transport`); they are not part of the application API. See the repository [architecture](../../../../docs/architecture.md) for the boundary and current fidelity limits.
+Generated classes are internal implementation dependencies. JPMS grants access to codec and transport, with service packages also available to Armeria's gRPC module. Applications use the public [domain model](../../../../docs/model.md) and [payload contracts](../../../../docs/public-api.md#core-contracts). See [Architecture](../../../../docs/architecture.md#jpms-encapsulation) for the boundary.

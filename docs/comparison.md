@@ -1,61 +1,40 @@
-# otlp4j, the OpenTelemetry Java SDK, and the Collector
+# Choosing the SDK, otlp4j, and a Collector
 
-These projects occupy different points on the telemetry path:
+Use the OpenTelemetry Java SDK to produce application telemetry. Use otlp4j when that telemetry needs custom processing inside a JVM. Use a standalone OpenTelemetry Collector when processing should have its own deployment and resource budget.
 
-```text
-application instrumentation -> OpenTelemetry Java SDK -> OTLP -> data plane -> backend
-                                                        |
-                                      +-----------------+------------------+
-                                      |                                    |
-                                  otlp4j                             OpenTelemetry Collector
-                              embedded JVM library                    standalone process
-```
-
-The SDK creates telemetry. otlp4j and the Collector process telemetry that already exists as OTLP. They are complementary rather than interchangeable.
+## Compare responsibilities
 
 | Concern | OpenTelemetry Java SDK | otlp4j | OpenTelemetry Collector |
 | --- | --- | --- | --- |
-| Form factor | Library in the instrumented JVM | Library embedded in a JVM | Standalone process |
-| Primary input | Tracer, meter, and logger APIs | Typed domain batches or OTLP gRPC/HTTP | OTLP and many contrib protocols |
-| Primary output | OTLP and SDK exporters | OTLP gRPC and HTTP | OTLP plus many contrib exporters |
-| Assembly | SDK providers and processors | `Pipeline` or `Gateway.builder()` | YAML and a built distribution |
-| Queue durability | SDK process memory | In-memory only | Optional persistent sending queue |
-| Data model | SDK instrumentation data | Immutable proto-free OTLP records | Mutable `pdata` wrappers |
-| Runtime boundary | Application lifecycle | Application lifecycle | Independent deployment lifecycle |
+| Main responsibility | Record, sample, aggregate, and export application telemetry | Receive, transform, route, buffer, and export telemetry | Receive, process, and export telemetry across services |
+| Runtime | Library in the instrumented application | Library in a host JVM | Independently deployed process |
+| Typical input | Instrumentation APIs | Domain batches, SDK adapter callbacks, or OTLP | OTLP and other protocols available in the chosen distribution |
+| Assembly | Providers, SDK processors, and exporters | Java pipeline or gateway builders | Collector configuration and available components |
+| Resource boundary | Application | Host JVM | Collector process |
+| Durable buffering | SDK queues use process memory | Queues use process memory | Persistent sending queues can be configured with storage support |
 
-## Use the SDK to create telemetry
+The external capabilities in this table are described in the official [Java SDK](https://opentelemetry.io/docs/languages/java/sdk/), [Collector](https://opentelemetry.io/docs/collector/), and [Collector resiliency](https://opentelemetry.io/docs/collector/resiliency/) guides. Collector features depend on its distribution and configuration.
 
-The official SDK owns span lifecycle, context propagation, sampling, metric aggregation, resource detection, and SDK processor queues. It provides `Tracer`, `Meter`, and `Logger` APIs that application code should use for instrumentation.
+## Choose an embedded pipeline when local logic matters
 
-The optional `otlp4j-opentelemetry` module is the explicit integration boundary for adapting official SDK exporter callbacks to in-process otlp4j inputs. Applications that already have OTLP domain batches do not need the SDK bridge.
+An otlp4j pipeline can call Java code that enriches resource attributes, masks sensitive fields, or selects telemetry using application-specific rules. This is useful when processing should be configured, tested, and deployed with the host application.
 
-## Use otlp4j to process OTLP in a JVM
+Embedding shares the application's heap and lifecycle. An overloaded processor or unavailable destination consumes the same application's processing budget. Configure [buffering limits](components.md) and [transport budgets](transport.md) for that boundary.
 
-otlp4j is shaped for embedded gateways and tools that need a local OTLP data plane:
+## Choose a separate Collector when isolation matters
 
-- `Pipeline<T>` gives one typed signal flow with `filter`, `map`, configured `via`, and `to` stages.
-- `Gateway.builder()` gives named receivers, processors, exporters, connectors, and multiple signal pipelines with typed handles.
-- `otlp4j-transport` receives and exports binary OTLP over gRPC or HTTP using Armeria.
-- Built-in components provide batching, memory limiting, filtering, routing, and trace-to-metric span counting.
-- Immutable model records and `DeliveryResult` make transformations and failure outcomes explicit.
-- `GatewayMetrics` provides optional in-process self-observability without forcing a logging backend.
+A Collector can scale, restart, and upgrade independently of the application. Its component ecosystem also supports inputs, outputs, extensions, and storage options beyond otlp4j's [scope](project.md#supported-scope-and-limits).
 
-The built-in batch processor supports traces, metrics, and logs; profiles remain one-to-one because their opaque dictionaries cannot be merged safely. Its defaults are intentionally bounded: a `FAIL` queue of 1024 entries, 1024 accepted submissions, 64 MiB of exact serialized bytes, and 1024 metadata partitions.
+If an SDK exporter and a Collector already satisfy your processing requirements, adding otlp4j creates another runtime to configure and operate. Local custom logic is the reason to add it.
 
-Use an embedded pipeline when sharing application lifecycle, heap, configuration, and deployment with the data plane is useful. The trade-off is that application and telemetry processing share failure and resource boundaries; a separate Collector provides stronger isolation.
+## Combine the tools
 
-## Use the Collector for an independent data plane
-
-The Collector is the better fit when the deployment needs its broad component ecosystem, YAML configuration, independent scaling, persistent queues, extensions, authentication, or non-OTLP protocols. It runs as a separate process and can be upgraded or restarted independently of the instrumented application.
-
-otlp4j deliberately does not reproduce those operational features. It currently has no persistent queue, YAML loader, extension host, authentication subsystem, or JSON OTLP transport. Profiles use the experimental `v1development` schema and remain opaque for lossless forwarding.
-
-## Typical combinations
-
-| Situation | Suggested shape |
+| Situation | Integration path |
 | --- | --- |
-| Instrument a service and export directly | OpenTelemetry Java SDK -> OTLP exporter -> backend or Collector |
-| Instrument a service and transform locally | SDK -> OTLP exporter -> embedded otlp4j receiver -> backend |
-| Produce OTLP batches inside a Java tool | `Pipeline.builder(signal)` -> `OtlpExporterFactory` |
-| Build a multi-signal in-process gateway | `Gateway.builder()` -> receivers/processors/connectors/exporters |
-| Operate shared telemetry infrastructure | SDKs -> standalone OpenTelemetry Collector -> backends |
+| Instrument a service and export without custom local processing | SDK -> SDK exporter -> backend or Collector |
+| Transform SDK telemetry locally without a network hop | SDK -> [`SdkExporters`](sdk-integration.md) -> otlp4j input -> OTLP destination |
+| Process telemetry received from another producer | OTLP producer -> [`Gateway`](gateways.md) receiver -> processors -> destination |
+| Produce telemetry batches in a Java tool | Domain batches -> [`Pipeline`](pipelines.md) -> terminal exporter |
+| Apply local policy and central processing | SDK -> otlp4j -> Collector -> backend |
+
+Use the direct SDK bridge when instrumentation and the pipeline share a JVM. A network receiver is useful when producers need an OTLP endpoint, including producers outside that JVM.
