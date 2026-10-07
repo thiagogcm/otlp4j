@@ -62,7 +62,8 @@ Profiles use the experimental `v1development` schema. `ProfilesData` exposes res
 | --- | --- |
 | `dictionary` | Opaque bytes shared by the profiles in the batch |
 | `Profile.rawProfile` | Opaque serialized profile body; when present, it takes precedence when re-emitting that profile |
-| Scalar profile fields | Inspection metadata; used to construct a body only when raw profile bytes are absent |
+| Scalar profile fields | Inspection metadata; when raw profile bytes are absent, the codec builds a body from the modeled fields except `sampleCount` |
+| `Profile.sampleCount` | Inspection count; it cannot reconstruct samples, so a body built without raw profile bytes contains no samples |
 
 Do not expect changes to scalar fields to rewrite an existing opaque body. Keep raw bodies with their dictionary so embedded references remain valid.
 

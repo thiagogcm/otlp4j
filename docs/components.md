@@ -32,12 +32,14 @@ Byte caps measure the complete serialized OTLP request, including resource and s
 | `delivery.queueSize` | 1024 entries | Buffered output queue capacity |
 | `delivery.numConsumers` | 1 | Delivery worker count |
 | `delivery.overflow` | `FAIL` | Refuse new queued work retryably when full |
-| `degradedWindow` | 5 seconds | Refuse ingress temporarily after downstream failure |
+| `degradedWindow` | 5 seconds | Temporarily refuse new delivery-queue admissions after downstream rejection |
 | `maxPendingSubmissions` | 1024 | Accepted submissions retained across buffering, queueing, and delivery |
 | `maxPendingBytes` | 64 MiB | Serialized weight of accepted submissions still retained |
-| `maxPartitions` | 1024 | Retained metadata partitions |
+| `maxPartitions` | 1024 | Active metadata buffers awaiting flush |
 
-The admission caps cover pending work across stages, so a queue cap alone is not the whole memory-control policy. Configure both admission and output limits.
+`maxPendingSubmissions` and `maxPendingBytes` cover accepted work across buffering, queueing, and delivery. `maxPartitions` counts only active batch buffers; a partition stops counting when its buffer moves to the delivery queue. Configure both admission and output limits because queue capacity alone does not bound all retained work.
+
+The degraded window applies at the delivery queue. A submission can receive `Accepted` from the batch processor before that queue refuses its output. Inspect the [flush report](delivery.md#flush-reports) for these later refusals.
 
 ### Configure a batch processor
 
