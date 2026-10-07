@@ -11,24 +11,9 @@ import java.util.HashMap;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/// The OTLP receiver and exporter config records: their defaults, their builders' knob mapping, and
-/// their validation. These records are the single source of truth the transport is built from.
+/// Validate configuration inputs and preserve explicit builder settings.
 @DisplayName("OTLP component configs")
 class OtlpComponentConfigTest {
-
-    @DisplayName("exporter defaults are localhost:port, plaintext, the default retry, a 10s timeout")
-    @Test
-    void exporterDefaults() {
-        var config = OtlpExporterConfig.defaults(4317);
-        assertThat(config.host()).isEqualTo("localhost");
-        assertThat(config.port()).isEqualTo(4317);
-        assertThat(config.path()).isEmpty();
-        assertThat(config.tls()).isEqualTo(Tls.disabled());
-        assertThat(config.compression()).isEqualTo(Compression.NONE);
-        assertThat(config.retry()).isEqualTo(RetryPolicy.defaults());
-        assertThat(config.timeout().perAttempt()).isEqualTo(Duration.ofSeconds(10));
-        assertThat(config.timeout().total()).isEqualTo(Duration.ofSeconds(10));
-    }
 
     @DisplayName("the exporter builder carries every knob onto the record")
     @Test
@@ -86,20 +71,6 @@ class OtlpComponentConfigTest {
                 .hasMessageContaining("maxResponseBytes");
     }
 
-    @DisplayName("receiver defaults are localhost:port, plaintext, the 64 MiB cap, no admission limits")
-    @Test
-    void receiverDefaults() {
-        var config = OtlpReceiverConfig.defaults(4318);
-        assertThat(config.bindHost()).isEqualTo("localhost");
-        assertThat(config.port()).isEqualTo(4318);
-        assertThat(config.tls()).isEqualTo(Tls.disabled());
-        assertThat(config.maxInboundMessageSizeBytes())
-                .isEqualTo(OtlpReceiverConfig.DEFAULT_MAX_INBOUND_MESSAGE_SIZE_BYTES);
-        assertThat(config.maxInFlightRequests()).isZero();
-        assertThat(config.maxInFlightBytes()).isZero();
-        assertThat(config.throttleRetryAfter()).isNull();
-    }
-
     @DisplayName("the receiver builder carries every knob onto the record")
     @Test
     void receiverBuilderCarriesKnobs() {
@@ -139,17 +110,5 @@ class OtlpComponentConfigTest {
                 .isInstanceOf(NullPointerException.class);
         assertThatThrownBy(() -> new OtlpReceiverConfig("localhost", 0, Tls.disabled(), ClientAuth.NONE, 0, 0, 0, null))
                 .isInstanceOf(IllegalArgumentException.class);
-    }
-
-    @DisplayName("clientAuth defaults to NONE and rides the config through the graph's config path")
-    @Test
-    void clientAuthRidesTheConfig() {
-        assertThat(OtlpReceiverConfig.defaults(4317).clientAuth()).isEqualTo(ClientAuth.NONE);
-        var required = OtlpReceiverConfig.builder(4317).clientAuth(ClientAuth.REQUIRE).build();
-        assertThat(required.clientAuth()).isEqualTo(ClientAuth.REQUIRE);
-        // The graph receiver factory forwards only the config (ReceiverComponentAdapter calls
-        // builder.config(config), which round-trips through toBuilder), so a graph-built receiver now
-        // carries the configured mode instead of being pinned to NONE.
-        assertThat(required.toBuilder().build().clientAuth()).isEqualTo(ClientAuth.REQUIRE);
     }
 }

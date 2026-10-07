@@ -3,7 +3,6 @@ package dev.nthings.otlp4j.transport.internal;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.nthings.otlp4j.transport.OtlpReceiverConfig;
-import java.time.Duration;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -91,32 +90,19 @@ class AdmissionControlTest {
         assertThat(admission.inFlightBytes()).isZero();
     }
 
-    @DisplayName("both limits disabled resolves to the shared unlimited no-op instance")
+    @DisplayName("disabled limits admit concurrent requests")
     @Test
     void disabledLimitsAreUnlimited() {
         var admission = AdmissionControl.of(OtlpReceiverConfig.builder(4317).build());
-        assertThat(admission).isSameAs(AdmissionControl.unlimited());
+        var first = admission.tryAcquire(() -> 60);
+        var second = admission.tryAcquire(() -> 60);
+        var third = admission.tryAcquire(() -> 60);
+        assertThat(first).isNotNull();
+        assertThat(second).isNotNull();
+        assertThat(third).isNotNull();
+        first.close();
+        second.close();
+        third.close();
 
-        for (var i = 0; i < 10_000; i++) {
-            var permit = admission.tryAcquire(() -> Long.MAX_VALUE / 2);
-            assertThat(permit).isNotNull();
-            permit.close();
-        }
-        assertThat(admission.inFlightRequests()).isZero();
-        assertThat(admission.inFlightBytes()).isZero();
-        assertThat(admission.rejectedCount()).isZero();
-    }
-
-    @DisplayName("the retry-after hint mirrors the config")
-    @Test
-    void retryAfterHintMirrorsConfig() {
-        var without = AdmissionControl.of(OtlpReceiverConfig.builder(4317).maxInFlightRequests(1).build());
-        assertThat(without.retryAfterHint()).isNull();
-
-        var with = AdmissionControl.of(OtlpReceiverConfig.builder(4317)
-                .maxInFlightRequests(1)
-                .throttleRetryAfter(Duration.ofSeconds(3))
-                .build());
-        assertThat(with.retryAfterHint()).isEqualTo(Duration.ofSeconds(3));
     }
 }

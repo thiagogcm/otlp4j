@@ -51,19 +51,8 @@ class ConsumerTypesTest {
     }
 
     @Test
-    @DisplayName("consume context factories provide immutable defaults and explicit values")
-    void consumeContextFactories() {
-        var defaults = ConsumeContext.defaults();
-        assertThat(defaults.metadata()).isEqualTo(ClientMetadata.empty());
-        assertThat(defaults.deadline().isExpired(Clock.systemUTC())).isFalse();
-        assertThat(defaults.isCancelled()).isFalse();
-
-        var metadata = new ClientMetadata(Optional.empty(), Map.of("x", List.of("y")));
-        var deadline = Deadline.after(Duration.ofSeconds(1), Clock.systemUTC());
-        var context = ConsumeContext.of(metadata, deadline);
-        assertThat(context.metadata()).isSameAs(metadata);
-        assertThat(context.deadline()).isSameAs(deadline);
-
+    @DisplayName("an already expired context invokes cancellation callbacks immediately")
+    void expiredContextInvokesCancellation() {
         var expired = ConsumeContext.of(
                 ClientMetadata.empty(), new Deadline(Instant.now().minusSeconds(1)));
         var callbackCalled = new AtomicBoolean();
@@ -113,16 +102,19 @@ class ConsumerTypesTest {
         first.onCancel(() -> {
             firstStarted.countDown();
             try {
-                releaseFirst.await(2, TimeUnit.SECONDS);
+                releaseFirst.await();
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
             }
         });
         second.onCancel(secondCancelled::countDown);
 
-        assertThat(firstStarted.await(2, TimeUnit.SECONDS)).isTrue();
-        assertThat(secondCancelled.await(2, TimeUnit.SECONDS)).isTrue();
-        releaseFirst.countDown();
+        try {
+            assertThat(firstStarted.await(2, TimeUnit.SECONDS)).isTrue();
+            assertThat(secondCancelled.await(2, TimeUnit.SECONDS)).isTrue();
+        } finally {
+            releaseFirst.countDown();
+        }
     }
 
     @Test

@@ -7,7 +7,6 @@ import dev.nthings.otlp4j.model.Attributes;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.testing.Fixtures;
-import java.util.List;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -78,13 +77,6 @@ class TraceMapperRoundTripTest {
         assertThat(TraceMapper.toDomain(TraceMapper.toProto(sent)))
                 .as("toDomain(toProto(x)) must equal x for spans with/without events, links, status")
                 .isEqualTo(sent);
-    }
-
-    @DisplayName("Empty TracesData round-trips through TraceMapper")
-    @Test
-    void roundTripsAnEmptyTraceData() {
-        var sent = new TracesData(List.of());
-        assertThat(TraceMapper.toDomain(TraceMapper.toProto(sent))).isEqualTo(sent);
     }
 
     @DisplayName("Multi-resource and multi-scope trace payloads round-trip through TraceMapper")

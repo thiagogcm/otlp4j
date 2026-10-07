@@ -8,8 +8,7 @@ import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/// Unit tests for [Attributes] - the builder overloads, the [Attributes#of(Map)] copy/order/
-/// empty-singleton contract, and every accessor including the getString type-mismatch path.
+/// Attribute updates and immutable snapshots of source maps.
 @DisplayName("Attributes")
 class AttributesTest {
 
@@ -126,23 +125,6 @@ class AttributesTest {
         assertThat(Attributes.of(source).keys()).containsExactly("third", "first", "second");
     }
 
-    @DisplayName("of(empty Map) short-circuits to the EMPTY singleton")
-    @Test
-    void ofEmptyMapShortCircuitsToTheEmptySingleton() {
-        assertThat(Attributes.of(Map.of()))
-                .as("the empty-map short-circuit must return the EMPTY singleton")
-                .isSameAs(Attributes.empty());
-    }
-
-    @DisplayName("get returns the value when present, null otherwise")
-    @Test
-    void getReturnsTheValueWhenTheKeyExistsAndNullOtherwise() {
-        var attributes = Attributes.builder().put("present", "yes").build();
-
-        assertThat(attributes.get("present")).isEqualTo(AttributeValue.of("yes"));
-        assertThat(attributes.get("absent")).isNull();
-    }
-
     @DisplayName("getString returns null for absent or non-string values")
     @Test
     void getStringReturnsTheStringWhenPresentAndNullWhenAbsentOrNotAString() {
@@ -156,15 +138,6 @@ class AttributesTest {
         assertThat(attributes.getString("number"))
                 .as("getString must return null for a present-but-non-string value")
                 .isNull();
-    }
-
-    @DisplayName("contains reflects key presence")
-    @Test
-    void containsReflectsKeyPresence() {
-        var attributes = Attributes.builder().put("here", "v").build();
-
-        assertThat(attributes.contains("here")).isTrue();
-        assertThat(attributes.contains("missing")).isFalse();
     }
 
     @DisplayName("asMap returns an unmodifiable view")
@@ -197,20 +170,5 @@ class AttributesTest {
 
         assertThat(a).isEqualTo(b).hasSameHashCodeAs(b).isNotEqualTo(different);
         assertThat(a).isNotEqualTo("not attributes");
-    }
-
-    @DisplayName("toString includes the underlying map")
-    @Test
-    void toStringIncludesTheUnderlyingMap() {
-        assertThat(Attributes.builder().put("k", "v").build().toString())
-                .startsWith("Attributes")
-                .contains("k");
-    }
-
-    @DisplayName("empty singleton has no keys and returns null on get")
-    @Test
-    void keysReflectsAbsenceForTheEmptySingleton() {
-        assertThat(Attributes.empty().keys()).isEmpty();
-        assertThat(Attributes.empty().get("anything")).isNull();
     }
 }

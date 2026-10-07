@@ -39,7 +39,8 @@ class SpanCountConnectorFactoryTest {
 
         var gw = Gateway.builder();
         var in = gw.receiver(RECV, recv);
-        var connector = gw.connector(CONN, new SpanCountConnectorFactory());
+        var connector = gw.connector(CONN, new SpanCountConnectorFactory(),
+                new SpanCountConnectorConfig("test.span.count", "test span count"));
         var out = gw.exporter(METRICS_OUT, ExporterFactory.of("capture", (ctx, data, provenance) -> {
             received.add(data);
             return DeliveryResult.acceptedStage(provenance);
@@ -57,16 +58,11 @@ class SpanCountConnectorFactoryTest {
 
         var metrics = (MetricsData) received.get(0).data();
         assertThat(metrics.metrics()).singleElement().satisfies(metric -> {
-            assertThat(metric.name()).isEqualTo("otlp4j.connector.span.count");
+            assertThat(metric.name()).isEqualTo("test.span.count");
+            assertThat(metric.description()).isEqualTo("test span count");
             assertThat(longValueOf(metric)).isEqualTo(3L);
         });
         runtime.close();
-    }
-
-    @DisplayName("its default config names the otlp4j.connector.span.count metric")
-    @Test
-    void defaultConfigNamesTheSpanCountMetric() {
-        assertThat(SpanCountConnectorConfig.defaults().metricName()).isEqualTo("otlp4j.connector.span.count");
     }
 
     private static long longValueOf(Metric metric) {

@@ -8,8 +8,8 @@ import dev.nthings.otlp4j.codec.PayloadWire;
 import dev.nthings.otlp4j.core.signal.Payload;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.model.LogRecord;
-import dev.nthings.otlp4j.model.LogsData;
-import dev.nthings.otlp4j.model.TracesData;
+import dev.nthings.otlp4j.model.Span;
+import dev.nthings.otlp4j.model.Metric;
 import dev.nthings.otlp4j.testing.Fixtures;
 import org.junit.jupiter.api.Test;
 
@@ -41,11 +41,15 @@ class ExactBatchSplitterTest {
     void itemCapSplitsAllSignalsInOrder() {
         var traces = ExactBatchSplitter.split(SignalDescriptor.TRACES, traces(5).data(), 2, 0);
         assertThat(traces).extracting(Payload::itemCount).containsExactly(2L, 2L, 1L);
-        assertThat(traces).allSatisfy(unit -> assertThat(unit.data()).isInstanceOf(TracesData.class));
+        assertThat(traces.stream().flatMap(unit -> unit.data().spans().stream()).map(Span::name))
+                .containsExactly("span-0", "span-1", "span-2", "span-3", "span-4");
 
         var metrics = Fixtures.metricsData(
                 Fixtures.metric("one"), Fixtures.metric("two"), Fixtures.metric("three"), Fixtures.metric("four"));
-        assertThat(ExactBatchSplitter.split(SignalDescriptor.METRICS, metrics, 2, 0))
+        var metricParts = ExactBatchSplitter.split(SignalDescriptor.METRICS, metrics, 2, 0);
+        assertThat(metricParts.stream().flatMap(unit -> unit.data().metrics().stream()).map(Metric::name))
+                .containsExactly("one", "two", "three", "four");
+        assertThat(metricParts)
                 .extracting(Payload::itemCount)
                 .containsExactly(2L, 2L);
 
@@ -53,7 +57,10 @@ class ExactBatchSplitterTest {
                 Fixtures.logRecord("one", LogRecord.Severity.INFO),
                 Fixtures.logRecord("two", LogRecord.Severity.INFO),
                 Fixtures.logRecord("three", LogRecord.Severity.INFO));
-        assertThat(ExactBatchSplitter.split(SignalDescriptor.LOGS, logs, 2, 0))
+        var logParts = ExactBatchSplitter.split(SignalDescriptor.LOGS, logs, 2, 0);
+        assertThat(logParts.stream().flatMap(unit -> unit.data().logRecords().stream()).map(LogRecord::body))
+                .containsExactly(logs.logRecords().get(0).body(), logs.logRecords().get(1).body(), logs.logRecords().get(2).body());
+        assertThat(logParts)
                 .extracting(Payload::itemCount)
                 .containsExactly(2L, 1L);
     }

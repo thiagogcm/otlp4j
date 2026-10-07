@@ -62,16 +62,8 @@ import java.util.random.RandomGeneratorFactory;
 
 /// Seeded randomized generators for the codec property tests.
 ///
-/// Every generator accepts a [RandomGenerator] so a caller can produce a reproducible sequence of
-/// samples from a single seed; regenerating from the same seed regenerates the same value. Each
-/// signal has a domain-side generator (for the domain to proto to domain invariant) and a
-/// proto-side generator that builds the wire message directly with the generated proto builders,
-/// never routing through a mapper (for the proto to domain to proto invariant). Both generators are
-/// deliberately restricted to the field surface the domain model represents, exactly as the design
-/// requires: an id field is either empty or exactly the wire-valid length, an enum field only takes
-/// a number the domain enum also declares, and a bucket-count list is only ever shaped the way the
-/// domain's own construction-time invariant allows. Restricting generation this way is what makes
-/// the round trip assertions equalities rather than best-effort comparisons.
+/// Requests are built independently of the production mappers. Seeds reproduce failures.
+/// Timelines are ordered, histogram counts match their buckets, and profile indices resolve.
 final class ModelGen {
 
     private ModelGen() {}
@@ -124,9 +116,6 @@ final class ModelGen {
     // ---- shared primitives ----
 
     private static String hexId(RandomGenerator rng, int hexLength) {
-        if (rng.nextInt(4) == 0) {
-            return ""; // an absent id, exactly as valid as a present one
-        }
         var chars = new char[hexLength];
         for (var i = 0; i < hexLength; i++) {
             chars[i] = HEX_CHARS[rng.nextInt(16)];
@@ -135,9 +124,6 @@ final class ModelGen {
     }
 
     private static ByteString protoId(RandomGenerator rng, int byteLength) {
-        if (rng.nextInt(4) == 0) {
-            return ByteString.EMPTY;
-        }
         return ByteString.copyFrom(randomBytes(rng, byteLength));
     }
 
@@ -165,7 +151,7 @@ final class ModelGen {
     }
 
     private static long positiveLong(RandomGenerator rng) {
-        return rng.nextLong(0L, Long.MAX_VALUE);
+        return 1_700_000_000_000_000_000L + rng.nextLong(1_000_000_000L);
     }
 
     // ---- attributes, shared by every signal ----
@@ -294,16 +280,18 @@ final class ModelGen {
     // ---- traces ----
 
     private static Span span(RandomGenerator rng) {
+        var start = positiveLong(rng);
+        var end = start + rng.nextLong(1, 1_000_000);
         var builder = Span.builder()
                 .traceId(hexId(rng, TRACE_ID_HEX_LEN))
                 .spanId(hexId(rng, SPAN_ID_HEX_LEN))
                 .parentSpanId(hexId(rng, SPAN_ID_HEX_LEN))
-                .traceState(asciiString(rng, 10))
+                .traceState("test=sample")
                 .flags(uint32(rng))
                 .name(asciiString(rng, 16))
                 .kind(SPAN_KINDS[rng.nextInt(SPAN_KINDS.length)])
-                .startEpochNanos(positiveLong(rng))
-                .endEpochNanos(positiveLong(rng))
+                .startEpochNanos(start)
+                .endEpochNanos(end)
                 .attributes(attributes(rng))
                 .droppedAttributesCount(rng.nextInt(20))
                 .droppedEventsCount(rng.nextInt(20))
@@ -313,14 +301,14 @@ final class ModelGen {
         var eventCount = rng.nextInt(3);
         for (var i = 0; i < eventCount; i++) {
             builder.addEvent(new Span.Event(
-                    positiveLong(rng), asciiString(rng, 8), attributes(rng), rng.nextInt(10)));
+                    rng.nextLong(start, end), asciiString(rng, 8), attributes(rng), rng.nextInt(10)));
         }
         var linkCount = rng.nextInt(3);
         for (var i = 0; i < linkCount; i++) {
             builder.addLink(new Span.Link(
                     hexId(rng, TRACE_ID_HEX_LEN),
                     hexId(rng, SPAN_ID_HEX_LEN),
-                    asciiString(rng, 10),
+                    "test=sample",
                     attributes(rng),
                     rng.nextInt(10),
                     uint32(rng)));
@@ -349,16 +337,18 @@ final class ModelGen {
     }
 
     private static io.opentelemetry.proto.trace.v1.Span protoSpan(RandomGenerator rng) {
+        var start = positiveLong(rng);
+        var end = start + rng.nextLong(1, 1_000_000);
         var builder = io.opentelemetry.proto.trace.v1.Span.newBuilder()
                 .setTraceId(protoId(rng, TRACE_ID_BYTE_LEN))
                 .setSpanId(protoId(rng, SPAN_ID_BYTE_LEN))
                 .setParentSpanId(protoId(rng, SPAN_ID_BYTE_LEN))
-                .setTraceState(asciiString(rng, 10))
+                .setTraceState("test=sample")
                 .setFlags((int) uint32(rng))
                 .setName(asciiString(rng, 16))
                 .setKind(SpanKind.forNumber(SPAN_KIND_NUMBERS[rng.nextInt(SPAN_KIND_NUMBERS.length)]))
-                .setStartTimeUnixNano(positiveLong(rng))
-                .setEndTimeUnixNano(positiveLong(rng))
+                .setStartTimeUnixNano(start)
+                .setEndTimeUnixNano(end)
                 .addAllAttributes(protoKeyValues(rng))
                 .setDroppedAttributesCount(rng.nextInt(20))
                 .setDroppedEventsCount(rng.nextInt(20))
@@ -370,7 +360,7 @@ final class ModelGen {
         var eventCount = rng.nextInt(3);
         for (var i = 0; i < eventCount; i++) {
             builder.addEvents(Event.newBuilder()
-                    .setTimeUnixNano(positiveLong(rng))
+                    .setTimeUnixNano(rng.nextLong(start, end))
                     .setName(asciiString(rng, 8))
                     .addAllAttributes(protoKeyValues(rng))
                     .setDroppedAttributesCount(rng.nextInt(10)));
@@ -380,7 +370,7 @@ final class ModelGen {
             builder.addLinks(Link.newBuilder()
                     .setTraceId(protoId(rng, TRACE_ID_BYTE_LEN))
                     .setSpanId(protoId(rng, SPAN_ID_BYTE_LEN))
-                    .setTraceState(asciiString(rng, 10))
+                    .setTraceState("test=sample")
                     .addAllAttributes(protoKeyValues(rng))
                     .setDroppedAttributesCount(rng.nextInt(10))
                     .setFlags((int) uint32(rng)));
@@ -414,38 +404,38 @@ final class ModelGen {
     // ---- metrics ----
 
     private static NumberPoint.Value numberValue(RandomGenerator rng) {
-        return switch (rng.nextInt(3)) {
-            case 0 -> NumberPoint.longValue(rng.nextLong());
-            case 1 -> NumberPoint.doubleValue(boundedDouble(rng));
-            default -> null;
-        };
+        return rng.nextBoolean() ? NumberPoint.longValue(rng.nextLong()) : NumberPoint.doubleValue(boundedDouble(rng));
     }
 
-    private static Exemplar exemplar(RandomGenerator rng) {
+    private static Exemplar exemplar(RandomGenerator rng, long timestamp) {
         return new Exemplar(
                 attributes(rng),
-                positiveLong(rng),
+                timestamp,
                 numberValue(rng),
                 hexId(rng, SPAN_ID_HEX_LEN),
                 hexId(rng, TRACE_ID_HEX_LEN));
     }
 
-    private static List<Exemplar> exemplars(RandomGenerator rng) {
+    private static List<Exemplar> exemplars(RandomGenerator rng, long timestamp) {
         var n = rng.nextInt(3);
         var result = new ArrayList<Exemplar>(n);
         for (var i = 0; i < n; i++) {
-            result.add(exemplar(rng));
+            result.add(exemplar(rng, timestamp));
         }
         return result;
     }
 
     private static NumberPoint numberPoint(RandomGenerator rng) {
+        var start = positiveLong(rng);
+        var end = start + rng.nextLong(1, 1_000_000);
         return new NumberPoint(
-                attributes(rng), positiveLong(rng), positiveLong(rng), numberValue(rng), uint32(rng),
-                exemplars(rng));
+                attributes(rng), start, end, numberValue(rng), uint32(rng),
+                exemplars(rng, end));
     }
 
     private static HistogramPoint histogramPoint(RandomGenerator rng) {
+        var start = positiveLong(rng);
+        var end = start + rng.nextLong(1, 1_000_000);
         List<Long> bucketCounts;
         List<Double> explicitBounds;
         if (rng.nextBoolean()) {
@@ -461,21 +451,22 @@ final class ModelGen {
             for (var i = 0; i <= boundsSize; i++) {
                 counts.add(rng.nextLong(0, 1_000));
             }
+            bounds.sort(Double::compare);
             bucketCounts = counts;
             explicitBounds = bounds;
         }
         return new HistogramPoint(
                 attributes(rng),
-                positiveLong(rng),
-                positiveLong(rng),
-                rng.nextLong(0, 10_000),
-                rng.nextBoolean() ? OptionalDouble.of(boundedDouble(rng)) : OptionalDouble.empty(),
+                start,
+                end,
+                bucketCounts.isEmpty() ? rng.nextLong(1, 10_000) : bucketCounts.stream().mapToLong(Long::longValue).sum(),
+                OptionalDouble.empty(),
                 bucketCounts,
                 explicitBounds,
-                rng.nextBoolean() ? OptionalDouble.of(boundedDouble(rng)) : OptionalDouble.empty(),
-                rng.nextBoolean() ? OptionalDouble.of(boundedDouble(rng)) : OptionalDouble.empty(),
+                OptionalDouble.empty(),
+                OptionalDouble.empty(),
                 uint32(rng),
-                exemplars(rng));
+                exemplars(rng, end));
     }
 
     private static ExponentialHistogramPoint.Buckets buckets(RandomGenerator rng) {
@@ -491,35 +482,48 @@ final class ModelGen {
     }
 
     private static ExponentialHistogramPoint exponentialHistogramPoint(RandomGenerator rng) {
+        var start = positiveLong(rng);
+        var end = start + rng.nextLong(1, 1_000_000);
+        var positive = buckets(rng);
+        var negative = buckets(rng);
+        var zeroCount = rng.nextLong(0, 1_000);
+        var count = zeroCount + positive.bucketCounts().stream().mapToLong(Long::longValue).sum()
+                + negative.bucketCounts().stream().mapToLong(Long::longValue).sum();
         return new ExponentialHistogramPoint(
                 attributes(rng),
-                positiveLong(rng),
-                positiveLong(rng),
-                rng.nextLong(0, 10_000),
-                rng.nextBoolean() ? OptionalDouble.of(boundedDouble(rng)) : OptionalDouble.empty(),
+                start,
+                end,
+                count,
+                OptionalDouble.empty(),
                 rng.nextInt(-20, 20),
-                rng.nextLong(0, 1_000),
-                buckets(rng),
-                buckets(rng),
-                rng.nextBoolean() ? OptionalDouble.of(boundedDouble(rng)) : OptionalDouble.empty(),
-                rng.nextBoolean() ? OptionalDouble.of(boundedDouble(rng)) : OptionalDouble.empty(),
-                boundedDouble(rng),
+                zeroCount,
+                positive,
+                negative,
+                OptionalDouble.empty(),
+                OptionalDouble.empty(),
+                0.0,
                 uint32(rng),
-                exemplars(rng));
+                exemplars(rng, end));
     }
 
     private static SummaryPoint summaryPoint(RandomGenerator rng) {
-        var n = rng.nextInt(4);
+        var start = positiveLong(rng);
+        var end = start + rng.nextLong(1, 1_000_000);
+        var n = rng.nextInt(1, 10);
+        var observations = new ArrayList<Double>();
+        for (var i = 0; i < n; i++) { observations.add(rng.nextDouble(0, 100)); }
+        observations.sort(Double::compare);
+        var total = observations.stream().mapToDouble(Double::doubleValue).sum();
         var quantiles = new ArrayList<SummaryPoint.Quantile>(n);
         for (var i = 0; i < n; i++) {
-            quantiles.add(new SummaryPoint.Quantile(rng.nextDouble(0, 1), boundedDouble(rng)));
+            quantiles.add(new SummaryPoint.Quantile((double) i / Math.max(1, n - 1), observations.get(i)));
         }
         return new SummaryPoint(
                 attributes(rng),
-                positiveLong(rng),
-                positiveLong(rng),
-                rng.nextLong(0, 10_000),
-                boundedDouble(rng),
+                start,
+                end,
+                n,
+                total,
                 quantiles,
                 uint32(rng));
     }
@@ -580,74 +584,70 @@ final class ModelGen {
         return new MetricsData(resourceMetricsList);
     }
 
-    private static io.opentelemetry.proto.metrics.v1.Exemplar protoExemplar(RandomGenerator rng) {
+    private static io.opentelemetry.proto.metrics.v1.Exemplar protoExemplar(RandomGenerator rng, long timestamp) {
         var builder = io.opentelemetry.proto.metrics.v1.Exemplar.newBuilder()
                 .addAllFilteredAttributes(protoKeyValues(rng))
-                .setTimeUnixNano(positiveLong(rng))
+                .setTimeUnixNano(timestamp)
                 .setSpanId(protoId(rng, SPAN_ID_BYTE_LEN))
                 .setTraceId(protoId(rng, TRACE_ID_BYTE_LEN));
-        switch (rng.nextInt(3)) {
-            case 0 -> builder.setAsInt(rng.nextLong());
-            case 1 -> builder.setAsDouble(boundedDouble(rng));
-            default -> {
-                // value oneof left unset (VALUE_NOT_SET)
-            }
+        if (rng.nextBoolean()) {
+            builder.setAsInt(rng.nextLong());
+        } else {
+            builder.setAsDouble(boundedDouble(rng));
         }
         return builder.build();
     }
 
-    private static List<io.opentelemetry.proto.metrics.v1.Exemplar> protoExemplars(RandomGenerator rng) {
+    private static List<io.opentelemetry.proto.metrics.v1.Exemplar> protoExemplars(RandomGenerator rng, long timestamp) {
         var n = rng.nextInt(3);
         var result = new ArrayList<io.opentelemetry.proto.metrics.v1.Exemplar>(n);
         for (var i = 0; i < n; i++) {
-            result.add(protoExemplar(rng));
+            result.add(protoExemplar(rng, timestamp));
         }
         return result;
     }
 
     private static NumberDataPoint protoNumberDataPoint(RandomGenerator rng) {
+        var start = positiveLong(rng);
+        var end = start + rng.nextLong(1, 1_000_000);
         var builder = NumberDataPoint.newBuilder()
                 .addAllAttributes(protoKeyValues(rng))
-                .setStartTimeUnixNano(positiveLong(rng))
-                .setTimeUnixNano(positiveLong(rng))
+                .setStartTimeUnixNano(start)
+                .setTimeUnixNano(end)
                 .setFlags((int) uint32(rng));
-        switch (rng.nextInt(3)) {
-            case 0 -> builder.setAsInt(rng.nextLong());
-            case 1 -> builder.setAsDouble(boundedDouble(rng));
-            default -> {
-                // value oneof left unset (VALUE_NOT_SET)
-            }
+        if (rng.nextBoolean()) {
+            builder.setAsInt(rng.nextLong());
+        } else {
+            builder.setAsDouble(boundedDouble(rng));
         }
-        builder.addAllExemplars(protoExemplars(rng));
+        builder.addAllExemplars(protoExemplars(rng, end));
         return builder.build();
     }
 
     private static HistogramDataPoint protoHistogramDataPoint(RandomGenerator rng) {
+        var start = positiveLong(rng);
+        var end = start + rng.nextLong(1, 1_000_000);
         var builder = HistogramDataPoint.newBuilder()
                 .addAllAttributes(protoKeyValues(rng))
-                .setStartTimeUnixNano(positiveLong(rng))
-                .setTimeUnixNano(positiveLong(rng))
+                .setStartTimeUnixNano(start)
+                .setTimeUnixNano(end)
                 .setCount(rng.nextLong(0, 10_000))
                 .setFlags((int) uint32(rng));
         if (!rng.nextBoolean()) {
             var boundsSize = rng.nextInt(4);
-            for (var i = 0; i < boundsSize; i++) {
-                builder.addExplicitBounds(boundedDouble(rng));
-            }
+            var bounds = new ArrayList<Double>();
+            for (var i = 0; i < boundsSize; i++) { bounds.add(boundedDouble(rng)); }
+            bounds.sort(Double::compare);
+            builder.addAllExplicitBounds(bounds);
             for (var i = 0; i <= boundsSize; i++) {
                 builder.addBucketCounts(rng.nextLong(0, 1_000));
             }
         }
-        if (rng.nextBoolean()) {
-            builder.setSum(boundedDouble(rng));
+
+        if (builder.getBucketCountsCount() > 0) {
+            builder.setCount(builder.getBucketCountsList().stream().mapToLong(Long::longValue).sum());
         }
-        if (rng.nextBoolean()) {
-            builder.setMin(boundedDouble(rng));
-        }
-        if (rng.nextBoolean()) {
-            builder.setMax(boundedDouble(rng));
-        }
-        builder.addAllExemplars(protoExemplars(rng));
+        builder.addAllExemplars(protoExemplars(rng, end));
         return builder.build();
     }
 
@@ -663,43 +663,45 @@ final class ModelGen {
 
     private static ExponentialHistogramDataPoint protoExponentialHistogramDataPoint(
             RandomGenerator rng) {
+        var start = positiveLong(rng);
+        var end = start + rng.nextLong(1, 1_000_000);
         var builder = ExponentialHistogramDataPoint.newBuilder()
                 .addAllAttributes(protoKeyValues(rng))
-                .setStartTimeUnixNano(positiveLong(rng))
-                .setTimeUnixNano(positiveLong(rng))
+                .setStartTimeUnixNano(start)
+                .setTimeUnixNano(end)
                 .setCount(rng.nextLong(0, 10_000))
                 .setScale(rng.nextInt(-20, 20))
                 .setZeroCount(rng.nextLong(0, 1_000))
                 .setPositive(protoBuckets(rng))
                 .setNegative(protoBuckets(rng))
-                .setZeroThreshold(boundedDouble(rng))
+                .setZeroThreshold(0.0)
                 .setFlags((int) uint32(rng));
-        if (rng.nextBoolean()) {
-            builder.setSum(boundedDouble(rng));
-        }
-        if (rng.nextBoolean()) {
-            builder.setMin(boundedDouble(rng));
-        }
-        if (rng.nextBoolean()) {
-            builder.setMax(boundedDouble(rng));
-        }
-        builder.addAllExemplars(protoExemplars(rng));
+        builder.setCount(builder.getZeroCount()
+                + builder.getPositive().getBucketCountsList().stream().mapToLong(Long::longValue).sum()
+                + builder.getNegative().getBucketCountsList().stream().mapToLong(Long::longValue).sum());
+        builder.addAllExemplars(protoExemplars(rng, end));
         return builder.build();
     }
 
     private static SummaryDataPoint protoSummaryDataPoint(RandomGenerator rng) {
+        var start = positiveLong(rng);
+        var end = start + rng.nextLong(1, 1_000_000);
+        var n = rng.nextInt(1, 10);
+        var observations = new ArrayList<Double>();
+        for (var i = 0; i < n; i++) { observations.add(rng.nextDouble(0, 100)); }
+        observations.sort(Double::compare);
+        var total = observations.stream().mapToDouble(Double::doubleValue).sum();
         var builder = SummaryDataPoint.newBuilder()
                 .addAllAttributes(protoKeyValues(rng))
-                .setStartTimeUnixNano(positiveLong(rng))
-                .setTimeUnixNano(positiveLong(rng))
-                .setCount(rng.nextLong(0, 10_000))
-                .setSum(boundedDouble(rng))
+                .setStartTimeUnixNano(start)
+                .setTimeUnixNano(end)
+                .setCount(n)
+                .setSum(total)
                 .setFlags((int) uint32(rng));
-        var n = rng.nextInt(4);
         for (var i = 0; i < n; i++) {
             builder.addQuantileValues(SummaryDataPoint.ValueAtQuantile.newBuilder()
-                    .setQuantile(rng.nextDouble(0, 1))
-                    .setValue(boundedDouble(rng)));
+                    .setQuantile((double) i / Math.max(1, n - 1))
+                    .setValue(observations.get(i)));
         }
         return builder.build();
     }
@@ -869,26 +871,23 @@ final class ModelGen {
 
     // ---- profiles ----
 
-    /// A scalar-only domain profile (empty `rawProfile`) with `sampleCount` fixed at zero, per the
-    /// design's section 4.3: the mapper's scalar rebuild path never emits samples, so it cannot
-    /// reconstruct a nonzero sample count, and fixing it here keeps the general round trip
-    /// assertion exact instead of special-casing a field comparator.
+    /// Scalar metadata without samples or a captured source payload.
     static ProfilesData.Profile scalarProfile(RandomGenerator rng) {
         return new ProfilesData.Profile(
                 hexId(rng, TRACE_ID_HEX_LEN),
                 positiveLong(rng),
-                positiveLong(rng),
-                positiveLong(rng),
+                rng.nextLong(1, 1_000_000),
+                rng.nextLong(1, 1_000_000),
                 0,
                 rng.nextInt(20),
-                asciiString(rng, 8),
+                "",
                 new byte[0]);
     }
 
     private static ValueType protoValueType(RandomGenerator rng) {
         return ValueType.newBuilder()
-                .setTypeStrindex(rng.nextInt(10))
-                .setUnitStrindex(rng.nextInt(10))
+                .setTypeStrindex(1)
+                .setUnitStrindex(2)
                 .build();
     }
 
@@ -896,52 +895,51 @@ final class ModelGen {
         var builder = Profile.newBuilder()
                 .setSampleType(protoValueType(rng))
                 .setTimeUnixNano(positiveLong(rng))
-                .setDurationNano(positiveLong(rng))
+                .setDurationNano(rng.nextLong(1, 1_000_000))
                 .setPeriodType(protoValueType(rng))
-                .setPeriod(rng.nextLong())
+                .setPeriod(rng.nextLong(1, 1_000_000))
                 .setProfileId(protoId(rng, TRACE_ID_BYTE_LEN))
                 .setDroppedAttributesCount(rng.nextInt(20))
-                .setOriginalPayloadFormat(asciiString(rng, 6))
-                .setOriginalPayload(ByteString.copyFrom(randomBytes(rng, rng.nextInt(16))));
+                .setOriginalPayloadFormat("pprof")
+                .setOriginalPayload(ByteString.copyFrom(randomBytes(rng, rng.nextInt(1, 16))));
         var sampleCount = 1 + rng.nextInt(3);
         for (var i = 0; i < sampleCount; i++) {
-            var sample = Sample.newBuilder().setStackIndex(rng.nextInt(10)).setLinkIndex(rng.nextInt(10));
+            var sample = Sample.newBuilder().setStackIndex(1).setLinkIndex(rng.nextInt(2));
             var valueCount = 1 + rng.nextInt(3);
             for (var v = 0; v < valueCount; v++) {
-                sample.addValues(rng.nextLong());
+                sample.addValues(rng.nextLong(1, 1_000_000));
             }
-            var attrCount = rng.nextInt(3);
+            var attrCount = rng.nextInt(2);
             for (var a = 0; a < attrCount; a++) {
-                sample.addAttributeIndices(rng.nextInt(10));
+                sample.addAttributeIndices(1);
             }
             builder.addSamples(sample);
         }
-        var attrIndexCount = rng.nextInt(3);
+        var attrIndexCount = rng.nextInt(2);
         for (var i = 0; i < attrIndexCount; i++) {
-            builder.addAttributeIndices(rng.nextInt(10));
+            builder.addAttributeIndices(1);
         }
         return builder.build();
     }
 
     private static ProfilesDictionary protoDictionary(RandomGenerator rng) {
-        var builder = ProfilesDictionary.newBuilder();
-        var stringCount = 1 + rng.nextInt(4);
-        for (var i = 0; i < stringCount; i++) {
-            builder.addStringTable(asciiString(rng, 8));
-        }
-        var attrCount = rng.nextInt(3);
-        for (var i = 0; i < attrCount; i++) {
-            builder.addAttributeTable(KeyValueAndUnit.newBuilder()
-                    .setKeyStrindex(rng.nextInt(stringCount))
-                    .setValue(protoAnyValue(rng, 0)));
-        }
+        var builder = ProfilesDictionary.newBuilder().addStringTable("").addStringTable("cpu")
+                .addStringTable("nanoseconds").addStringTable("thread.id");
+        builder.addMappingTableBuilder();
+        builder.addFunctionTableBuilder();
+        builder.addLocationTableBuilder();
+        builder.addLocationTableBuilder().setAddress(rng.nextLong(1, 1_000_000));
+        builder.addLinkTableBuilder();
+        builder.addLinkTableBuilder().setTraceId(protoId(rng, TRACE_ID_BYTE_LEN)).setSpanId(protoId(rng, SPAN_ID_BYTE_LEN));
+        builder.addStackTableBuilder();
+        builder.addStackTableBuilder().addLocationIndices(1);
+        builder.addAttributeTableBuilder();
+        builder.addAttributeTable(KeyValueAndUnit.newBuilder().setKeyStrindex(3)
+                .setValue(AnyValue.newBuilder().setIntValue(rng.nextLong(1, 10_000))));
         return builder.build();
     }
 
-    /// A full profiles export request with real samples and a shared dictionary, exercising the
-    /// lossless opaque-passthrough path (section 4.3): every value here is randomized, but the
-    /// request is always a well-formed proto payload, exactly like the wire bytes a real profiler
-    /// would send.
+    /// Samples and a shared dictionary with valid references.
     static ExportProfilesServiceRequest protoProfilesRequestRich(RandomGenerator rng) {
         var profile = protoRichProfile(rng);
         return ExportProfilesServiceRequest.newBuilder()

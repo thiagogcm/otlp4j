@@ -4,9 +4,10 @@ import static dev.nthings.otlp4j.core.signal.SignalDescriptor.TRACES;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import dev.nthings.otlp4j.core.policy.BackoffPolicy;
+import dev.nthings.otlp4j.core.policy.RetryPolicy;
 import dev.nthings.otlp4j.core.consumer.SignalConsumer;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
-import dev.nthings.otlp4j.core.signal.Payload;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.testing.Fixtures;
@@ -133,6 +134,7 @@ class ArmeriaGracefulShutdownTest {
         var exporter = (grpc ? OtlpExporter.grpcBuilder() : OtlpExporter.httpBuilder())
                 .endpoint("localhost", port)
                 .timeout(Duration.ofSeconds(5))
+                .retryPolicy(new RetryPolicy(1, BackoffPolicy.defaults(), false))
                 .build().start();
         closeables.add(exporter);
         return exporter;

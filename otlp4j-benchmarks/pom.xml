@@ -160,8 +160,6 @@
         </plugins>
     </build>
 
-    <!-- This module ships benchmark harness code, not a public API, and produces no javadoc-worthy
-         surface, so the parent's javadoc lint is skipped. It declares no check-coverage execution:
-         benchmarks are not units under the coverage ratchet, and the module is not part of the
-         default build the aggregate reports over. -->
+    <!-- Benchmark harness code has no public API, so Javadoc lint is skipped.
+         This module is outside the default reactor and aggregate coverage report. -->
 </project>

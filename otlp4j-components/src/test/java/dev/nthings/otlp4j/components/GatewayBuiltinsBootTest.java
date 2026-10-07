@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import dev.nthings.otlp4j.components.batch.BatchProcessorConfig;
 import dev.nthings.otlp4j.components.batch.BatchProcessorFactory;
 import dev.nthings.otlp4j.components.memory.MemoryLimiterProcessorFactory;
+import dev.nthings.otlp4j.components.memory.MemoryLimiterConfig;
 import dev.nthings.otlp4j.components.routing.FilterConfig;
 import dev.nthings.otlp4j.components.routing.FilterProcessorFactory;
 import dev.nthings.otlp4j.components.routing.RoutingConfig;
@@ -41,7 +42,7 @@ import org.junit.jupiter.api.Timeout;
 /// Boots a real [dev.nthings.otlp4j.service.GatewayRuntime] wiring all four built-in processors -
 /// memory limiter, filter, batch, and routing - fed by an in-process receiver and terminated by
 /// capturing exporters, and proves data flows through every one of them: the memory limiter admits
-/// under the default threshold, the filter keeps only its configured service, the routing branches send
+/// under the configured threshold, the filter keeps only its configured service, the routing branches send
 /// each service to the right exporter, and the batch stage holds its data until a clean shutdown flushes
 /// it into the still-open downstream.
 @DisplayName("Built-in components booted in a gateway")
@@ -66,7 +67,8 @@ class GatewayBuiltinsBootTest {
 
         var gw = Gateway.builder();
         var in = gw.receiver(RECV, recv);
-        var memlimit = gw.processor(MEMLIMIT, new MemoryLimiterProcessorFactory());
+        var memlimit = gw.processor(MEMLIMIT, new MemoryLimiterProcessorFactory(),
+                new MemoryLimiterConfig(Duration.ofSeconds(1), Long.MAX_VALUE, 0, Duration.ofSeconds(1)));
         var filter = gw.processor(FILTER, new FilterProcessorFactory(), keepService("checkout"));
         var batch = gw.processor(BATCH, new BatchProcessorFactory(), holdingBatch());
         var routeCheckout = gw.processor(ROUTE_CHECKOUT, new RoutingProcessorFactory(), routeService("checkout"));
@@ -87,7 +89,7 @@ class GatewayBuiltinsBootTest {
         var checkoutResult = recv.deliver(TRACES, new TestConsumeContext(), tracesFor("checkout", 3));
         var billingResult = recv.deliver(TRACES, new TestConsumeContext(), tracesFor("billing", 2));
 
-        // Both admitted: the memory limiter is under its default threshold in the test JVM.
+        // Both admitted: the memory limiter is under the configured threshold.
         assertThat(checkoutResult).isInstanceOf(DeliveryResult.Accepted.class);
         assertThat(billingResult).isInstanceOf(DeliveryResult.Accepted.class);
 
@@ -122,7 +124,7 @@ class GatewayBuiltinsBootTest {
     /// A batch config that never flushes on size or timeout during the test, so only shutdown drains it.
     private static BatchProcessorConfig holdingBatch() {
         return new BatchProcessorConfig(
-                new BatchPolicy(1_000_000, 0, 0, Duration.ofMinutes(10), List.of()),
+                new BatchPolicy(1_000_000, 0, 0, Duration.ZERO, List.of()),
                 new DeliveryQueuePolicy(1024, 1, OverflowPolicy.FAIL),
                 Duration.ofSeconds(5),
                 BatchProcessorConfig.DEFAULT_MAX_PENDING_SUBMISSIONS,

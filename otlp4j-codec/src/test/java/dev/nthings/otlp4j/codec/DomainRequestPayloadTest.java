@@ -15,8 +15,7 @@ import java.io.IOException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/// Unit contract for a domain-backed payload: domain operations do not encode until the qualified
-/// codec boundary is used, and that boundary memoizes the generated request.
+/// Domain payloads preserve telemetry when exported or replaced.
 @DisplayName("Domain-backed payload")
 class DomainRequestPayloadTest {
 
@@ -35,9 +34,9 @@ class DomainRequestPayloadTest {
         var payload = tracePayload(batch);
 
         assertThat(payload.signal()).isEqualTo(SignalDescriptor.TRACES);
-        assertThat(payload.data()).isSameAs(batch);
+        assertThat(payload.data()).isEqualTo(batch);
         assertThat(payload.itemCount()).isEqualTo(2L);
-        assertThat(payload.routingMetadata()).isNotNull();
+        assertThat(payload.routingMetadata().resourceAttribute("service.name")).contains("checkout");
     }
 
     @Test
@@ -55,15 +54,16 @@ class DomainRequestPayloadTest {
     }
 
     @Test
-    @DisplayName("request conversion is memoized and withData is immutable")
-    void requestMemoizationAndWithData() {
+    @DisplayName("replacement exports new telemetry and leaves the original payload intact")
+    void replacementExportsNewData() {
         var batch = Fixtures.traceData(Fixtures.span("a", Span.Kind.SERVER));
         var payload = tracePayload(batch);
-        assertThat(PayloadWire.request(SignalCodec.TRACES, payload))
-                .isSameAs(PayloadWire.request(SignalCodec.TRACES, payload));
-        assertThat(payload.withData(batch)).isSameAs(payload);
         var replacement = Fixtures.traceData(Fixtures.span("b", Span.Kind.CLIENT));
-        assertThat(payload.withData(replacement).data()).isSameAs(replacement);
+        var replaced = payload.withData(replacement);
+        assertThat(PayloadWire.request(SignalCodec.TRACES, replaced)
+                .getResourceSpans(0).getScopeSpans(0).getSpans(0).getName()).isEqualTo("b");
+        assertThat(PayloadWire.request(SignalCodec.TRACES, payload)
+                .getResourceSpans(0).getScopeSpans(0).getSpans(0).getName()).isEqualTo("a");
     }
 
     @Test

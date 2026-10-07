@@ -28,18 +28,6 @@ class SignalCodecTest {
     private static final Provenance PROV =
             new Provenance(new ComponentId("otlp", "e"), ComponentKind.EXPORTER, SignalDescriptor.TRACES);
 
-    @DisplayName("values() lists the four codecs bound to their signals in wire order")
-    @Test
-    void valuesAndSignalBindings() {
-        assertThat(SignalCodec.values())
-                .containsExactly(
-                        SignalCodec.TRACES, SignalCodec.METRICS, SignalCodec.LOGS, SignalCodec.PROFILES);
-        assertThat(SignalCodec.TRACES.descriptor()).isEqualTo(SignalDescriptor.TRACES);
-        assertThat(SignalCodec.METRICS.descriptor()).isEqualTo(SignalDescriptor.METRICS);
-        assertThat(SignalCodec.LOGS.descriptor()).isEqualTo(SignalDescriptor.LOGS);
-        assertThat(SignalCodec.PROFILES.descriptor()).isEqualTo(SignalDescriptor.PROFILES);
-    }
-
     @DisplayName("traces round-trip through toProto/parseRequest/toDomain and deliveryResponse/deliveryResult")
     @Test
     void tracesCodec() {

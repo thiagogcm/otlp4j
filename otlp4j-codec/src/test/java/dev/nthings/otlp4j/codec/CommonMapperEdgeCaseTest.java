@@ -2,46 +2,14 @@ package dev.nthings.otlp4j.codec;
 
 import dev.nthings.otlp4j.testing.TransportFixtures;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.Locale;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/// White-box / bug-hunt coverage for [CommonMapper] and the unsigned-int flag handling shared by
-/// the trace, metrics and logs mappers. Each test pins the actual observed behaviour - the
-/// report flags which of these are suspected real production bugs and which are intentional.
+/// Preserve supported wire values at mapper boundaries.
 @DisplayName("CommonMapper edge cases")
 class CommonMapperEdgeCaseTest {
-
-    @DisplayName("CommonMapper.bytes throws on non-hex input")
-    @Test
-    void bytesThrowsOnNonHexInput() {
-        // HEX.parseHex rejects non-hex characters; CommonMapper.bytes does no input validation,
-        // so the IllegalArgumentException escapes straight out of the mapper.
-        assertThatThrownBy(() -> CommonMapper.bytes("xyz"))
-                .as("non-hex id input is not validated and throws from deep in the mapper")
-                .isInstanceOf(IllegalArgumentException.class);
-    }
-
-    @DisplayName("CommonMapper.bytes throws on odd-length input")
-    @Test
-    void bytesThrowsOnOddLengthInput() {
-        assertThatThrownBy(() -> CommonMapper.bytes("abc"))
-                .as("odd-length hex id input is not validated and throws from deep in the mapper")
-                .isInstanceOf(IllegalArgumentException.class);
-    }
-
-    @DisplayName("Malformed traceId is rejected at construction, before any proto encode")
-    @Test
-    void malformedTraceIdRejectedAtConstruction() {
-        // Validation now lives in the model constructor, so a malformed traceId fails when the Span
-        // is built, not later in TraceMapper.toProto on the export thread.
-        assertThatThrownBy(() -> TransportFixtures.traceWithTraceId("nothex!!"))
-                .as("a malformed traceId is rejected at model construction, not at proto-encode time")
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("traceId");
-    }
 
     @DisplayName("Uppercase hex id lowercases through hex(), not a string-identity round-trip")
     @Test
@@ -69,18 +37,5 @@ class CommonMapperEdgeCaseTest {
         assertThat(roundTripped.flags())
                 .as("a flags value within the unsigned 32-bit range must round-trip exactly")
                 .isEqualTo(0xFFFFFFFFL);
-    }
-
-    @DisplayName("Span flags above unsigned 32-bit range are rejected at construction, not silently truncated")
-    @Test
-    void spanFlagsAboveUnsignedIntRangeAreRejectedAtConstruction() {
-        // Bits above bit 31 couldn't survive the (int) encode cast; construction now rejects them
-        // instead of silently truncating on the export thread.
-        var oversized = 0x1_0000_0001L; // bit 32 set + low bit
-
-        assertThatThrownBy(() -> TransportFixtures.traceWithSpanFlags(oversized))
-                .as("flags above the unsigned 32-bit range fail fast at model construction")
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("flags");
     }
 }

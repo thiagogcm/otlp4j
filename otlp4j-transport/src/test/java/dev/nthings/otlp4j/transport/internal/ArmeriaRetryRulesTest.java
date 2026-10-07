@@ -18,7 +18,7 @@ import org.junit.jupiter.api.Test;
 /// Deterministic unit tests pinning the retry-translation decision logic: the gRPC and HTTP retry
 /// precedence, the backoff translation, and the `grpc-status-details-bin` `RetryInfo` round trip. The
 /// end-to-end wiring over a real Armeria client and server is exercised separately in
-/// `ArmeriaRetryPolicyTest`; these tests pin the arithmetic and the precedence order in isolation.
+/// `PolicySemanticsSuite`; these tests exercise the arithmetic and precedence in isolation.
 @DisplayName("Armeria retry translation")
 class ArmeriaRetryRulesTest {
 

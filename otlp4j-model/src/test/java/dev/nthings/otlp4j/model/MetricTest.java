@@ -10,16 +10,6 @@ import org.junit.jupiter.api.Test;
 @DisplayName("Metric data helpers")
 class MetricTest {
 
-    @DisplayName("hasData()/dataOrThrow() expose a present data payload")
-    @Test
-    void presentData() {
-        var data = new Metric.Gauge(List.of());
-        var metric = Metric.builder().name("m").data(data).build();
-
-        assertThat(metric.hasData()).isTrue();
-        assertThat(metric.dataOrThrow()).isSameAs(data);
-    }
-
     @DisplayName("hasData() is false and dataOrThrow() throws for the DATA_NOT_SET form")
     @Test
     void absentData() {

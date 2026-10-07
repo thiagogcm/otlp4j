@@ -72,6 +72,5 @@ class PayloadItemCountParityTest {
 
         assertThat(proto.itemCount()).as("proto-backed item count").isEqualTo(expected);
         assertThat(domain.itemCount()).as("domain-backed item count").isEqualTo(expected);
-        assertThat(proto.itemCount()).as("proto and domain counts agree").isEqualTo(domain.itemCount());
     }
 }

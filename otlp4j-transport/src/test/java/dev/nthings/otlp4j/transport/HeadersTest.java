@@ -65,7 +65,7 @@ class HeadersTest {
     @Test
     void requireValidValidatesMap() {
         var valid = Map.of("x-tenant", "acme", "authorization", "Bearer x");
-        assertThat(Headers.requireValid(valid)).isSameAs(valid);
+        assertThat(Headers.requireValid(valid)).isEqualTo(valid);
 
         assertThatThrownBy(() -> Headers.requireValid(Map.of("x-tenant", "a\r\nb")))
                 .isInstanceOf(IllegalArgumentException.class);

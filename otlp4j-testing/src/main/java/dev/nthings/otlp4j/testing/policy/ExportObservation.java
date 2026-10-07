@@ -1,7 +1,6 @@
 package dev.nthings.otlp4j.testing.policy;
 
 import dev.nthings.otlp4j.core.result.DeliveryResult;
-import dev.nthings.otlp4j.core.result.Disposition;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CompletionException;
@@ -30,13 +29,12 @@ public record ExportObservation(
     }
 
     /// The neutral outcome of an export, agreed by every seam so a case reads the same value on any
-    /// transport. `RETRYABLE_REJECTED` and `PERMANENT_REJECTED` are distinguished by whether the retries
-    /// were exhausted (see [#classify]); `TIMED_OUT` is a total-budget expiry.
+    /// transport. A rejection records failure independently of the number of attempts;
+    /// `TIMED_OUT` is a total-budget expiry.
     public enum Outcome {
         ACCEPTED,
         PARTIAL,
-        RETRYABLE_REJECTED,
-        PERMANENT_REJECTED,
+        REJECTED,
         TIMED_OUT
     }
 
@@ -47,7 +45,6 @@ public record ExportObservation(
     /// @param totalElapsed     the wall-clock time the single export call took to settle
     /// @param result           the delivery result the stage completed with, or null on a failure
     /// @param failure          the throwable the stage completed with, or null on a returned result
-    /// @param maxAttempts      the retry policy's attempt count, an input to the rejection classification
     /// @param retries          the value read from the exporter's retry counter for this export
     /// @return the observation
     public static ExportObservation of(
@@ -56,54 +53,39 @@ public record ExportObservation(
             Duration totalElapsed,
             @Nullable DeliveryResult result,
             @Nullable Throwable failure,
-            int maxAttempts,
             int retries) {
         return new ExportObservation(
                 attempts,
                 interAttemptGaps,
                 totalElapsed,
-                classify(result, failure, attempts, maxAttempts),
+                classify(result, failure),
                 retries);
     }
 
-    /// The protocol-agnostic outcome classification rule. It reads the returned result or the
-    /// unwrapped failure type and,
-    /// for a plain transport rejection, the recorded attempt count relative to the policy's attempt
-    /// count, never a transport-specific exception type.
-    ///
-    /// 1. A returned [DeliveryResult] maps [DeliveryResult.Accepted] to `ACCEPTED`, [DeliveryResult.Partial]
-    ///    to `PARTIAL`, and a [DeliveryResult.Rejected] to `RETRYABLE_REJECTED` or `PERMANENT_REJECTED` by
-    ///    its disposition. The rule remains total for a transport that returns a rejection.
-    /// 2. An exceptional stage whose unwrapped cause is a [TimeoutException] is `TIMED_OUT`; the outer
-    ///    total-budget `orTimeout` is the only source of that type on these paths.
-    /// 3. Any other exceptional stage is a transport rejection. If `attempts == maxAttempts` the error
-    ///    was retryable and the attempts were exhausted, so it is `RETRYABLE_REJECTED`; if
-    ///    `attempts < maxAttempts` the retry predicate stopped a non-retryable error at the first
-    ///    attempt, so it is `PERMANENT_REJECTED`. This matches the retrying client's own attempt
-    ///    semantics and holds identically for both protocols.
+    /// Classifies the settled caller stage without deriving an outcome from the expected retry policy.
+    /// A transport exception cannot establish whether a rejection is retryable merely by how many
+    /// attempts reached the server. The suite checks retry behavior separately through those arrivals.
     ///
     /// @param result      the delivery result, or null on a failure
     /// @param failure     the throwable, or null on a returned result
-    /// @param attempts    the recorded attempt count
-    /// @param maxAttempts the policy's attempt count
     /// @return the neutral outcome
     public static Outcome classify(
-            @Nullable DeliveryResult result, @Nullable Throwable failure, int attempts, int maxAttempts) {
+            @Nullable DeliveryResult result, @Nullable Throwable failure) {
         if (result != null) {
             return switch (result) {
                 case DeliveryResult.Accepted ignored -> Outcome.ACCEPTED;
                 case DeliveryResult.Partial ignored -> Outcome.PARTIAL;
-                case DeliveryResult.Rejected rejected ->
-                        rejected.disposition() == Disposition.RETRYABLE
-                                ? Outcome.RETRYABLE_REJECTED
-                                : Outcome.PERMANENT_REJECTED;
+                case DeliveryResult.Rejected ignored -> Outcome.REJECTED;
             };
         }
         var cause = unwrap(failure);
         if (cause instanceof TimeoutException) {
             return Outcome.TIMED_OUT;
         }
-        return attempts >= maxAttempts ? Outcome.RETRYABLE_REJECTED : Outcome.PERMANENT_REJECTED;
+        if (cause == null) {
+            throw new IllegalArgumentException("an export observation requires a result or a failure");
+        }
+        return Outcome.REJECTED;
     }
 
     /// Unwraps a [CompletionException] to its cause, so the classification reads the transport failure

@@ -15,9 +15,7 @@ import java.util.concurrent.CompletionException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/// Unit tests for the [DeliveryResult] taxonomy: the three variants, every static factory, the
-/// record invariants, the `permanentFrom` normalization, and the `fanOutMerge` port that preserves
-/// the merged provenance and downstream marker the legacy merge dropped.
+/// Delivery failures and fan-out merging preserve loss and provenance.
 class DeliveryResultTest {
 
     private static final Provenance TRACES_EXPORTER =
@@ -32,8 +30,6 @@ class DeliveryResultTest {
         var accepted = DeliveryResult.accepted(TRACES_EXPORTER);
         assertThat(accepted).isInstanceOf(Accepted.class);
         assertThat(accepted.provenance()).isEqualTo(TRACES_EXPORTER);
-        assertThat(accepted).isEqualTo(new Accepted(TRACES_EXPORTER));
-        assertThat(accepted).hasToString(new Accepted(TRACES_EXPORTER).toString());
 
         var stage = DeliveryResult.acceptedStage(TRACES_EXPORTER);
         assertThat(stage.toCompletableFuture().get()).isEqualTo(accepted);
@@ -267,14 +263,6 @@ class DeliveryResultTest {
         // rather than the earlier retryable peer's.
         assertThat(merged.downstream()).isTrue();
         assertThat(merged.reason()).isEqualTo(DeliveryReason.PROTOCOL_TRANSLATION);
-        assertThat(merged.provenance()).isEqualTo(METRICS_EXPORTER);
-    }
-
-    @Test
-    @DisplayName("fanOutMerge of a single accepted peer with no rejections and no partials is accepted")
-    void fanOutMergeSingleAccepted() {
-        var merged = DeliveryResult.fanOutMerge(List.of(DeliveryResult.accepted(METRICS_EXPORTER)));
-        assertThat(merged).isInstanceOf(Accepted.class);
         assertThat(merged.provenance()).isEqualTo(METRICS_EXPORTER);
     }
 }

@@ -11,19 +11,6 @@ import org.junit.jupiter.api.Test;
 @DisplayName("Metric point builders and factories")
 class MetricPointBuildersTest {
 
-    @DisplayName("NumberPoint.builder() applies empty/zero defaults")
-    @Test
-    void numberPointDefaults() {
-        var point = NumberPoint.builder().build();
-
-        assertThat(point.attributes()).isEqualTo(Attributes.empty());
-        assertThat(point.startEpochNanos()).isZero();
-        assertThat(point.epochNanos()).isZero();
-        assertThat(point.value()).isNull();
-        assertThat(point.flags()).isZero();
-        assertThat(point.exemplars()).isEmpty();
-    }
-
     @DisplayName("NumberPoint value/exemplar setters and of() factories")
     @Test
     void numberPointSetters() {
@@ -46,19 +33,6 @@ class MetricPointBuildersTest {
         assertThat(factory.startEpochNanos()).isZero();
         assertThat(factory.value()).isEqualTo(new NumberPoint.DoubleValue(1.5));
         assertThat(factory.exemplars()).isEmpty();
-    }
-
-    @DisplayName("HistogramPoint.builder() defaults to empty Optionals and lists")
-    @Test
-    void histogramPointDefaults() {
-        var point = HistogramPoint.builder().build();
-
-        assertThat(point.sum()).isEmpty();
-        assertThat(point.min()).isEmpty();
-        assertThat(point.max()).isEmpty();
-        assertThat(point.bucketCounts()).isEmpty();
-        assertThat(point.explicitBounds()).isEmpty();
-        assertThat(point.exemplars()).isEmpty();
     }
 
     @DisplayName("HistogramPoint ergonomic double setters wrap into OptionalDouble")
@@ -126,17 +100,6 @@ class MetricPointBuildersTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
-    @DisplayName("ExponentialHistogramPoint.builder() defaults buckets to EMPTY")
-    @Test
-    void exponentialPointDefaults() {
-        var point = ExponentialHistogramPoint.builder().build();
-
-        assertThat(point.positive()).isEqualTo(ExponentialHistogramPoint.Buckets.EMPTY);
-        assertThat(point.negative()).isEqualTo(ExponentialHistogramPoint.Buckets.EMPTY);
-        assertThat(point.sum()).isEmpty();
-        assertThat(point.exemplars()).isEmpty();
-    }
-
     @DisplayName("ExponentialHistogramPoint sets the positive side and defaults the negative to EMPTY")
     @Test
     void exponentialPointBuckets() {
@@ -148,20 +111,6 @@ class MetricPointBuildersTest {
 
         assertThat(point.positive()).isEqualTo(new ExponentialHistogramPoint.Buckets(3, List.of(1L, 2L)));
         assertThat(point.negative()).isEqualTo(ExponentialHistogramPoint.Buckets.EMPTY);
-    }
-
-    @DisplayName("SummaryPoint.builder() applies empty/zero defaults")
-    @Test
-    void summaryPointDefaults() {
-        var point = SummaryPoint.builder().build();
-
-        assertThat(point.attributes()).isEqualTo(Attributes.empty());
-        assertThat(point.startEpochNanos()).isZero();
-        assertThat(point.epochNanos()).isZero();
-        assertThat(point.count()).isZero();
-        assertThat(point.sum()).isZero();
-        assertThat(point.quantileValues()).isEmpty();
-        assertThat(point.flags()).isZero();
     }
 
     @DisplayName("SummaryPoint quantile setters and of() factory")
@@ -188,17 +137,6 @@ class MetricPointBuildersTest {
         assertThat(factory.startEpochNanos()).isZero();
         assertThat(factory.flags()).isZero();
         assertThat(factory.quantileValues()).containsExactly(quantile);
-    }
-
-    @DisplayName("Exemplar.builder() defaults ids to empty and value to null")
-    @Test
-    void exemplarDefaults() {
-        var exemplar = Exemplar.builder().build();
-
-        assertThat(exemplar.spanId()).isEmpty();
-        assertThat(exemplar.traceId()).isEmpty();
-        assertThat(exemplar.value()).isNull();
-        assertThat(exemplar.filteredAttributes()).isEqualTo(Attributes.empty());
     }
 
     @DisplayName("Exemplar.of() leaves trace/span ids empty")

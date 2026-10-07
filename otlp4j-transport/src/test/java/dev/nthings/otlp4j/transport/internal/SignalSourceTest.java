@@ -109,11 +109,13 @@ class SignalSourceTest {
     @Test
     void emptyPayloadStillDispatches() {
         var source = source();
-        source.attach(accepting(new AtomicInteger()));
+        var hits = new AtomicInteger();
+        source.attach(accepting(hits));
         var result = source.dispatch(
                 new TestConsumeContext(), Payload.of(TRACES, new TracesData(List.of())))
                 .toCompletableFuture().join();
         assertThat(result).isInstanceOf(DeliveryResult.Accepted.class);
+        assertThat(hits.get()).isEqualTo(1);
     }
 
     private static SignalConsumer<TracesData> accepting(AtomicInteger hits) {

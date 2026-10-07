@@ -15,7 +15,7 @@ import java.io.IOException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/// Unit contract for a protobuf-backed payload: forwarding and routing stay pass-through until a
+/// Protobuf-backed forwarding and routing stay pass-through until a
 /// typed domain operation is requested.
 @DisplayName("Proto-backed payload")
 class ProtoRequestPayloadTest {
@@ -40,7 +40,7 @@ class ProtoRequestPayloadTest {
         assertThat(payload.signal()).isEqualTo(SignalDescriptor.TRACES);
         assertThat(payload.itemCount()).isEqualTo(2L);
         assertThat(PayloadWire.size(payload)).isEqualTo(request.getSerializedSize());
-        assertThat(PayloadWire.request(SignalCodec.TRACES, payload)).isSameAs(request);
+        assertThat(PayloadWire.request(SignalCodec.TRACES, payload).toByteArray()).isEqualTo(request.toByteArray());
     }
 
     @Test
@@ -58,12 +58,13 @@ class ProtoRequestPayloadTest {
     void decodesLazily() {
         var payload = tracePayload();
         assertThat(payload.dataMaterialized()).isFalse();
-        assertThat(payload.data()).isNotNull();
+        assertThat(payload.data().spans()).extracting(Span::name).containsExactly("a", "b");
         assertThat(payload.dataMaterialized()).isTrue();
-        assertThat(payload.withData(payload.data())).isSameAs(payload);
         var replacement = Fixtures.traceData(Fixtures.span("c", Span.Kind.CLIENT));
         Payload<TracesData> replaced = payload.withData(replacement);
-        assertThat(replaced.data()).isSameAs(replacement);
+        assertThat(PayloadWire.request(SignalCodec.TRACES, replaced)
+                .getResourceSpans(0).getScopeSpans(0).getSpans(0).getName()).isEqualTo("c");
+        assertThat(payload.data().spans()).extracting(Span::name).containsExactly("a", "b");
     }
 
     @Test

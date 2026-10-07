@@ -35,7 +35,7 @@ import org.slf4j.LoggerFactory;
 /// the outcome accumulator and waits for all entries at or below its sequence barrier, so submissions
 /// accepted after the call are excluded even when workers complete out of order. The pending set is
 /// updated before an entry becomes visible to a worker and removed only after its downstream result is
-/// recorded; this avoids the queue-empty/in-flight handoff race.
+/// recorded and its admission ownership released; this avoids the queue-empty/in-flight handoff race.
 public final class DeliveryQueue<T> {
 
     private static final Logger LOG = LoggerFactory.getLogger(DeliveryQueue.class);
@@ -103,21 +103,7 @@ public final class DeliveryQueue<T> {
         if (context == null || payload == null) {
             throw new IllegalArgumentException("context and payload must be non-null");
         }
-        synchronized (monitor) {
-            if (!accepting) {
-                return completed(DeliveryResult.shuttingDown("delivery queue is shutting down", provenance));
-            }
-            var until = degradedUntilNanos;
-            if (until != HEALTHY) {
-                var remaining = until - nanoTime.getAsLong();
-                if (remaining > 0) {
-                    return completed(DeliveryResult.throttled(
-                            Duration.ofNanos(remaining), "delivery queue degraded", provenance));
-                }
-            }
-
-            return offerAllLocked(context, List.of(payload), () -> {}).stages().get(0);
-        }
+        return offerAll(context, List.of(payload), () -> {}).stages().getFirst();
     }
 
     /// Atomically admits a group of split units. `FAIL` and `DROP_NEWEST` refuse the whole group when
@@ -222,10 +208,8 @@ public final class DeliveryQueue<T> {
     }
 
     private void dropLocked(QueueEntry<T> dropped) {
-        pending.remove(dropped.sequence());
         dropped.accumulator().drop(dropped.payload().itemCount());
-        dropped.onComplete().run();
-        monitor.notifyAll();
+        completeEntry(dropped);
     }
 
     private DeliveryResult droppedResult() {
@@ -280,15 +264,13 @@ public final class DeliveryQueue<T> {
             // accumulator into the carry accumulator; serializing the two operations prevents a late
             // delivery from updating an accumulator that was already merged and forgotten.
             entry.accumulator().record(entry.payload().itemCount(), result);
-            pending.remove(entry.sequence());
             if (result instanceof DeliveryResult.Rejected) {
                 tripDegradedLocked();
             } else {
                 clearDegradedIfExpiredLocked();
             }
-            monitor.notifyAll();
         }
-        entry.onComplete().run();
+        completeEntry(entry);
         if (result instanceof DeliveryResult.Rejected rejected) {
             LOG.warn("delivery queue drain rejected downstream for {}: {}", provenance.componentId(), rejected.message());
         }
@@ -302,18 +284,32 @@ public final class DeliveryQueue<T> {
             // still sitting in the bounded queue against the same failure accumulator.
             accepting = false;
             entry.accumulator().reject(entry.payload().itemCount(), fatal);
-            pending.remove(entry.sequence());
+            abandoned.add(entry);
             QueueEntry<T> queued;
             while ((queued = queue.poll()) != null) {
                 abandoned.add(queued);
                 queued.accumulator().reject(queued.payload().itemCount(), fatal);
-                pending.remove(queued.sequence());
             }
-            monitor.notifyAll();
         }
-        entry.onComplete().run();
         for (var queued : abandoned) {
-            queued.onComplete().run();
+            try {
+                completeEntry(queued);
+            } catch (Throwable cleanupFailure) {
+                if (cleanupFailure != fatal) {
+                    fatal.addSuppressed(cleanupFailure);
+                }
+            }
+        }
+    }
+
+    private void completeEntry(QueueEntry<T> entry) {
+        try {
+            entry.onComplete().run();
+        } finally {
+            synchronized (monitor) {
+                pending.remove(entry.sequence());
+                monitor.notifyAll();
+            }
         }
     }
 

@@ -17,7 +17,7 @@ import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/// Pins parity between proto-backed and domain-backed resource routing metadata.
+/// Resource routing values remain available without decoding the telemetry body.
 @DisplayName("Routing metadata parity")
 class RoutingMetadataParityTest {
 
@@ -73,14 +73,14 @@ class RoutingMetadataParityTest {
         RoutingMetadata protoMetadata = proto.routingMetadata();
         RoutingMetadata domainMetadata = domain.routingMetadata();
 
-        assertThat(protoMetadata.resourceAttribute("service.name")).contains("checkout");
-        assertThat(protoMetadata.resourceAttribute("tenant")).contains("acme");
-        assertThat(protoMetadata.resourceAttribute("deployment.environment")).contains("prod");
-        assertThat(protoMetadata.resourceAttribute("absent")).isEmpty();
-        assertThat(protoMetadata.resourceAttributeKeys())
-                .containsExactlyInAnyOrder("service.name", "tenant", "deployment.environment");
-        assertThat(protoMetadata.resourceAttributeKeys()).isEqualTo(domainMetadata.resourceAttributeKeys());
-        assertThat(protoMetadata.resourceAttribute("service.name"))
-                .isEqualTo(domainMetadata.resourceAttribute("service.name"));
+        for (var metadata : List.of(protoMetadata, domainMetadata)) {
+            assertThat(metadata.resourceAttribute("service.name")).contains("checkout");
+            assertThat(metadata.resourceAttribute("tenant")).contains("acme");
+            assertThat(metadata.resourceAttribute("deployment.environment")).contains("prod");
+            assertThat(metadata.resourceAttribute("absent")).isEmpty();
+            assertThat(metadata.resourceAttributeKeys())
+                    .containsExactlyInAnyOrder("service.name", "tenant", "deployment.environment");
+        }
+        assertThat(proto.dataMaterialized()).isFalse();
     }
 }

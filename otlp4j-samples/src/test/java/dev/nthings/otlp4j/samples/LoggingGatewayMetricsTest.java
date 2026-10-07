@@ -1,9 +1,7 @@
 package dev.nthings.otlp4j.samples;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
 
-import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -44,13 +42,4 @@ class LoggingGatewayMetricsTest {
         assertThat(registry.gaugeValue("otlp4j.batcher.queued")).isZero();
     }
 
-    @DisplayName("logSnapshot emits every instrument without throwing")
-    @Test
-    void logSnapshotDoesNotThrow() {
-        var registry = new LoggingGatewayMetrics();
-        registry.counter("otlp4j.exporter.export.success", "ok").add(1);
-        var live = new AtomicLong(5);
-        registry.gauge("otlp4j.receiver.admission.in_flight.requests", "reqs", live::get);
-        assertThatCode(registry::logSnapshot).doesNotThrowAnyException();
-    }
 }

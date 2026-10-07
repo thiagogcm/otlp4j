@@ -47,13 +47,13 @@ public abstract class OtlpHttpConformanceSuite {
     @EnumSource(ConformanceSignal.class)
     void partialReturns200WithPartialSuccess(ConformanceSignal signal) {
         var scenario = Scenario.builder(signal)
-                .outcome(new ProgrammedOutcome.Partial(7, "7 items rejected"))
+                .outcome(new ProgrammedOutcome.Partial(1, "one item rejected"))
                 .build();
         withHttp(scenario, (client, gw) -> {
             var response = client.export(signal);
             assertThat(response.httpStatus()).hasValue(200);
             assertThat(hasPartialSuccess(signal, response)).isTrue();
-            assertThat(rejectedCount(signal, response)).isEqualTo(7L);
+            assertThat(rejectedCount(signal, response)).isEqualTo(1L);
         });
     }
 

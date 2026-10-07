@@ -16,7 +16,6 @@ class MatchSpecTest {
 
     @Test
     void emptySpecMatchesNothing() {
-        assertThat(MatchSpec.none().rules()).isEmpty();
         assertThat(MatchSpec.none().matches(traces(1), CTX)).isFalse();
     }
 

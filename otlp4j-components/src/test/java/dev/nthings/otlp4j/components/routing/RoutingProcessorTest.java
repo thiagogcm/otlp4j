@@ -1,6 +1,5 @@
 package dev.nthings.otlp4j.components.routing;
 
-import static dev.nthings.otlp4j.components.support.BatchSupport.baseContext;
 import static dev.nthings.otlp4j.components.support.BatchSupport.traces;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -8,11 +7,9 @@ import dev.nthings.otlp4j.components.support.MaterialisationTrackingPayload;
 import dev.nthings.otlp4j.components.support.RecordingConsumer;
 import dev.nthings.otlp4j.components.support.TestConsumeContext;
 import dev.nthings.otlp4j.core.component.ComponentId;
-import dev.nthings.otlp4j.core.component.ShutdownContext;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.model.TracesData;
-import java.time.Duration;
 import org.junit.jupiter.api.Test;
 
 class RoutingProcessorTest {
@@ -50,16 +47,11 @@ class RoutingProcessorTest {
         var processor = branch(condition("service.name", "checkout"), next);
         var tracked = new MaterialisationTrackingPayload<>(traces(1));
 
-        processor.consume(CTX, tracked).toCompletableFuture().join();
+        assertThat(processor.consume(CTX, tracked).toCompletableFuture().join())
+                .isInstanceOf(DeliveryResult.Accepted.class);
+        assertThat(next.received()).containsExactly(tracked);
 
         assertThat(tracked.domainRequested()).isFalse();
-    }
-
-    @Test
-    void lifecycleIsNoOp() {
-        var processor = branch(MatchSpec.none(), new RecordingConsumer<>());
-        processor.start(baseContext()).toCompletableFuture().join();
-        processor.shutdown(new ShutdownContext(Duration.ofSeconds(1))).toCompletableFuture().join();
     }
 
     private static MatchSpec condition(String key, String value) {

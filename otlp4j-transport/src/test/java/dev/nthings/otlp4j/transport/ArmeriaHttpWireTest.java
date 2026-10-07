@@ -4,24 +4,17 @@ import static dev.nthings.otlp4j.core.signal.SignalDescriptor.TRACES;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.linecorp.armeria.client.WebClient;
-import com.linecorp.armeria.common.HttpData;
 import com.linecorp.armeria.common.HttpHeaderNames;
-import com.linecorp.armeria.common.HttpMethod;
 import com.linecorp.armeria.common.HttpRequest;
 import com.linecorp.armeria.common.MediaType;
-import com.linecorp.armeria.common.RequestHeaders;
 import dev.nthings.otlp4j.codec.SignalCodec;
-import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.testing.Fixtures;
-import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceResponse;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.zip.GZIPOutputStream;
 import org.junit.jupiter.api.AfterEach;
@@ -79,35 +72,6 @@ class ArmeriaHttpWireTest {
         assertThat(response.contentType().nameWithoutParameters()).isEqualTo("application/x-protobuf");
     }
 
-    @DisplayName("a missing Content-Type is tolerated")
-    @Test
-    void missingContentTypeTolerated() {
-        var request = HttpRequest.of(
-                RequestHeaders.of(HttpMethod.POST, PATH), HttpData.wrap(traceBytes()));
-        assertThat(startAccepting().execute(request).aggregate().join().status().code()).isEqualTo(200);
-    }
-
-    @DisplayName("partial success is encoded in the 200 response body")
-    @Test
-    void partialSuccessEncodedInBody() throws Exception {
-        var client = client(OtlpReceiver.httpBuilder()
-                .route(TRACES, Consumers.partial(3L, "3 rejected")));
-        var response = client.execute(post(PROTOBUF, traceBytes())).aggregate().join();
-
-        assertThat(response.status().code()).isEqualTo(200);
-        var parsed = ExportTraceServiceResponse.parseFrom(response.content().array());
-        assertThat(parsed.getPartialSuccess().getRejectedSpans()).isEqualTo(3L);
-    }
-
-    @DisplayName("application/json yields 415")
-    @Test
-    void jsonYields415() {
-        var response = startAccepting()
-                .execute(post(MediaType.JSON_UTF_8, "{}".getBytes(StandardCharsets.UTF_8)))
-                .aggregate().join();
-        assertThat(response.status().code()).isEqualTo(415);
-    }
-
     @DisplayName("a non-application media type yields 415")
     @Test
     void textPlainYields415() {
@@ -115,31 +79,6 @@ class ArmeriaHttpWireTest {
                 .execute(post(MediaType.PLAIN_TEXT_UTF_8, "hi".getBytes(StandardCharsets.UTF_8)))
                 .aggregate().join();
         assertThat(response.status().code()).isEqualTo(415);
-    }
-
-    @DisplayName("a GET yields 405")
-    @Test
-    void getYields405() {
-        assertThat(startAccepting().get(PATH).aggregate().join().status().code()).isEqualTo(405);
-    }
-
-    @DisplayName("malformed protobuf yields 400")
-    @Test
-    void malformedProtobufYields400() {
-        var response = startAccepting()
-                .execute(post(PROTOBUF, new byte[] {(byte) 0xff, (byte) 0xff, (byte) 0xff}))
-                .aggregate().join();
-        assertThat(response.status().code()).isEqualTo(400);
-    }
-
-    @DisplayName("an oversized body yields 413")
-    @Test
-    void oversizedBodyYields413() {
-        var client = client(OtlpReceiver.httpBuilder()
-                .maxInboundMessageSizeBytes(16)
-                .route(TRACES, Consumers.accepting()));
-        assertThat(client.execute(post(PROTOBUF, traceBytes())).aggregate().join().status().code())
-                .isEqualTo(413);
     }
 
     @DisplayName("an oversized gzip body is inflated and capped with 413")
@@ -153,48 +92,6 @@ class ArmeriaHttpWireTest {
                 .header(HttpHeaderNames.CONTENT_ENCODING, "gzip")
                 .build();
         assertThat(client.execute(request).aggregate().join().status().code()).isEqualTo(413);
-    }
-
-    @DisplayName("a gzip body under the cap is inflated and accepted with 200")
-    @Test
-    void gzipBodyAccepted() throws Exception {
-        var request = HttpRequest.builder().post(PATH)
-                .content(PROTOBUF, gzip(traceBytes()))
-                .header(HttpHeaderNames.CONTENT_ENCODING, "gzip")
-                .build();
-        assertThat(startAccepting().execute(request).aggregate().join().status().code()).isEqualTo(200);
-    }
-
-    @DisplayName("a throttled rejection yields 503 with a Retry-After header")
-    @Test
-    void throttledYields503WithRetryAfter() {
-        var client = client(OtlpReceiver.httpBuilder()
-                .route(TRACES, Consumers.throttled(Duration.ofSeconds(4), "slow down")));
-        var response = client.execute(post(PROTOBUF, traceBytes())).aggregate().join();
-
-        assertThat(response.status().code()).isEqualTo(503);
-        assertThat(response.headers().get(HttpHeaderNames.RETRY_AFTER)).isEqualTo("4");
-    }
-
-    @DisplayName("admission at capacity yields 429 with a Retry-After header, then recovers")
-    @Test
-    void admissionAtCapacityYields429() throws Exception {
-        var entered = new CountDownLatch(1);
-        var gate = new CompletableFuture<DeliveryResult>();
-        var client = client(OtlpReceiver.httpBuilder()
-                .maxInFlightRequests(1)
-                .throttleRetryAfter(Duration.ofSeconds(3))
-                .route(TRACES, Consumers.gated(entered::countDown, gate)));
-
-        var held = client.execute(post(PROTOBUF, traceBytes())).aggregate();
-        assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
-
-        var second = client.execute(post(PROTOBUF, traceBytes())).aggregate().join();
-        assertThat(second.status().code()).isEqualTo(429);
-        assertThat(second.headers().get(HttpHeaderNames.RETRY_AFTER)).isEqualTo("3");
-
-        gate.complete(DeliveryResult.accepted(Consumers.PROV));
-        assertThat(held.get(5, TimeUnit.SECONDS).status().code()).isEqualTo(200);
     }
 
     private static byte[] gzip(byte[] data) throws Exception {

@@ -23,7 +23,7 @@ class MemoryLimiterProcessorTest {
 
     private static final ConsumeContext CTX = new TestConsumeContext();
     private static final ShutdownContext SHUTDOWN = new ShutdownContext(Duration.ofSeconds(5));
-    private static final Duration CHECK_INTERVAL = Duration.ofNanos(100);
+    private static final Duration CHECK_INTERVAL = Duration.ofSeconds(1);
     private static final Duration RETRY_AFTER = Duration.ofSeconds(2);
 
     private final AtomicLong used = new AtomicLong();

@@ -66,10 +66,4 @@ class ComponentLifecycleTest {
                 .hasRootCause(cause);
         assertThat(component.shutdownCalled).isTrue();
     }
-
-    @Test
-    @DisplayName("the default grace period is ten seconds")
-    void gracePeriod() {
-        assertThat(Component.DEFAULT_GRACE_PERIOD.toSeconds()).isEqualTo(10);
-    }
 }

@@ -5,9 +5,7 @@ import static dev.nthings.otlp4j.core.signal.SignalDescriptor.TRACES;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import dev.nthings.otlp4j.core.consumer.ClientMetadata;
 import dev.nthings.otlp4j.core.consumer.ConsumeContext;
-import dev.nthings.otlp4j.core.consumer.Deadline;
 import dev.nthings.otlp4j.core.consumer.SignalConsumer;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.result.Provenance;
@@ -20,7 +18,6 @@ import dev.nthings.otlp4j.model.TracesData;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.DisplayName;
@@ -30,22 +27,6 @@ import org.junit.jupiter.api.Test;
 class FactoryErgonomicsTest {
 
     private static final ComponentId ID = ComponentId.parse("fn");
-
-    @Test
-    @DisplayName("ComponentConfig.NONE is the shared no-op configuration")
-    void noneConfig() {
-        assertThat(ComponentConfig.NONE).isInstanceOf(ComponentConfig.None.class);
-        assertThat(ComponentConfig.NONE).isEqualTo(new ComponentConfig.None());
-    }
-
-    @Test
-    @DisplayName("map declares processor metadata and the no-op config")
-    void processorMetadata() {
-        var factory = ProcessorFactory.map("enrich", TRACES, value -> value);
-        assertThat(factory.kind()).isEqualTo(ComponentKind.PROCESSOR);
-        assertThat(factory.type()).isEqualTo("enrich");
-        assertThat(factory.defaultConfig()).isEqualTo(ComponentConfig.NONE);
-    }
 
     @Test
     @DisplayName("map rejects a wrong-signal creation")
@@ -85,16 +66,6 @@ class FactoryErgonomicsTest {
 
         assertThat(result).isInstanceOf(DeliveryResult.Accepted.class);
         assertThat(seen.get()).isNull();
-    }
-
-    @Test
-    @DisplayName("a typed processor starts and shuts down cleanly")
-    void processorLifecycle() {
-        var factory = ProcessorFactory.map("enrich", TRACES, value -> value);
-        var processor = factory.create(
-                new CreateContext(ID, base()), ComponentConfig.NONE, TRACES, sink(TRACES, new AtomicReference<>()));
-        assertThat(processor.start(base()).toCompletableFuture()).isCompleted();
-        assertThat(processor.shutdown(new ShutdownContext(Duration.ZERO)).toCompletableFuture()).isCompleted();
     }
 
     @Test

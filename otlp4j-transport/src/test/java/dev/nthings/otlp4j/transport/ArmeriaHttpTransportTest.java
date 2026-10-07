@@ -5,8 +5,9 @@ import static dev.nthings.otlp4j.core.signal.SignalDescriptor.METRICS;
 import static dev.nthings.otlp4j.core.signal.SignalDescriptor.PROFILES;
 import static dev.nthings.otlp4j.core.signal.SignalDescriptor.TRACES;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import dev.nthings.otlp4j.core.policy.BackoffPolicy;
+import dev.nthings.otlp4j.core.policy.RetryPolicy;
 import dev.nthings.otlp4j.transport.Compression;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.model.LogsData;
@@ -18,7 +19,6 @@ import dev.nthings.otlp4j.testing.TransportFixtures;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
@@ -88,13 +88,13 @@ class ArmeriaHttpTransportTest {
     @Test
     void propagatesPartialSuccess() {
         var receiver = startReceiver(OtlpReceiver.httpBuilder()
-                .route(TRACES, Consumers.partial(4L, "4 spans rejected")));
+                .route(TRACES, Consumers.partial(1L, "one span rejected")));
         var result = exporterTo(receiver)
-                .export(TRACES, Fixtures.traceData(Fixtures.span("op", Span.Kind.INTERNAL)))
+                .export(TRACES, Fixtures.traceData(Fixtures.span("kept", Span.Kind.INTERNAL), Fixtures.span("rejected", Span.Kind.INTERNAL)))
                 .toCompletableFuture().join();
 
         assertThat(result).isInstanceOf(DeliveryResult.Partial.class);
-        assertThat(((DeliveryResult.Partial) result).rejectedItems()).isEqualTo(4L);
+        assertThat(((DeliveryResult.Partial) result).rejectedItems()).isEqualTo(1L);
     }
 
     @DisplayName("gzip compression round-trips")
@@ -107,6 +107,7 @@ class ArmeriaHttpTransportTest {
                 .endpoint("localhost", receiver.port())
                 .compression(Compression.GZIP)
                 .timeout(Duration.ofSeconds(5))
+                .retryPolicy(new RetryPolicy(1, BackoffPolicy.defaults(), false))
                 .build().start();
         closeables.add(exporter);
         var sent = TransportFixtures.richTraceData();
@@ -114,32 +115,6 @@ class ArmeriaHttpTransportTest {
         assertThat(exporter.export(TRACES, sent).toCompletableFuture().join())
                 .isInstanceOf(DeliveryResult.Accepted.class);
         assertThat(received.get()).isEqualTo(sent);
-    }
-
-    @DisplayName("a retryable rejection surfaces as HTTP 503")
-    @Test
-    void retryableRejectionSurfacesAs503() {
-        var receiver = startReceiver(OtlpReceiver.httpBuilder()
-                .route(TRACES, Consumers.throttled(Duration.ofSeconds(2), "slow down")));
-        var exporter = exporterTo(receiver);
-
-        assertThatThrownBy(() -> exporter.export(TRACES, TransportFixtures.richTraceData())
-                .toCompletableFuture().join())
-                .isInstanceOf(CompletionException.class)
-                .hasMessageContaining("HTTP 503");
-    }
-
-    @DisplayName("a permanent rejection surfaces as HTTP 500")
-    @Test
-    void permanentRejectionSurfacesAs500() {
-        var receiver = startReceiver(OtlpReceiver.httpBuilder()
-                .route(TRACES, Consumers.permanent("filtered")));
-        var exporter = exporterTo(receiver);
-
-        assertThatThrownBy(() -> exporter.export(TRACES, TransportFixtures.richTraceData())
-                .toCompletableFuture().join())
-                .isInstanceOf(CompletionException.class)
-                .hasMessageContaining("HTTP 500");
     }
 
     private OtlpReceiver startReceiver(OtlpReceiver.Builder builder) {
@@ -152,6 +127,7 @@ class ArmeriaHttpTransportTest {
         var exporter = OtlpExporter.httpBuilder()
                 .endpoint("localhost", receiver.port())
                 .timeout(Duration.ofSeconds(5))
+                .retryPolicy(new RetryPolicy(1, BackoffPolicy.defaults(), false))
                 .build().start();
         closeables.add(exporter);
         return exporter;

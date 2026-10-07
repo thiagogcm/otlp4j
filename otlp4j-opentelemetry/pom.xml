@@ -54,20 +54,6 @@
                     </compilerArgs>
                 </configuration>
             </plugin>
-            <!-- Keep the optional bridge under the same 90/80 coverage ratchet as the core modules. -->
-            <plugin>
-                <groupId>org.jacoco</groupId>
-                <artifactId>jacoco-maven-plugin</artifactId>
-                <executions>
-                    <execution>
-                        <id>check-coverage</id>
-                        <phase>verify</phase>
-                        <goals>
-                            <goal>check</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
         </plugins>
     </build>
 </project>

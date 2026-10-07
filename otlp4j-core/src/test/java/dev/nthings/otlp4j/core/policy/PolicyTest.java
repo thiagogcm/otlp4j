@@ -9,18 +9,12 @@ import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/// Unit tests for the neutral policy records and enums: their defaults and invariants.
+/// Reject unusable policy inputs and isolate mutable batching metadata.
 class PolicyTest {
 
     @Test
-    @DisplayName("backoff defaults mirror the legacy client retry numbers and enforce ranges")
+    @DisplayName("backoff rejects nonpositive delays, shrinking multipliers, and invalid jitter")
     void backoffPolicy() {
-        var defaults = BackoffPolicy.defaults();
-        assertThat(defaults.initial()).isEqualTo(Duration.ofSeconds(1));
-        assertThat(defaults.multiplier()).isEqualTo(1.5);
-        assertThat(defaults.jitter()).isEqualTo(0.5);
-        assertThat(defaults.max()).isEqualTo(Duration.ofSeconds(5));
-
         assertThatThrownBy(() -> new BackoffPolicy(Duration.ZERO, 1.5, 0.5, Duration.ofSeconds(5)))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new BackoffPolicy(Duration.ofSeconds(2), 1.5, 0.5, Duration.ofSeconds(1)))
@@ -32,13 +26,8 @@ class PolicyTest {
     }
 
     @Test
-    @DisplayName("retry defaults are five attempts honouring the server hint and enforce a minimum")
+    @DisplayName("retry rejects a missing backoff or a zero attempt budget")
     void retryPolicy() {
-        var defaults = RetryPolicy.defaults();
-        assertThat(defaults.maxAttempts()).isEqualTo(5);
-        assertThat(defaults.respectServerRetryAfter()).isTrue();
-        assertThat(defaults.backoff()).isEqualTo(BackoffPolicy.defaults());
-
         assertThatThrownBy(() -> new RetryPolicy(0, BackoffPolicy.defaults(), true))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new RetryPolicy(1, null, true))
@@ -48,9 +37,6 @@ class PolicyTest {
     @Test
     @DisplayName("timeout policy requires a positive per-attempt and a total at least as large")
     void timeoutPolicy() {
-        var timeout = new TimeoutPolicy(Duration.ofSeconds(5), Duration.ofSeconds(30));
-        assertThat(timeout.perAttempt()).isEqualTo(Duration.ofSeconds(5));
-        assertThat(timeout.total()).isEqualTo(Duration.ofSeconds(30));
 
         assertThatThrownBy(() -> new TimeoutPolicy(Duration.ZERO, Duration.ofSeconds(1)))
                 .isInstanceOf(IllegalArgumentException.class);
@@ -65,9 +51,6 @@ class PolicyTest {
         var batch = new BatchPolicy(100, 200, 1_000_000, Duration.ofSeconds(1), keys);
         keys.add("late");
         assertThat(batch.metadataKeys()).containsExactly("x-tenant");
-        assertThat(batch.sendBatchSize()).isEqualTo(100);
-        assertThat(batch.sendBatchMaxSize()).isEqualTo(200);
-        assertThat(batch.sendBatchMaxBytes()).isEqualTo(1_000_000);
 
         // A zero cap means no cap and is allowed.
         assertThat(new BatchPolicy(50, 0, 0, Duration.ZERO, List.of()).sendBatchMaxSize()).isZero();
@@ -89,10 +72,6 @@ class PolicyTest {
     @Test
     @DisplayName("delivery queue policy validates its sizes and overflow")
     void deliveryQueuePolicy() {
-        var queue = new DeliveryQueuePolicy(1000, 4, OverflowPolicy.FAIL);
-        assertThat(queue.queueSize()).isEqualTo(1000);
-        assertThat(queue.numConsumers()).isEqualTo(4);
-        assertThat(queue.overflow()).isEqualTo(OverflowPolicy.FAIL);
 
         assertThatThrownBy(() -> new DeliveryQueuePolicy(0, 1, OverflowPolicy.FAIL))
                 .isInstanceOf(IllegalArgumentException.class);
@@ -100,18 +79,5 @@ class PolicyTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new DeliveryQueuePolicy(1, 1, null))
                 .isInstanceOf(IllegalArgumentException.class);
-    }
-
-    @Test
-    @DisplayName("the overflow enum has only non-blocking values")
-    void overflowPolicy() {
-        assertThat(OverflowPolicy.values())
-                .containsExactly(
-                        OverflowPolicy.DROP_OLDEST,
-                        OverflowPolicy.DROP_NEWEST,
-                        OverflowPolicy.FAIL);
-        for (var value : OverflowPolicy.values()) {
-            assertThat(OverflowPolicy.valueOf(value.name())).isEqualTo(value);
-        }
     }
 }

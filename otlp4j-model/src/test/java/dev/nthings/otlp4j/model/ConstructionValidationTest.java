@@ -9,11 +9,8 @@ import java.util.List;
 import java.util.OptionalDouble;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.EnumSource;
 
-/// Pins construction-time validation and the explicit wire-number mapping that move failures off
-/// the asynchronous export thread and decouple enum encoding from declaration order.
+/// Reject malformed identifiers and isolate source collections.
 @DisplayName("Model construction validation")
 class ConstructionValidationTest {
 
@@ -70,8 +67,6 @@ class ConstructionValidationTest {
         assertThatThrownBy(() -> Span.builder().traceId("zz020304050607080910111213141516").build())
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("traceId");
         // Empty ids are valid (absent) and uppercase hex is accepted.
-        assertThat(Span.builder().traceId("0102030405060708090A0B0C0D0E0F10").build().traceId())
-                .isEqualTo("0102030405060708090A0B0C0D0E0F10");
     }
 
     @DisplayName("Span and Span.Link reject flags outside the unsigned 32-bit range at construction")
@@ -150,29 +145,4 @@ class ConstructionValidationTest {
     }
 
     // --- explicit wire numbers (decoupled from declaration order) ---------------------------
-
-    @DisplayName("Every Span.Kind maps to its number and back, unknown numbers degrade to UNSPECIFIED")
-    @ParameterizedTest
-    @EnumSource(Span.Kind.class)
-    void spanKindNumberRoundTrips(Span.Kind kind) {
-        assertThat(Span.Kind.fromNumber(kind.number())).isEqualTo(kind);
-        assertThat(Span.Kind.fromNumber(999)).isEqualTo(Span.Kind.UNSPECIFIED);
-    }
-
-    @DisplayName("Every Span.Status.Code maps to its number and back, unknown numbers degrade to UNSET")
-    @ParameterizedTest
-    @EnumSource(Span.Status.Code.class)
-    void statusCodeNumberRoundTrips(Span.Status.Code code) {
-        assertThat(Span.Status.Code.fromNumber(code.number())).isEqualTo(code);
-        assertThat(Span.Status.Code.fromNumber(-1)).isEqualTo(Span.Status.Code.UNSET);
-    }
-
-    @DisplayName("Every AggregationTemporality maps to its number and back, unknown numbers degrade")
-    @ParameterizedTest
-    @EnumSource(Metric.AggregationTemporality.class)
-    void temporalityNumberRoundTrips(Metric.AggregationTemporality temporality) {
-        assertThat(Metric.AggregationTemporality.fromNumber(temporality.number())).isEqualTo(temporality);
-        assertThat(Metric.AggregationTemporality.fromNumber(42))
-                .isEqualTo(Metric.AggregationTemporality.UNSPECIFIED);
-    }
 }

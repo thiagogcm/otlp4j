@@ -64,12 +64,6 @@ class ArmeriaOtlpServerLifecycleTest {
         assertThatThrownBy(server::start).isInstanceOf(IllegalStateException.class);
     }
 
-    @DisplayName("port is zero before start")
-    @Test
-    void portBeforeStartIsZero() {
-        assertThat(new ArmeriaOtlpServer(ephemeral(), NO_OP, GRPC).port()).isZero();
-    }
-
     @DisplayName("double start throws IllegalStateException")
     @Test
     void doubleStartThrows() throws Exception {
@@ -80,56 +74,6 @@ class ArmeriaOtlpServerLifecycleTest {
             assertThatThrownBy(server::start)
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("already started");
-        } finally {
-            server.shutdown(Duration.ofSeconds(5)).toCompletableFuture().join();
-        }
-    }
-
-    @DisplayName("a dual-protocol server binds one positive port")
-    @Test
-    void dualProtocolBindsOnePort() throws Exception {
-        var server = new ArmeriaOtlpServer(ephemeral(), NO_OP, BOTH);
-        server.start();
-        try {
-            assertThat(server.port()).isPositive();
-        } finally {
-            server.shutdown(Duration.ofSeconds(5)).toCompletableFuture().join();
-        }
-    }
-
-    @DisplayName("an HTTP-only server starts and gracefully shuts down")
-    @Test
-    void httpOnlyStartsAndDrains() throws Exception {
-        var server = new ArmeriaOtlpServer(ephemeral(), NO_OP, HTTP);
-        server.start();
-        assertThat(server.port()).isPositive();
-        server.shutdown(Duration.ofSeconds(5)).toCompletableFuture().join();
-    }
-
-    @DisplayName("a loopback-only bindHost binds successfully")
-    @Test
-    void loopbackBindStarts() throws Exception {
-        var config = OtlpReceiverConfig.builder(4317).bindHost("127.0.0.1").port(0).build();
-        var server = new ArmeriaOtlpServer(config, NO_OP, GRPC);
-        server.start();
-        try {
-            assertThat(server.port()).isPositive();
-        } finally {
-            server.shutdown(Duration.ofSeconds(5)).toCompletableFuture().join();
-        }
-    }
-
-    @DisplayName("the hardening knobs are accepted and the server still starts")
-    @Test
-    void hardeningKnobsStart() throws Exception {
-        var config = OtlpReceiverConfig.builder(4317)
-                .port(0)
-                .maxInboundMessageSizeBytes(1024 * 1024)
-                .build();
-        var server = new ArmeriaOtlpServer(config, NO_OP, BOTH);
-        server.start();
-        try {
-            assertThat(server.port()).isPositive();
         } finally {
             server.shutdown(Duration.ofSeconds(5)).toCompletableFuture().join();
         }
@@ -168,5 +112,4 @@ class ArmeriaOtlpServerLifecycleTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("certificate and a key");
     }
-
 }

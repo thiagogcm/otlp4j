@@ -9,7 +9,7 @@ Run commands in this guide from the repository root. Use JDK 25 and the Maven wr
 | Check the Java and Maven toolchain             | `./mvnw --version`  |
 | Compile the default reactor                    | `./mvnw -B compile` |
 | Run its tests                                  | `./mvnw -B test`    |
-| Run tests, coverage checks, and Javadoc lint   | `./mvnw -B verify`  |
+| Run tests, coverage reports, and Javadoc lint  | `./mvnw -B verify`  |
 | Install artifacts locally                      | `./mvnw -B install` |
 | Check justfile formatting and run verification | `just ci`           |
 
@@ -29,17 +29,19 @@ Read related tests before adding cases. Reuse setup and focus assertions on fail
 
 | Change | Relevant checks |
 | --- | --- |
-| Domain values or codec mappings | Constructor invariants, round trips, property tests, item-count and routing parity |
+| Domain values or codec mappings | Malformed inputs, round trips, property tests, item-count and routing parity |
 | Graph assembly | Diagnostics, signal support, sharing, connector pairs, and cycle rejection |
 | Buffering or concurrency | Admission, overflow, loss reports, flush barriers, late outcomes, and worker failure |
 | Wire transport | HTTP/gRPC conformance, compression, size limits, TLS, retries, and server hints |
 | Lifecycle | Startup rollback, shutdown ordering, deadlines, and resource cleanup |
 | SDK adapters | Snapshot isolation, field mappings, result translation, and borrowed-input lifecycle |
-| Application API | Sample tests and the external JPMS consumer test |
+| Application workflows | Sample scenarios with observable transformations and delivery |
 
 The `otlp4j-testing` module supplies fixtures and reusable conformance suites. `otlp4j-conformance` runs them against the bundled transport through real wire clients. Test TLS fixture maintenance is documented [beside the PEM resources](../otlp4j-testing/src/main/resources/dev/nthings/otlp4j/testing/conformance/tls/README.md).
 
-Verification enforces module coverage thresholds where configured, currently 90% instruction coverage and 80% branch coverage. The aggregate report is written to `otlp4j-coverage/target/site/jacoco-aggregate/index.html`. Coverage supports inspection; meaningful failure tests remain necessary.
+Coverage reports support inspection without imposing a percentage gate. The aggregate report is written to `otlp4j-coverage/target/site/jacoco-aggregate/index.html`.
+
+Choose tests that can expose a real defect: lost or duplicated telemetry, incorrect filtering, backpressure, retry decisions, cancellation, and incomplete draining. Use distinguishable inputs and independent expected outcomes. Keep malformed inputs in focused failure cases, and make ordinary fixtures coherent. Avoid tests that freeze API shape, enum inventories, defaults, dependency layout, or build internals.
 
 ## Generate protocol sources
 

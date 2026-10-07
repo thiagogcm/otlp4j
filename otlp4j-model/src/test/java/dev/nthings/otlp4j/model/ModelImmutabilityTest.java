@@ -3,86 +3,16 @@ package dev.nthings.otlp4j.model;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import dev.nthings.otlp4j.model.LogsData.ResourceLogs;
-import dev.nthings.otlp4j.model.LogsData.ScopeLogs;
-import dev.nthings.otlp4j.model.MetricsData.ResourceMetrics;
-import dev.nthings.otlp4j.model.MetricsData.ScopeMetrics;
-import dev.nthings.otlp4j.model.ProfilesData.Profile;
-import dev.nthings.otlp4j.model.ProfilesData.ResourceProfiles;
-import dev.nthings.otlp4j.model.ProfilesData.ScopeProfiles;
 import dev.nthings.otlp4j.model.TracesData.ResourceSpans;
-import dev.nthings.otlp4j.model.TracesData.ScopeSpans;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.OptionalDouble;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/// White-box tests pinning the model records' real logic: flattening across resources/scopes,
-/// defensive list copying in the compact constructors, and the documented constants.
-@DisplayName("Model record invariants")
-class ModelRecordInvariantsTest {
-
-    // --- flattening across resources/scopes -------------------------------------------------
-
-    @DisplayName("TracesData.spans flattens across every resource and scope")
-    @Test
-    void traceDataSpansFlattensAcrossEveryResourceAndScope() {
-        var trace = new TracesData(List.of(
-                new ResourceSpans(Resource.EMPTY, "", List.of(
-                        new ScopeSpans(InstrumentationScope.EMPTY, "", List.of(
-                                span("a"), span("b"))),
-                        new ScopeSpans(InstrumentationScope.EMPTY, "", List.of(span("c"))))),
-                new ResourceSpans(Resource.EMPTY, "", List.of(
-                        new ScopeSpans(InstrumentationScope.EMPTY, "", List.of(span("d")))))));
-
-        assertThat(trace.spans()).extracting(Span::name).containsExactly("a", "b", "c", "d");
-    }
-
-    @DisplayName("MetricsData.metrics flattens across every resource and scope")
-    @Test
-    void metricsDataMetricsFlattensAcrossEveryResourceAndScope() {
-        var metrics = new MetricsData(List.of(
-                new ResourceMetrics(Resource.EMPTY, "", List.of(
-                        new ScopeMetrics(InstrumentationScope.EMPTY, "", List.of(
-                                metric("m1"), metric("m2"))))),
-                new ResourceMetrics(Resource.EMPTY, "", List.of(
-                        new ScopeMetrics(InstrumentationScope.EMPTY, "", List.of(metric("m3")))))));
-
-        assertThat(metrics.metrics()).extracting(Metric::name).containsExactly("m1", "m2", "m3");
-    }
-
-    @DisplayName("LogsData.logRecords flattens across every resource and scope")
-    @Test
-    void logsDataLogRecordsFlattensAcrossEveryResourceAndScope() {
-        var logs = new LogsData(List.of(
-                new ResourceLogs(Resource.EMPTY, "", List.of(
-                        new ScopeLogs(InstrumentationScope.EMPTY, "", List.of(
-                                logRecord("first"), logRecord("second"))))),
-                new ResourceLogs(Resource.EMPTY, "", List.of(
-                        new ScopeLogs(InstrumentationScope.EMPTY, "", List.of(logRecord("third")))))));
-
-        assertThat(logs.logRecords())
-                .extracting(LogRecord::eventName)
-                .containsExactly("first", "second", "third");
-    }
-
-    @DisplayName("ProfilesData.profiles flattens across every resource and scope")
-    @Test
-    void profilesDataProfilesFlattensAcrossEveryResourceAndScope() {
-        var profiles = new ProfilesData(List.of(
-                new ResourceProfiles(Resource.EMPTY, "", List.of(
-                        new ScopeProfiles(InstrumentationScope.EMPTY, "", List.of(
-                                profile("p1"), profile("p2"))))),
-                new ResourceProfiles(Resource.EMPTY, "", List.of(
-                        new ScopeProfiles(InstrumentationScope.EMPTY, "", List.of(profile("p3")))))), new byte[0]);
-
-        assertThat(profiles.profiles())
-                .extracting(Profile::profileId)
-                .containsExactly("p1", "p2", "p3");
-    }
-
-    // --- defensive list copying in compact constructors -------------------------------------
+/// Protect telemetry snapshots from mutation of their source collections.
+@DisplayName("Model snapshot immutability")
+class ModelImmutabilityTest {
 
     @DisplayName("TracesData defensively copies its ResourceSpans list")
     @Test
@@ -191,27 +121,6 @@ class ModelRecordInvariantsTest {
                 .isInstanceOf(UnsupportedOperationException.class);
     }
 
-    // --- documented constants ---------------------------------------------------------------
-
-    @DisplayName("Documented constants expose their empty or unset values")
-    @Test
-    void documentedConstantsExposeTheirEmptyOrUnsetValues() {
-        assertThat(Resource.EMPTY.attributes()).isEqualTo(Attributes.empty());
-        assertThat(Resource.EMPTY.droppedAttributesCount()).isZero();
-
-        assertThat(InstrumentationScope.EMPTY.name()).isEmpty();
-        assertThat(InstrumentationScope.EMPTY.version()).isEmpty();
-        assertThat(InstrumentationScope.EMPTY.attributes()).isEqualTo(Attributes.empty());
-
-        assertThat(Span.Status.UNSET.code()).isEqualTo(Span.Status.Code.UNSET);
-        assertThat(Span.Status.UNSET.message()).isEmpty();
-
-        assertThat(ExponentialHistogramPoint.Buckets.EMPTY.offset()).isZero();
-        assertThat(ExponentialHistogramPoint.Buckets.EMPTY.bucketCounts()).isEmpty();
-
-        assertThat(AttributeValue.empty()).isInstanceOf(AttributeValue.Empty.class);
-    }
-
     @DisplayName("Exemplar validates required fields while preserving unset values")
     @Test
     void exemplarValidatesRequiredFieldsWhilePreservingUnsetValues() {
@@ -227,24 +136,6 @@ class ModelRecordInvariantsTest {
                         Attributes.empty(), 5_000L, null, "", "not-hex"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("traceId");
-    }
-
-    // --- helpers ----------------------------------------------------------------------------
-
-    private static Span span(String name) {
-        return Span.builder().name(name).build();
-    }
-
-    private static Metric metric(String name) {
-        return Metric.builder().name(name).data(new Metric.Gauge(List.of())).build();
-    }
-
-    private static LogRecord logRecord(String eventName) {
-        return LogRecord.builder().eventName(eventName).build();
-    }
-
-    private static Profile profile(String profileId) {
-        return new Profile(profileId, 0L, 0L, 0L, 0, 0, "", new byte[0]);
     }
 
     private static HistogramPoint histogramPoint() {

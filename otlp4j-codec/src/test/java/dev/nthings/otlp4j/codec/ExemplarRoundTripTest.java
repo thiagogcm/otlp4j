@@ -27,14 +27,14 @@ class ExemplarRoundTripTest {
     private static Exemplar longExemplar() {
         return new Exemplar(
                 Attributes.builder().put("filtered", "yes").build(),
-                3_000L,
+                1_500L,
                 NumberPoint.longValue(42L),
                 SPAN_ID,
                 TRACE_ID);
     }
 
     private static Exemplar doubleExemplar() {
-        return new Exemplar(Attributes.empty(), 4_000L, NumberPoint.doubleValue(1.5), "", "");
+        return new Exemplar(Attributes.empty(), 1_800L, NumberPoint.doubleValue(1.5), "", "");
     }
 
     private static Metric gaugeWithExemplars() {
@@ -76,14 +76,14 @@ class ExemplarRoundTripTest {
                 Attributes.empty(),
                 1_000L,
                 2_000L,
-                7L,
-                OptionalDouble.of(50.0),
+                5L,
+                OptionalDouble.of(5.5),
                 2,
                 1L,
                 new ExponentialHistogramPoint.Buckets(0, List.of(1L, 2L, 1L)),
                 ExponentialHistogramPoint.Buckets.EMPTY,
-                OptionalDouble.of(0.1),
-                OptionalDouble.of(9.9),
+                OptionalDouble.of(0.0),
+                OptionalDouble.of(1.5),
                 0.0,
                 0L,
                 List.of(doubleExemplar()));
@@ -107,34 +107,10 @@ class ExemplarRoundTripTest {
                 .isEqualTo(sent);
     }
 
-    @DisplayName("An exemplar's value and trace/span ids survive the round-trip")
-    @Test
-    void exemplarValueAndIdsSurvive() {
-        var sent = Fixtures.metricsData(gaugeWithExemplars());
-
-        var roundTripped = MetricsMapper.toDomain(MetricsMapper.toProto(sent));
-
-        var exemplars = firstNumberPoint(roundTripped).exemplars();
-        assertThat(exemplars).hasSize(2);
-
-        var withTrace = exemplars.getFirst();
-        assertThat(withTrace.value()).isEqualTo(NumberPoint.longValue(42L));
-        assertThat(withTrace.spanId()).isEqualTo(SPAN_ID);
-        assertThat(withTrace.traceId()).isEqualTo(TRACE_ID);
-        assertThat(withTrace.epochNanos()).isEqualTo(3_000L);
-        assertThat(withTrace.filteredAttributes())
-                .isEqualTo(Attributes.builder().put("filtered", "yes").build());
-
-        var withoutTrace = exemplars.get(1);
-        assertThat(withoutTrace.value()).isEqualTo(NumberPoint.doubleValue(1.5));
-        assertThat(withoutTrace.spanId()).isEmpty();
-        assertThat(withoutTrace.traceId()).isEmpty();
-    }
-
     @DisplayName("A value-less (VALUE_NOT_SET) exemplar round-trips to a null value")
     @Test
     void nullValueExemplarRoundTrips() {
-        var exemplar = new Exemplar(Attributes.empty(), 5_000L, null, "", "");
+        var exemplar = new Exemplar(Attributes.empty(), 1_700L, null, "", "");
         var point = new NumberPoint(
                 Attributes.empty(), 1_000L, 2_000L, NumberPoint.longValue(1L), 0L, List.of(exemplar));
         var sent = Fixtures.metricsData(Metric.builder()

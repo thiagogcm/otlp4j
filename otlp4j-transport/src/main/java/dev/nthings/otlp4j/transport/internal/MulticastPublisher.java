@@ -131,11 +131,15 @@ final class MulticastPublisher<T> implements Flow.Publisher<T>, AutoCloseable {
                 return;
             }
             if (strategy == OverflowPolicy.DROP_OLDEST) {
-                if (!queue.offer(item)) {
-                    if (queue.poll() != null) {
-                        recordDrop();
+                // Several receiver requests may publish concurrently. Keep eviction and replacement
+                // together so another producer cannot fill the freed slot and hide a lost item.
+                synchronized (queue) {
+                    if (!queue.offer(item)) {
+                        if (queue.poll() != null) {
+                            recordDrop();
+                        }
+                        queue.offer(item);
                     }
-                    queue.offer(item);
                 }
             } else if (strategy == OverflowPolicy.DROP_NEWEST) {
                 if (!queue.offer(item)) {

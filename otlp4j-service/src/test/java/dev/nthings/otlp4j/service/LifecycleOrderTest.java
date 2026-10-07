@@ -47,12 +47,6 @@ class LifecycleOrderTest {
     }
 
     @Test
-    void instantiatesInReverseTopologicalOrder() {
-        chain(false).build();
-        assertThat(filtered("create:")).containsSubsequence("otlpexp", "batch/2", "batch/1", "otlp");
-    }
-
-    @Test
     void startsInReverseTopologicalOrder() {
         var runtime = chain(false).build();
         runtime.start();

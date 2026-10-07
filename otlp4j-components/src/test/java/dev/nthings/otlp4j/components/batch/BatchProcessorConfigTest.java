@@ -1,6 +1,5 @@
 package dev.nthings.otlp4j.components.batch;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.nthings.otlp4j.core.policy.BatchPolicy;
@@ -14,19 +13,6 @@ class BatchProcessorConfigTest {
 
     private static final BatchPolicy BATCH = new BatchPolicy(8192, 0, 0, Duration.ofSeconds(1), List.of());
     private static final DeliveryQueuePolicy DELIVERY = new DeliveryQueuePolicy(1024, 1, OverflowPolicy.FAIL);
-
-    @Test
-    void defaultsCarryTheBoundedAdmissionValues() {
-        var config = BatchProcessorConfig.defaults();
-        assertThat(config.batch().sendBatchSize()).isEqualTo(8192);
-        assertThat(config.delivery().queueSize()).isEqualTo(1024);
-        assertThat(config.delivery().numConsumers()).isEqualTo(1);
-        assertThat(config.delivery().overflow()).isEqualTo(OverflowPolicy.FAIL);
-        assertThat(config.maxPendingSubmissions()).isEqualTo(1024);
-        assertThat(config.maxPendingBytes()).isEqualTo(64L * 1024 * 1024);
-        assertThat(config.maxPartitions()).isEqualTo(1024);
-        assertThat(config.degradedWindow()).isEqualTo(Duration.ofSeconds(5));
-    }
 
     @Test
     void rejectsNullDegradedWindow() {

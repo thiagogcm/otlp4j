@@ -32,7 +32,7 @@ class ProfilesRoundTripTest {
         var profile = Profile.newBuilder()
                 .setSampleType(ValueType.newBuilder().setTypeStrindex(1).setUnitStrindex(2))
                 .addSamples(Sample.newBuilder()
-                        .setStackIndex(3)
+                        .setStackIndex(1)
                         .addValues(10L)
                         .addValues(20L)
                         .addAttributeIndices(1))
@@ -53,10 +53,18 @@ class ProfilesRoundTripTest {
                 .addStringTable("")
                 .addStringTable("cpu")
                 .addStringTable("nanoseconds")
+                .addAttributeTable(KeyValueAndUnit.getDefaultInstance())
                 .addAttributeTable(KeyValueAndUnit.newBuilder()
                         .setKeyStrindex(1)
                         .setValue(AnyValue.newBuilder().setStringValue("value")))
-                .build();
+                ;
+        dictionary.addMappingTableBuilder();
+        dictionary.addFunctionTableBuilder();
+        dictionary.addLocationTableBuilder();
+        dictionary.addLocationTableBuilder().setAddress(0x1234L);
+        dictionary.addLinkTableBuilder();
+        dictionary.addStackTableBuilder();
+        dictionary.addStackTableBuilder().addLocationIndices(1);
 
         var request = ExportProfilesServiceRequest.newBuilder()
                 .addResourceProfiles(ResourceProfiles.newBuilder()

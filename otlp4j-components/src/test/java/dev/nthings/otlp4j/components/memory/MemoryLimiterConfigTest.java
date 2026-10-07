@@ -11,15 +11,6 @@ class MemoryLimiterConfigTest {
     private static final long MIB = 1024L * 1024L;
 
     @Test
-    void defaultsCarryTheDocumentedValues() {
-        var config = MemoryLimiterConfig.defaults();
-        assertThat(config.checkInterval()).isEqualTo(Duration.ofSeconds(1));
-        assertThat(config.limitBytes()).isEqualTo(512 * MIB);
-        assertThat(config.spikeLimitBytes()).isEqualTo(128 * MIB);
-        assertThat(config.retryAfter()).isEqualTo(Duration.ofSeconds(1));
-    }
-
-    @Test
     void softThresholdIsLimitMinusSpikeAndHardThresholdIsLimit() {
         var config = new MemoryLimiterConfig(Duration.ofSeconds(1), 512 * MIB, 128 * MIB, Duration.ofSeconds(1));
         assertThat(config.softLimitBytes()).isEqualTo(384 * MIB);

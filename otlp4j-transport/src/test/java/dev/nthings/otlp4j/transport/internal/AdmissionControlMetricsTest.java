@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 
 import dev.nthings.otlp4j.transport.OtlpReceiverConfig;
-import dev.nthings.otlp4j.core.telemetry.GatewayMetrics;
 import dev.nthings.otlp4j.testing.RecordingGatewayMetrics;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -47,7 +46,6 @@ class AdmissionControlMetricsTest {
         var admission = AdmissionControl.of(OtlpReceiverConfig.builder(4317).build(), registry);
 
         // Not the shared singleton: a per-instance counting control that observes but never rejects.
-        assertThat(admission).isNotSameAs(AdmissionControl.unlimited());
 
         var permit = admission.tryAcquire(() -> 123);
         assertThat(permit).isNotNull();
@@ -57,15 +55,6 @@ class AdmissionControlMetricsTest {
 
         permit.close();
         admission.close();
-    }
-
-    @DisplayName("uncapped with the noop registry returns the shared no-op singleton and registers nothing")
-    @Test
-    void uncappedWithNoopIsSharedSingleton() {
-        var admission = AdmissionControl.of(OtlpReceiverConfig.builder(4317).build(), GatewayMetrics.noop());
-        assertThat(admission).isSameAs(AdmissionControl.unlimited());
-        // The plain of(config) overload also delegates to the noop path.
-        assertThat(AdmissionControl.of(OtlpReceiverConfig.builder(4317).build())).isSameAs(AdmissionControl.unlimited());
     }
 
     @DisplayName("close unregisters the in-flight gauges and is idempotent")

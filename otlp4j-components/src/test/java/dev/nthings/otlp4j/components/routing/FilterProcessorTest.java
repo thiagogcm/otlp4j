@@ -1,6 +1,5 @@
 package dev.nthings.otlp4j.components.routing;
 
-import static dev.nthings.otlp4j.components.support.BatchSupport.baseContext;
 import static dev.nthings.otlp4j.components.support.BatchSupport.traces;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -8,11 +7,9 @@ import dev.nthings.otlp4j.components.support.MaterialisationTrackingPayload;
 import dev.nthings.otlp4j.components.support.RecordingConsumer;
 import dev.nthings.otlp4j.components.support.TestConsumeContext;
 import dev.nthings.otlp4j.core.component.ComponentId;
-import dev.nthings.otlp4j.core.component.ShutdownContext;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.model.TracesData;
-import java.time.Duration;
 import org.junit.jupiter.api.Test;
 
 class FilterProcessorTest {
@@ -20,14 +17,6 @@ class FilterProcessorTest {
     private static final TestConsumeContext CTX = new TestConsumeContext();
 
     private final RecordingConsumer<TracesData> next = new RecordingConsumer<>();
-
-    @Test
-    void completesItsLifecycle() {
-        var processor = filterProcessor(MatchSpec.none(), MatchSpec.none());
-
-        processor.start(baseContext()).toCompletableFuture().join();
-        processor.shutdown(new ShutdownContext(Duration.ofSeconds(1))).toCompletableFuture().join();
-    }
 
     @Test
     void keepsAPayloadThatMatchesIncludeAndDoesNotMatchExclude() {
@@ -54,7 +43,7 @@ class FilterProcessorTest {
     @Test
     void dropsAPayloadThatMatchesExclude() {
         var exclude = MatchSpec.of(MatchRule.builder().resourceAttribute("service.name", "checkout").build());
-        var processor = filterProcessor(MatchSpec.none(), exclude);
+        var processor = filterProcessor(MatchSpec.all(), exclude);
 
         var result = processor.consume(CTX, traces(1)).toCompletableFuture().join();
 
@@ -105,7 +94,7 @@ class FilterProcessorTest {
         var exclude = MatchSpec.of(MatchRule.builder()
                 .domainPredicate(batch -> ((TracesData) batch).spanCount() == 1)
                 .build());
-        var processor = filterProcessor(MatchSpec.none(), exclude);
+        var processor = filterProcessor(MatchSpec.all(), exclude);
         var tracked = new MaterialisationTrackingPayload<>(traces(1));
 
         var result = processor.consume(CTX, tracked).toCompletableFuture().join();

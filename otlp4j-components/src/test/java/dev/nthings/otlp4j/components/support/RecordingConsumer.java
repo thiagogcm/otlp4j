@@ -28,7 +28,8 @@ public final class RecordingConsumer<T> implements SignalConsumer<T> {
     private final AtomicInteger completions = new AtomicInteger();
 
     private volatile @Nullable CountDownLatch gate;
-    private volatile Function<Payload<T>, DeliveryResult> resultFn = payload -> DeliveryResult.accepted(provenance);
+    private volatile Function<Payload<T>, DeliveryResult> resultFn = payload -> DeliveryResult.accepted(new Provenance(
+            ComponentId.parse("sink"), ComponentKind.EXPORTER, payload.signal()));
 
     public void result(Function<Payload<T>, DeliveryResult> resultFn) {
         this.resultFn = resultFn;

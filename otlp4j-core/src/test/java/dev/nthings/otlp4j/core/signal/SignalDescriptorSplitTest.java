@@ -37,7 +37,7 @@ class SignalDescriptorSplitTest {
     }
 
     @Test
-    @DisplayName("a batch at or under the cap returns a singleton of the same batch instance")
+    @DisplayName("a batch at or under the cap retains its contents")
     void atOrUnderCapReturnsSameBatch() {
         var batch = traces(5);
         assertThat(SignalDescriptor.TRACES.split(batch, 5)).containsExactly(batch);
@@ -74,9 +74,14 @@ class SignalDescriptorSplitTest {
         var parts = SignalDescriptor.TRACES.split(batch, 3);
         assertThat(parts.stream().mapToLong(SignalDescriptor.TRACES::itemCount).sum()).isEqualTo(8);
         assertThat(parts).allSatisfy(p -> assertThat(SignalDescriptor.TRACES.itemCount(p)).isLessThanOrEqualTo(3));
-        // Every span still carries its originating resource's service attribute.
-        parts.forEach(p -> p.resourceSpans().forEach(
-                rs -> assertThat(rs.resource().attributes().get("service.name")).isNotNull()));
+        parts.forEach(p -> p.resourceSpans().forEach(rs -> rs.scopeSpans().forEach(ss -> {
+            for (var span : ss.spans()) {
+                var belongsToFirst = Integer.parseInt(span.name().substring(1)) < 4;
+                assertThat(rs.resource().attributes().getString("service.name"))
+                        .isEqualTo(belongsToFirst ? "a" : "b");
+                assertThat(ss.scope().name()).isEqualTo(belongsToFirst ? "s1" : "s2");
+            }
+        })));
     }
 
     @Test
@@ -92,6 +97,8 @@ class SignalDescriptorSplitTest {
         assertThat(parts).hasSize(4);
         assertThat(parts.stream().mapToLong(SignalDescriptor.LOGS::itemCount).sum()).isEqualTo(7);
         assertThat(parts).allSatisfy(p -> assertThat(SignalDescriptor.LOGS.itemCount(p)).isLessThanOrEqualTo(2));
+        assertThat(parts.stream().flatMap(p -> p.logRecords().stream()).map(LogRecord::eventName))
+                .containsExactly("e0", "e1", "e2", "e3", "e4", "e5", "e6");
     }
 
     @Test
@@ -106,6 +113,19 @@ class SignalDescriptorSplitTest {
         var parts = SignalDescriptor.METRICS.split(batch, 3);
         assertThat(parts.stream().mapToLong(SignalDescriptor.METRICS::itemCount).sum()).isEqualTo(8);
         assertThat(parts).allSatisfy(p -> assertThat(SignalDescriptor.METRICS.itemCount(p)).isLessThanOrEqualTo(3));
+        var values = new ArrayList<NumberPoint.Value>();
+        parts.forEach(part -> part.forEachMetric(metric -> {
+            var points = switch (metric.dataOrThrow()) {
+                case Metric.Gauge data -> data.points();
+                case Metric.Sum data -> data.points();
+                default -> throw new AssertionError("unexpected metric data");
+            };
+            points.forEach(point -> values.add(point.value()));
+            assertThat(metric.name()).isEqualTo(metric.dataOrThrow() instanceof Metric.Gauge ? "g" : "s");
+        }));
+        assertThat(values).containsExactly(
+                NumberPoint.longValue(0), NumberPoint.longValue(1), NumberPoint.longValue(2), NumberPoint.longValue(3),
+                NumberPoint.longValue(4), NumberPoint.longValue(5), NumberPoint.longValue(6), NumberPoint.longValue(7));
     }
 
     @Test
@@ -122,7 +142,8 @@ class SignalDescriptorSplitTest {
         var parts = SignalDescriptor.METRICS.split(batch, 3);
         assertThat(parts.stream().mapToLong(SignalDescriptor.METRICS::itemCount).sum()).isEqualTo(8);
         var allMetrics = parts.stream().flatMap(p -> p.metrics().stream()).toList();
-        assertThat(allMetrics).anyMatch(m -> !m.hasData());
+        assertThat(allMetrics.stream().filter(m -> !m.hasData()).toList()).containsExactly(empty);
+        assertThat(allMetrics.stream().filter(m -> m.name().equals("h")).toList()).containsExactly(tail);
     }
 
     @Test
@@ -140,6 +161,8 @@ class SignalDescriptorSplitTest {
         assertThat(parts).hasSize(3);
         assertThat(parts.stream().mapToLong(SignalDescriptor.PROFILES::itemCount).sum()).isEqualTo(5);
         assertThat(parts).allSatisfy(p -> assertThat(p.dictionary()).containsExactly(7, 8, 9));
+        assertThat(parts.stream().flatMap(p -> p.profiles().stream()).map(ProfilesData.Profile::profileId))
+                .containsExactly("p0", "p1", "p2", "p3", "p4");
     }
 
     private static TracesData traces(int n) {

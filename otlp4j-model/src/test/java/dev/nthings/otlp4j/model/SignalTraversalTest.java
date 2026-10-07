@@ -53,7 +53,7 @@ class SignalTraversalTest {
         @DisplayName("spanCount equals the flattened span count")
         @Test
         void spanCountEqualsFlattenedSpanCount() {
-            assertThat(data.spanCount()).isEqualTo(data.spans().size()).isEqualTo(5);
+            assertThat(data.spanCount()).isEqualTo(5);
         }
 
         @DisplayName("an empty batch counts zero and never invokes the action")
@@ -125,18 +125,21 @@ class SignalTraversalTest {
         @Test
         void dataPointCountWalksEveryDataKind() {
             var point = new NumberPoint(Attributes.empty(), 0L, 1L, NumberPoint.longValue(1L), 0L, List.of());
+            var histogram = HistogramPoint.builder().epochNanos(1).count(1).build();
+            var exponential = ExponentialHistogramPoint.builder().epochNanos(1).count(1).zeroCount(1).build();
+            var summary = SummaryPoint.builder().epochNanos(1).count(1).sum(1).build();
             var rich = MetricsData.of(Resource.EMPTY, InstrumentationScope.of("s"), List.of(
                     Metric.builder().name("g").data(new Metric.Gauge(List.of(point))).build(),
                     Metric.builder().name("s")
-                            .data(new Metric.Sum(List.of(), Metric.AggregationTemporality.DELTA, true)).build(),
+                            .data(new Metric.Sum(List.of(point, point), Metric.AggregationTemporality.DELTA, true)).build(),
                     Metric.builder().name("h")
-                            .data(new Metric.Histogram(List.of(), Metric.AggregationTemporality.CUMULATIVE)).build(),
+                            .data(new Metric.Histogram(List.of(histogram, histogram, histogram), Metric.AggregationTemporality.CUMULATIVE)).build(),
                     Metric.builder().name("e")
-                            .data(new Metric.ExponentialHistogram(List.of(), Metric.AggregationTemporality.DELTA))
+                            .data(new Metric.ExponentialHistogram(List.of(exponential, exponential, exponential, exponential), Metric.AggregationTemporality.DELTA))
                             .build(),
-                    Metric.builder().name("su").data(new Metric.Summary(List.of())).build(),
+                    Metric.builder().name("su").data(new Metric.Summary(List.of(summary, summary, summary, summary, summary))).build(),
                     Metric.builder().name("nodata").build()));
-            assertThat(rich.dataPointCount()).isEqualTo(1L);
+            assertThat(rich.dataPointCount()).isEqualTo(15L);
             assertThat(new MetricsData(List.of()).dataPointCount()).isZero();
         }
 
@@ -177,7 +180,7 @@ class SignalTraversalTest {
         @DisplayName("logRecordCount equals the flattened record count")
         @Test
         void logRecordCountEqualsFlattenedRecordCount() {
-            assertThat(data.logRecordCount()).isEqualTo(data.logRecords().size()).isEqualTo(4);
+            assertThat(data.logRecordCount()).isEqualTo(4);
         }
 
         @DisplayName("an empty batch counts zero and never invokes the action")
@@ -239,7 +242,7 @@ class SignalTraversalTest {
         @DisplayName("profileCount equals the flattened profile count")
         @Test
         void profileCountEqualsFlattenedProfileCount() {
-            assertThat(data.profileCount()).isEqualTo(data.profiles().size()).isEqualTo(3);
+            assertThat(data.profileCount()).isEqualTo(3);
         }
 
         @DisplayName("an empty batch counts zero and never invokes the action")

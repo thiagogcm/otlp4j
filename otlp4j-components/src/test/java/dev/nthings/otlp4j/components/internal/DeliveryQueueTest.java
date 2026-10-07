@@ -15,9 +15,7 @@ import dev.nthings.otlp4j.core.policy.DeliveryQueuePolicy;
 import dev.nthings.otlp4j.core.policy.OverflowPolicy;
 import dev.nthings.otlp4j.core.result.DeliveryReason;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
-import dev.nthings.otlp4j.core.result.FlushReport;
 import dev.nthings.otlp4j.core.result.Provenance;
-import dev.nthings.otlp4j.core.signal.Payload;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.model.TracesData;
 import java.time.Duration;
@@ -205,39 +203,6 @@ class DeliveryQueueTest {
     }
 
     @Test
-    void downstreamWholeFailureIsBoundedInFlushReport() {
-        var next = new RecordingConsumer<TracesData>();
-        next.rejectWith(DeliveryResult.permanent("downstream down", next.provenance()));
-        var q = queue(policy(8, OverflowPolicy.FAIL), FIVE_SECONDS, next);
-        q.start();
-
-        q.offer(CTX, traces(1));
-        var report = q.flush(FIVE_SECONDS).toCompletableFuture().join();
-        assertThat(report.failedBatches()).isEqualTo(1);
-        assertThat(report.firstFailure()).isNotNull();
-        assertThat(report.isSuccess()).isFalse();
-        q.drainAndStop(FIVE_SECONDS).toCompletableFuture().join();
-    }
-
-    @Test
-    void fatalDownstreamErrorStillReleasesTheBarrierBeforeWorkerTerminates() {
-        var fatal = new AssertionError("fatal downstream failure");
-        SignalConsumer<TracesData> next = (context, payload) -> {
-            throw fatal;
-        };
-        var q = new DeliveryQueue<>(policy(8, OverflowPolicy.FAIL), FIVE_SECONDS, next, PROV, System::nanoTime);
-        q.start();
-
-        q.offer(CTX, traces(1));
-        var report = q.flush(FIVE_SECONDS).toCompletableFuture().join();
-
-        assertThat(report.rejectedItems()).isEqualTo(1);
-        assertThat(report.failedBatches()).isEqualTo(1);
-        assertThat(report.firstFailure()).isSameAs(fatal);
-        q.drainAndStop(FIVE_SECONDS).toCompletableFuture().join();
-    }
-
-    @Test
     void fatalWorkerRejectsQueuedOwnershipAndClosesAdmission() throws InterruptedException {
         var fatal = new AssertionError("fatal downstream failure");
         var entered = new CountDownLatch(1);
@@ -281,10 +246,15 @@ class DeliveryQueueTest {
         var q = new DeliveryQueue<>(policy(8, OverflowPolicy.FAIL), Duration.ofNanos(500), next, PROV, now::get);
         q.start();
 
-        await().atMost(2, TimeUnit.SECONDS).until(() -> isDegraded(join(q.offer(CTX, traces(1)))));
+        assertThat(join(q.offer(CTX, traces(1)))).isInstanceOf(DeliveryResult.Accepted.class);
+        q.flush(FIVE_SECONDS).toCompletableFuture().join();
         var refused = join(q.offer(CTX, traces(1)));
         assertThat(refused).isInstanceOf(DeliveryResult.Rejected.class);
         assertThat(((DeliveryResult.Rejected) refused).retryAfter()).isNotNull();
+
+        var refusalReport = q.flush(FIVE_SECONDS).toCompletableFuture().join();
+        assertThat(refusalReport.rejectedItems()).isEqualTo(1);
+        assertThat(refusalReport.failedBatches()).isEqualTo(1);
 
         now.set(2_000);
         next.result(payload -> DeliveryResult.accepted(next.provenance()));

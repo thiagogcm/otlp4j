@@ -143,18 +143,6 @@ class ReceiverConsumeContextTest {
         }
     }
 
-    @Test
-    @DisplayName("HTTP requests without a timeout receive the default budget")
-    void httpWithoutTimeoutUsesDefaultBudget() {
-        var context = ReceiverConsumeContext.http(httpRequest(), CLOCK);
-        try {
-            assertThat(context.deadline().remaining(CLOCK))
-                    .isBetween(Duration.ofSeconds(29), Duration.ofSeconds(30));
-        } finally {
-            context.complete();
-        }
-    }
-
     private static ServiceRequestContext httpRequest() {
         var headers = RequestHeaders.builder(HttpMethod.POST, "/v1/traces")
                 .scheme("http")

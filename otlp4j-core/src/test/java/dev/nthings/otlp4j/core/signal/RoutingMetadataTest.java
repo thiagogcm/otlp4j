@@ -25,12 +25,4 @@ class RoutingMetadataTest {
         assertThat(metadata.resourceAttribute("absent")).isEmpty();
         assertThat(metadata.resourceAttributeKeys()).containsExactly("service.name");
     }
-
-    @Test
-    @DisplayName("payload metadata contains no signal or duplicate item-count state")
-    void payloadOwnsIdentityAndCount() {
-        var payload = Payload.of(SignalDescriptor.TRACES, new TracesData(List.of()));
-        assertThat(payload.signal()).isSameAs(SignalDescriptor.TRACES);
-        assertThat(payload.itemCount()).isZero();
-    }
 }

@@ -79,7 +79,6 @@ final class Otlp4jPolicyExporterUnderTest implements PolicyExporterUnderTest {
                     Duration.ofNanos(elapsedNanos),
                     result,
                     failure,
-                    program.retry().maxAttempts(),
                     (int) telemetry.counterValue(RETRIES_COUNTER));
         } finally {
             server.close();

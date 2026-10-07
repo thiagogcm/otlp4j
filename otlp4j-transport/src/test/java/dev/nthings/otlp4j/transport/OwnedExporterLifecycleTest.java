@@ -26,7 +26,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 @Timeout(30)
-class OwnedExporterContractTest {
+class OwnedExporterLifecycleTest {
     private static final Duration BUDGET = Duration.ofSeconds(5);
     private static final TracesData EMPTY = new TracesData(List.of());
 
@@ -122,7 +122,7 @@ class OwnedExporterContractTest {
                 response.complete(DeliveryResult.accepted(Consumers.PROV));
                 assertThat(delivery.get(3, TimeUnit.SECONDS)).isInstanceOf(DeliveryResult.Accepted.class);
                 shutdown.toCompletableFuture().get(5, TimeUnit.SECONDS);
-                assertThat(exporter.shutdown(BUDGET) == shutdown).isTrue();
+                exporter.shutdown(BUDGET).toCompletableFuture().get(5, TimeUnit.SECONDS);
             } finally {
                 response.complete(DeliveryResult.accepted(Consumers.PROV));
             }
@@ -145,7 +145,8 @@ class OwnedExporterContractTest {
                 assertThatThrownBy(() -> shutdown.toCompletableFuture().get(2, TimeUnit.SECONDS))
                         .isInstanceOf(ExecutionException.class);
                 response.complete(DeliveryResult.accepted(Consumers.PROV));
-                assertThat(exporter.shutdown(BUDGET) == shutdown).isTrue();
+                assertThatThrownBy(() -> exporter.shutdown(BUDGET).toCompletableFuture().get(2, TimeUnit.SECONDS))
+                        .isInstanceOf(ExecutionException.class);
                 assertThatThrownBy(exporter::close).isInstanceOf(RuntimeException.class);
             } finally {
                 response.complete(DeliveryResult.accepted(Consumers.PROV));

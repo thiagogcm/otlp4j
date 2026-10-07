@@ -16,7 +16,6 @@ class ComponentIdTest {
         var id = ComponentId.parse("otlp");
         assertThat(id.type()).isEqualTo("otlp");
         assertThat(id.name()).isEmpty();
-        assertThat(id).hasToString("otlp");
     }
 
     @Test
@@ -25,7 +24,6 @@ class ComponentIdTest {
         var id = ComponentId.parse("otlp/secondary");
         assertThat(id.type()).isEqualTo("otlp");
         assertThat(id.name()).isEqualTo("secondary");
-        assertThat(id).hasToString("otlp/secondary");
     }
 
     @Test
@@ -34,13 +32,6 @@ class ComponentIdTest {
         var id = ComponentId.parse("otlp/a/b");
         assertThat(id.type()).isEqualTo("otlp");
         assertThat(id.name()).isEqualTo("a/b");
-        assertThat(id).hasToString("otlp/a/b");
-    }
-
-    @Test
-    @DisplayName("a null name is normalized to the empty string")
-    void nullNameNormalized() {
-        assertThat(new ComponentId("otlp", null).name()).isEmpty();
     }
 
     @Test

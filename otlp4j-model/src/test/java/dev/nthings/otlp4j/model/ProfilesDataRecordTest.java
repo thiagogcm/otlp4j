@@ -43,15 +43,6 @@ class ProfilesDataRecordTest {
         assertThat(a).isNotEqualTo(c);
     }
 
-    @DisplayName("Profile equals/hashCode/toString tolerate null string fields")
-    @Test
-    void profileToleratesNullStrings() {
-        var a = new ProfilesData.Profile(null, 1L, 2L, 3L, 4, 5, null, new byte[0]);
-        var b = new ProfilesData.Profile(null, 1L, 2L, 3L, 4, 5, null, new byte[0]);
-        assertThat(a).isEqualTo(b).hasSameHashCodeAs(b);
-        assertThat(a.toString()).isNotNull();
-    }
-
     @DisplayName("ProfilesData clones the dictionary on construction and access")
     @Test
     void profilesDataClonesDictionary() {

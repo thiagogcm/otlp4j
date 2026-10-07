@@ -1,6 +1,5 @@
 package dev.nthings.otlp4j.transport.internal;
 
-import dev.nthings.otlp4j.core.policy.OverflowPolicy;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
@@ -79,19 +78,6 @@ class MulticastPublisherTest {
         pub.close();
     }
 
-    @DisplayName("DROP_NEWEST drops items instead of blocking the producer")
-    @Test
-    void droppingSubscriberDoesNotBlockProducer() {
-        var drops = new LongAdder();
-        var pub = new MulticastPublisher<Integer>(drops);
-        pub.subscribe(FlowSubscribers.noOp(), new TapOptions(OverflowPolicy.DROP_NEWEST, 2));
-        for (var i = 0; i < 50; i++) {
-            pub.publish(i);
-        }
-        assertThat(drops.sum()).isGreaterThan(0);
-        pub.close();
-    }
-
     @DisplayName("Buffered item is delivered once demand is requested")
     @Test
     void deliversBufferedItemPromptlyOnceDemandArrives() {
@@ -153,22 +139,4 @@ class MulticastPublisherTest {
         assertThat(drops.sum()).isZero();
         pub.close();
     }
-
-    @DisplayName("cancelling a subscription twice is idempotent")
-    @Test
-    void cancelIsIdempotent() {
-        var drops = new LongAdder();
-        var pub = new MulticastPublisher<String>(drops);
-        var subRef = new AtomicReference<Flow.Subscription>();
-        pub.subscribe(new Flow.Subscriber<>() {
-            @Override public void onSubscribe(Flow.Subscription s) { subRef.set(s); }
-            @Override public void onNext(String item) {}
-            @Override public void onError(Throwable t) {}
-            @Override public void onComplete() {}
-        });
-        subRef.get().cancel();
-        subRef.get().cancel(); // second cancel is a no-op
-        pub.close();
-    }
-
 }

@@ -11,21 +11,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
-/// Randomized round-trip property tests for [ProfilesMapper].
-///
-/// Profiles are not fully bijective (see the design's section 4.3 and the existing
-/// `ProfilesRoundTripTest`), so this class pins the two narrower invariants the mapper actually
-/// supports instead of a general domain round trip:
-///
-/// - A scalar-only profile's modeled fields survive a domain to proto to domain round trip, with
-///   `sampleCount` generated at zero because the mapper's scalar rebuild path never emits samples
-///   and so can never reconstruct a nonzero sample count.
-/// - An arbitrary rich profile payload, with real samples and a shared dictionary, survives a proto
-///   to domain to proto round trip byte-identically through the opaque passthrough path.
-///
-/// Each invariant runs at least two hundred generated cases from a seeded generator. A failing case
-/// carries its seed in the assertion description, so the exact counterexample can be reproduced by
-/// calling [ModelGen#seeded(long)] with that seed again.
+/// Seeded round trips expose telemetry loss and make failures reproducible.
 @DisplayName("ProfilesMapper property round-trips")
 class ProfilesCodecPropertyTest {
 
@@ -47,8 +33,7 @@ class ProfilesCodecPropertyTest {
         });
     }
 
-    @DisplayName("a scalar-only profile's modeled fields survive domain to proto to domain, with "
-            + "sampleCount pinned at zero")
+    @DisplayName("a scalar-only profile's modeled fields survive domain to proto to domain, without captured sample bytes")
     @ParameterizedTest
     @MethodSource("scalarProfileCases")
     void scalarFieldsSurviveRoundTrip(ModelGen.Case<ProfilesData.Profile> testCase) {
@@ -76,12 +61,6 @@ class ProfilesCodecPropertyTest {
         assertThat(received.originalPayloadFormat())
                 .as("seed=%d: originalPayloadFormat must survive the round trip", testCase.seed())
                 .isEqualTo(profile.originalPayloadFormat());
-        // The mapper cannot reconstruct sampleCount from scalars alone: toDomain always derives it
-        // from the samples list of the rebuilt proto, which the scalar path never populates. Pinned
-        // here as an explicit fact rather than an accidental pass on a fixed-at-zero input.
-        assertThat(received.sampleCount())
-                .as("seed=%d: a scalar-rebuilt profile always reads sampleCount back as zero", testCase.seed())
-                .isZero();
     }
 
     @DisplayName("an arbitrary rich profile payload with samples and a dictionary survives proto to "

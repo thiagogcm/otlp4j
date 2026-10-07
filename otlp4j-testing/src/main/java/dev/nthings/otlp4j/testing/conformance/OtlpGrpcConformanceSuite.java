@@ -47,12 +47,12 @@ public abstract class OtlpGrpcConformanceSuite {
     @EnumSource(ConformanceSignal.class)
     void partialReturnsOkWithPartialSuccess(ConformanceSignal signal) {
         var scenario = Scenario.builder(signal)
-                .outcome(new ProgrammedOutcome.Partial(7, "7 items rejected"))
+                .outcome(new ProgrammedOutcome.Partial(1, "one item rejected"))
                 .build();
         withGrpc(scenario, (client, gw) -> {
             var response = client.export(signal);
             assertThat(response.grpcCode()).hasValue(Status.Code.OK);
-            assertThat(rejectedCount(signal, response)).isEqualTo(7L);
+            assertThat(rejectedCount(signal, response)).isEqualTo(1L);
         });
     }
 

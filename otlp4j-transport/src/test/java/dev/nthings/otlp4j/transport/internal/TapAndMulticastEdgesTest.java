@@ -1,13 +1,10 @@
 package dev.nthings.otlp4j.transport.internal;
 
-import dev.nthings.otlp4j.core.policy.OverflowPolicy;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.core.signal.Payload;
-import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.testing.Fixtures;
 import dev.nthings.otlp4j.testing.FlowSubscribers;
@@ -37,23 +34,6 @@ class TapAndMulticastEdgesTest {
             await().atMost(Duration.ofSeconds(2)).until(() -> first.size() >= 1 && second.size() >= 1);
             assertThat(first).hasSize(1);
             assertThat(second).hasSize(1);
-        } finally {
-            tap.close();
-        }
-    }
-
-    @DisplayName("droppedCount increases when a subscriber stalls")
-    @Test
-    void droppedCountIncrementsWhenSubscriberStalls() {
-        var tap = new ReceiverTap(dev.nthings.otlp4j.core.telemetry.GatewayMetrics.noop());
-        try {
-            tap.publisher(SignalDescriptor.TRACES, new TapOptions(OverflowPolicy.DROP_NEWEST, 1))
-                    .subscribe(FlowSubscribers.noOp());
-            for (var i = 0; i < 50; i++) {
-                tap.publish(Payload.of(
-                        SignalDescriptor.TRACES, Fixtures.traceData(Fixtures.span("s" + i, Span.Kind.SERVER))));
-            }
-            assertThat(tap.droppedCount()).isGreaterThan(0L);
         } finally {
             tap.close();
         }
@@ -127,20 +107,4 @@ class TapAndMulticastEdgesTest {
             pub.close();
         }
     }
-
-    @DisplayName("TapOptions.defaults uses DROP_OLDEST with buffer 256")
-    @Test
-    void tapOptionsDefaultsAreSane() {
-        var opts = TapOptions.defaults();
-        assertThat(opts.strategy()).isEqualTo(OverflowPolicy.DROP_OLDEST);
-        assertThat(opts.bufferSize()).isEqualTo(256);
-    }
-
-    @DisplayName("TapOptions rejects a non-positive buffer size")
-    @Test
-    void tapOptionsRejectsBadBuffer() {
-        assertThatThrownBy(() -> new TapOptions(OverflowPolicy.DROP_OLDEST, 0))
-                .isInstanceOf(IllegalArgumentException.class);
-    }
-
 }

@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.nthings.otlp4j.core.component.ComponentId;
 import dev.nthings.otlp4j.core.component.ComponentKind;
+import dev.nthings.otlp4j.core.component.NetworkBound;
 import dev.nthings.otlp4j.core.pipeline.PipelineId;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.model.Span;
@@ -31,7 +32,7 @@ import org.jspecify.annotations.Nullable;
 class ArmeriaFactoriesTest {
 
     private static final ComponentId R = ComponentId.parse("otlp");
-    private static final ComponentId E = ComponentId.parse("otlpexp");
+    private static final ComponentId E = ComponentId.parse("otlp");
     private static final PipelineId TRACES_PIPE = PipelineId.of(TRACES);
 
     private @Nullable OtlpReceiver sink;
@@ -67,31 +68,7 @@ class ArmeriaFactoriesTest {
         }
     }
 
-    @DisplayName("factory metadata is declared honestly")
-    @Test
-    void factoryMetadata() {
-        var grpcRecv = OtlpReceiverFactory.grpc();
-        var grpcExp = OtlpExporterFactory.grpc();
-        var httpRecv = OtlpReceiverFactory.http();
-        var httpExp = OtlpExporterFactory.http();
-
-        assertThat(grpcRecv.kind()).isEqualTo(ComponentKind.RECEIVER);
-        assertThat(httpRecv.kind()).isEqualTo(ComponentKind.RECEIVER);
-        assertThat(grpcExp.kind()).isEqualTo(ComponentKind.EXPORTER);
-        assertThat(httpExp.kind()).isEqualTo(ComponentKind.EXPORTER);
-
-        assertThat(grpcRecv.type()).isEqualTo("otlp");
-        assertThat(grpcExp.type()).isEqualTo("otlp");
-        assertThat(httpRecv.type()).isEqualTo("otlphttp");
-        assertThat(httpExp.type()).isEqualTo("otlphttp");
-
-        assertThat(grpcRecv.defaultConfig().port()).isEqualTo(OtlpReceiverFactory.grpc().defaultPort());
-        assertThat(grpcExp.defaultConfig().port()).isEqualTo(OtlpExporterFactory.grpc().defaultPort());
-        assertThat(httpRecv.defaultConfig().port()).isEqualTo(OtlpReceiverFactory.http().defaultPort());
-        assertThat(httpExp.defaultConfig().port()).isEqualTo(OtlpExporterFactory.http().defaultPort());
-    }
-
-    @DisplayName("a gRPC receiver->exporter graph round-trips a wire request")
+    @DisplayName("a gRPC receiver and exporter sharing an ID forward telemetry through distinct resources")
     @Test
     void grpcGraphRoundTrips() {
         var captured = new AtomicReference<TracesData>();
@@ -154,7 +131,8 @@ class ArmeriaFactoriesTest {
     }
 
     private int graphPort() {
-        var port = runtime.boundPort(R).orElseThrow();
+        var receiver = (NetworkBound) runtime.component(ComponentKind.RECEIVER, R).orElseThrow();
+        var port = receiver.port();
         assertThat(port).isPositive();
         return port;
     }

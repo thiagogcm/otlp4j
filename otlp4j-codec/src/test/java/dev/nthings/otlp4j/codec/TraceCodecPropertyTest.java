@@ -10,13 +10,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
-/// Randomized round-trip property tests for [TraceMapper].
-///
-/// Both mapper invariants from the design are pinned across many generated trace payloads: domain
-/// to proto to domain, and proto to domain to proto. Each invariant runs at least two hundred
-/// generated cases from a seeded generator. A failing case carries its seed in the assertion
-/// description, so the exact counterexample can be reproduced by calling [ModelGen#seeded(long)]
-/// with that seed again.
+/// Seeded round trips expose telemetry loss and make failures reproducible.
 @DisplayName("TraceMapper property round-trips")
 class TraceCodecPropertyTest {
 

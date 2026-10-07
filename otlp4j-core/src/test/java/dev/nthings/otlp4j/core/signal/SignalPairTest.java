@@ -4,22 +4,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.nthings.otlp4j.model.TracesData;
+import dev.nthings.otlp4j.model.Attributes;
+import dev.nthings.otlp4j.model.InstrumentationScope;
+import dev.nthings.otlp4j.model.Resource;
+import dev.nthings.otlp4j.model.Span;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/// Unit tests for [SignalPair] and the typed [Payload] contract.
+/// Payload replacement and malformed signal pairs.
 class SignalPairTest {
-
-    @Test
-    @DisplayName("a pair carries its from and to sides and renders them")
-    void pairSides() {
-        var pair = new SignalPair<>(SignalDescriptor.TRACES, SignalDescriptor.METRICS);
-        assertThat(pair.from()).isEqualTo(SignalDescriptor.TRACES);
-        assertThat(pair.to()).isEqualTo(SignalDescriptor.METRICS);
-        assertThat(pair).hasToString("traces->metrics");
-        assertThat(pair).isEqualTo(new SignalPair<>(SignalDescriptor.TRACES, SignalDescriptor.METRICS));
-    }
 
     @Test
     @DisplayName("both sides must be non-null")
@@ -34,15 +28,18 @@ class SignalPairTest {
     @DisplayName("a payload is typed and replacements recompute derived values")
     void typedPayload() {
         var first = new TracesData(List.of());
-        var second = new TracesData(List.of());
+        var second = TracesData.of(
+                Resource.of(Attributes.builder().put("service.name", "checkout").build()),
+                InstrumentationScope.of("replacement"),
+                List.of(Span.builder().name("pay").build(), Span.builder().name("ship").build()));
         Payload<TracesData> payload = Payload.of(SignalDescriptor.TRACES, first);
 
-        assertThat(payload.signal()).isSameAs(SignalDescriptor.TRACES);
-        assertThat(payload.data()).isSameAs(first);
+        var replacement = payload.withData(second);
+        assertThat(replacement.data().spans()).extracting(Span::name).containsExactly("pay", "ship");
+        assertThat(replacement.itemCount()).isEqualTo(2);
+        assertThat(replacement.routingMetadata().resourceAttribute("service.name")).contains("checkout");
         assertThat(payload.itemCount()).isZero();
         assertThat(payload.routingMetadata().resourceAttributeKeys()).isEmpty();
-        assertThat(payload.withData(first)).isSameAs(payload);
-        assertThat(payload.withData(second).data()).isSameAs(second);
     }
 
     @Test

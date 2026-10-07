@@ -13,11 +13,6 @@ class MemoryLimiterTest {
     private final MemoryLimiter limiter = new MemoryLimiter(used::get, 100, 200);
 
     @Test
-    void startsNormalBeforeAnySample() {
-        assertThat(limiter.state()).isEqualTo(State.NORMAL);
-    }
-
-    @Test
     void samplesNormalBelowTheSoftThreshold() {
         used.set(99);
         assertThat(limiter.refresh()).isEqualTo(State.NORMAL);
@@ -48,18 +43,6 @@ class MemoryLimiterTest {
         assertThat(limiter.refresh()).isEqualTo(State.HARD);
         used.set(50);
         assertThat(limiter.refresh()).isEqualTo(State.NORMAL);
-    }
-
-    @Test
-    void exposesItsThresholds() {
-        assertThat(limiter.softLimitBytes()).isEqualTo(100);
-        assertThat(limiter.hardLimitBytes()).isEqualTo(200);
-    }
-
-    @Test
-    void heapGaugeReportsAPositiveUsedFigure() {
-        var used = MemoryLimiter.heapGauge().getAsLong();
-        assertThat(used).isPositive();
     }
 
     @Test

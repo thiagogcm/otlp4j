@@ -16,7 +16,7 @@ class ClientHeadersTest {
     @Test
     void noSupplierReturnsConstant() {
         var constant = Map.of("x-tenant", "abc");
-        assertThat(ClientHeaders.resolve(constant, null)).isSameAs(constant);
+        assertThat(ClientHeaders.resolve(constant, null)).isEqualTo(constant);
     }
 
     @DisplayName("overlays the supplier over the constant map, supplier winning per key")

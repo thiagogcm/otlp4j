@@ -81,10 +81,7 @@
         </dependency>
     </dependencies>
 
-    <!-- No check-coverage execution: this is a black-box integration module, not a unit under a
-         coverage ratchet, so it opts out of the 90/80 floor exactly as otlp4j-samples does. It
-         still inherits the parent JaCoCo prepare-agent and report, so it produces target/jacoco.exec
-         and its cross-module coverage feeds the aggregate report in otlp4j-coverage. -->
+    <!-- Cross-module execution data contributes to the aggregate coverage report. -->
 
     <build>
         <plugins>

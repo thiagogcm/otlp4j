@@ -94,5 +94,4 @@ class HelpersTest {
                 .join();
         assertThat(result).isInstanceOf(DeliveryResult.Rejected.class);
     }
-
 }

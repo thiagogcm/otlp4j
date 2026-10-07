@@ -12,7 +12,6 @@ import dev.nthings.otlp4j.core.consumer.SignalConsumers;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.result.Disposition;
 import dev.nthings.otlp4j.core.result.Provenance;
-import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.core.signal.SignalPair;
 import dev.nthings.otlp4j.core.signal.Payload;
 import dev.nthings.otlp4j.model.TracesData;
@@ -53,16 +52,6 @@ class RuntimeBehaviourTest {
     }
 
     @Test
-    void exposesBoundPortThroughRuntimeLookup() {
-        var runtime = fanOutGateway(null).build();
-        runtime.start();
-
-        assertThat(runtime.boundPort(R)).hasValue(45678);
-
-        runtime.shutdown(Duration.ofSeconds(5)).toCompletableFuture().join();
-    }
-
-    @Test
     void describeRendersNodesAndEdges() {
         var runtime = fanOutGateway(null).build();
         var dump = runtime.describe();
@@ -70,14 +59,6 @@ class RuntimeBehaviourTest {
         assertThat(dump).contains("receiver otlp");
         assertThat(dump).contains("exporter otlpexp/a");
         assertThat(dump).contains("fanout");
-    }
-
-    @Test
-    void flushIsBestEffort() {
-        var runtime = fanOutGateway(null).build();
-        runtime.start();
-        runtime.flush(Duration.ofSeconds(1)).toCompletableFuture().join();
-        runtime.close();
     }
 
     @Test

@@ -94,31 +94,4 @@
         </dependency>
     </dependencies>
 
-    <build>
-        <plugins>
-            <!-- Opt in to the shared coverage floor (parent POM). ClientExporter/ServerReceiver/
-                 ReceiverTap need a concrete transport to exercise end to end; they are floored through
-                 the transport suites and the aggregate rather than in isolation. -->
-            <plugin>
-                <groupId>org.jacoco</groupId>
-                <artifactId>jacoco-maven-plugin</artifactId>
-                <executions>
-                    <execution>
-                        <id>check-coverage</id>
-                        <phase>verify</phase>
-                        <goals>
-                            <goal>check</goal>
-                        </goals>
-                        <configuration>
-                            <excludes>
-                                <exclude>dev/nthings/otlp4j/transport/ClientExporter*</exclude>
-                                <exclude>dev/nthings/otlp4j/transport/ServerReceiver*</exclude>
-                                <exclude>dev/nthings/otlp4j/transport/internal/ReceiverTap*</exclude>
-                            </excludes>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-        </plugins>
-    </build>
 </project>

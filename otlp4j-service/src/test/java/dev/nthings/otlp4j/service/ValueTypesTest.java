@@ -1,13 +1,11 @@
 package dev.nthings.otlp4j.service;
 
-import static dev.nthings.otlp4j.core.signal.SignalDescriptor.METRICS;
 import static dev.nthings.otlp4j.core.signal.SignalDescriptor.TRACES;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.nthings.otlp4j.core.component.ComponentId;
 import dev.nthings.otlp4j.core.pipeline.PipelineId;
-import dev.nthings.otlp4j.core.signal.SignalPair;
 import dev.nthings.otlp4j.service.config.ConnectorEntry;
 import dev.nthings.otlp4j.service.config.ExporterEntry;
 import dev.nthings.otlp4j.service.config.PipelineConfig;
@@ -28,13 +26,6 @@ class ValueTypesTest {
 
     private static final ComponentId ID = ComponentId.parse("x");
     private final Fakes.Log log = new Fakes.Log();
-
-    @Test
-    void connectorEntryExposesSupportedPairs() {
-        var pairs = Fakes.pairs(new SignalPair<>(TRACES, METRICS));
-        var conn = new ConnectorEntry<>(new Fakes.ConnectorFactoryImpl("spanmetrics", log, pairs), Fakes.Config.ok());
-        assertThat(conn.supportedPairs()).isEqualTo(pairs);
-    }
 
     @Test
     void entriesRejectNulls() {
@@ -61,7 +52,6 @@ class ValueTypesTest {
 
     @Test
     void serviceOptionsValidateDeadlines() {
-        assertThat(ServiceOptions.defaults().startDeadline()).isPositive();
         assertThatThrownBy(() -> new ServiceOptions(Duration.ZERO, Duration.ofSeconds(1)))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new ServiceOptions(Duration.ofSeconds(1), Duration.ofSeconds(-1)))
@@ -72,8 +62,6 @@ class ValueTypesTest {
     void diagnosticTypesRenderAndValidate() {
         var pid = PipelineId.of(TRACES);
         var d = Diagnostic.of(DiagnosticCode.CYCLE_DETECTED, "loop", ID, pid);
-        assertThat(d.toString()).contains("CYCLE_DETECTED").contains("component=x").contains("pipeline=traces");
-        assertThat(Diagnostic.ofPipeline(DiagnosticCode.EMPTY_PIPELINE, "empty", pid).component()).isEmpty();
         assertThatThrownBy(() -> new Diagnostic(null, "m", Optional.empty(), Optional.empty()))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new Diagnostic(DiagnosticCode.EMPTY_PIPELINE, null, Optional.empty(), Optional.empty()))

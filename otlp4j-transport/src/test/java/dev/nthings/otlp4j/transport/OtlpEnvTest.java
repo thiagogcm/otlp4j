@@ -288,18 +288,6 @@ class OtlpEnvTest {
         assertThat(fromEnv(Map.of())).isEqualTo(OtlpExporterConfig.builder(4317).build());
     }
 
-    @DisplayName("partial environment only overrides the variables present")
-    @Test
-    void partialEnv() {
-        var cfg = fromEnv(Map.of(OtlpEnv.TIMEOUT, "2500"));
-
-        assertThat(cfg.timeout().perAttempt()).isEqualTo(Duration.ofMillis(2500));
-        assertThat(cfg.host()).isEqualTo("localhost");
-        assertThat(cfg.port()).isEqualTo(4317);
-        assertThat(cfg.tls()).isEqualTo(Tls.disabled());
-        assertThat(cfg.compression()).isEqualTo(Compression.NONE);
-    }
-
     @DisplayName("explicit setters after fromEnvironment() override the environment")
     @Test
     void builderWinsAfterEnv() {

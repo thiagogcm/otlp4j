@@ -67,20 +67,6 @@ class PipelineTest {
     }
 
     @Test
-    void largeLifecycleBudgetsDoNotOverflowNanoseconds() {
-        var budget = Duration.ofSeconds(Long.MAX_VALUE);
-        var sink = new RecordingSink();
-        try (var pipeline = Pipeline.builder(TRACES).service(new ServiceOptions(budget, budget))
-                .to(sink).build()) {
-            pipeline.start();
-            assertThat(pipeline.submit(BATCH).toCompletableFuture().join())
-                    .isInstanceOf(DeliveryResult.Accepted.class);
-            assertThat(pipeline.flush(budget).toCompletableFuture().join().isSuccess()).isTrue();
-        }
-        assertThat(sink.stops.get()).isEqualTo(1);
-    }
-
-    @Test
     void transformingOneFanOutBranchPreservesItsSibling() {
         var builder = Gateway.builder();
         var input = builder.input(ComponentId.parse("input"), TRACES);

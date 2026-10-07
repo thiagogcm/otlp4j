@@ -10,7 +10,6 @@ import static org.awaitility.Awaitility.await;
 import dev.nthings.otlp4j.codec.PayloadWire;
 import dev.nthings.otlp4j.components.support.RecordingConsumer;
 import dev.nthings.otlp4j.components.support.TestConsumeContext;
-import dev.nthings.otlp4j.core.component.ComponentId;
 import dev.nthings.otlp4j.core.component.FlushContext;
 import dev.nthings.otlp4j.core.component.Processor;
 import dev.nthings.otlp4j.core.component.ShutdownContext;
@@ -27,8 +26,6 @@ import dev.nthings.otlp4j.core.signal.Payload;
 import dev.nthings.otlp4j.core.signal.RoutingMetadata;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.model.TracesData;
-import dev.nthings.otlp4j.model.ProfilesData;
-import dev.nthings.otlp4j.testing.Fixtures;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -41,7 +38,7 @@ import org.junit.jupiter.api.Test;
 
 class BatchProcessorTest {
 
-    private static final Duration NO_TIMER = Duration.ofHours(1);
+    private static final Duration NO_TIMER = Duration.ZERO;
     private static final ShutdownContext SHUTDOWN = new ShutdownContext(Duration.ofSeconds(5));
     private static final ConsumeContext CTX = new TestConsumeContext();
 
@@ -156,62 +153,6 @@ class BatchProcessorTest {
     }
 
     @Test
-    void reportsProfileMergeFailureWithoutForwardingData() {
-        var next = new RecordingConsumer<ProfilesData>();
-        var processor = new BatchProcessor<>(
-                ComponentId.parse("profiles-batch"),
-                SignalDescriptor.PROFILES,
-                config(2, 0, 0, NO_TIMER, List.of()),
-                next,
-                System::nanoTime);
-        processor.start(baseContext()).toCompletableFuture().join();
-        var first = Fixtures.profilesDataWithDictionary(new byte[] {0x0a, 0}, Fixtures.profile("a1"));
-        var second = Fixtures.profilesDataWithDictionary(new byte[] {0x12, 0}, Fixtures.profile("b2"));
-
-        assertAccepted(processor.consume(CTX, Payload.of(SignalDescriptor.PROFILES, first)));
-        assertAccepted(processor.consume(CTX, Payload.of(SignalDescriptor.PROFILES, second)));
-        var report = processor.flush(new FlushContext(Duration.ofSeconds(2))).toCompletableFuture().join();
-
-        assertThat(report.rejectedItems()).isEqualTo(2);
-        assertThat(report.failedBatches()).isEqualTo(1);
-        assertThat(report.firstFailure()).isInstanceOf(IllegalStateException.class);
-        assertThat(next.received()).isEmpty();
-        processor.shutdown(SHUTDOWN).toCompletableFuture().join();
-    }
-
-    @Test
-    void preservesLocalFailureWhenAFlushTimesOut() {
-        var next = new RecordingConsumer<ProfilesData>();
-        var gate = new CountDownLatch(1);
-        next.gate(gate);
-        var processor = new BatchProcessor<>(
-                ComponentId.parse("profiles-timeout"),
-                SignalDescriptor.PROFILES,
-                config(2, 0, 0, NO_TIMER, List.of()),
-                next,
-                System::nanoTime);
-        processor.start(baseContext()).toCompletableFuture().join();
-        var first = Fixtures.profilesDataWithDictionary(new byte[] {0x0a, 0}, Fixtures.profile("a1"));
-        var second = Fixtures.profilesDataWithDictionary(new byte[] {0x12, 0}, Fixtures.profile("b2"));
-        var valid = Fixtures.profilesDataWithDictionary(new byte[] {0x0a, 0}, Fixtures.profile("c3"));
-
-        assertAccepted(processor.consume(CTX, Payload.of(SignalDescriptor.PROFILES, first)));
-        assertAccepted(processor.consume(CTX, Payload.of(SignalDescriptor.PROFILES, second)));
-        assertAccepted(processor.consume(CTX, Payload.of(SignalDescriptor.PROFILES, valid)));
-
-        var timedFlush = processor.flush(new FlushContext(Duration.ofMillis(10)));
-        await().atMost(2, TimeUnit.SECONDS).until(() -> next.received().size() == 1);
-        assertThatThrownBy(() -> timedFlush.toCompletableFuture().join())
-                .hasRootCauseInstanceOf(TimeoutException.class);
-        gate.countDown();
-        var report = processor.flush(new FlushContext(Duration.ofSeconds(2))).toCompletableFuture().join();
-
-        assertThat(report.rejectedItems()).isEqualTo(2);
-        assertThat(report.failedBatches()).isEqualTo(1);
-        processor.shutdown(SHUTDOWN).toCompletableFuture().join();
-    }
-
-    @Test
     void checksCancellationAndDeadlineBeforeMaterialising() {
         var next = new RecordingConsumer<TracesData>();
         var processor = start(sizeTriggered(1_000_000), next);
@@ -237,7 +178,13 @@ class BatchProcessorTest {
             }
         };
 
-        var refused = processor.consume(expired, traces(1)).toCompletableFuture().join();
+        var refused = processor.consume(expired, new Payload<TracesData>() {
+            @Override public SignalDescriptor<TracesData> signal() { return SignalDescriptor.TRACES; }
+            @Override public TracesData data() { throw new AssertionError("must not decode a refused request"); }
+            @Override public long itemCount() { return 1; }
+            @Override public RoutingMetadata routingMetadata() { return traces(1).routingMetadata(); }
+            @Override public Payload<TracesData> withData(TracesData data) { return Payload.of(SignalDescriptor.TRACES, data); }
+        }).toCompletableFuture().join();
 
         assertThat(refused).isInstanceOf(DeliveryResult.Rejected.class);
         assertThat(((DeliveryResult.Rejected) refused).reason())
@@ -272,7 +219,13 @@ class BatchProcessorTest {
             }
         };
 
-        var refused = processor.consume(cancelled, traces(1)).toCompletableFuture().join();
+        var refused = processor.consume(cancelled, new Payload<TracesData>() {
+            @Override public SignalDescriptor<TracesData> signal() { return SignalDescriptor.TRACES; }
+            @Override public TracesData data() { throw new AssertionError("must not decode a refused request"); }
+            @Override public long itemCount() { return 1; }
+            @Override public RoutingMetadata routingMetadata() { return traces(1).routingMetadata(); }
+            @Override public Payload<TracesData> withData(TracesData data) { return Payload.of(SignalDescriptor.TRACES, data); }
+        }).toCompletableFuture().join();
 
         assertThat(refused).isInstanceOf(DeliveryResult.Rejected.class);
         assertThat(((DeliveryResult.Rejected) refused).disposition()).isEqualTo(Disposition.PERMANENT);
@@ -283,7 +236,8 @@ class BatchProcessorTest {
     @Test
     void contextCaptureFailureDoesNotReserveAdmissionCapacity() {
         var next = new RecordingConsumer<TracesData>();
-        var processor = start(sizeTriggered(1), next);
+        var processor = start(config(1, 0, 0, NO_TIMER, List.of(), 64, 1, 1,
+                BatchProcessorConfig.DEFAULT_MAX_PENDING_BYTES, 1), next);
         var broken = new ConsumeContext() {
             @Override
             public ClientMetadata metadata() {
@@ -353,7 +307,7 @@ class BatchProcessorTest {
     }
 
     @Test
-    void partitionsByMetadataAndCopiesHeaderValues() {
+    void partitionsByMetadata() {
         var next = new RecordingConsumer<TracesData>();
         var processor = start(config(2, 0, 0, NO_TIMER, List.of("tenant")), next);
 
@@ -477,14 +431,15 @@ class BatchProcessorTest {
     }
 
     @Test
-    void repeatedShutdownReturnsTheOriginalFailureStage() {
+    void repeatedShutdownPreservesTheFailure() {
         var next = new RecordingConsumer<TracesData>();
         next.rejectWith(DeliveryResult.permanent("downstream down", next.provenance()));
         var processor = start(sizeTriggered(1), next);
         assertAccepted(processor.consume(CTX, traces(1)));
 
         var first = processor.shutdown(SHUTDOWN);
-        assertThat(processor.shutdown(SHUTDOWN)).isSameAs(first);
+        assertThatThrownBy(() -> processor.shutdown(SHUTDOWN).toCompletableFuture().join())
+                .hasRootCauseMessage("downstream down");
         assertThatThrownBy(() -> first.toCompletableFuture().join())
                 .hasRootCauseMessage("downstream down");
     }

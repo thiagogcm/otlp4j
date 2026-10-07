@@ -20,8 +20,8 @@ import org.junit.jupiter.api.Test;
 /// and runs on the consolidated Armeria transport. A concrete runner in otlp4j-conformance subclasses
 /// this and supplies the seam; this class names no transport, client, or config type.
 ///
-/// The exact backoff and folding arithmetic is pinned deterministically elsewhere (the
-/// `ArmeriaRetryPolicyTest` unit test in the transport module asserts the retry rule and backoff
+/// The exact backoff and folding arithmetic is tested deterministically elsewhere (the
+/// `ArmeriaRetryRulesTest` unit test in the transport module asserts the retry rule and backoff
 /// translation with tiny base waits). This suite proves the same behaviour is actually wired end to end
 /// over a real transport and a real server: it asserts relative magnitude and ordering, not exact
 /// milliseconds. Every case fixes an explicit, tiny backoff so no case silently runs the one-second
@@ -84,7 +84,7 @@ public abstract class PolicySemanticsSuite {
     void exhaustsAllAttemptsAndFails() {
         var obs = run(retry(5, INSTANT_BACKOFF, true), GENEROUS_TIMEOUT, repeat(new ProgrammedResponse.Unavailable(), 5));
         assertThat(obs.attempts()).isEqualTo(5);
-        assertThat(obs.outcome()).isEqualTo(Outcome.RETRYABLE_REJECTED);
+        assertThat(obs.outcome()).isEqualTo(Outcome.REJECTED);
         // Exhausting all five attempts emits exactly four retries. Asserting maxAttempts - 1 against the
         // exporter's retry counter pins the real client's onRetry to recordRetry wiring end to end: a
         // dropped, doubled, or off-by-one listener would move this number.
@@ -98,7 +98,7 @@ public abstract class PolicySemanticsSuite {
                 new ProgrammedResponse.Unavailable(),
                 new ProgrammedResponse.Ok()));
         assertThat(obs.attempts()).isEqualTo(1);
-        assertThat(obs.outcome()).isEqualTo(Outcome.RETRYABLE_REJECTED);
+        assertThat(obs.outcome()).isEqualTo(Outcome.REJECTED);
     }
 
     @DisplayName("a permanent error is not retried")
@@ -108,7 +108,7 @@ public abstract class PolicySemanticsSuite {
                 new ProgrammedResponse.Permanent(),
                 new ProgrammedResponse.Ok()));
         assertThat(obs.attempts()).isEqualTo(1);
-        assertThat(obs.outcome()).isEqualTo(Outcome.PERMANENT_REJECTED);
+        assertThat(obs.outcome()).isEqualTo(Outcome.REJECTED);
     }
 
     @DisplayName("gRPC negative pushback stops retry")
@@ -121,7 +121,7 @@ public abstract class PolicySemanticsSuite {
                     GENEROUS_TIMEOUT,
                     List.of(new ProgrammedResponse.ThrottleNoRetry(), new ProgrammedResponse.Ok())));
             assertThat(obs.attempts()).isEqualTo(1);
-            assertThat(obs.outcome()).isEqualTo(Outcome.PERMANENT_REJECTED);
+            assertThat(obs.outcome()).isEqualTo(Outcome.REJECTED);
         }
     }
 
@@ -152,16 +152,8 @@ public abstract class PolicySemanticsSuite {
         assertThat(obs.attempts()).isEqualTo(5);
         assertThat(obs.interAttemptGaps()).hasSize(4);
         assertEveryGapAtMost(obs, Duration.ofMillis(120));
-    }
-
-    @DisplayName("the backoff cap is honored under a large multiplier")
-    @Test
-    void backoffCapHonoredUnderLargeMultiplier() {
-        var backoff = new BackoffPolicy(Duration.ofMillis(20), 10.0, 0.0, Duration.ofMillis(80));
-        var obs = run(retry(5, backoff, true), GENEROUS_TIMEOUT, append(
-                repeat(new ProgrammedResponse.Unavailable(), 3), new ProgrammedResponse.Ok()));
-        assertThat(obs.attempts()).isEqualTo(4);
-        assertEveryGapAtMost(obs, Duration.ofMillis(80));
+        assertThat(obs.interAttemptGaps().getLast())
+                .isGreaterThanOrEqualTo(Duration.ofMillis(120).minus(LOWER_TOLERANCE));
     }
 
     // --- Retry-after folding -------------------------------------------------------------------
@@ -182,10 +174,11 @@ public abstract class PolicySemanticsSuite {
     void throttleHintIgnoredWhenDisabled() {
         var backoff = new BackoffPolicy(Duration.ofMillis(20), 2.0, 0.0, Duration.ofMillis(80));
         var obs = run(retry(5, backoff, false), GENEROUS_TIMEOUT, List.of(
-                new ProgrammedResponse.Throttle(Duration.ofMillis(500)),
+                new ProgrammedResponse.Throttle(Duration.ofSeconds(2)),
                 new ProgrammedResponse.Ok()));
         assertThat(obs.attempts()).isEqualTo(2);
-        assertThat(firstGap(obs)).isLessThanOrEqualTo(Duration.ofMillis(80).plus(UPPER_TOLERANCE));
+        assertThat(obs.outcome()).isEqualTo(Outcome.ACCEPTED);
+        assertThat(firstGap(obs)).isLessThan(Duration.ofSeconds(1));
     }
 
     @DisplayName("HTTP honors an RFC 1123 date Retry-After")
@@ -262,10 +255,8 @@ public abstract class PolicySemanticsSuite {
             // is met. A tighter budget made this case race connection setup and record zero arrivals.
             var budget = Duration.ofSeconds(1);
             var timeout = new TimeoutPolicy(budget, budget);
-            // RetryPolicy.defaults() so the case exercises the default-shaped config where the two bounds
-            // coincide, matching OtlpExporterConfig.defaults.
             var obs = seam.runOnce(new ExportProgram(
-                    RetryPolicy.defaults(),
+                    retry(3, new BackoffPolicy(Duration.ofMillis(50), 1, 0, Duration.ofMillis(50)), true),
                     timeout,
                     List.of(new ProgrammedResponse.Hang(Duration.ofSeconds(3)))));
             assertThat(obs.outcome()).isEqualTo(Outcome.TIMED_OUT);

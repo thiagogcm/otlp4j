@@ -12,10 +12,7 @@ import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.result.FlushReport;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.model.AttributeValue;
-import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.Metric;
-import dev.nthings.otlp4j.model.MetricsData;
-import dev.nthings.otlp4j.model.TracesData;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.common.Value;
@@ -45,8 +42,8 @@ import io.opentelemetry.sdk.trace.data.EventData;
 import io.opentelemetry.sdk.trace.data.LinkData;
 import io.opentelemetry.sdk.trace.data.SpanData;
 import io.opentelemetry.sdk.trace.data.StatusData;
+import io.opentelemetry.sdk.resources.Resource;
 import java.time.Duration;
-import java.util.Collection;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -74,10 +71,53 @@ final class SdkExportersTest {
             .build();
 
     @Test
-    void spanExportSnapshotsAllTraceFieldsAndGroupsResourceAndScope() {
+    void groupingKeepsSchemaVersionsWithTheirSpansAndCoalescesEquivalentSources() {
+        var attributes = Attributes.of(AttributeKey.stringKey("service.name"), "checkout");
+        var resourceV1 = Resource.create(attributes, "https://schema.example/resource/1");
+        var resourceV2 = Resource.create(attributes, "https://schema.example/resource/2");
+        var scopeV1 = InstrumentationScopeInfo.builder("orders-lib")
+                .setSchemaUrl("https://schema.example/scope/1").build();
+        var scopeV2 = InstrumentationScopeInfo.builder("orders-lib")
+                .setSchemaUrl("https://schema.example/scope/2").build();
+        var equivalentResource = Resource.create(attributes, "https://schema.example/resource/1");
+        var equivalentScope = InstrumentationScopeInfo.builder("orders-lib")
+                .setSchemaUrl("https://schema.example/scope/1").build();
         var input = new RecordingInput<>(SignalDescriptor.TRACES);
         var exporter = SdkExporters.spans(input);
-        var event = EventData.create(12L, "annotated", Attributes.of(AttributeKey.longKey("count"), 2L), 4);
+
+        assertThat(exporter.export(List.of(
+                spanForGroup("pay", resourceV1, scopeV1),
+                spanForGroup("fetch", resourceV2, scopeV1),
+                spanForGroup("ship", resourceV1, scopeV2),
+                spanForGroup("refund", equivalentResource, equivalentScope))).isSuccess()).isTrue();
+
+        var groups = input.onlyBatch().resourceSpans();
+        assertThat(groups).extracting(group -> group.schemaUrl()).containsExactly(
+                "https://schema.example/resource/1", "https://schema.example/resource/2");
+        assertThat(groups.getFirst().scopeSpans()).extracting(group -> group.schemaUrl()).containsExactly(
+                "https://schema.example/scope/1", "https://schema.example/scope/2");
+        assertThat(groups.getFirst().scopeSpans().getFirst().spans())
+                .extracting(span -> span.name()).containsExactly("pay", "refund");
+        assertThat(groups.getFirst().scopeSpans().get(1).spans())
+                .extracting(span -> span.name()).containsExactly("ship");
+        assertThat(groups.get(1).scopeSpans()).singleElement().satisfies(scope -> {
+            assertThat(scope.schemaUrl()).isEqualTo("https://schema.example/scope/1");
+            assertThat(scope.spans()).extracting(span -> span.name()).containsExactly("fetch");
+        });
+    }
+
+    private static SpanData spanForGroup(String name, Resource resource, InstrumentationScopeInfo scope) {
+        var context = SpanContext.create(TRACE_ID, "%016x".formatted(name.hashCode()),
+                TraceFlags.getSampled(), TraceState.getDefault());
+        return new TestSpanData(name, SpanKind.INTERNAL, context, SpanContext.getInvalid(), StatusData.unset(),
+                1L, 2L, Attributes.empty(), List.of(), List.of(), true, 0, 0, 0, scope, resource);
+    }
+
+    @Test
+    void spanExportSnapshotsTraceFieldsAndSchemaMetadata() {
+        var input = new RecordingInput<>(SignalDescriptor.TRACES);
+        var exporter = SdkExporters.spans(input);
+        var event = EventData.create(150L, "annotated", Attributes.of(AttributeKey.longKey("count"), 2L), 4);
         var link = LinkData.create(
                 REMOTE_PARENT,
                 Attributes.of(AttributeKey.stringKey("link.key"), "link.value"),
@@ -101,7 +141,7 @@ final class SdkExportersTest {
                 2,
                 6,
                 SCOPE,
-                io.opentelemetry.sdk.resources.Resource.create(
+                Resource.create(
                         Attributes.of(AttributeKey.stringKey("service.name"), "orders"),
                         "https://schema.example/resource"));
 
@@ -147,7 +187,7 @@ final class SdkExportersTest {
                 "1",
                 MetricDataType.LONG_SUM,
                 sum,
-                io.opentelemetry.sdk.resources.Resource.empty(),
+                Resource.empty(),
                 InstrumentationScopeInfo.create("meter"));
 
         assertThat(exporter.getAggregationTemporality(io.opentelemetry.sdk.metrics.InstrumentType.COUNTER))
@@ -217,30 +257,30 @@ final class SdkExportersTest {
                         "long-gauge", "", "", MetricDataType.LONG_GAUGE,
                         io.opentelemetry.sdk.metrics.data.GaugeData.createLongGaugeData(
                                 List.of(LongPointData.create(0L, 6L, Attributes.empty(), 2L))),
-                        io.opentelemetry.sdk.resources.Resource.empty(), SCOPE),
+                        Resource.empty(), SCOPE),
                 new TestMetricData(
                         "double-gauge", "", "", MetricDataType.DOUBLE_GAUGE,
                         io.opentelemetry.sdk.metrics.data.GaugeData.createDoubleGaugeData(
                                 List.of(doubleGaugePoint)),
-                        io.opentelemetry.sdk.resources.Resource.empty(), SCOPE),
+                        Resource.empty(), SCOPE),
                 new TestMetricData(
                         "double-sum", "", "", MetricDataType.DOUBLE_SUM,
                         SumData.createDoubleSumData(false, AggregationTemporality.DELTA,
                                 List.of(doubleSumPoint)),
-                        io.opentelemetry.sdk.resources.Resource.empty(), SCOPE),
+                        Resource.empty(), SCOPE),
                 new TestMetricData(
                         "histogram", "", "ms", MetricDataType.HISTOGRAM,
                         HistogramData.create(AggregationTemporality.DELTA, List.of(histogramPoint)),
-                        io.opentelemetry.sdk.resources.Resource.empty(), SCOPE),
+                        Resource.empty(), SCOPE),
                 new TestMetricData(
                         "exponential", "", "", MetricDataType.EXPONENTIAL_HISTOGRAM,
                         ExponentialHistogramData.create(
                                 AggregationTemporality.CUMULATIVE, List.of(exponentialPoint)),
-                        io.opentelemetry.sdk.resources.Resource.empty(), SCOPE),
+                        Resource.empty(), SCOPE),
                 new TestMetricData(
                         "summary", "", "", MetricDataType.SUMMARY,
                         SummaryData.create(List.of(summaryPoint)),
-                        io.opentelemetry.sdk.resources.Resource.empty(), SCOPE));
+                        Resource.empty(), SCOPE));
 
         assertThat(exporter.export(metrics).isSuccess()).isTrue();
         var mapped = input.onlyBatch().resourceMetrics().getFirst().scopeMetrics().getFirst().metrics();
@@ -260,7 +300,7 @@ final class SdkExportersTest {
     }
 
     @Test
-    void logsExportPreservesStructuredBodiesAndAdapterShutdownDoesNotCloseInput() {
+    void logsExportPreservesStructuredBodiesAndFlushesOnShutdown() {
         var input = new RecordingInput<>(SignalDescriptor.LOGS);
         var exporter = SdkExporters.logs(input);
         var bodyValues = new LinkedHashMap<String, Value<?>>();
@@ -291,7 +331,6 @@ final class SdkExportersTest {
         assertThat(exporter.shutdown().join(1, TimeUnit.SECONDS).isSuccess()).isTrue();
         assertThat(input.flushCalls).isEqualTo(1);
         assertThat(exporter.export(List.of(sdkLog)).isSuccess()).isFalse();
-        assertThat(input.closed).isFalse();
     }
 
     @Test
@@ -303,7 +342,7 @@ final class SdkExportersTest {
         var span = new TestSpanData(
                 "operation", SpanKind.INTERNAL, CONTEXT, SpanContext.getInvalid(), StatusData.unset(),
                 1L, 2L, Attributes.empty(), List.of(), List.of(), true, 0, 0, 0, SCOPE,
-                io.opentelemetry.sdk.resources.Resource.empty());
+                Resource.empty());
 
         var exportResult = exporter.export(List.of(span));
         var shutdownResult = exporter.shutdown();
@@ -324,7 +363,7 @@ final class SdkExportersTest {
         var span = new TestSpanData(
                 "operation", SpanKind.INTERNAL, CONTEXT, SpanContext.getInvalid(), StatusData.unset(),
                 1L, 2L, Attributes.empty(), List.of(), List.of(), true, 0, 0, 0, SCOPE,
-                io.opentelemetry.sdk.resources.Resource.empty());
+                Resource.empty());
 
         var exportResult = exporter.export(List.of(span));
         var shutdownResult = exporter.shutdown();
@@ -367,7 +406,7 @@ final class SdkExportersTest {
         var spans = SdkExporters.spans(tracesInput);
         assertThat(spans.export(List.of()).isSuccess()).isTrue();
         assertThat(spans.shutdown().join(1, TimeUnit.SECONDS).isSuccess()).isTrue();
-        assertThat(spans.shutdown()).isSameAs(spans.shutdown());
+        assertThat(spans.shutdown().join(1, TimeUnit.SECONDS).isSuccess()).isTrue();
         assertThat(spans.export(List.of()).isSuccess()).isFalse();
         assertThat(spans.flush().isSuccess()).isFalse();
 
@@ -411,13 +450,13 @@ final class SdkExportersTest {
     void tracesMapToTheSameWireFieldsAfterTheDomainSnapshot() {
         var input = new RecordingInput<>(SignalDescriptor.TRACES);
         var exporter = SdkExporters.spans(input);
-        var event = EventData.create(12L, "annotated", Attributes.empty(), 0);
+        var event = EventData.create(150L, "annotated", Attributes.empty(), 0);
         var link = LinkData.create(REMOTE_PARENT, Attributes.empty(), 0);
         var sdkSpan = new TestSpanData(
                 "checkout", SpanKind.SERVER, CONTEXT, REMOTE_PARENT,
                 StatusData.create(io.opentelemetry.api.trace.StatusCode.ERROR, "failed"),
                 100L, 200L, Attributes.empty(), List.of(event), List.of(link), true,
-                1, 1, 0, SCOPE, io.opentelemetry.sdk.resources.Resource.empty());
+                1, 1, 0, SCOPE, Resource.empty());
 
         assertThat(exporter.export(List.of(sdkSpan)).isSuccess()).isTrue();
         var request = SignalCodec.TRACES.toProto(input.onlyBatch());
@@ -430,7 +469,7 @@ final class SdkExportersTest {
                 .isEqualTo(io.opentelemetry.proto.trace.v1.Span.SpanKind.SPAN_KIND_SERVER);
         assertThat(span.getStartTimeUnixNano()).isEqualTo(100L);
         assertThat(span.getEndTimeUnixNano()).isEqualTo(200L);
-        assertThat(span.getEvents(0).getTimeUnixNano()).isEqualTo(12L);
+        assertThat(span.getEvents(0).getTimeUnixNano()).isEqualTo(150L);
         assertThat(span.getEvents(0).getName()).isEqualTo("annotated");
         assertThat(span.getLinks(0).getFlags()).isEqualTo(0x301);
         assertThat(span.getStatus().getCode())
@@ -446,7 +485,7 @@ final class SdkExportersTest {
         var metric = new TestMetricData(
                 "requests", "request count", "1", MetricDataType.LONG_SUM,
                 SumData.createLongSumData(true, AggregationTemporality.CUMULATIVE, List.of(point)),
-                io.opentelemetry.sdk.resources.Resource.empty(), SCOPE);
+                Resource.empty(), SCOPE);
 
         assertThat(exporter.export(List.of(metric)).isSuccess()).isTrue();
         var request = SignalCodec.METRICS.toProto(input.onlyBatch());
@@ -545,7 +584,6 @@ final class SdkExportersTest {
         private volatile CompletableFuture<DeliveryResult> nextResult;
         private volatile CompletionStage<FlushReport> nextFlush;
         private volatile int flushCalls;
-        private volatile boolean closed;
         private volatile boolean blockFlush;
         private volatile CountDownLatch flushEntered;
         private volatile CountDownLatch flushRelease;
@@ -600,7 +638,7 @@ final class SdkExportersTest {
         return new TestSpanData(
                 "operation", SpanKind.INTERNAL, CONTEXT, SpanContext.getInvalid(), StatusData.unset(),
                 1L, 2L, Attributes.empty(), List.of(), List.of(), true, 0, 0, 0, SCOPE,
-                io.opentelemetry.sdk.resources.Resource.empty());
+                Resource.empty());
     }
 
     private record TestMetricData(
@@ -609,10 +647,10 @@ final class SdkExportersTest {
             String unit,
             MetricDataType type,
             Data<?> data,
-            io.opentelemetry.sdk.resources.Resource resource,
+            Resource resource,
             InstrumentationScopeInfo scope) implements MetricData {
         @Override
-        public io.opentelemetry.sdk.resources.Resource getResource() {
+        public Resource getResource() {
             return resource;
         }
 
@@ -663,7 +701,7 @@ final class SdkExportersTest {
             int totalRecordedLinks,
             int totalAttributeCount,
             InstrumentationScopeInfo scope,
-            io.opentelemetry.sdk.resources.Resource resource) implements SpanData {
+            Resource resource) implements SpanData {
         @Override
         public String getName() { return name; }
 
@@ -715,7 +753,7 @@ final class SdkExportersTest {
         public InstrumentationScopeInfo getInstrumentationScopeInfo() { return scope; }
 
         @Override
-        public io.opentelemetry.sdk.resources.Resource getResource() { return resource; }
+        public Resource getResource() { return resource; }
     }
 
     private record TestLogRecordData(
@@ -730,8 +768,8 @@ final class SdkExportersTest {
                 String eventName,
                 InstrumentationScopeInfo scope) implements LogRecordData {
         @Override
-        public io.opentelemetry.sdk.resources.Resource getResource() {
-            return io.opentelemetry.sdk.resources.Resource.empty();
+        public Resource getResource() {
+            return Resource.empty();
         }
 
         @Override

@@ -4,66 +4,26 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.nthings.otlp4j.model.Attributes;
+import dev.nthings.otlp4j.model.AttributeValue;
 import dev.nthings.otlp4j.model.ExponentialHistogramPoint;
 import dev.nthings.otlp4j.model.HistogramPoint;
 import dev.nthings.otlp4j.model.InstrumentationScope;
+import dev.nthings.otlp4j.model.LogRecord;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.Metric;
 import dev.nthings.otlp4j.model.MetricsData;
+import dev.nthings.otlp4j.model.NumberPoint;
 import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.Resource;
+import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.SummaryPoint;
 import dev.nthings.otlp4j.model.TracesData;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/// Unit tests for [SignalDescriptor]: the closed value set, its wire ordering, and the
-/// merge/itemCount/empty operations it owns directly over the immutable model records. The
-/// profiles-merge test is the guard the report requires: merging batches that carry distinct
-/// non-empty dictionaries throws.
+/// Merge and split behavior that preserves telemetry and its resource associations.
 class SignalDescriptorTest {
-
-    @Test
-    @DisplayName("values are the four signals in wire order, each with the right ordinal and name")
-    void valuesInWireOrder() {
-        assertThat(SignalDescriptor.values())
-                .containsExactly(
-                        SignalDescriptor.TRACES,
-                        SignalDescriptor.METRICS,
-                        SignalDescriptor.LOGS,
-                        SignalDescriptor.PROFILES);
-
-        assertThat(SignalDescriptor.TRACES.wireOrdinal()).isZero();
-        assertThat(SignalDescriptor.METRICS.wireOrdinal()).isEqualTo(1);
-        assertThat(SignalDescriptor.LOGS.wireOrdinal()).isEqualTo(2);
-        assertThat(SignalDescriptor.PROFILES.wireOrdinal()).isEqualTo(3);
-
-        assertThat(SignalDescriptor.TRACES.signalName()).isEqualTo("traces");
-        assertThat(SignalDescriptor.TRACES).hasToString("traces");
-        assertThat(SignalDescriptor.METRICS.signalName()).isEqualTo("metrics");
-        assertThat(SignalDescriptor.LOGS.signalName()).isEqualTo("logs");
-        assertThat(SignalDescriptor.PROFILES.signalName()).isEqualTo("profiles");
-    }
-
-    @Test
-    @DisplayName("batchType matches the model batch class for each signal")
-    void batchTypes() {
-        assertThat(SignalDescriptor.TRACES.batchType()).isEqualTo(TracesData.class);
-        assertThat(SignalDescriptor.METRICS.batchType()).isEqualTo(MetricsData.class);
-        assertThat(SignalDescriptor.LOGS.batchType()).isEqualTo(LogsData.class);
-        assertThat(SignalDescriptor.PROFILES.batchType()).isEqualTo(ProfilesData.class);
-    }
-
-    @Test
-    @DisplayName("empty, merge and itemCount compose correctly over TracesData")
-    void mergeAndItemCount() {
-        assertThat(SignalDescriptor.TRACES.empty().spanCount()).isZero();
-
-        var one = new TracesData(new TracesData(List.of()).resourceSpans());
-        var merged = SignalDescriptor.TRACES.merge(List.of(one, SignalDescriptor.TRACES.empty()));
-        assertThat(SignalDescriptor.TRACES.itemCount(merged)).isEqualTo(one.spanCount());
-    }
 
     @Test
     @DisplayName("PROFILES.merge throws IllegalStateException on distinct non-empty dictionaries")
@@ -77,31 +37,28 @@ class SignalDescriptorTest {
     }
 
     @Test
-    @DisplayName("merge and routing metadata cover every signal descriptor")
-    void allSignalOperations() {
-        var resource = Resource.of(Attributes.builder().put("service.name", "checkout").build());
+    @DisplayName("merging retains each resource and its telemetry")
+    void mergingRetainsResourceAssociations() {
+        var checkout = Resource.of(Attributes.builder().put("service.name", "checkout").build());
+        var payments = Resource.of(Attributes.builder().put("service.name", "payments").build());
         var scope = InstrumentationScope.of("library");
-        var traces = TracesData.of(resource, scope, List.of());
-        var metrics = MetricsData.of(resource, scope, List.of());
-        var logs = LogsData.of(resource, scope, List.of());
-        var profiles = ProfilesData.of(resource, scope, List.of());
+        var firstTraces = TracesData.of(checkout, scope, List.of(span("pay", "0102030405060708")));
+        var secondTraces = TracesData.of(payments, scope, List.of(span("refund", "0807060504030201")));
+        var firstMetrics = MetricsData.of(checkout, scope, List.of(Metric.builder().name("requests").data(Metric.gauge(NumberPoint.of(Attributes.empty(), 10, NumberPoint.longValue(4)))).build()));
+        var secondMetrics = MetricsData.of(payments, scope, List.of(Metric.builder().name("refunds").data(Metric.gauge(NumberPoint.of(Attributes.empty(), 10, NumberPoint.longValue(2)))).build()));
+        var firstLogs = LogsData.of(checkout, scope, List.of(LogRecord.builder().epochNanos(10).severity(LogRecord.Severity.INFO).body(AttributeValue.of("paid")).build()));
+        var secondLogs = LogsData.of(payments, scope, List.of(LogRecord.builder().epochNanos(10).severity(LogRecord.Severity.WARN).body(AttributeValue.of("refunded")).build()));
+        var firstProfiles = ProfilesData.of(checkout, scope, List.of(new ProfilesData.Profile("01020304050607080102030405060708", 10, 5, 1, 0, 0, "", new byte[0])));
+        var secondProfiles = ProfilesData.of(payments, scope, List.of(new ProfilesData.Profile("08070605040302010807060504030201", 10, 5, 1, 0, 0, "", new byte[0])));
 
-        assertThat(SignalDescriptor.TRACES.merge(List.of(traces, traces)).resourceSpans())
-                .hasSize(2);
-        assertThat(SignalDescriptor.METRICS.merge(List.of(metrics, metrics)).resourceMetrics())
-                .hasSize(2);
-        assertThat(SignalDescriptor.LOGS.merge(List.of(logs, logs)).resourceLogs()).hasSize(2);
-        assertThat(SignalDescriptor.PROFILES.merge(List.of(profiles, profiles)).resourceProfiles())
-                .hasSize(2);
-
-        assertThat(Payload.of(SignalDescriptor.TRACES, traces).routingMetadata().resourceAttribute("service.name"))
-                .contains("checkout");
-        assertThat(Payload.of(SignalDescriptor.METRICS, metrics).routingMetadata().resourceAttribute("service.name"))
-                .contains("checkout");
-        assertThat(Payload.of(SignalDescriptor.LOGS, logs).routingMetadata().resourceAttribute("service.name"))
-                .contains("checkout");
-        assertThat(Payload.of(SignalDescriptor.PROFILES, profiles).routingMetadata().resourceAttribute("service.name"))
-                .contains("checkout");
+        assertThat(SignalDescriptor.TRACES.merge(List.of(firstTraces, secondTraces)).resourceSpans())
+                .containsExactly(firstTraces.resourceSpans().getFirst(), secondTraces.resourceSpans().getFirst());
+        assertThat(SignalDescriptor.METRICS.merge(List.of(firstMetrics, secondMetrics)).resourceMetrics())
+                .containsExactly(firstMetrics.resourceMetrics().getFirst(), secondMetrics.resourceMetrics().getFirst());
+        assertThat(SignalDescriptor.LOGS.merge(List.of(firstLogs, secondLogs)).resourceLogs())
+                .containsExactly(firstLogs.resourceLogs().getFirst(), secondLogs.resourceLogs().getFirst());
+        assertThat(SignalDescriptor.PROFILES.merge(List.of(firstProfiles, secondProfiles)).resourceProfiles())
+                .containsExactly(firstProfiles.resourceProfiles().getFirst(), secondProfiles.resourceProfiles().getFirst());
     }
 
     @Test
@@ -118,7 +75,7 @@ class SignalDescriptorTest {
                                 Attributes.empty()),
                         new Metric(
                                 "exponential", "", "", new Metric.ExponentialHistogram(
-                                        List.of(ExponentialHistogramPoint.builder().count(1).build()),
+                                        List.of(ExponentialHistogramPoint.builder().count(1).zeroCount(1).build()),
                                         Metric.AggregationTemporality.CUMULATIVE),
                                 Attributes.empty()),
                         new Metric(
@@ -129,7 +86,19 @@ class SignalDescriptorTest {
         var parts = SignalDescriptor.METRICS.split(metrics, 1);
 
         assertThat(parts).hasSize(3);
-        assertThat(parts.stream().mapToLong(SignalDescriptor.METRICS::itemCount).sum()).isEqualTo(3);
         assertThat(parts).allSatisfy(part -> assertThat(part.metrics()).hasSize(1));
+        assertThat(parts.stream().flatMap(part -> part.metrics().stream()).toList())
+                .containsExactlyElementsOf(metrics.metrics());
     }
+    private static Span span(String name, String spanId) {
+        return Span.builder()
+                .traceId("01020304050607080102030405060708")
+                .spanId(spanId)
+                .name(name)
+                .kind(Span.Kind.SERVER)
+                .startEpochNanos(10)
+                .endEpochNanos(20)
+                .build();
+    }
+
 }

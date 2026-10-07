@@ -4,6 +4,8 @@ import static dev.nthings.otlp4j.core.signal.SignalDescriptor.TRACES;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import dev.nthings.otlp4j.core.policy.BackoffPolicy;
+import dev.nthings.otlp4j.core.policy.RetryPolicy;
 import dev.nthings.otlp4j.transport.Tls;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.model.TracesData;
@@ -94,6 +96,7 @@ class ArmeriaTlsTest {
                 .endpoint("localhost", receiver.port())
                 .tls(Tls.trust(TlsTestMaterial.caPem()))
                 .timeout(Duration.ofSeconds(5))
+                .retryPolicy(new RetryPolicy(1, BackoffPolicy.defaults(), false))
                 .build().start();
         closeables.add(exporter);
         var sent = TransportFixtures.richTraceData();
@@ -123,6 +126,7 @@ class ArmeriaTlsTest {
                 .endpoint("localhost", receiver.port())
                 .tls(Tls.trust(caFile))
                 .timeout(Duration.ofSeconds(5))
+                .retryPolicy(new RetryPolicy(1, BackoffPolicy.defaults(), false))
                 .build().start();
         closeables.add(exporter);
         var sent = TransportFixtures.richTraceData();
@@ -148,6 +152,7 @@ class ArmeriaTlsTest {
                 .endpoint("localhost", receiver.port())
                 .tls(Tls.systemTrust())
                 .timeout(Duration.ofSeconds(5))
+                .retryPolicy(new RetryPolicy(1, BackoffPolicy.defaults(), false))
                 .build().start();
         closeables.add(exporter);
 
