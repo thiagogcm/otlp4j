@@ -52,7 +52,7 @@ just update-protos
 just proto
 ```
 
-The first recipe initializes the schema submodule and copies its `opentelemetry/` directory. It copies the selected checkout; it does not choose a newer upstream revision. The second recipe generates protobuf and gRPC sources.
+The first recipe initializes the schema submodule and copies its `opentelemetry/` directory. It copies the revision the superproject records for the submodule; it does not choose a newer upstream revision. To adopt one, check out the release tag inside `opentelemetry-proto` and stage it with `git add opentelemetry-proto` before running the recipe, because the recipe resets an unstaged submodule checkout to the recorded revision. The second recipe generates protobuf and gRPC sources.
 
 Without `just`, source generation is:
 

@@ -2,7 +2,7 @@
 
 Add `otlp4j-opentelemetry` when OpenTelemetry Java instrumentation should feed an otlp4j input directly. The adapters implement the SDK's exporter interfaces and snapshot SDK data into immutable domain batches. This avoids a local encode, network, and decode hop.
 
-The bridge targets the SDK version pinned by the build, currently `1.65.0`. The model, core, service, and transport do not depend on the official SDK. Continue using the SDK for instrumentation, propagation, sampling, and metric aggregation.
+The bridge targets the SDK version pinned by the build, currently `1.66.0`. The model, core, service, and transport do not depend on the official SDK. Continue using the SDK for instrumentation, propagation, sampling, and metric aggregation.
 
 ## Select an adapter
 
