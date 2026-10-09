@@ -36,7 +36,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Predicate;
 import java.util.function.UnaryOperator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -225,61 +224,22 @@ public final class OtlpE2eDemo {
 
     /// Adds `deployment.environment=demo` to every resource in the batch.
     private static UnaryOperator<TracesData> enrichResource() {
-        return traces -> mapResource(traces, resource -> resource.withAttribute(
+        return traces -> traces.mapResources(resource -> resource.withAttribute(
                 "deployment.environment", AttributeValue.of("demo")));
     }
 
     /// Masks the sensitive `enduser.id` span attribute wherever it is present.
     private static UnaryOperator<TracesData> redactEnduserId() {
-        return traces -> mapSpans(traces, span -> span.attributes().contains(ENDUSER_ID)
+        return traces -> traces.mapSpans(span -> span.attributes().contains(ENDUSER_ID)
                 ? span.toBuilder()
                         .attributes(span.attributes().with(ENDUSER_ID, REDACTED))
                         .build()
                 : span);
     }
 
-    /// Keeps only `SERVER` spans, pruning scopes and resources left empty.
+    /// Keeps only `SERVER` spans; scopes and resources left without spans are removed.
     private static UnaryOperator<TracesData> keepServerSpans() {
-        return traces -> keepSpansWhere(traces, span -> span.kind() == Span.Kind.SERVER);
-    }
-
-    private static TracesData mapResource(
-            TracesData traces, UnaryOperator<Resource> mapper) {
-        return new TracesData(traces.resourceSpans().stream()
-                .map(rs -> new TracesData.ResourceSpans(
-                        mapper.apply(rs.resource()), rs.schemaUrl(), rs.scopeSpans()))
-                .toList());
-    }
-
-    private static TracesData mapSpans(TracesData traces, UnaryOperator<Span> mapper) {
-        return new TracesData(traces.resourceSpans().stream()
-                .map(rs -> new TracesData.ResourceSpans(
-                        rs.resource(),
-                        rs.schemaUrl(),
-                        rs.scopeSpans().stream()
-                                .map(ss -> new TracesData.ScopeSpans(
-                                        ss.scope(),
-                                        ss.schemaUrl(),
-                                        ss.spans().stream().map(mapper).toList()))
-                                .toList()))
-                .toList());
-    }
-
-    private static TracesData keepSpansWhere(TracesData traces, Predicate<Span> keep) {
-        var resources = new ArrayList<TracesData.ResourceSpans>();
-        for (var rs : traces.resourceSpans()) {
-            var scopes = new ArrayList<TracesData.ScopeSpans>();
-            for (var ss : rs.scopeSpans()) {
-                var kept = ss.spans().stream().filter(keep).toList();
-                if (!kept.isEmpty()) {
-                    scopes.add(new TracesData.ScopeSpans(ss.scope(), ss.schemaUrl(), kept));
-                }
-            }
-            if (!scopes.isEmpty()) {
-                resources.add(new TracesData.ResourceSpans(rs.resource(), rs.schemaUrl(), scopes));
-            }
-        }
-        return new TracesData(resources);
+        return traces -> traces.filterSpans(span -> span.kind() == Span.Kind.SERVER);
     }
 
     // ---- backend readback ------------------------------------------------------------------------

@@ -44,7 +44,40 @@ Use `TracesData.of(resource, scope, spans)` and the equivalent batch helpers for
 
 Flattened accessors such as `spans()` allocate a list. Use count methods when you only need a count and `forEachSpan`, `forEachMetric`, `forEachLogRecord`, or `forEachProfile` when you only need to visit items.
 
-When processing changes individual items, rebuild the affected groups and preserve their metadata. A batch-level filter does not select individual spans or points. See [Transform immutable batches](pipelines.md#transform-immutable-batches).
+## Select and replace items
+
+Each batch type returns a new batch from item-level and resource-level operations. These operations keep resource and scope grouping and schema URLs, so a transform does not rebuild the hierarchy by hand.
+
+| Batch          | Replace items   | Keep matching items |
+| -------------- | --------------- | ------------------- |
+| `TracesData`   | `mapSpans`      | `filterSpans`       |
+| `MetricsData`  | `mapMetrics`    | `filterMetrics`     |
+| `LogsData`     | `mapLogRecords` | `filterLogRecords`  |
+| `ProfilesData` | `mapProfiles`   | `filterProfiles`    |
+
+All four types also provide `mapResources` and `filterResources`. `filterResources` removes a rejected resource group together with its items.
+
+For an existing `TracesData` value `traces`, this keeps server spans and masks one attribute where it is present:
+
+```java
+import dev.nthings.otlp4j.model.Span;
+
+var selected = traces
+        .filterSpans(span -> span.kind() == Span.Kind.SERVER)
+        .mapSpans(span -> span.attributes().contains("enduser.id")
+                ? span.toBuilder()
+                        .attributes(span.attributes().with("enduser.id", "***"))
+                        .build()
+                : span);
+```
+
+An item filter removes a scope or resource group that loses all its items. Groups that lose nothing are kept as they are, including groups that were already empty. A mapper must return a non-null value for every item or resource.
+
+An operation that changes nothing returns the same batch instance. Return the item you received when it needs no change, as the example does for spans without the attribute. A pipeline `map` stage then keeps the payload it received, so a payload that arrived over OTLP is forwarded without being encoded again; see [Payloads and wire fidelity](architecture.md#payloads-and-wire-fidelity).
+
+Metric operations address whole metrics, although [counting](#signal-batches-and-counting) uses data points. To select data points, return a metric with replaced data from `mapMetrics`. Profile operations retain the shared dictionary under the rules in [Profiles](#profiles).
+
+Use these operations inside a pipeline's `map` stage; see [Transform immutable batches](pipelines.md#transform-immutable-batches).
 
 ## Payload views
 

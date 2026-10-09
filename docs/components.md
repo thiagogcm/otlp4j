@@ -106,7 +106,7 @@ var branch = new RoutingConfig(MatchSpec.of(checkout));
 
 Resource checks use the first string value found for a key across the payload's resource groups. Header checks match when at least one value for that key satisfies the condition. These checks use routing metadata without requesting the full domain batch. `domainPredicate(...)` explicitly requests the domain view.
 
-A mixed-resource batch is still forwarded or discarded as one unit. Use a custom transform when you need to split or select its individual items. A routing processor has one downstream branch; build several pipelines sharing a source to route to several destinations. Overlapping matches send the payload to each matching branch.
+A mixed-resource batch is still forwarded or discarded as one unit. To keep only some of its resource groups or items, add a `map` stage that uses the batch's [resource and item filters](model.md#select-and-replace-items). A routing processor has one downstream branch; build several pipelines sharing a source to route to several destinations. Overlapping matches send the payload to each matching branch.
 
 An intentional filter or routing discard returns `Accepted`. It is a policy decision, not a queue-overflow loss, and is not added to a flush report's dropped-item count.
 

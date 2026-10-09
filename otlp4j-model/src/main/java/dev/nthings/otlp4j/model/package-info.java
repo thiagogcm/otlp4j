@@ -5,8 +5,10 @@
 /// `AttributeValue`, `Span`, `Metric`, `LogRecord`). Every signal batch preserves OTLP's
 /// resource/scope grouping and offers a flattened accessor plus allocation-free `forEach…` and
 /// item-count helpers for hot paths; the `of(...)` factories build the common
-/// single-resource/single-scope shape without hand-nesting wrappers. The package depends on
-/// neither generated protobuf, gRPC, nor the pipeline API.
+/// single-resource/single-scope shape without hand-nesting wrappers. Each batch also offers `map…`
+/// and `filter…` operations over its items and resources that keep the grouping and return the same
+/// instance when nothing changes. The package depends on neither generated protobuf, gRPC, nor the
+/// pipeline API.
 @NullMarked
 package dev.nthings.otlp4j.model;
 

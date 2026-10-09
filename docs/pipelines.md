@@ -42,25 +42,21 @@ Use [Transport](transport.md) to configure a different endpoint, TLS, headers, o
 
 ## Transform immutable batches
 
-A `map` stage returns a replacement batch. Preserve resource and scope grouping, schema URLs, and item fields that the transform does not change.
+A `map` stage returns a replacement batch. The batch types' [item and resource operations](model.md#select-and-replace-items) keep resource and scope grouping, schema URLs, and the items a transform does not change.
 
-For example, this stage adds a resource attribute to every resource group. Insert it before `to(...)`:
+For example, these stages add a resource attribute to every resource group and keep only server spans. Insert them before `to(...)`:
 
 ```java
 import dev.nthings.otlp4j.model.AttributeValue;
-import dev.nthings.otlp4j.model.TracesData;
+import dev.nthings.otlp4j.model.Span;
 
 // builder is a Pipeline.Builder<TracesData>.
-builder.map(data -> new TracesData(data.resourceSpans().stream()
-        .map(group -> new TracesData.ResourceSpans(
-                group.resource().withAttribute(
-                        "deployment.environment", AttributeValue.of("production")),
-                group.schemaUrl(),
-                group.scopeSpans()))
-        .toList()));
+builder.map(data -> data.mapResources(resource -> resource.withAttribute(
+                "deployment.environment", AttributeValue.of("production"))))
+        .map(data -> data.filterSpans(span -> span.kind() == Span.Kind.SERVER));
 ```
 
-`filter` selects entire batches. To retain only selected spans within a batch, use `map` to rebuild the item lists and prune empty groups as needed. The [end-to-end sample](../otlp4j-samples/src/main/java/dev/nthings/otlp4j/samples/OtlpE2eDemo.java) contains span redaction and span-kind selection.
+`filter` keeps or discards an entire batch; select items in a `map` stage. A batch left without items is still forwarded, so follow the selection with `filter(data -> data.spanCount() > 0)` when empty batches should stop there. The [end-to-end sample](../otlp4j-samples/src/main/java/dev/nthings/otlp4j/samples/OtlpE2eDemo.java) combines resource enrichment, span redaction, and span-kind selection.
 
 Transforms run synchronously on the invoking processing path. Use a component with explicit scheduling or buffering for work that needs a separate execution boundary.
 

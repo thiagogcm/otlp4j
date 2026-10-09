@@ -4,6 +4,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
+import java.util.function.UnaryOperator;
 
 /// A batch of profiling telemetry: the domain equivalent of an OTLP export request.
 ///
@@ -71,6 +73,52 @@ public record ProfilesData(List<ResourceProfiles> resourceProfiles, byte[] dicti
         return count;
     }
 
+    /// Returns this batch with every resource replaced by `mapper`'s result. Schema URLs, scopes, and
+    /// profiles are retained. Returns this instance when `mapper` returns each resource unchanged.
+    public ProfilesData mapResources(UnaryOperator<Resource> mapper) {
+        Objects.requireNonNull(mapper, "mapper");
+        return withResourceProfiles(Rewrites.map(resourceProfiles, group -> group.withResource(
+                Objects.requireNonNull(mapper.apply(group.resource()), "mapper returned null"))));
+    }
+
+    /// Returns this batch with only the resource groups whose resource `keep` accepts. A rejected
+    /// group is removed together with its profiles. Returns this instance when `keep` accepts every
+    /// resource.
+    public ProfilesData filterResources(Predicate<? super Resource> keep) {
+        Objects.requireNonNull(keep, "keep");
+        return withResourceProfiles(Rewrites.filter(resourceProfiles, group -> keep.test(group.resource())));
+    }
+
+    /// Returns this batch with every profile replaced by `mapper`'s result, which must be non-null.
+    /// Resource and scope grouping and the shared dictionary are retained, so keep each profile's raw
+    /// bytes when they reference that dictionary. Returns this instance when `mapper` returns each
+    /// profile unchanged.
+    public ProfilesData mapProfiles(UnaryOperator<Profile> mapper) {
+        Objects.requireNonNull(mapper, "mapper");
+        return withResourceProfiles(Rewrites.map(resourceProfiles, resource -> resource.withScopeProfiles(
+                Rewrites.map(resource.scopeProfiles(), scope -> scope.withProfiles(
+                        Rewrites.map(scope.profiles(), mapper))))));
+    }
+
+    /// Returns this batch with only the profiles `keep` accepts, in their original order and
+    /// grouping. A scope or resource that loses all its profiles is removed; groups that lose nothing
+    /// are kept as they are. The shared dictionary is retained. Returns this instance when `keep`
+    /// accepts every profile.
+    public ProfilesData filterProfiles(Predicate<? super Profile> keep) {
+        Objects.requireNonNull(keep, "keep");
+        return withResourceProfiles(Rewrites.prune(
+                resourceProfiles,
+                resource -> resource.withScopeProfiles(Rewrites.prune(
+                        resource.scopeProfiles(),
+                        scope -> scope.withProfiles(Rewrites.filter(scope.profiles(), keep)),
+                        scope -> scope.profiles().isEmpty())),
+                resource -> resource.scopeProfiles().isEmpty()));
+    }
+
+    private ProfilesData withResourceProfiles(List<ResourceProfiles> replacement) {
+        return replacement == resourceProfiles ? this : new ProfilesData(replacement, dictionary);
+    }
+
     @Override
     public boolean equals(Object o) {
         return o instanceof ProfilesData other
@@ -95,6 +143,14 @@ public record ProfilesData(List<ResourceProfiles> resourceProfiles, byte[] dicti
         public ResourceProfiles {
             scopeProfiles = List.copyOf(scopeProfiles);
         }
+
+        ResourceProfiles withResource(Resource replacement) {
+            return replacement == resource ? this : new ResourceProfiles(replacement, schemaUrl, scopeProfiles);
+        }
+
+        ResourceProfiles withScopeProfiles(List<ScopeProfiles> replacement) {
+            return replacement == scopeProfiles ? this : new ResourceProfiles(resource, schemaUrl, replacement);
+        }
     }
 
     /// Profiles produced by a single [InstrumentationScope].
@@ -102,6 +158,10 @@ public record ProfilesData(List<ResourceProfiles> resourceProfiles, byte[] dicti
             InstrumentationScope scope, String schemaUrl, List<Profile> profiles) {
         public ScopeProfiles {
             profiles = List.copyOf(profiles);
+        }
+
+        ScopeProfiles withProfiles(List<Profile> replacement) {
+            return replacement == profiles ? this : new ScopeProfiles(scope, schemaUrl, replacement);
         }
     }
 

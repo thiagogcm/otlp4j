@@ -51,23 +51,11 @@ public final class EmbeddedPipelineDemo {
     }
 
     static TracesData redactEnduserId(TracesData traces) {
-        return new TracesData(traces.resourceSpans().stream()
-                .map(resourceSpans -> new TracesData.ResourceSpans(
-                        resourceSpans.resource(),
-                        resourceSpans.schemaUrl(),
-                        resourceSpans.scopeSpans().stream()
-                                .map(scopeSpans -> new TracesData.ScopeSpans(
-                                        scopeSpans.scope(),
-                                        scopeSpans.schemaUrl(),
-                                        scopeSpans.spans().stream()
-                                                .map(span -> span.attributes().contains(ENDUSER_ID)
-                                                        ? span.toBuilder()
-                                                                .attributes(span.attributes().with(ENDUSER_ID, "***"))
-                                                                .build()
-                                                        : span)
-                                                .toList()))
-                                .toList()))
-                .toList());
+        return traces.mapSpans(span -> span.attributes().contains(ENDUSER_ID)
+                ? span.toBuilder()
+                        .attributes(span.attributes().with(ENDUSER_ID, "***"))
+                        .build()
+                : span);
     }
 
     static TracesData sampleTraces() {
