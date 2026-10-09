@@ -2,8 +2,7 @@ package dev.nthings.otlp4j.service.internal.graph;
 
 /// Thrown by [ServiceGraph#addEdge] when inserting an edge would close a cycle. It carries the two
 /// nodes whose edge was refused so the builder can render a `CYCLE_DETECTED` diagnostic that names
-/// them. JGraphT's own cycle signal is caught inside the graph and never escapes as a JGraphT type;
-/// this domain exception is what the builder sees.
+/// them.
 public final class CycleException extends RuntimeException {
 
     private final transient Node from;

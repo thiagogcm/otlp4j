@@ -79,6 +79,30 @@ class RuntimeBehaviourTest {
     }
 
     @Test
+    void twoPipelinesJoiningTheSameReceiverAndExporterDeliverOnce() {
+        var recv = new Fakes.ReceiverFactoryImpl("otlp", log, null);
+        var exp = new Fakes.ExporterFactoryImpl("otlpexp", log, null, null);
+        var gw = Gateway.builder();
+        gw.receiver(R, recv, Fakes.Config.ok());
+        gw.exporter(E1, exp, Fakes.Config.ok());
+        gw.pipeline(TRACES_PIPE, new PipelineConfig(List.of(R), List.of(), List.of(E1)));
+        gw.pipeline(PipelineId.of(TRACES, "second"), new PipelineConfig(List.of(R), List.of(), List.of(E1)));
+        var runtime = gw.build();
+        runtime.start();
+
+        var receiver = (Fakes.ReceiverImpl) runtime.component(R).orElseThrow();
+        var result = tracesConsumer(receiver.consumers())
+                .consume(new TestConsumeContext(), payload)
+                .toCompletableFuture()
+                .join();
+
+        // The second pipeline repeats an edge the graph already holds, so the exporter is fed once.
+        assertThat(result).isInstanceOf(DeliveryResult.Accepted.class);
+        assertThat(log.events()).filteredOn("consume:otlpexp/a"::equals).hasSize(1);
+        runtime.close();
+    }
+
+    @Test
     void fanOutMergePropagatesAPeerRejection() {
         var rejection = DeliveryResult.permanent(
                 "downstream refused", new Provenance(E2, ComponentKind.EXPORTER, TRACES));

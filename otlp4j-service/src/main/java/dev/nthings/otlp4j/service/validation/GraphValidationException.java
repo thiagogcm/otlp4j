@@ -6,7 +6,7 @@ import java.util.List;
 /// validation. It carries the full list of [Diagnostic]s so a caller sees every problem at once.
 /// Validation always runs, and this exception is always thrown, before any component is constructed,
 /// so a rejected configuration never leaves a half-built gateway behind. This type reports otlp4j
-/// diagnostics only; a JGraphT cycle exception is caught internally and converted to a
+/// diagnostics only; a cycle the internal graph refuses is converted to a
 /// [DiagnosticCode#CYCLE_DETECTED] diagnostic rather than escaping.
 public final class GraphValidationException extends RuntimeException {
 

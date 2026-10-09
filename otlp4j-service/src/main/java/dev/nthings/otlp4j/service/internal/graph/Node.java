@@ -2,8 +2,8 @@ package dev.nthings.otlp4j.service.internal.graph;
 
 /// A vertex of the service graph. The five kinds mirror the component taxonomy plus the synthetic
 /// fan-out vertex the builder inserts where one producer feeds several same-signal consumers. This
-/// type and every implementation live in a package that no module exports, so no JGraphT type and no
-/// graph vertex type ever appears in an exported signature.
+/// type and every implementation live in a package that no module exports, so no graph vertex type
+/// ever appears in an exported signature.
 ///
 /// A component-backed node (receiver, processor, exporter, connector) carries the identity the
 /// builder instantiates it under; a [FanOutNode] is synthetic and backs no component. The [#label]

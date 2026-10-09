@@ -46,7 +46,7 @@ flowchart TD
     Codec --> Model
 ```
 
-The model and core have no protobuf, network, service, or official SDK dependency. The service depends on core and uses JGraphT internally to represent and order the graph. JGraphT types do not appear in public signatures.
+The model and core have no protobuf, network, service, or official SDK dependency. The service depends only on core. It represents and orders the graph with its own internal structure, and graph types do not appear in public signatures.
 
 Transport uses Armeria and Netty for network machinery. Virtual threads support lifecycle waits and delivery workers. These implementation dependencies are outside the public configuration and consumer contracts.
 
@@ -76,7 +76,7 @@ The codec package is qualified-exported to the bundled components and transport.
 
 The optional SDK bridge exports the official SDK interfaces that appear in its public adapter signatures. Applications that do not use the bridge do not need those SDK dependencies.
 
-Some implementation dependencies are automatic modules, including dependencies beneath the graph library and the SDK bridge. JPMS encapsulation therefore does not imply that a complete runtime image can be built with `jlink`. The sample's GraalVM native-image profile is a separate packaging path; see [Development](development.md#optional-builds).
+Some implementation dependencies are automatic modules, including dependencies of the transport and the SDK bridge. JPMS encapsulation therefore does not imply that a complete runtime image can be built with `jlink`. The model, core, and service modules add none. The sample's GraalVM native-image profile is a separate packaging path; see [Development](development.md#optional-builds).
 
 ## Extension and visibility boundaries
 

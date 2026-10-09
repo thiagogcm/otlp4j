@@ -13,7 +13,7 @@
     <artifactId>otlp4j-service</artifactId>
     <name>otlp4j-service</name>
     <description>The otlp4j graph runtime: the typed in-process Pipeline API, the declarative gateway
-        configuration model, the JGraphT-backed service graph builder, validation diagnostics, and the
+        configuration model, the service graph builder, validation diagnostics, and the
         started gateway runtime. JPMS module dev.nthings.otlp4j.service - depends only on otlp4j-core;
         no transport module is a dependency and none depends on this module. This module ships the
         complete component registry, service graph, gateway builder, and started gateway runtime.</description>
@@ -22,12 +22,6 @@
         <dependency>
             <groupId>dev.nthings.otlp4j</groupId>
             <artifactId>otlp4j-core</artifactId>
-        </dependency>
-        <!-- Internal graph representation only; no org.jgrapht type appears in any exported
-             signature of this module. -->
-        <dependency>
-            <groupId>org.jgrapht</groupId>
-            <artifactId>jgrapht-core</artifactId>
         </dependency>
         <!-- Nullness contracts are part of the public API; keep them visible to consumers. -->
         <dependency>
