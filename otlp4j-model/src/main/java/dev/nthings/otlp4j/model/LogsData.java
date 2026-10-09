@@ -83,8 +83,9 @@ public record LogsData(List<ResourceLogs> resourceLogs) {
     }
 
     /// Returns this batch with only the log records `keep` accepts, in their original order and
-    /// grouping. A scope or resource that loses all its log records is removed; groups that lose nothing
-    /// are kept as they are. Returns this instance when `keep` accepts every log record.
+    /// grouping. A scope or resource that loses all its log records is removed, together with any empty
+    /// scopes it held; groups that lose nothing are kept as they are. Returns this instance when `keep`
+    /// accepts every log record.
     public LogsData filterLogRecords(Predicate<? super LogRecord> keep) {
         Objects.requireNonNull(keep, "keep");
         return withResourceLogs(Rewrites.prune(
@@ -93,7 +94,7 @@ public record LogsData(List<ResourceLogs> resourceLogs) {
                         resource.scopeLogs(),
                         scope -> scope.withLogRecords(Rewrites.filter(scope.logRecords(), keep)),
                         scope -> scope.logRecords().isEmpty())),
-                resource -> resource.scopeLogs().isEmpty()));
+                resource -> resource.scopeLogs().stream().allMatch(scope -> scope.logRecords().isEmpty())));
     }
 
     private LogsData withResourceLogs(List<ResourceLogs> replacement) {

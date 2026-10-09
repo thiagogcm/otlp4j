@@ -60,6 +60,19 @@ class BatchTransformTest {
             assertThat(kept.resourceSpans().get(0).scopeSpans()).containsExactly(db, idle);
         }
 
+        @DisplayName("filterSpans removes a resource that loses every span even when it also held an empty scope")
+        @Test
+        void filterSpansRemovesAResourceLeftWithOnlyEmptyScopes() {
+            var emptiedBesideIdle = new TracesData.ResourceSpans(CHECKOUT, "", List.of(idle, http));
+            var onlyIdle = new TracesData.ResourceSpans(PAYMENTS, "", List.of(idle));
+            var batch = new TracesData(List.of(emptiedBesideIdle, onlyIdle));
+
+            var kept = batch.filterSpans(span -> false);
+
+            // The resource that lost its spans goes; the one that never had any loses nothing and stays.
+            assertThat(kept.resourceSpans()).containsExactly(onlyIdle);
+        }
+
         @DisplayName("filterSpans that rejects every span leaves no resource group")
         @Test
         void filterSpansRejectingEverythingLeavesAnEmptyBatch() {

@@ -100,10 +100,10 @@ public record ProfilesData(List<ResourceProfiles> resourceProfiles, byte[] dicti
                         Rewrites.map(scope.profiles(), mapper))))));
     }
 
-    /// Returns this batch with only the profiles `keep` accepts, in their original order and
-    /// grouping. A scope or resource that loses all its profiles is removed; groups that lose nothing
-    /// are kept as they are. The shared dictionary is retained. Returns this instance when `keep`
-    /// accepts every profile.
+    /// Returns this batch with only the profiles `keep` accepts, in their original order and grouping.
+    /// A scope or resource that loses all its profiles is removed, together with any empty scopes it
+    /// held; groups that lose nothing are kept as they are. The shared dictionary is retained. Returns
+    /// this instance when `keep` accepts every profile.
     public ProfilesData filterProfiles(Predicate<? super Profile> keep) {
         Objects.requireNonNull(keep, "keep");
         return withResourceProfiles(Rewrites.prune(
@@ -112,7 +112,7 @@ public record ProfilesData(List<ResourceProfiles> resourceProfiles, byte[] dicti
                         resource.scopeProfiles(),
                         scope -> scope.withProfiles(Rewrites.filter(scope.profiles(), keep)),
                         scope -> scope.profiles().isEmpty())),
-                resource -> resource.scopeProfiles().isEmpty()));
+                resource -> resource.scopeProfiles().stream().allMatch(scope -> scope.profiles().isEmpty())));
     }
 
     private ProfilesData withResourceProfiles(List<ResourceProfiles> replacement) {

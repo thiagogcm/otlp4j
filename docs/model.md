@@ -71,7 +71,7 @@ var selected = traces
                 : span);
 ```
 
-An item filter removes a scope or resource group that loses all its items. Groups that lose nothing are kept as they are, including groups that were already empty. A mapper must return a non-null value for every item or resource.
+An item filter removes a scope or resource group that loses all its items; a removed resource group takes any already-empty scopes with it. Other groups that lose nothing are kept as they are, including groups that were already empty. A mapper must return a non-null value for every item or resource.
 
 An operation that changes nothing returns the same batch instance. Return the item you received when it needs no change, as the example does for spans without the attribute. A pipeline `map` stage then keeps the payload it received, so a payload that arrived over OTLP is forwarded without being encoded again; see [Payloads and wire fidelity](architecture.md#payloads-and-wire-fidelity).
 

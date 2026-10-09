@@ -93,10 +93,10 @@ public record MetricsData(List<ResourceMetrics> resourceMetrics) {
                         Rewrites.map(scope.metrics(), mapper))))));
     }
 
-    /// Returns this batch with only the metrics `keep` accepts, in their original order and
-    /// grouping. A scope or resource that loses all its metrics is removed; groups that lose nothing
-    /// are kept as they are. A kept metric retains all its data points. Returns this instance when
-    /// `keep` accepts every metric.
+    /// Returns this batch with only the metrics `keep` accepts, in their original order and grouping. A
+    /// scope or resource that loses all its metrics is removed, together with any empty scopes it held;
+    /// groups that lose nothing are kept as they are. A kept metric retains all its data points.
+    /// Returns this instance when `keep` accepts every metric.
     public MetricsData filterMetrics(Predicate<? super Metric> keep) {
         Objects.requireNonNull(keep, "keep");
         return withResourceMetrics(Rewrites.prune(
@@ -105,7 +105,7 @@ public record MetricsData(List<ResourceMetrics> resourceMetrics) {
                         resource.scopeMetrics(),
                         scope -> scope.withMetrics(Rewrites.filter(scope.metrics(), keep)),
                         scope -> scope.metrics().isEmpty())),
-                resource -> resource.scopeMetrics().isEmpty()));
+                resource -> resource.scopeMetrics().stream().allMatch(scope -> scope.metrics().isEmpty())));
     }
 
     private MetricsData withResourceMetrics(List<ResourceMetrics> replacement) {

@@ -82,9 +82,10 @@ public record TracesData(List<ResourceSpans> resourceSpans) {
                         Rewrites.map(scope.spans(), mapper))))));
     }
 
-    /// Returns this batch with only the spans `keep` accepts, in their original order and
-    /// grouping. A scope or resource that loses all its spans is removed; groups that lose nothing
-    /// are kept as they are. Returns this instance when `keep` accepts every span.
+    /// Returns this batch with only the spans `keep` accepts, in their original order and grouping. A
+    /// scope or resource that loses all its spans is removed, together with any empty scopes it held;
+    /// groups that lose nothing are kept as they are. Returns this instance when `keep` accepts every
+    /// span.
     public TracesData filterSpans(Predicate<? super Span> keep) {
         Objects.requireNonNull(keep, "keep");
         return withResourceSpans(Rewrites.prune(
@@ -93,7 +94,7 @@ public record TracesData(List<ResourceSpans> resourceSpans) {
                         resource.scopeSpans(),
                         scope -> scope.withSpans(Rewrites.filter(scope.spans(), keep)),
                         scope -> scope.spans().isEmpty())),
-                resource -> resource.scopeSpans().isEmpty()));
+                resource -> resource.scopeSpans().stream().allMatch(scope -> scope.spans().isEmpty())));
     }
 
     private TracesData withResourceSpans(List<ResourceSpans> replacement) {
