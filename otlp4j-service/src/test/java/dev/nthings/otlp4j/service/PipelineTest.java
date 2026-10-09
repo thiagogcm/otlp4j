@@ -313,8 +313,19 @@ class PipelineTest {
     }
 
     @Test
-    void terminalIsRequired() {
-        assertThatThrownBy(() -> Pipeline.builder(TRACES).build()).isInstanceOf(GraphValidationException.class);
+    void buildNamesTheMissingExporterAndLeavesTheDefinitionOpenForOne() {
+        var sink = new RecordingSink();
+        var definition = Pipeline.builder(TRACES);
+
+        assertThatThrownBy(definition::build)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("to(...)");
+
+        try (var pipeline = definition.to(sink).build()) {
+            pipeline.start();
+            assertThat(pipeline.submit(BATCH).toCompletableFuture().join()).isInstanceOf(DeliveryResult.Accepted.class);
+        }
+        assertThat(sink.exports.get()).isEqualTo(1);
     }
 
     private static DeliveryResult accepted() {

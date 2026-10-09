@@ -96,6 +96,12 @@ public final class Pipeline<T> implements TelemetryInput<T>, AutoCloseable {
         }
 
         public Pipeline<T> build() {
+            if (exporters.isEmpty()) {
+                // Checked here so the failure names the pipeline step to add, and so the definition
+                // is not frozen without its exporter.
+                throw new IllegalStateException(
+                        "pipeline has no exporter; add at least one with to(...) before build()");
+            }
             if (!built) {
                 gateway.pipeline(PipelineId.of(signal), p -> p.from(input)
                         .via(processors.toArray(ProcessorHandle[]::new))

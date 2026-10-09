@@ -17,7 +17,7 @@ The builder applies processors in registration order and sends the resulting pay
 | `to(factory)` or `to(factory, config)` | Add a terminal exporter; repeat for fan-out |
 | `service(options)` | Set the graph's lifecycle budgets |
 
-At least one terminal exporter is required. Buffering is explicit: the input, `filter`, and `map` stages add no implicit queue.
+At least one terminal exporter is required; `build()` throws `IllegalStateException` until one is added. Buffering is explicit: the input, `filter`, and `map` stages add no implicit queue.
 
 This example exports an existing trace `batch` to an OTLP/gRPC destination on localhost. The destination must be running and accept traces.
 
