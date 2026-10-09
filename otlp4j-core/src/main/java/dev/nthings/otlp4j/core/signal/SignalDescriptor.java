@@ -262,125 +262,108 @@ public final class SignalDescriptor<T> {
 
     // --- per-signal split bodies, item-count based, resource and scope grouping preserved ---
 
-    private static List<TracesData> splitTraces(TracesData batch, long maxItems) {
-        var result = new ArrayList<TracesData>();
-        var current = new ArrayList<TracesData.ResourceSpans>();
+    /// A run of `size` items sharing one resource and scope. `slice` re-wraps any range of the run as
+    /// a resource group holding only that range.
+    private record Run<G>(int size, Slice<G> slice) {}
+
+    @FunctionalInterface
+    private interface Slice<G> {
+        G of(int from, int to);
+    }
+
+    /// Rebuilds a resource group around one scope's replacement items.
+    @FunctionalInterface
+    private interface Regroup<R, S, I> {
+        R of(R resource, S scope, List<I> items);
+    }
+
+    /// Cuts `runs` into batches of at most `maxItems` items, in wire order. A run without items is
+    /// emitted once and counts nothing, which keeps a metric that has no data points.
+    private static <T, G> List<T> chunk(List<Run<G>> runs, long maxItems, Function<List<G>, T> batch) {
+        var result = new ArrayList<T>();
+        var current = new ArrayList<G>();
         long count = 0;
-        for (var rs : batch.resourceSpans()) {
-            for (var ss : rs.scopeSpans()) {
-                var spans = ss.spans();
-                var i = 0;
-                while (i < spans.size()) {
-                    var take = (int) Math.min(maxItems - count, spans.size() - i);
-                    var chunk = List.copyOf(spans.subList(i, i + take));
-                    current.add(new TracesData.ResourceSpans(rs.resource(), rs.schemaUrl(),
-                            List.of(new TracesData.ScopeSpans(ss.scope(), ss.schemaUrl(), chunk))));
-                    count += take;
-                    i += take;
-                    if (count == maxItems) {
-                        result.add(new TracesData(List.copyOf(current)));
-                        current = new ArrayList<>();
-                        count = 0;
-                    }
+        for (var run : runs) {
+            if (run.size() == 0) {
+                current.add(run.slice().of(0, 0));
+                continue;
+            }
+            var i = 0;
+            while (i < run.size()) {
+                var take = (int) Math.min(maxItems - count, run.size() - i);
+                current.add(run.slice().of(i, i + take));
+                count += take;
+                i += take;
+                if (count == maxItems) {
+                    result.add(batch.apply(current));
+                    current = new ArrayList<>();
+                    count = 0;
                 }
             }
         }
         if (!current.isEmpty()) {
-            result.add(new TracesData(List.copyOf(current)));
+            result.add(batch.apply(current));
         }
         return List.copyOf(result);
     }
 
-    private static List<LogsData> splitLogs(LogsData batch, long maxItems) {
-        var result = new ArrayList<LogsData>();
-        var current = new ArrayList<LogsData.ResourceLogs>();
-        long count = 0;
-        for (var rl : batch.resourceLogs()) {
-            for (var sl : rl.scopeLogs()) {
-                var records = sl.logRecords();
-                var i = 0;
-                while (i < records.size()) {
-                    var take = (int) Math.min(maxItems - count, records.size() - i);
-                    var chunk = List.copyOf(records.subList(i, i + take));
-                    current.add(new LogsData.ResourceLogs(rl.resource(), rl.schemaUrl(),
-                            List.of(new LogsData.ScopeLogs(sl.scope(), sl.schemaUrl(), chunk))));
-                    count += take;
-                    i += take;
-                    if (count == maxItems) {
-                        result.add(new LogsData(List.copyOf(current)));
-                        current = new ArrayList<>();
-                        count = 0;
-                    }
+    /// The runs of a batch whose items sit directly in its scope groups: one run per scope that has
+    /// items.
+    private static <R, S, I> List<Run<R>> scopeRuns(
+            List<R> resources, Function<R, List<S>> scopes, Function<S, List<I>> items,
+            Regroup<R, S, I> regroup) {
+        var runs = new ArrayList<Run<R>>();
+        for (var resource : resources) {
+            for (var scope : scopes.apply(resource)) {
+                var scopeItems = items.apply(scope);
+                if (!scopeItems.isEmpty()) {
+                    runs.add(new Run<>(scopeItems.size(),
+                            (from, to) -> regroup.of(resource, scope, scopeItems.subList(from, to))));
                 }
             }
         }
-        if (!current.isEmpty()) {
-            result.add(new LogsData(List.copyOf(current)));
-        }
-        return List.copyOf(result);
+        return runs;
+    }
+
+    private static List<TracesData> splitTraces(TracesData batch, long maxItems) {
+        var runs = scopeRuns(
+                batch.resourceSpans(), TracesData.ResourceSpans::scopeSpans, TracesData.ScopeSpans::spans,
+                (rs, ss, spans) -> new TracesData.ResourceSpans(rs.resource(), rs.schemaUrl(),
+                        List.of(new TracesData.ScopeSpans(ss.scope(), ss.schemaUrl(), spans))));
+        return chunk(runs, maxItems, TracesData::new);
+    }
+
+    private static List<LogsData> splitLogs(LogsData batch, long maxItems) {
+        var runs = scopeRuns(
+                batch.resourceLogs(), LogsData.ResourceLogs::scopeLogs, LogsData.ScopeLogs::logRecords,
+                (rl, sl, records) -> new LogsData.ResourceLogs(rl.resource(), rl.schemaUrl(),
+                        List.of(new LogsData.ScopeLogs(sl.scope(), sl.schemaUrl(), records))));
+        return chunk(runs, maxItems, LogsData::new);
     }
 
     private static List<ProfilesData> splitProfiles(ProfilesData batch, long maxItems) {
         var dictionary = batch.dictionary();
-        var result = new ArrayList<ProfilesData>();
-        var current = new ArrayList<ProfilesData.ResourceProfiles>();
-        long count = 0;
-        for (var rp : batch.resourceProfiles()) {
-            for (var sp : rp.scopeProfiles()) {
-                var profiles = sp.profiles();
-                var i = 0;
-                while (i < profiles.size()) {
-                    var take = (int) Math.min(maxItems - count, profiles.size() - i);
-                    var chunk = List.copyOf(profiles.subList(i, i + take));
-                    current.add(new ProfilesData.ResourceProfiles(rp.resource(), rp.schemaUrl(),
-                            List.of(new ProfilesData.ScopeProfiles(sp.scope(), sp.schemaUrl(), chunk))));
-                    count += take;
-                    i += take;
-                    if (count == maxItems) {
-                        result.add(new ProfilesData(List.copyOf(current), dictionary));
-                        current = new ArrayList<>();
-                        count = 0;
-                    }
-                }
-            }
-        }
-        if (!current.isEmpty()) {
-            result.add(new ProfilesData(List.copyOf(current), dictionary));
-        }
-        return List.copyOf(result);
+        var runs = scopeRuns(
+                batch.resourceProfiles(), ProfilesData.ResourceProfiles::scopeProfiles,
+                ProfilesData.ScopeProfiles::profiles,
+                (rp, sp, profiles) -> new ProfilesData.ResourceProfiles(rp.resource(), rp.schemaUrl(),
+                        List.of(new ProfilesData.ScopeProfiles(sp.scope(), sp.schemaUrl(), profiles))));
+        return chunk(runs, maxItems, resources -> new ProfilesData(resources, dictionary));
     }
 
+    /// Metrics count data points, so each metric is its own run and a slice keeps a range of its
+    /// points.
     private static List<MetricsData> splitMetrics(MetricsData batch, long maxItems) {
-        var result = new ArrayList<MetricsData>();
-        var current = new ArrayList<MetricsData.ResourceMetrics>();
-        long count = 0;
+        var runs = new ArrayList<Run<MetricsData.ResourceMetrics>>();
         for (var rm : batch.resourceMetrics()) {
             for (var sm : rm.scopeMetrics()) {
                 for (var metric : sm.metrics()) {
-                    var points = metricPointCount(metric);
-                    if (points == 0) {
-                        current.add(wrapMetric(rm, sm, metric));
-                        continue;
-                    }
-                    var i = 0;
-                    while (i < points) {
-                        var take = (int) Math.min(maxItems - count, points - i);
-                        current.add(wrapMetric(rm, sm, sliceMetric(metric, i, i + take)));
-                        count += take;
-                        i += take;
-                        if (count == maxItems) {
-                            result.add(new MetricsData(List.copyOf(current)));
-                            current = new ArrayList<>();
-                            count = 0;
-                        }
-                    }
+                    runs.add(new Run<>(metricPointCount(metric),
+                            (from, to) -> wrapMetric(rm, sm, sliceMetric(metric, from, to))));
                 }
             }
         }
-        if (!current.isEmpty()) {
-            result.add(new MetricsData(List.copyOf(current)));
-        }
-        return List.copyOf(result);
+        return chunk(runs, maxItems, MetricsData::new);
     }
 
     private static MetricsData.ResourceMetrics wrapMetric(
