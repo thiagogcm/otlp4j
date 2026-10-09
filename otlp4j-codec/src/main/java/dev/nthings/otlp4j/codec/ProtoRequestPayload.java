@@ -5,6 +5,7 @@ import dev.nthings.otlp4j.core.signal.Payload;
 import dev.nthings.otlp4j.core.signal.RoutingMetadata;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import java.util.Objects;
+import java.util.OptionalLong;
 
 /// A pass-through payload carrying a decoded OTLP request. Its domain representation is decoded lazily
 /// only when a component explicitly calls [#data()], preserving receive-to-export forwarding without a
@@ -50,6 +51,11 @@ final class ProtoRequestPayload<T, REQ extends MessageLite, RESP extends Message
     @Override
     public RoutingMetadata routingMetadata() {
         return routingMetadata;
+    }
+
+    @Override
+    public OptionalLong encodedSize() {
+        return OptionalLong.of(request.getSerializedSize());
     }
 
     @Override

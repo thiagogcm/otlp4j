@@ -1,5 +1,7 @@
 package dev.nthings.otlp4j.core.signal;
 
+import java.util.OptionalLong;
+
 /**
  * One immutable, typed unit of telemetry flowing through a pipeline.
  *
@@ -55,10 +57,23 @@ public interface Payload<T> {
     RoutingMetadata routingMetadata();
 
     /**
+     * Returns the exact size in bytes of this payload's OTLP encoding, when the payload has a wire
+     * form. A payload received over OTLP answers from its request at no cost. A payload that replaced
+     * one answers by encoding its batch once and keeping the result, so the call can be expensive. A
+     * payload built from a domain batch alone has no wire form and returns empty.
+     *
+     * @return the encoded size, or empty when this payload has no wire form
+     */
+    default OptionalLong encodedSize() {
+        return OptionalLong.empty();
+    }
+
+    /**
      * Returns an immutable payload carrying {@code replacement} for this payload's signal.
      *
      * <p>The replacement's item count and routing metadata are derived afresh. Implementations may
-     * return themselves when the replacement is the same object.
+     * return themselves when the replacement is the same object. A payload that reports an
+     * {@linkplain #encodedSize() encoded size} returns a replacement that reports one too.
      *
      * @param replacement the replacement domain batch
      * @return a payload carrying the replacement

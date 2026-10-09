@@ -14,9 +14,9 @@
     <name>otlp4j-components</name>
     <description>The built-in gateway components: the batch processor and its bounded delivery
         queue, the memory limiter, the filter processor, and the span-count connector.
-        JPMS module dev.nthings.otlp4j.components, depending
-        only on otlp4j-core and otlp4j-codec, so no transport, wire, or graph library appears on its
-        surface. The internal delivery queue lives in a package that is not exported.</description>
+        JPMS module dev.nthings.otlp4j.components, depending only on otlp4j-core, so no transport,
+        wire, or graph library appears on its surface. The internal delivery queue lives in a package
+        that is not exported.</description>
 
     <dependencies>
         <!-- The component, consumer, signal, result, and policy contracts every built-in component
@@ -24,12 +24,6 @@
         <dependency>
             <groupId>dev.nthings.otlp4j</groupId>
             <artifactId>otlp4j-core</artifactId>
-        </dependency>
-        <!-- The proto-free codec payload facade (Payloads.domain) the batch processor emits merged and
-             split batches through; its public surface names only core types, so no proto leaks here. -->
-        <dependency>
-            <groupId>dev.nthings.otlp4j</groupId>
-            <artifactId>otlp4j-codec</artifactId>
         </dependency>
         <!-- Reached transitively through core, but declared for clarity: the domain batch records the
              signal descriptors merge and split. -->

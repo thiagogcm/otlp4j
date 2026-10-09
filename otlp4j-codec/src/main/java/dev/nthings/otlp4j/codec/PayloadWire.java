@@ -10,7 +10,7 @@ import java.util.Objects;
 /**
  * Qualified-internal bridge between typed core payloads and OTLP protobuf requests.
  *
- * <p>This class is exported only to the bundled components and transport modules. It intentionally
+ * <p>This class is exported only to the bundled transport module. It intentionally
  * does not belong to the application API: core payloads never expose wire representations, request
  * serialization, or generated protobuf types.
  */

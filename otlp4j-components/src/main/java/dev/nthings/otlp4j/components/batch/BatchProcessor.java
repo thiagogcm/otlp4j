@@ -1,6 +1,5 @@
 package dev.nthings.otlp4j.components.batch;
 
-import dev.nthings.otlp4j.codec.PayloadWire;
 import dev.nthings.otlp4j.components.internal.DeliveryQueue;
 import dev.nthings.otlp4j.components.internal.ExactBatchSplitter;
 import dev.nthings.otlp4j.core.component.ComponentContext;
@@ -17,6 +16,7 @@ import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.result.FlushReport;
 import dev.nthings.otlp4j.core.result.Provenance;
 import dev.nthings.otlp4j.core.signal.Payload;
+import dev.nthings.otlp4j.core.signal.PayloadSizer;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import java.time.Clock;
 import java.time.Duration;
@@ -40,7 +40,9 @@ import org.jspecify.annotations.Nullable;
 
 /// A generic OTLP batch processor. Incoming submissions are first admitted into one global bounded
 /// accounting domain, then accumulated by the configured metadata key. The limits include every
-/// submission still buffered, queued, or in flight; no hidden waiter queue exists. A flush captures
+/// submission still buffered, queued, or in flight; no hidden waiter queue exists. The configured
+/// sizer weighs each submission: a weighed submission is charged in bytes, and one the sizer weighs as
+/// zero is charged by its item count. A flush captures
 /// the work observed at this processor's barrier and returns a bounded report after that work reaches
 /// the downstream consumer. Concurrent submissions may race with the barrier and be included in the
 /// same report; an exact global exclusion requires a barrier through every buffering component.
@@ -57,7 +59,9 @@ public final class BatchProcessor<M> implements Processor<M> {
     private final List<String> metadataKeys;
     private final int maxPendingSubmissions;
     private final long maxPendingBytes;
+    private final long maxPendingItems;
     private final int maxPartitions;
+    private final PayloadSizer sizer;
     private final SignalConsumer<M> next;
     private final Provenance provenance;
     private final DeliveryQueue<M> queue;
@@ -69,6 +73,7 @@ public final class BatchProcessor<M> implements Processor<M> {
     private final AtomicReference<FailureAccumulator> failures = new AtomicReference<>(new FailureAccumulator());
     private final AtomicLong pendingSubmissions = new AtomicLong();
     private final AtomicLong pendingBytes = new AtomicLong();
+    private final AtomicLong pendingUnweighedItems = new AtomicLong();
 
     private volatile boolean closed;
     private volatile @Nullable ScheduledExecutorService scheduler;
@@ -87,7 +92,9 @@ public final class BatchProcessor<M> implements Processor<M> {
         this.metadataKeys = config.batch().metadataKeys();
         this.maxPendingSubmissions = config.maxPendingSubmissions();
         this.maxPendingBytes = config.maxPendingBytes();
+        this.maxPendingItems = config.maxPendingItems();
         this.maxPartitions = config.maxPartitions();
+        this.sizer = config.sizer();
         this.next = Objects.requireNonNull(next, "next");
         this.nanoTime = Objects.requireNonNull(nanoTime, "nanoTime");
         this.provenance = new Provenance(id, ComponentKind.PROCESSOR, signal);
@@ -108,7 +115,10 @@ public final class BatchProcessor<M> implements Processor<M> {
         long items;
         M in;
         try {
-            bytes = PayloadWire.size(data);
+            bytes = sizer.sizeOf(data);
+            if (bytes < 0) {
+                throw new IllegalStateException("payload sizer returned a negative size: " + bytes);
+            }
             items = data.itemCount();
             // Batching necessarily materialises the domain. Do this before admission so an
             // indivisible item that cannot satisfy the exact byte cap is rejected atomically.
@@ -118,9 +128,9 @@ public final class BatchProcessor<M> implements Processor<M> {
         }
         if (sendBatchMaxBytes > 0) {
             try {
-                ExactBatchSplitter.split(signal, in, 0, sendBatchMaxBytes);
+                ExactBatchSplitter.split(signal, in, 0, sendBatchMaxBytes, sizer);
             } catch (Throwable failure) {
-                return completed(DeliveryResult.permanentFrom("batch item exceeds byte cap", failure, provenance));
+                return completed(DeliveryResult.permanentFrom("batch byte cap", failure, provenance));
             }
         }
         final MetadataBatchKey key;
@@ -135,12 +145,14 @@ public final class BatchProcessor<M> implements Processor<M> {
         } catch (Throwable failure) {
             return completed(DeliveryResult.permanentFrom("batch context capture", failure, provenance));
         }
+        // A submission the sizer could not weigh is charged by its items instead of its bytes.
+        var unweighedItems = bytes == 0 ? items : 0;
         Batch snapshot;
         synchronized (lock) {
             if (closed) {
                 return completed(DeliveryResult.shuttingDown("batch processor is shutting down", provenance));
             }
-            if (!admit(key, bytes)) {
+            if (!admit(key, bytes, unweighedItems)) {
                 return completed(DeliveryResult.admissionRefused(
                         "batch processor admission limit reached", null, provenance));
             }
@@ -153,6 +165,7 @@ public final class BatchProcessor<M> implements Processor<M> {
             batch.parts.add(in);
             batch.items += items;
             batch.bytes += bytes;
+            batch.unweighedItems += unweighedItems;
             batch.submissions++;
             // Accepted work must not retain a transport request's cancellation/deadline state. Keep
             // immutable client metadata for routing while giving downstream delivery its own lifetime.
@@ -170,15 +183,18 @@ public final class BatchProcessor<M> implements Processor<M> {
         return completed(DeliveryResult.accepted(provenance));
     }
 
-    private boolean admit(MetadataBatchKey key, long bytes) {
+    private boolean admit(MetadataBatchKey key, long bytes, long unweighedItems) {
         if (pendingSubmissions.get() >= maxPendingSubmissions) {
             return false;
         }
-        if (bytes < 0 || bytes > maxPendingBytes) {
+        if (bytes > maxPendingBytes || pendingBytes.get() > maxPendingBytes - bytes) {
             return false;
         }
-        var current = pendingBytes.get();
-        if (current > maxPendingBytes - bytes) {
+        // The item limit concerns only a submission that carries unweighed items. One larger than the
+        // whole limit is admitted when nothing unweighed is pending, so it is not refused forever; the
+        // pending count can then exceed the limit, which must not block submissions charged in bytes.
+        var pendingItems = pendingUnweighedItems.get();
+        if (unweighedItems > 0 && pendingItems > 0 && unweighedItems > maxPendingItems - pendingItems) {
             return false;
         }
         if (!buffers.containsKey(key) && buffers.size() >= maxPartitions) {
@@ -186,12 +202,14 @@ public final class BatchProcessor<M> implements Processor<M> {
         }
         pendingSubmissions.incrementAndGet();
         pendingBytes.addAndGet(bytes);
+        pendingUnweighedItems.addAndGet(unweighedItems);
         return true;
     }
 
-    private void release(long submissions, long bytes) {
+    private void release(long submissions, long bytes, long unweighedItems) {
         pendingSubmissions.addAndGet(-submissions);
         pendingBytes.addAndGet(-bytes);
+        pendingUnweighedItems.addAndGet(-unweighedItems);
     }
 
     private MetadataBatchKey computeKey(ClientMetadata metadata) {
@@ -241,16 +259,16 @@ public final class BatchProcessor<M> implements Processor<M> {
         List<Payload<M>> units;
         try {
             var merged = signal.merge(batch.parts);
-            units = ExactBatchSplitter.split(signal, merged, sendBatchMaxSize, sendBatchMaxBytes);
+            units = ExactBatchSplitter.split(signal, merged, sendBatchMaxSize, sendBatchMaxBytes, sizer);
         } catch (Throwable failure) {
-            release(batch.submissions, batch.bytes);
+            release(batch.submissions, batch.bytes, batch.unweighedItems);
             failures.get().record(batch.items, failure);
             if (failure instanceof Error fatal) {
                 throw fatal;
             }
             return;
         }
-        var release = new ReleaseOnce(batch.submissions, batch.bytes);
+        var release = new ReleaseOnce(batch.submissions, batch.bytes, batch.unweighedItems);
         var result = queue.offerAll(context, units, release::run);
         if (result.result() instanceof DeliveryResult.Rejected) {
             // Immediate refusal is already included in the queue's flush accumulator. Release the
@@ -373,16 +391,18 @@ public final class BatchProcessor<M> implements Processor<M> {
     private final class ReleaseOnce {
         private final long submissions;
         private final long bytes;
+        private final long unweighedItems;
         private final AtomicBoolean released = new AtomicBoolean();
 
-        private ReleaseOnce(long submissions, long bytes) {
+        private ReleaseOnce(long submissions, long bytes, long unweighedItems) {
             this.submissions = submissions;
             this.bytes = bytes;
+            this.unweighedItems = unweighedItems;
         }
 
         void run() {
             if (released.compareAndSet(false, true)) {
-                release(submissions, bytes);
+                release(submissions, bytes, unweighedItems);
             }
         }
     }
@@ -391,6 +411,7 @@ public final class BatchProcessor<M> implements Processor<M> {
         private final List<M> parts = new ArrayList<>();
         private long items;
         private long bytes;
+        private long unweighedItems;
         private long submissions;
         private @Nullable ConsumeContext lastContext;
         private @Nullable ScheduledFuture<?> timer;

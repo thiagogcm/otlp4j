@@ -5,6 +5,7 @@ import dev.nthings.otlp4j.core.signal.Payload;
 import dev.nthings.otlp4j.core.signal.RoutingMetadata;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import java.util.Objects;
+import java.util.OptionalLong;
 
 /// A codec-backed domain payload. The generated request is encoded lazily and memoized so repeated
 /// exporters or retries share one immutable wire message.
@@ -39,6 +40,11 @@ final class DomainRequestPayload<T, REQ extends MessageLite, RESP extends Messag
     @Override
     public RoutingMetadata routingMetadata() {
         return routingMetadata;
+    }
+
+    @Override
+    public OptionalLong encodedSize() {
+        return OptionalLong.of(request().getSerializedSize());
     }
 
     @Override

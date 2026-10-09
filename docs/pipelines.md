@@ -87,7 +87,7 @@ try (var traces = Pipeline.builder(TRACES)
 }
 ```
 
-Inspect both values. The submission reports admission to the buffer; the flush report exposes subsequent delivery losses. Configure the batch processor's [triggers, caps, and overflow behavior](components.md#batching) for your workload.
+Inspect both values. The submission reports admission to the buffer; the flush report exposes subsequent delivery losses. Configure the batch processor's [triggers, caps, and overflow behavior](components.md#batching) for your workload. Batches submitted in process are limited by submission and item counts unless you configure a sizer; see [how submissions are weighed](components.md#how-submissions-are-weighed).
 
 ## Own the runtime
 

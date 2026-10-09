@@ -7,7 +7,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
-import dev.nthings.otlp4j.codec.PayloadWire;
 import dev.nthings.otlp4j.components.support.RecordingConsumer;
 import dev.nthings.otlp4j.components.support.TestConsumeContext;
 import dev.nthings.otlp4j.core.component.FlushContext;
@@ -23,12 +22,14 @@ import dev.nthings.otlp4j.core.result.DeliveryReason;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.result.Disposition;
 import dev.nthings.otlp4j.core.signal.Payload;
+import dev.nthings.otlp4j.core.signal.PayloadSizer;
 import dev.nthings.otlp4j.core.signal.RoutingMetadata;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.model.TracesData;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.OptionalLong;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
@@ -41,6 +42,9 @@ class BatchProcessorTest {
     private static final Duration NO_TIMER = Duration.ZERO;
     private static final ShutdownContext SHUTDOWN = new ShutdownContext(Duration.ofSeconds(5));
     private static final ConsumeContext CTX = new TestConsumeContext();
+
+    /// A sizer that weighs every payload at one hundred bytes per item, so byte limits are exact.
+    private static final PayloadSizer PER_ITEM = payload -> 100L * payload.itemCount();
 
     private static BatchProcessorConfig config(
             int target, int maxSize, long maxBytes, Duration timeout, List<String> keys) {
@@ -56,7 +60,8 @@ class BatchProcessorTest {
         return new BatchProcessorConfig(
                 new BatchPolicy(target, maxSize, maxBytes, timeout, keys),
                 new DeliveryQueuePolicy(queueSize, consumers, OverflowPolicy.FAIL),
-                Duration.ofSeconds(5), maxPending, maxPendingBytes, maxPartitions);
+                Duration.ofSeconds(5), maxPending, maxPendingBytes, maxPartitions,
+                BatchProcessorConfig.DEFAULT_MAX_PENDING_ITEMS, PER_ITEM);
     }
 
     private static BatchProcessorConfig sizeTriggered(int target) {
@@ -88,8 +93,7 @@ class BatchProcessorTest {
     @Test
     void flushesOnExactByteSizeTrigger() {
         var next = new RecordingConsumer<TracesData>();
-        var byteCap = PayloadWire.size(traces(2));
-        var processor = start(config(1_000_000, 0, byteCap, NO_TIMER, List.of()), next);
+        var processor = start(config(1_000_000, 0, 200, NO_TIMER, List.of()), next);
 
         assertAccepted(processor.consume(CTX, traces(2)));
         await().atMost(2, TimeUnit.SECONDS).until(() -> next.received().size() == 1);
@@ -100,8 +104,7 @@ class BatchProcessorTest {
     @Test
     void rejectsAnIndivisibleItemBeforeAdmissionWhenByteCapIsTooSmall() {
         var next = new RecordingConsumer<TracesData>();
-        var itemBytes = PayloadWire.size(traces(1));
-        var processor = start(config(1_000_000, 0, itemBytes - 1, NO_TIMER, List.of()), next);
+        var processor = start(config(1_000_000, 0, 99, NO_TIMER, List.of()), next);
 
         var refused = processor.consume(CTX, traces(1)).toCompletableFuture().join();
 
@@ -366,13 +369,96 @@ class BatchProcessorTest {
     void globalPendingByteLimitRefusesBeforeBuffering() {
         var next = new RecordingConsumer<TracesData>();
         var processor = start(config(1_000_000, 0, 0, NO_TIMER, List.of(),
-                64, 1, 1024, PayloadWire.size(traces(1)) - 1, 1024), next);
+                64, 1, 1024, 99, 1024), next);
 
         var refused = processor.consume(CTX, traces(1)).toCompletableFuture().join();
 
         assertThat(refused).isInstanceOf(DeliveryResult.Rejected.class);
         assertThat(((DeliveryResult.Rejected) refused).reason()).isEqualTo(DeliveryReason.ADMISSION_REFUSED);
         assertThat(next.received()).isEmpty();
+        processor.shutdown(SHUTDOWN).toCompletableFuture().join();
+    }
+
+    @Test
+    void unweighedSubmissionsAreChargedByItemsAndTheBudgetReturnsAfterDelivery() {
+        var next = new RecordingConsumer<TracesData>();
+        // The default sizer cannot weigh a payload built in process, so the one-byte limit never
+        // applies and the three-item limit does.
+        var processor = start(new BatchProcessorConfig(
+                new BatchPolicy(1_000_000, 0, 0, NO_TIMER, List.of()),
+                new DeliveryQueuePolicy(64, 1, OverflowPolicy.FAIL),
+                Duration.ofSeconds(5), 1024, 1, 1024, 3, PayloadSizer.reported()), next);
+
+        assertAccepted(processor.consume(CTX, traces(2)));
+        var refused = processor.consume(CTX, traces(2)).toCompletableFuture().join();
+        assertThat(refused).isInstanceOf(DeliveryResult.Rejected.class);
+        assertThat(((DeliveryResult.Rejected) refused).reason()).isEqualTo(DeliveryReason.ADMISSION_REFUSED);
+        assertAccepted(processor.consume(CTX, traces(1)));
+
+        processor.flush(new FlushContext(Duration.ofSeconds(2))).toCompletableFuture().join();
+        assertThat(next.totalItems()).isEqualTo(3);
+        assertAccepted(processor.consume(CTX, traces(3)));
+        processor.shutdown(SHUTDOWN).toCompletableFuture().join();
+    }
+
+    @Test
+    void anUnweighedSubmissionAboveTheWholeItemLimitIsAdmittedOnlyWhenNothingUnweighedIsPending() {
+        var next = new RecordingConsumer<TracesData>();
+        var processor = start(new BatchProcessorConfig(
+                new BatchPolicy(1_000_000, 0, 0, NO_TIMER, List.of()),
+                new DeliveryQueuePolicy(64, 1, OverflowPolicy.FAIL),
+                Duration.ofSeconds(5), 1024, 1, 1024, 3, PayloadSizer.reported()), next);
+
+        // Five items exceed the three-item limit, yet refusing them forever would lose every such batch.
+        assertAccepted(processor.consume(CTX, traces(5)));
+        assertThat(processor.consume(CTX, traces(1)).toCompletableFuture().join())
+                .isInstanceOf(DeliveryResult.Rejected.class);
+        // The item limit is now exceeded, which must not refuse a payload charged in bytes.
+        assertAccepted(processor.consume(CTX, encoded(traces(1), 1)));
+
+        processor.flush(new FlushContext(Duration.ofSeconds(2))).toCompletableFuture().join();
+        assertThat(next.totalItems()).isEqualTo(6);
+        assertAccepted(processor.consume(CTX, traces(5)));
+        processor.shutdown(SHUTDOWN).toCompletableFuture().join();
+    }
+
+    @Test
+    void aSizerThatCannotWeighUnderAByteCapOrReturnsANegativeWeightIsAPermanentRejection() {
+        var next = new RecordingConsumer<TracesData>();
+        var delivery = new DeliveryQueuePolicy(64, 1, OverflowPolicy.FAIL);
+        PayloadSizer unable = payload -> 0;
+        PayloadSizer negative = payload -> -1;
+        var capped = start(new BatchProcessorConfig(
+                new BatchPolicy(1_000_000, 0, 1024, NO_TIMER, List.of()), delivery,
+                Duration.ofSeconds(5), 1024, 1024, 1024, 1024, unable), next);
+        var broken = start(new BatchProcessorConfig(
+                new BatchPolicy(1_000_000, 0, 0, NO_TIMER, List.of()), delivery,
+                Duration.ofSeconds(5), 1024, 1024, 1024, 1024, negative), next);
+
+        // Letting either through would export a request the byte cap or the byte limit never saw.
+        for (var processor : List.of(capped, broken)) {
+            var refused = processor.consume(CTX, traces(2)).toCompletableFuture().join();
+            assertThat(refused).isInstanceOf(DeliveryResult.Rejected.class);
+            assertThat(((DeliveryResult.Rejected) refused).disposition()).isEqualTo(Disposition.PERMANENT);
+            processor.shutdown(SHUTDOWN).toCompletableFuture().join();
+        }
+        assertThat(next.received()).isEmpty();
+    }
+
+    @Test
+    void aPayloadThatCarriesItsEncodedSizeIsChargedInBytesAndNotByItems() {
+        var next = new RecordingConsumer<TracesData>();
+        // One pending item would refuse a three-item payload if it were charged by items.
+        var processor = start(new BatchProcessorConfig(
+                new BatchPolicy(1_000_000, 0, 0, NO_TIMER, List.of()),
+                new DeliveryQueuePolicy(64, 1, OverflowPolicy.FAIL),
+                Duration.ofSeconds(5), 1024, 900, 1024, 1, PayloadSizer.reported()), next);
+
+        assertAccepted(processor.consume(CTX, encoded(traces(3), 500)));
+        var refused = processor.consume(CTX, encoded(traces(1), 500)).toCompletableFuture().join();
+
+        assertThat(refused).isInstanceOf(DeliveryResult.Rejected.class);
+        assertThat(((DeliveryResult.Rejected) refused).reason()).isEqualTo(DeliveryReason.ADMISSION_REFUSED);
         processor.shutdown(SHUTDOWN).toCompletableFuture().join();
     }
 
@@ -442,6 +528,20 @@ class BatchProcessorTest {
                 .hasRootCauseMessage("downstream down");
         assertThatThrownBy(() -> first.toCompletableFuture().join())
                 .hasRootCauseMessage("downstream down");
+    }
+
+    /// A payload that reports `bytes` as its encoded size, as one received over OTLP does.
+    private static Payload<TracesData> encoded(Payload<TracesData> payload, long bytes) {
+        return new Payload<>() {
+            @Override public SignalDescriptor<TracesData> signal() { return payload.signal(); }
+            @Override public TracesData data() { return payload.data(); }
+            @Override public long itemCount() { return payload.itemCount(); }
+            @Override public RoutingMetadata routingMetadata() { return payload.routingMetadata(); }
+            @Override public OptionalLong encodedSize() { return OptionalLong.of(bytes); }
+            @Override public Payload<TracesData> withData(TracesData replacement) {
+                return payload.withData(replacement);
+            }
+        };
     }
 
     private static void assertAccepted(CompletionStage<DeliveryResult> stage) {

@@ -26,7 +26,7 @@ All packages below have the prefix `dev.nthings.otlp4j.core`.
 
 | Package | Main types | Responsibility |
 | --- | --- | --- |
-| `.signal` | `SignalDescriptor<T>`, `SignalPair<I, O>`, `Payload<T>`, `RoutingMetadata` | Signal identity and batch views |
+| `.signal` | `SignalDescriptor<T>`, `SignalPair<I, O>`, `Payload<T>`, `RoutingMetadata`, `PayloadSizer` | Signal identity, batch views, and payload weight |
 | `.consumer` | `SignalConsumer<T>`, `SignalConsumers`, `TelemetryInput<T>` | Delivery callbacks and application input |
 | `.consumer` | `ConsumeContext`, `ClientMetadata`, `Deadline` | Request metadata, time budget, cancellation |
 | `.component` | `Component`, `Receiver`, `Processor<T>`, `Exporter<T>`, `Connector` | Lifecycle and processing components |

@@ -45,6 +45,7 @@ class ProtoRequestPayloadTest {
         assertThat(payload.signal()).isEqualTo(SignalDescriptor.TRACES);
         assertThat(payload.itemCount()).isEqualTo(2L);
         assertThat(PayloadWire.size(payload)).isEqualTo(request.getSerializedSize());
+        assertThat(payload.encodedSize()).hasValue(request.getSerializedSize());
         assertThat(PayloadWire.request(SignalCodec.TRACES, payload).toByteArray()).isEqualTo(request.toByteArray());
     }
 
@@ -69,6 +70,9 @@ class ProtoRequestPayloadTest {
         Payload<TracesData> replaced = payload.withData(replacement);
         assertThat(PayloadWire.request(SignalCodec.TRACES, replaced)
                 .getResourceSpans(0).getScopeSpans(0).getSpans(0).getName()).isEqualTo("c");
+        // A replacement of a payload that has a wire form keeps one, sized from its own encoding.
+        assertThat(replaced.encodedSize())
+                .hasValue(SignalCodec.TRACES.toProto(replacement).getSerializedSize());
         assertThat(payload.data().spans()).extracting(Span::name).containsExactly("a", "b");
     }
 

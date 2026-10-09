@@ -34,9 +34,8 @@ flowchart TD
     Application --> Bridge[opentelemetry]
     Service --> Core[core]
     Components --> Core
-    Components --> Codec[codec]
     Transport --> Core
-    Transport --> Codec
+    Transport --> Codec[codec]
     Transport --> Proto[proto]
     Bridge --> Core
     Bridge --> SDK[OpenTelemetry Java SDK]
@@ -72,7 +71,7 @@ Profiles have a narrower modeling contract: raw profile bodies and shared dictio
 
 ## JPMS encapsulation
 
-The codec package is qualified-exported to the bundled components and transport. Generated message packages are qualified-exported to codec and transport, with collector-service packages also available to Armeria's gRPC module. These are implementation permissions, not an application-facing protobuf API.
+The codec package is qualified-exported to the bundled transport. Generated message packages are qualified-exported to codec and transport, with collector-service packages also available to Armeria's gRPC module. These are implementation permissions, not an application-facing protobuf API.
 
 The optional SDK bridge exports the official SDK interfaces that appear in its public adapter signatures. Applications that do not use the bridge do not need those SDK dependencies.
 

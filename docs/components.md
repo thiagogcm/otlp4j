@@ -11,13 +11,24 @@ Add `otlp4j-components` for reusable processors and the span-count connector. Re
 
 ## Batching
 
-The batch processor coalesces accepted submissions, splits output to configured item and serialized-byte caps, and passes it to a bounded delivery queue. Buffering transfers ownership, so inspect [flush reports](delivery.md#flush-reports) for failures after acceptance.
+The batch processor coalesces accepted submissions, splits output to configured item and byte caps, and passes it to a bounded delivery queue. Buffering transfers ownership, so inspect [flush reports](delivery.md#flush-reports) for failures after acceptance.
 
 `BatchPolicy.sendBatchSize` is a flush trigger, not a hard output-size cap. Set `sendBatchMaxSize` or `sendBatchMaxBytes` to enforce output limits. A zero hard cap disables that dimension. A zero timeout disables timed flushing; size triggers and explicit flush still apply.
 
-Byte caps measure the complete serialized OTLP request, including resource and scope grouping. They do not measure JVM heap usage. If one indivisible item exceeds an output byte cap, the processor refuses the submission permanently rather than emitting an oversized item.
-
 `metadataKeys` partitions batches by the selected client-header values from `ConsumeContext`. Unset keys, empty value lists, and different header lists form distinct partitions. This partitions submissions by request metadata; it does not split items by resource attributes.
+
+### How submissions are weighed
+
+Every byte figure comes from the configured `sizer`. A submission the sizer weighs counts toward `maxPendingBytes`. A submission it weighs as zero counts its items toward `maxPendingItems` instead.
+
+| Sizer | Weighs | Cost |
+| --- | --- | --- |
+| `PayloadSizer.reported()`, the default | Payloads that carry an encoded size: those received over OTLP, including one whose batch a later stage replaced | None for a payload as received; one encode for a replaced one |
+| `OtlpPayloadSizer.exact()` from `otlp4j-transport` | Every payload, at the exact size of its OTLP export request including resource and scope grouping | One discarded encode for each payload without a wire form |
+
+Payloads without a wire form include batches submitted in process, SDK bridge exports, connector output, and the batches this processor builds. Under the default sizer they are bounded by `maxPendingSubmissions` and `maxPendingItems`, and weighing them costs nothing.
+
+A hard byte cap (`sendBatchMaxBytes`) has to weigh the batches the processor builds, so the configuration rejects it unless a sizer other than the default is set. With the exact sizer the cap measures the complete serialized request. If one indivisible item exceeds an output byte cap, the processor refuses the submission permanently rather than emitting an oversized item. Byte limits do not measure JVM heap usage.
 
 ### Batching defaults
 
@@ -33,16 +44,18 @@ Byte caps measure the complete serialized OTLP request, including resource and s
 | `delivery.overflow` | `FAIL` | Refuse new queued work retryably when full |
 | `degradedWindow` | 5 seconds | Temporarily refuse new delivery-queue admissions after downstream rejection |
 | `maxPendingSubmissions` | 1024 | Accepted submissions retained across buffering, queueing, and delivery |
-| `maxPendingBytes` | 64 MiB | Serialized weight of accepted submissions still retained |
+| `maxPendingBytes` | 64 MiB | Weight, as measured by the sizer, of accepted submissions still retained |
 | `maxPartitions` | 1024 | Active metadata buffers awaiting flush |
+| `maxPendingItems` | 262,144 items | Items still retained from submissions the sizer weighs as zero |
+| `sizer` | `PayloadSizer.reported()` | Weigh only payloads that carry an encoded size |
 
-`maxPendingSubmissions` and `maxPendingBytes` cover accepted work across buffering, queueing, and delivery. `maxPartitions` counts only active batch buffers; a partition stops counting when its buffer moves to the delivery queue. Configure both admission and output limits because queue capacity alone does not bound all retained work.
+`maxPendingSubmissions`, `maxPendingBytes`, and `maxPendingItems` cover accepted work across buffering, queueing, and delivery. The default item limit is what the default byte limit holds at 256 bytes per item. It is a starting point and it bounds a count, not memory: when item sizes vary widely, as with large log bodies, configure the exact sizer so the byte limit applies. A submission the sizer cannot weigh is admitted even when it exceeds `maxPendingItems`, provided no other unweighed work is pending; otherwise it is refused retryably, and under continuous unweighed traffic that can keep happening. A weighed submission above `maxPendingBytes` is always refused. `maxPartitions` counts only active batch buffers; a partition stops counting when its buffer moves to the delivery queue. Configure both admission and output limits because queue capacity alone does not bound all retained work.
 
 The degraded window applies at the delivery queue. A submission can receive `Accepted` from the batch processor before that queue refuses its output. Inspect the [flush report](delivery.md#flush-reports) for these later refusals.
 
 ### Configure a batch processor
 
-For an existing typed `builder`, this configuration uses a smaller trigger and caps each output request:
+For an existing typed `builder`, this configuration uses a smaller trigger and caps each output request. The byte cap needs the exact sizer, so the example also depends on `otlp4j-transport`:
 
 ```java
 import dev.nthings.otlp4j.components.batch.BatchProcessorConfig;
@@ -50,6 +63,7 @@ import dev.nthings.otlp4j.components.batch.BatchProcessorFactory;
 import dev.nthings.otlp4j.core.policy.BatchPolicy;
 import dev.nthings.otlp4j.core.policy.DeliveryQueuePolicy;
 import dev.nthings.otlp4j.core.policy.OverflowPolicy;
+import dev.nthings.otlp4j.transport.OtlpPayloadSizer;
 import java.time.Duration;
 import java.util.List;
 
@@ -60,9 +74,13 @@ var config = new BatchProcessorConfig(
         Duration.ofSeconds(5),
         256,
         16L * 1024 * 1024,
-        64);
+        64,
+        32_768,
+        OtlpPayloadSizer.exact());
 builder.via(new BatchProcessorFactory(), config);
 ```
+
+The last two arguments are `maxPendingItems` and the sizer. Without a byte cap, the six-argument constructor keeps their defaults.
 
 Profiles are excluded from this processor. Their opaque dictionaries need ownership-preserving handling; see [Profiles](model.md#profiles).
 

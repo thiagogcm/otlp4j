@@ -164,6 +164,10 @@ Environment loading is opt-in through `OtlpExporterConfig.Builder.fromEnvironmen
 
 Select the protocol through its factory or owned builder. Per-signal variables and receiver environment configuration are not implemented. Use separate exporter registrations for different signal endpoints.
 
+## Exact payload sizing
+
+`OtlpPayloadSizer.exact()` returns a `PayloadSizer` that weighs any payload at the exact serialized size of its OTLP export request. Pass it to a component that limits work in bytes when its payloads have no wire form of their own. The batch processor guide explains [when it is needed and what it costs](components.md#how-submissions-are-weighed).
+
 ## Owned transports
 
 An owned exporter is useful for direct delivery without a graph. For an existing trace `batch`:

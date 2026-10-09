@@ -83,7 +83,7 @@ Use these operations inside a pipeline's `map` stage; see [Transform immutable b
 
 Components exchange `Payload<T>`, which associates data with its descriptor, item count, and `RoutingMetadata`. Application code can create a domain-backed payload with `Payload.of(signal, batch)`.
 
-`data()` exposes the domain batch. On a received OTLP payload, the implementation can construct this view lazily. Item counts and resource routing checks do not require a full domain conversion. `withData(replacement)` returns a payload for the replacement and updates its derived metadata.
+`data()` exposes the domain batch. On a received OTLP payload, the implementation can construct this view lazily. Item counts and resource routing checks do not require a full domain conversion. `withData(replacement)` returns a payload for the replacement and updates its derived metadata. `encodedSize()` reports the exact OTLP size of a payload that has a wire form, such as one received over OTLP, and is empty for a payload built from a domain batch alone.
 
 Routing metadata lists the attributes of each resource group through `resources()`, in wire order, without decoding the batch's items. A mixed-resource batch has one entry per group, and the built-in [filter](components.md#filtering-and-routing) decides each group separately.
 
