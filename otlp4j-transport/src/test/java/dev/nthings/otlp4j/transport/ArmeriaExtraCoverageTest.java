@@ -20,7 +20,6 @@ import dev.nthings.otlp4j.testing.Fixtures;
 import dev.nthings.otlp4j.testing.TransportFixtures;
 import io.grpc.Status;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -28,10 +27,10 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.extension.RegisterExtension;
 
 /// Additional coverage for the header path, the dual-protocol public builder, the exporter's OTLP/HTTP
 /// knobs, and the less-common request and status mappings.
@@ -41,30 +40,12 @@ class ArmeriaExtraCoverageTest {
 
     private static final MediaType PROTOBUF = MediaType.parse("application/x-protobuf");
 
-    private final List<OtlpReceiver> receivers = new ArrayList<>();
-    private final List<AutoCloseable> closeables = new ArrayList<>();
-
-    @AfterEach
-    void teardown() {
-        for (var closeable : closeables) {
-            try {
-                closeable.close();
-            } catch (Exception ignored) {
-                // keep tearing down
-            }
-        }
-        for (var receiver : receivers) {
-            try {
-                receiver.shutdown(Duration.ofSeconds(5)).toCompletableFuture().get(5, TimeUnit.SECONDS);
-            } catch (Exception ignored) {
-                // keep tearing down
-            }
-        }
-    }
+    @RegisterExtension
+    static final WireCleanup cleanup = new WireCleanup();
 
     private OtlpReceiver start(OtlpReceiver.Builder builder) {
         var receiver = builder.ephemeralPort().build().start();
-        receivers.add(receiver);
+        cleanup.receiver(receiver);
         return receiver;
     }
 
@@ -86,11 +67,11 @@ class ArmeriaExtraCoverageTest {
         var grpcExporter = OtlpExporter.grpcBuilder()
                 .endpoint("localhost", receiver.port()).timeout(Duration.ofSeconds(5))
                 .retryPolicy(new RetryPolicy(1, BackoffPolicy.defaults(), false)).build().start();
-        closeables.add(grpcExporter);
+        cleanup.client(grpcExporter);
         var httpExporter = OtlpExporter.httpBuilder()
                 .endpoint("localhost", receiver.port()).timeout(Duration.ofSeconds(5))
                 .retryPolicy(new RetryPolicy(1, BackoffPolicy.defaults(), false)).build().start();
-        closeables.add(httpExporter);
+        cleanup.client(httpExporter);
 
         var grpcSent = Fixtures.traceData(Fixtures.span("grpc", Span.Kind.SERVER));
         var httpSent = Fixtures.traceData(Fixtures.span("http", Span.Kind.CLIENT));
@@ -118,7 +99,7 @@ class ArmeriaExtraCoverageTest {
                 .timeout(Duration.ofSeconds(5))
                 .retryPolicy(new RetryPolicy(1, BackoffPolicy.defaults(), false))
                 .build().start();
-        closeables.add(exporter);
+        cleanup.client(exporter);
         var sent = TransportFixtures.richTraceData();
 
         assertThat(exporter.export(TRACES, sent).toCompletableFuture().join())
@@ -144,7 +125,7 @@ class ArmeriaExtraCoverageTest {
                 .timeout(Duration.ofSeconds(5))
                 .retryPolicy(new RetryPolicy(1, BackoffPolicy.defaults(), false))
                 .build().start();
-        closeables.add(exporter);
+        cleanup.client(exporter);
         var sent = TransportFixtures.richTraceData();
 
         assertThat(exporter.export(TRACES, sent).toCompletableFuture().join())
@@ -161,7 +142,7 @@ class ArmeriaExtraCoverageTest {
         var exporter = OtlpExporter.grpcBuilder()
                 .endpoint("localhost", receiver.port()).timeout(Duration.ofSeconds(5))
                 .retryPolicy(new RetryPolicy(1, BackoffPolicy.defaults(), false)).build().start();
-        closeables.add(exporter);
+        cleanup.client(exporter);
 
         assertThatThrownBy(() -> exporter.export(TRACES, TransportFixtures.richTraceData())
                 .toCompletableFuture().join())

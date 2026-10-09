@@ -12,16 +12,14 @@ import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.extension.RegisterExtension;
 
 /// Graceful shutdown stops the Armeria receiver and releases its port, on both protocols. A
 /// served request completes before shutdown, a request held in-flight when `shutdown(Duration)` is
@@ -36,26 +34,8 @@ import org.junit.jupiter.api.Timeout;
 @DisplayName("Armeria graceful shutdown")
 class ArmeriaGracefulShutdownTest {
 
-    private final List<OtlpReceiver> receivers = new ArrayList<>();
-    private final List<AutoCloseable> closeables = new ArrayList<>();
-
-    @AfterEach
-    void teardown() {
-        for (var closeable : closeables) {
-            try {
-                closeable.close();
-            } catch (Exception ignored) {
-                // keep tearing down
-            }
-        }
-        for (var receiver : receivers) {
-            try {
-                receiver.shutdown(Duration.ofSeconds(5)).toCompletableFuture().get(5, TimeUnit.SECONDS);
-            } catch (Exception ignored) {
-                // keep tearing down
-            }
-        }
-    }
+    @RegisterExtension
+    static final WireCleanup cleanup = new WireCleanup();
 
     @DisplayName("gRPC: graceful shutdown completes and then refuses new connections")
     @Test
@@ -126,7 +106,7 @@ class ArmeriaGracefulShutdownTest {
     private OtlpReceiver startReceiver(boolean grpc, SignalConsumer<TracesData> consumer) {
         var builder = grpc ? OtlpReceiver.grpcBuilder() : OtlpReceiver.httpBuilder();
         var receiver = builder.route(TRACES, consumer).ephemeralPort().build();
-        receivers.add(receiver);
+        cleanup.receiver(receiver);
         return receiver.start();
     }
 
@@ -136,7 +116,7 @@ class ArmeriaGracefulShutdownTest {
                 .timeout(Duration.ofSeconds(5))
                 .retryPolicy(new RetryPolicy(1, BackoffPolicy.defaults(), false))
                 .build().start();
-        closeables.add(exporter);
+        cleanup.client(exporter);
         return exporter;
     }
 }

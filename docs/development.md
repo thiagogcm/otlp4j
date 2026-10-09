@@ -39,6 +39,8 @@ Read related tests before adding cases. Reuse setup and focus assertions on fail
 
 The `otlp4j-testing` module supplies fixtures and reusable conformance suites. `otlp4j-conformance` runs them against the bundled transport through real wire clients. Test TLS fixture maintenance is documented [beside the PEM resources](../otlp4j-testing/src/main/resources/dev/nthings/otlp4j/testing/conformance/tls/README.md).
 
+A receiver's graceful stop takes about three seconds whatever the test did. Wire tests therefore stop the receivers they start together when the test class finishes, through `WireCleanup` in the transport tests and `Otlp4jGatewayUnderTest.stopClosed()` in the conformance suites. Stop a receiver inside a test only when the test asserts on that shutdown.
+
 Coverage reports support inspection without imposing a percentage gate. The aggregate report is written to `otlp4j-coverage/target/site/jacoco-aggregate/index.html`.
 
 Choose tests that can expose a real defect: lost or duplicated telemetry, incorrect filtering, backpressure, retry decisions, cancellation, and incomplete draining. Use distinguishable inputs and independent expected outcomes. Keep malformed inputs in focused failure cases, and make ordinary fixtures coherent. Avoid tests that freeze API shape, enum inventories, defaults, dependency layout, or build internals.

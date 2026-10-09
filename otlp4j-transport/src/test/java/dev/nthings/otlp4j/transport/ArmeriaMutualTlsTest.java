@@ -11,14 +11,11 @@ import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.testing.TransportFixtures;
 import dev.nthings.otlp4j.testing.conformance.TlsTestMaterial;
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.CompletionException;
-import java.util.concurrent.TimeUnit;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.extension.RegisterExtension;
 
 /// Enforced mutual TLS through the transport-specific [ClientAuth] builder knob. Under
 /// [ClientAuth#REQUIRE] a certless client is rejected at
@@ -29,26 +26,8 @@ import org.junit.jupiter.api.Timeout;
 @DisplayName("Armeria enforced mutual TLS")
 class ArmeriaMutualTlsTest {
 
-    private final List<OtlpReceiver> receivers = new ArrayList<>();
-    private final List<AutoCloseable> closeables = new ArrayList<>();
-
-    @AfterEach
-    void teardown() {
-        for (var closeable : closeables) {
-            try {
-                closeable.close();
-            } catch (Exception ignored) {
-                // keep tearing down
-            }
-        }
-        for (var receiver : receivers) {
-            try {
-                receiver.shutdown(Duration.ofSeconds(5)).toCompletableFuture().get(5, TimeUnit.SECONDS);
-            } catch (Exception ignored) {
-                // keep tearing down
-            }
-        }
-    }
+    @RegisterExtension
+    static final WireCleanup cleanup = new WireCleanup();
 
     @DisplayName("gRPC REQUIRE: a client presenting its certificate is accepted")
     @Test
@@ -61,7 +40,7 @@ class ArmeriaMutualTlsTest {
                 .timeout(Duration.ofSeconds(5))
                 .retryPolicy(new RetryPolicy(1, BackoffPolicy.defaults(), false))
                 .build().start();
-        closeables.add(exporter);
+        cleanup.client(exporter);
 
         assertThat(exporter.export(TRACES, TransportFixtures.richTraceData()).toCompletableFuture().join())
                 .isInstanceOf(DeliveryResult.Accepted.class);
@@ -77,7 +56,7 @@ class ArmeriaMutualTlsTest {
                 .timeout(Duration.ofSeconds(5))
                 .retryPolicy(new RetryPolicy(1, BackoffPolicy.defaults(), false))
                 .build().start();
-        closeables.add(exporter);
+        cleanup.client(exporter);
 
         assertThatThrownBy(() -> exporter.export(TRACES, TransportFixtures.richTraceData())
                 .toCompletableFuture().join())
@@ -95,7 +74,7 @@ class ArmeriaMutualTlsTest {
                 .timeout(Duration.ofSeconds(5))
                 .retryPolicy(new RetryPolicy(1, BackoffPolicy.defaults(), false))
                 .build().start();
-        closeables.add(exporter);
+        cleanup.client(exporter);
 
         assertThat(exporter.export(TRACES, TransportFixtures.richTraceData()).toCompletableFuture().join())
                 .isInstanceOf(DeliveryResult.Accepted.class);
@@ -111,7 +90,7 @@ class ArmeriaMutualTlsTest {
                 .timeout(Duration.ofSeconds(5))
                 .retryPolicy(new RetryPolicy(1, BackoffPolicy.defaults(), false))
                 .build().start();
-        closeables.add(exporter);
+        cleanup.client(exporter);
 
         assertThatThrownBy(() -> exporter.export(TRACES, TransportFixtures.richTraceData())
                 .toCompletableFuture().join())
@@ -129,7 +108,7 @@ class ArmeriaMutualTlsTest {
                 .ephemeralPort()
                 .build()
                 .start();
-        receivers.add(receiver);
+        cleanup.receiver(receiver);
 
         var exporter = OtlpExporter.grpcBuilder()
                 .endpoint("localhost", receiver.port())
@@ -137,7 +116,7 @@ class ArmeriaMutualTlsTest {
                 .timeout(Duration.ofSeconds(5))
                 .retryPolicy(new RetryPolicy(1, BackoffPolicy.defaults(), false))
                 .build().start();
-        closeables.add(exporter);
+        cleanup.client(exporter);
 
         assertThat(exporter.export(TRACES, TransportFixtures.richTraceData()).toCompletableFuture().join())
                 .isInstanceOf(DeliveryResult.Accepted.class);
@@ -166,7 +145,7 @@ class ArmeriaMutualTlsTest {
                 .ephemeralPort()
                 .build()
                 .start();
-        receivers.add(receiver);
+        cleanup.receiver(receiver);
         return receiver;
     }
 }

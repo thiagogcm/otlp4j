@@ -26,6 +26,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -46,6 +47,9 @@ public final class Otlp4jGatewayUnderTest implements GatewayUnderTest {
 
     private static final ComponentId RECEIVER_ID = ComponentId.parse("in");
     private static final ComponentId EXPORTER_ID = ComponentId.parse("out");
+
+    /// The gateways whose cases have finished and that [#stopClosed()] still has to stop.
+    private static final List<GatewayRuntime> CLOSED = new CopyOnWriteArrayList<>();
 
     private final GatewayRuntime runtime;
     private final Protocol protocol;
@@ -107,8 +111,6 @@ public final class Otlp4jGatewayUnderTest implements GatewayUnderTest {
         });
 
         var gw = Gateway.builder()
-                // Close is a real graceful drain and reports deadline failures. Allow Armeria's
-                // quiet period and the graph's remaining component cleanup to finish normally.
                 .service(new ServiceOptions(Duration.ofSeconds(30), Duration.ofSeconds(5)));
         gw.receiver(RECEIVER_ID, receiverFactory, receiverConfig(scenario));
         gw.exporter(EXPORTER_ID, exporterFactory);
@@ -207,9 +209,28 @@ public final class Otlp4jGatewayUnderTest implements GatewayUnderTest {
         }
     }
 
+    /// Marks this gateway finished. It keeps running on its own port until [#stopClosed()] stops it
+    /// with the others: a graceful stop takes about three seconds whatever the case did (a one-second
+    /// quiet period plus the two seconds Netty's accept loop takes to shut down inside Armeria), so
+    /// stopping after every case costs three seconds per case and stopping together costs them once.
     @Override
     public void close() {
-        runtime.close();
+        // A case that failed before releasing its held request must not stall the later drain.
+        releaseHeldRequest();
+        CLOSED.add(runtime);
+    }
+
+    /// Stops every finished gateway together. Each stop is a real graceful drain, and the first one
+    /// that fails or misses its deadline fails the caller. A concrete suite calls this after its last
+    /// case.
+    static void stopClosed() {
+        var runtimes = List.copyOf(CLOSED);
+        CLOSED.removeAll(runtimes);
+        // Allow Armeria's quiet period and the graph's remaining component cleanup to finish normally.
+        var stops = runtimes.stream()
+                .map(runtime -> runtime.shutdown(Duration.ofSeconds(30)).toCompletableFuture())
+                .toList();
+        CompletableFuture.allOf(stops.toArray(CompletableFuture[]::new)).join();
     }
 
     /// The held first request: its still-incomplete delivery stage and the provenance of the exporter

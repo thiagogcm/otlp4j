@@ -21,6 +21,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.extension.RegisterExtension;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -30,6 +31,9 @@ class OwnedExporterLifecycleTest {
     private static final Duration BUDGET = Duration.ofSeconds(5);
     private static final TracesData EMPTY = new TracesData(List.of());
 
+    @RegisterExtension
+    static final WireCleanup cleanup = new WireCleanup();
+
     @ParameterizedTest
     @ValueSource(booleans = {true, false})
     void flushCapturesOnlyPreviouslyDispatchedExports(boolean grpc) throws Exception {
@@ -38,16 +42,16 @@ class OwnedExporterLifecycleTest {
         var first = new CompletableFuture<DeliveryResult>();
         var second = new CompletableFuture<DeliveryResult>();
         var calls = new AtomicInteger();
-        try (var receiver = receiver(grpc).route(TRACES, (context, payload) -> {
+        var receiver = cleanup.receiver(receiver(grpc).route(TRACES, (context, payload) -> {
             if (calls.getAndIncrement() == 0) {
                 firstEntered.complete(null);
                 return first;
             }
             secondEntered.complete(null);
             return second;
-        }).ephemeralPort().build().start();
-             var exporter = exporter(grpc).endpoint("localhost", receiver.port())
-                     .timeout(BUDGET).build().start()) {
+        }).ephemeralPort().build().start());
+        try (var exporter = exporter(grpc).endpoint("localhost", receiver.port())
+                .timeout(BUDGET).build().start()) {
             try {
                 var batch = Fixtures.traceData(Fixtures.span("direct", Span.Kind.INTERNAL));
                 var firstExport = exporter.export(TRACES, batch).toCompletableFuture();
@@ -75,13 +79,13 @@ class OwnedExporterLifecycleTest {
         var entered = new CompletableFuture<Void>();
         var cancelled = new CompletableFuture<Void>();
         var response = new CompletableFuture<DeliveryResult>();
-        try (var receiver = receiver(grpc).route(TRACES, (requestContext, payload) -> {
+        var receiver = cleanup.receiver(receiver(grpc).route(TRACES, (requestContext, payload) -> {
             requestContext.onCancel(() -> cancelled.complete(null));
             entered.complete(null);
             return response;
-        }).ephemeralPort().build().start();
-             var exporter = exporter(grpc).endpoint("localhost", receiver.port())
-                     .timeout(Duration.ofSeconds(20)).build().start()) {
+        }).ephemeralPort().build().start());
+        try (var exporter = exporter(grpc).endpoint("localhost", receiver.port())
+                .timeout(Duration.ofSeconds(20)).build().start()) {
             try {
                 var deadline = trigger.equals("deadline")
                         ? Deadline.after(Duration.ofSeconds(2), Clock.systemUTC()) : Deadline.never();
@@ -108,10 +112,11 @@ class OwnedExporterLifecycleTest {
     void shutdownDrainsTheLastExportAndStopsAdmission(boolean grpc) throws Exception {
         var entered = new CompletableFuture<Void>();
         var response = new CompletableFuture<DeliveryResult>();
-        try (var receiver = receiver(grpc).route(TRACES, Consumers.gated(() -> entered.complete(null), response))
-                .ephemeralPort().build().start();
-             var exporter = exporter(grpc).endpoint("localhost", receiver.port())
-                     .timeout(BUDGET).build().start()) {
+        var receiver = cleanup.receiver(
+                receiver(grpc).route(TRACES, Consumers.gated(() -> entered.complete(null), response))
+                        .ephemeralPort().build().start());
+        try (var exporter = exporter(grpc).endpoint("localhost", receiver.port())
+                .timeout(BUDGET).build().start()) {
             try {
                 var delivery = exporter.export(TRACES, EMPTY).toCompletableFuture();
                 entered.get(3, TimeUnit.SECONDS);
@@ -134,27 +139,27 @@ class OwnedExporterLifecycleTest {
     void timedOutShutdownRemainsObservableFromClose(boolean grpc) throws Exception {
         var entered = new CompletableFuture<Void>();
         var response = new CompletableFuture<DeliveryResult>();
-        try (var receiver = receiver(grpc).route(TRACES, Consumers.gated(() -> entered.complete(null), response))
-                .ephemeralPort().build().start()) {
-            var exporter = exporter(grpc).endpoint("localhost", receiver.port())
-                    .timeout(Duration.ofSeconds(20)).build().start();
+        var receiver = cleanup.receiver(
+                receiver(grpc).route(TRACES, Consumers.gated(() -> entered.complete(null), response))
+                        .ephemeralPort().build().start());
+        var exporter = exporter(grpc).endpoint("localhost", receiver.port())
+                .timeout(Duration.ofSeconds(20)).build().start();
+        try {
+            exporter.export(TRACES, EMPTY);
+            entered.get(3, TimeUnit.SECONDS);
+            var shutdown = exporter.shutdown(Duration.ofMillis(50));
+            assertThatThrownBy(() -> shutdown.toCompletableFuture().get(2, TimeUnit.SECONDS))
+                    .isInstanceOf(ExecutionException.class);
+            response.complete(DeliveryResult.accepted(Consumers.PROV));
+            assertThatThrownBy(() -> exporter.shutdown(BUDGET).toCompletableFuture().get(2, TimeUnit.SECONDS))
+                    .isInstanceOf(ExecutionException.class);
+            assertThatThrownBy(exporter::close).isInstanceOf(RuntimeException.class);
+        } finally {
+            response.complete(DeliveryResult.accepted(Consumers.PROV));
             try {
-                exporter.export(TRACES, EMPTY);
-                entered.get(3, TimeUnit.SECONDS);
-                var shutdown = exporter.shutdown(Duration.ofMillis(50));
-                assertThatThrownBy(() -> shutdown.toCompletableFuture().get(2, TimeUnit.SECONDS))
-                        .isInstanceOf(ExecutionException.class);
-                response.complete(DeliveryResult.accepted(Consumers.PROV));
-                assertThatThrownBy(() -> exporter.shutdown(BUDGET).toCompletableFuture().get(2, TimeUnit.SECONDS))
-                        .isInstanceOf(ExecutionException.class);
-                assertThatThrownBy(exporter::close).isInstanceOf(RuntimeException.class);
-            } finally {
-                response.complete(DeliveryResult.accepted(Consumers.PROV));
-                try {
-                    exporter.close();
-                } catch (RuntimeException expected) {
-                    // The memoized timeout has already been asserted; continue fixture cleanup.
-                }
+                exporter.close();
+            } catch (RuntimeException expected) {
+                // The memoized timeout has already been asserted; continue fixture cleanup.
             }
         }
     }

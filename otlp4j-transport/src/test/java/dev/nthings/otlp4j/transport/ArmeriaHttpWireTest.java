@@ -12,15 +12,11 @@ import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.TimeUnit;
 import java.util.zip.GZIPOutputStream;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.extension.RegisterExtension;
 
 /// OTLP/HTTP status-code and header mapping, driven by a raw Armeria [WebClient] against a real
 /// Armeria server so the exact HTTP status and headers can be asserted at the wire.
@@ -31,18 +27,8 @@ class ArmeriaHttpWireTest {
     private static final MediaType PROTOBUF = MediaType.parse("application/x-protobuf");
     private static final String PATH = "/v1/traces";
 
-    private final List<OtlpReceiver> receivers = new ArrayList<>();
-
-    @AfterEach
-    void teardown() {
-        for (var receiver : receivers) {
-            try {
-                receiver.shutdown(Duration.ofSeconds(5)).toCompletableFuture().get(5, TimeUnit.SECONDS);
-            } catch (Exception ignored) {
-                // keep tearing down
-            }
-        }
-    }
+    @RegisterExtension
+    static final WireCleanup cleanup = new WireCleanup();
 
     private static byte[] traceBytes() {
         return SignalCodec.TRACES.toProto(
@@ -55,7 +41,7 @@ class ArmeriaHttpWireTest {
 
     private WebClient client(OtlpReceiver.Builder builder) {
         var receiver = builder.ephemeralPort().build().start();
-        receivers.add(receiver);
+        cleanup.receiver(receiver);
         return WebClient.of("http://localhost:" + receiver.port());
     }
 

@@ -14,15 +14,12 @@ import dev.nthings.otlp4j.testing.conformance.TlsTestMaterial;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.CompletionException;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.extension.RegisterExtension;
 import org.junit.jupiter.api.io.TempDir;
 
 /// Server and client TLS over Armeria, exercised with the checked-in test PEM material: in-memory
@@ -32,8 +29,8 @@ import org.junit.jupiter.api.io.TempDir;
 @DisplayName("Armeria transport TLS")
 class ArmeriaTlsTest {
 
-    private final List<OtlpReceiver> receivers = new ArrayList<>();
-    private final List<AutoCloseable> closeables = new ArrayList<>();
+    @RegisterExtension
+    static final WireCleanup cleanup = new WireCleanup();
 
     @DisplayName("in-memory TLS material is defensively copied")
     @Test
@@ -62,24 +59,6 @@ class ArmeriaTlsTest {
                 .hasSameHashCodeAs(Tls.custom(new byte[] {1}, new byte[] {2}, new byte[] {3}));
     }
 
-    @AfterEach
-    void teardown() {
-        for (var closeable : closeables) {
-            try {
-                closeable.close();
-            } catch (Exception ignored) {
-                // keep tearing down
-            }
-        }
-        for (var receiver : receivers) {
-            try {
-                receiver.shutdown(Duration.ofSeconds(5)).toCompletableFuture().get(5, TimeUnit.SECONDS);
-            } catch (Exception ignored) {
-                // keep tearing down
-            }
-        }
-    }
-
     @DisplayName("in-memory server TLS with a trusting client round-trips over gRPC")
     @Test
     void inlineTlsRoundTripsGrpc() {
@@ -90,7 +69,7 @@ class ArmeriaTlsTest {
                 .ephemeralPort()
                 .build()
                 .start();
-        receivers.add(receiver);
+        cleanup.receiver(receiver);
 
         var exporter = OtlpExporter.grpcBuilder()
                 .endpoint("localhost", receiver.port())
@@ -98,7 +77,7 @@ class ArmeriaTlsTest {
                 .timeout(Duration.ofSeconds(5))
                 .retryPolicy(new RetryPolicy(1, BackoffPolicy.defaults(), false))
                 .build().start();
-        closeables.add(exporter);
+        cleanup.client(exporter);
         var sent = TransportFixtures.richTraceData();
 
         assertThat(exporter.export(TRACES, sent).toCompletableFuture().join())
@@ -120,7 +99,7 @@ class ArmeriaTlsTest {
                 .ephemeralPort()
                 .build()
                 .start();
-        receivers.add(receiver);
+        cleanup.receiver(receiver);
 
         var exporter = OtlpExporter.httpBuilder()
                 .endpoint("localhost", receiver.port())
@@ -128,7 +107,7 @@ class ArmeriaTlsTest {
                 .timeout(Duration.ofSeconds(5))
                 .retryPolicy(new RetryPolicy(1, BackoffPolicy.defaults(), false))
                 .build().start();
-        closeables.add(exporter);
+        cleanup.client(exporter);
         var sent = TransportFixtures.richTraceData();
 
         assertThat(exporter.export(TRACES, sent).toCompletableFuture().join())
@@ -145,7 +124,7 @@ class ArmeriaTlsTest {
                 .ephemeralPort()
                 .build()
                 .start();
-        receivers.add(receiver);
+        cleanup.receiver(receiver);
 
         // System-trust client does not trust the self-signed test CA, so the handshake fails.
         var exporter = OtlpExporter.grpcBuilder()
@@ -154,7 +133,7 @@ class ArmeriaTlsTest {
                 .timeout(Duration.ofSeconds(5))
                 .retryPolicy(new RetryPolicy(1, BackoffPolicy.defaults(), false))
                 .build().start();
-        closeables.add(exporter);
+        cleanup.client(exporter);
 
         assertThatThrownBy(() -> exporter.export(TRACES, TransportFixtures.richTraceData())
                 .toCompletableFuture().join())

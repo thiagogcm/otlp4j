@@ -17,14 +17,11 @@ import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.testing.Fixtures;
 import dev.nthings.otlp4j.testing.TransportFixtures;
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.extension.RegisterExtension;
 
 /// Black-box OTLP/HTTP tests over a real Armeria server on an ephemeral port, driven by the Armeria
 /// HTTP client.
@@ -32,26 +29,8 @@ import org.junit.jupiter.api.Timeout;
 @DisplayName("Armeria OTLP/HTTP transport")
 class ArmeriaHttpTransportTest {
 
-    private final List<OtlpReceiver> receivers = new ArrayList<>();
-    private final List<AutoCloseable> closeables = new ArrayList<>();
-
-    @AfterEach
-    void teardown() {
-        for (var closeable : closeables) {
-            try {
-                closeable.close();
-            } catch (Exception ignored) {
-                // keep tearing down
-            }
-        }
-        for (var receiver : receivers) {
-            try {
-                receiver.shutdown(Duration.ofSeconds(5)).toCompletableFuture().get(5, TimeUnit.SECONDS);
-            } catch (Exception ignored) {
-                // keep tearing down
-            }
-        }
-    }
+    @RegisterExtension
+    static final WireCleanup cleanup = new WireCleanup();
 
     @DisplayName("round-trips every signal losslessly")
     @Test
@@ -109,7 +88,7 @@ class ArmeriaHttpTransportTest {
                 .timeout(Duration.ofSeconds(5))
                 .retryPolicy(new RetryPolicy(1, BackoffPolicy.defaults(), false))
                 .build().start();
-        closeables.add(exporter);
+        cleanup.client(exporter);
         var sent = TransportFixtures.richTraceData();
 
         assertThat(exporter.export(TRACES, sent).toCompletableFuture().join())
@@ -119,7 +98,7 @@ class ArmeriaHttpTransportTest {
 
     private OtlpReceiver startReceiver(OtlpReceiver.Builder builder) {
         var receiver = builder.ephemeralPort().build();
-        receivers.add(receiver);
+        cleanup.receiver(receiver);
         return receiver.start();
     }
 
@@ -129,7 +108,7 @@ class ArmeriaHttpTransportTest {
                 .timeout(Duration.ofSeconds(5))
                 .retryPolicy(new RetryPolicy(1, BackoffPolicy.defaults(), false))
                 .build().start();
-        closeables.add(exporter);
+        cleanup.client(exporter);
         return exporter;
     }
 }

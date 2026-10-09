@@ -22,12 +22,12 @@ import dev.nthings.otlp4j.transport.ClientAuth;
 import io.grpc.Status;
 import java.net.URI;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
-import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -46,13 +46,18 @@ import org.junit.jupiter.api.Timeout;
 @DisplayName("Armeria enforced mutual TLS (conformance)")
 final class ArmeriaMutualTlsRequiredTest {
 
-    private final List<OtlpReceiver> receivers = new ArrayList<>();
+    private static final List<OtlpReceiver> receivers = new CopyOnWriteArrayList<>();
 
-    @AfterEach
-    void teardown() {
-        for (var receiver : receivers) {
+    /// Stops the receivers of every case together: one graceful stop takes about three seconds, so
+    /// stopping after each case would cost that per case.
+    @AfterAll
+    static void teardown() {
+        var stops = receivers.stream()
+                .map(receiver -> receiver.shutdown(Duration.ofSeconds(30)).toCompletableFuture())
+                .toList();
+        for (var stop : stops) {
             try {
-                receiver.shutdown(Duration.ofSeconds(5)).toCompletableFuture().get(5, TimeUnit.SECONDS);
+                stop.get(30, TimeUnit.SECONDS);
             } catch (Exception ignored) {
                 // keep tearing down
             }
