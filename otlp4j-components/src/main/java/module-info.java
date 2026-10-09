@@ -1,6 +1,6 @@
 /// The built-in gateway components and their reusable helpers, depending only on the core contracts
-/// and the codec wire-size helper: the batch processor, the memory limiter, the routing and filtering
-/// processors, and the span-count connector. No transport, wire, or graph library appears on this
+/// and the codec wire-size helper: the batch processor, the memory limiter, the filter processor, and
+/// the span-count connector. No transport, wire, or graph library appears on this
 /// module's surface, so a component here can be assembled into any graph without dragging a server or
 /// client runtime with it.
 ///

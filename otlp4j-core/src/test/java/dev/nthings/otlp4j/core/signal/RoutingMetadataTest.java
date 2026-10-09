@@ -13,16 +13,15 @@ import org.junit.jupiter.api.Test;
 class RoutingMetadataTest {
 
     @Test
-    @DisplayName("domain payload exposes immutable resource attributes")
+    @DisplayName("a domain payload lists the attributes of every resource group in wire order")
     void domainMetadata() {
-        var data = TracesData.of(
-                Resource.of(Attributes.builder().put("service.name", "checkout").build()),
-                dev.nthings.otlp4j.model.InstrumentationScope.EMPTY,
-                List.of());
+        var payments = Attributes.builder().put("service.name", "payments").build();
+        var checkout = Attributes.builder().put("service.name", "checkout").put("tenant", "acme").build();
+        var data = new TracesData(List.of(
+                new TracesData.ResourceSpans(Resource.of(payments), "", List.of()),
+                new TracesData.ResourceSpans(Resource.of(checkout), "", List.of())));
         var metadata = Payload.of(SignalDescriptor.TRACES, data).routingMetadata();
 
-        assertThat(metadata.resourceAttribute("service.name")).contains("checkout");
-        assertThat(metadata.resourceAttribute("absent")).isEmpty();
-        assertThat(metadata.resourceAttributeKeys()).containsExactly("service.name");
+        assertThat(metadata.resources()).containsExactly(payments, checkout);
     }
 }

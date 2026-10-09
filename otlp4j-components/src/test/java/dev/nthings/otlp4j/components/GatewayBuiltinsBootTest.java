@@ -9,8 +9,6 @@ import dev.nthings.otlp4j.components.memory.MemoryLimiterProcessorFactory;
 import dev.nthings.otlp4j.components.memory.MemoryLimiterConfig;
 import dev.nthings.otlp4j.components.routing.FilterConfig;
 import dev.nthings.otlp4j.components.routing.FilterProcessorFactory;
-import dev.nthings.otlp4j.components.routing.RoutingConfig;
-import dev.nthings.otlp4j.components.routing.RoutingProcessorFactory;
 import dev.nthings.otlp4j.components.routing.MatchRule;
 import dev.nthings.otlp4j.components.routing.MatchSpec;
 import dev.nthings.otlp4j.components.support.GraphReceiverFactory;
@@ -39,28 +37,27 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
-/// Boots a real [dev.nthings.otlp4j.service.GatewayRuntime] wiring all four built-in processors -
-/// memory limiter, filter, batch, and routing - fed by an in-process receiver and terminated by
-/// capturing exporters, and proves data flows through every one of them: the memory limiter admits
-/// under the configured threshold, the filter keeps only its configured service, the routing branches send
-/// each service to the right exporter, and the batch stage holds its data until a clean shutdown flushes
-/// it into the still-open downstream.
+/// Boots a real [dev.nthings.otlp4j.service.GatewayRuntime] wiring the built-in processors - memory
+/// limiter, filter, and batch - fed by an in-process receiver and terminated by capturing exporters,
+/// and proves data flows through every one of them: the memory limiter admits under the configured
+/// threshold, two filter branches split one mixed-resource payload so each exporter receives exactly
+/// its own service, and the batch stage holds its data until a clean shutdown flushes it through the
+/// still-open filter and exporter downstream of it.
 @DisplayName("Built-in components booted in a gateway")
 @Timeout(30)
 class GatewayBuiltinsBootTest {
 
     private static final ComponentId RECV = ComponentId.parse("in");
     private static final ComponentId MEMLIMIT = ComponentId.parse("memlimit");
-    private static final ComponentId FILTER = ComponentId.parse("filter");
+    private static final ComponentId KEEP_CHECKOUT = ComponentId.parse("keep-checkout");
+    private static final ComponentId KEEP_BILLING = ComponentId.parse("keep-billing");
     private static final ComponentId BATCH = ComponentId.parse("batch");
-    private static final ComponentId ROUTE_CHECKOUT = ComponentId.parse("route-checkout");
-    private static final ComponentId ROUTE_BILLING = ComponentId.parse("route-billing");
     private static final ComponentId EXP_CHECKOUT = ComponentId.parse("out-checkout");
     private static final ComponentId EXP_BILLING = ComponentId.parse("out-billing");
 
-    @DisplayName("data flows through memory-limiter, filter, batch, and routing; batch flushes on shutdown")
+    @DisplayName("filter branches split a mixed-resource payload; batch flushes on shutdown")
     @Test
-    void allFourBuiltInsCarryDataAndBatchDrainsOnShutdown() {
+    void builtInsCarryDataAndBatchDrainsOnShutdown() {
         var checkoutReceived = new CopyOnWriteArrayList<Payload<?>>();
         var billingReceived = new CopyOnWriteArrayList<Payload<?>>();
         var recv = new GraphReceiverFactory();
@@ -69,56 +66,60 @@ class GatewayBuiltinsBootTest {
         var in = gw.receiver(RECV, recv);
         var memlimit = gw.processor(MEMLIMIT, new MemoryLimiterProcessorFactory(),
                 new MemoryLimiterConfig(Duration.ofSeconds(1), Long.MAX_VALUE, 0, Duration.ofSeconds(1)));
-        var filter = gw.processor(FILTER, new FilterProcessorFactory(), keepService("checkout"));
+        var keepCheckout = gw.processor(KEEP_CHECKOUT, new FilterProcessorFactory(), keepService("checkout"));
+        var keepBilling = gw.processor(KEEP_BILLING, new FilterProcessorFactory(), keepService("billing"));
         var batch = gw.processor(BATCH, new BatchProcessorFactory(), holdingBatch());
-        var routeCheckout = gw.processor(ROUTE_CHECKOUT, new RoutingProcessorFactory(), routeService("checkout"));
-        var routeBilling = gw.processor(ROUTE_BILLING, new RoutingProcessorFactory(), routeService("billing"));
         var checkoutOut = gw.exporter(EXP_CHECKOUT, capturingInto(checkoutReceived));
         var billingOut = gw.exporter(EXP_BILLING, capturingInto(billingReceived));
 
-        // The checkout pipeline runs the payload through all four built-ins; the billing pipeline is a
-        // second routing branch off the same receiver, proving routing sends each service to its own
-        // exporter.
+        // Two branches off the same receiver, each with its own filter. The checkout branch runs
+        // through the memory limiter and buffers before it filters, so its filter is a processor
+        // downstream of the batch stage.
         gw.pipeline(PipelineId.of(TRACES, "checkout"),
-                p -> p.from(in).via(memlimit, filter, batch, routeCheckout).to(checkoutOut));
+                p -> p.from(in).via(memlimit, batch, keepCheckout).to(checkoutOut));
         gw.pipeline(PipelineId.of(TRACES, "billing"),
-                p -> p.from(in).via(routeBilling).to(billingOut));
+                p -> p.from(in).via(keepBilling).to(billingOut));
         var runtime = gw.build();
         runtime.start();
 
-        var checkoutResult = recv.deliver(TRACES, new TestConsumeContext(), tracesFor("checkout", 3));
-        var billingResult = recv.deliver(TRACES, new TestConsumeContext(), tracesFor("billing", 2));
+        // One payload mixing both services, billing first: each branch must take only its own.
+        var mixed = Payload.of(TRACES, new TracesData(List.of(
+                resourceSpans("billing", 2), resourceSpans("checkout", 3))));
+        var result = recv.deliver(TRACES, new TestConsumeContext(), mixed);
 
-        // Both admitted: the memory limiter is under the configured threshold.
-        assertThat(checkoutResult).isInstanceOf(DeliveryResult.Accepted.class);
-        assertThat(billingResult).isInstanceOf(DeliveryResult.Accepted.class);
+        // Admitted: the memory limiter is under the configured threshold.
+        assertThat(result).isInstanceOf(DeliveryResult.Accepted.class);
 
-        // Routing sent billing straight to its own exporter; the filter dropped billing from the
-        // checkout pipeline, and the batch stage is still holding the checkout payload.
-        assertThat(billingReceived).singleElement()
-                .satisfies(payload -> assertThat(payload.itemCount()).isEqualTo(2L));
-        assertThat(checkoutReceived).as("batch holds the checkout payload until shutdown").isEmpty();
+        // The billing branch forwarded only the billing resource; the checkout branch's batch stage
+        // is still holding the payload.
+        assertThat(billingReceived).singleElement().satisfies(payload -> {
+            assertThat(payload.itemCount()).isEqualTo(2L);
+            assertThat(services(payload)).containsExactly("billing");
+        });
+        assertThat(checkoutReceived).as("batch holds the payload until shutdown").isEmpty();
 
         runtime.close();
 
-        // Shutdown drained the batch into the still-open routing branch and exporter.
+        // Shutdown drained the batch through the still-open filter, which dropped billing, into the
+        // exporter.
         assertThat(checkoutReceived).as("batch flushes pending data on clean shutdown").singleElement()
-                .satisfies(payload -> assertThat(payload.itemCount()).isEqualTo(3L));
+                .satisfies(payload -> {
+                    assertThat(payload.itemCount()).isEqualTo(3L);
+                    assertThat(services(payload)).containsExactly("checkout");
+                });
         assertThat(billingReceived).hasSize(1);
     }
 
-    /// A filter that keeps only payloads whose `service.name` resource attribute equals `service`.
+    /// A branch filter that keeps only resource groups whose `service.name` equals `service`.
     private static FilterConfig keepService(String service) {
-        return new FilterConfig(matchService(service), MatchSpec.none());
+        return FilterConfig.keep(
+                MatchSpec.of(MatchRule.builder().resourceAttribute("service.name", service).build()));
     }
 
-    /// A routing branch that forwards only payloads whose `service.name` equals `service`.
-    private static RoutingConfig routeService(String service) {
-        return new RoutingConfig(matchService(service));
-    }
-
-    private static MatchSpec matchService(String service) {
-        return MatchSpec.of(MatchRule.builder().resourceAttribute("service.name", service).build());
+    private static List<String> services(Payload<?> payload) {
+        return payload.routingMetadata().resources().stream()
+                .map(attributes -> attributes.getString("service.name"))
+                .toList();
     }
 
     /// A batch config that never flushes on size or timeout during the test, so only shutdown drains it.
@@ -139,12 +140,13 @@ class GatewayBuiltinsBootTest {
         });
     }
 
-    private static Payload<TracesData> tracesFor(String serviceName, int spanCount) {
+    private static TracesData.ResourceSpans resourceSpans(String serviceName, int spanCount) {
         var spans = new ArrayList<Span>();
         for (var i = 0; i < spanCount; i++) {
             spans.add(Fixtures.span("span-" + i, Span.Kind.SERVER));
         }
         var resource = Resource.of(Attributes.builder().put("service.name", serviceName).build());
-        return Payload.of(TRACES, TracesData.of(resource, InstrumentationScope.EMPTY, spans));
+        return new TracesData.ResourceSpans(
+                resource, "", List.of(new TracesData.ScopeSpans(InstrumentationScope.EMPTY, "", spans)));
     }
 }

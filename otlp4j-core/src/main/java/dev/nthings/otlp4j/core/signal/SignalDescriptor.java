@@ -5,11 +5,14 @@ import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.Metric;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.ProfilesData;
+import dev.nthings.otlp4j.model.Resource;
 import dev.nthings.otlp4j.model.TracesData;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.function.BiFunction;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.function.ToLongFunction;
 
@@ -18,11 +21,11 @@ import java.util.function.ToLongFunction;
 /// descriptor behaves like a generic enum.
 ///
 /// A descriptor owns the signal name, the domain batch type, the wire ordinal (traces `0`, metrics
-/// `1`, logs `2`, profiles `3`), and the batch-level operations `merge`, `itemCount`, and `empty`.
-/// Those three operations are implemented here directly over the immutable model records, so the batch policy is
-/// core behaviour rather than model behaviour. Profiles merge, in particular, throws an
-/// `IllegalStateException` on distinct non-empty dictionaries, which the conformance suite's profiles
-/// wire-identical guarantee depends on.
+/// `1`, logs `2`, profiles `3`), and the batch-level operations `merge`, `split`, `itemCount`,
+/// `empty`, `routingMetadata`, and `filterResources`. Merge, split, and item counting are implemented
+/// here directly over the immutable model records, so the batch policy is core behaviour rather than
+/// model behaviour. Profiles merge, in particular, throws an `IllegalStateException` on distinct
+/// non-empty dictionaries, which the conformance suite's profiles wire-identical guarantee depends on.
 ///
 /// @param <T> the domain batch type this signal identifies
 public final class SignalDescriptor<T> {
@@ -30,28 +33,32 @@ public final class SignalDescriptor<T> {
     /// Traces, carrying `TracesData`, wire ordinal `0`.
     public static final SignalDescriptor<TracesData> TRACES = new SignalDescriptor<>(
             "traces", TracesData.class, SignalDescriptor::mergeTraces, SignalDescriptor::splitTraces,
-            TracesData::spanCount, SignalDescriptor::traceResourceAttributes,
-            () -> new TracesData(List.of()), 0);
+            TracesData::spanCount,
+            resourceAttributes(TracesData::resourceSpans, TracesData.ResourceSpans::resource),
+            TracesData::filterResources, () -> new TracesData(List.of()), 0);
 
     /// Metrics, carrying `MetricsData`, wire ordinal `1`.
     public static final SignalDescriptor<MetricsData> METRICS = new SignalDescriptor<>(
             "metrics", MetricsData.class, SignalDescriptor::mergeMetrics, SignalDescriptor::splitMetrics,
-            MetricsData::dataPointCount, SignalDescriptor::metricsResourceAttributes,
-            () -> new MetricsData(List.of()), 1);
+            MetricsData::dataPointCount,
+            resourceAttributes(MetricsData::resourceMetrics, MetricsData.ResourceMetrics::resource),
+            MetricsData::filterResources, () -> new MetricsData(List.of()), 1);
 
     /// Logs, carrying `LogsData`, wire ordinal `2`.
     public static final SignalDescriptor<LogsData> LOGS = new SignalDescriptor<>(
             "logs", LogsData.class, SignalDescriptor::mergeLogs, SignalDescriptor::splitLogs,
-            LogsData::logRecordCount, SignalDescriptor::logsResourceAttributes,
-            () -> new LogsData(List.of()), 2);
+            LogsData::logRecordCount,
+            resourceAttributes(LogsData::resourceLogs, LogsData.ResourceLogs::resource),
+            LogsData::filterResources, () -> new LogsData(List.of()), 2);
 
     /// Profiles, carrying `ProfilesData`, wire ordinal `3`. Merge is only lossless when batches share
     /// one `ProfilesDictionary`; see [#merge(List)]. Split, by contrast, only slices the profile list
     /// under the batch's single shared dictionary, so it is always lossless.
     public static final SignalDescriptor<ProfilesData> PROFILES = new SignalDescriptor<>(
             "profiles", ProfilesData.class, SignalDescriptor::mergeProfiles, SignalDescriptor::splitProfiles,
-            ProfilesData::profileCount, SignalDescriptor::profilesResourceAttributes,
-            () -> new ProfilesData(List.of(), new byte[0]), 3);
+            ProfilesData::profileCount,
+            resourceAttributes(ProfilesData::resourceProfiles, ProfilesData.ResourceProfiles::resource),
+            ProfilesData::filterResources, () -> new ProfilesData(List.of(), new byte[0]), 3);
 
     private static final List<SignalDescriptor<?>> VALUES = List.of(TRACES, METRICS, LOGS, PROFILES);
 
@@ -61,19 +68,22 @@ public final class SignalDescriptor<T> {
     private final Splitter<T> splitter;
     private final ToLongFunction<T> itemCounter;
     private final Function<T, List<Attributes>> resourceAttributes;
+    private final BiFunction<T, Predicate<? super Resource>, T> resourceFilter;
     private final Supplier<T> empty;
     private final int wireOrdinal;
 
     private SignalDescriptor(String signalName, Class<T> batchType, Merger<T> merger,
                              Splitter<T> splitter, ToLongFunction<T> itemCounter,
-                             Function<T, List<Attributes>> resourceAttributes, Supplier<T> empty,
-                             int wireOrdinal) {
+                             Function<T, List<Attributes>> resourceAttributes,
+                             BiFunction<T, Predicate<? super Resource>, T> resourceFilter,
+                             Supplier<T> empty, int wireOrdinal) {
         this.signalName = signalName;
         this.batchType = batchType;
         this.merger = merger;
         this.splitter = splitter;
         this.itemCounter = itemCounter;
         this.resourceAttributes = resourceAttributes;
+        this.resourceFilter = resourceFilter;
         this.empty = empty;
         this.wireOrdinal = wireOrdinal;
     }
@@ -142,17 +152,27 @@ public final class SignalDescriptor<T> {
         return itemCounter.applyAsLong(batch);
     }
 
-    /// The resource-level attributes carried by `batch`, used to build the cheap routing metadata
-    /// exposed by a [Payload]. This operation only walks resource wrappers and never walks signal
-    /// items.
+    /// The resource-level routing metadata of `batch`, as exposed by a [Payload] carrying it. This
+    /// operation only walks resource wrappers and never walks signal items.
     ///
     /// @param batch the domain batch
-    /// @return the batch's resource attributes in wire order
-    RoutingMetadata routingMetadata(T batch) {
+    /// @return the batch's routing metadata, one resource entry per resource group in wire order
+    public RoutingMetadata routingMetadata(T batch) {
         if (batch == null) {
             throw new IllegalArgumentException("batch must be non-null");
         }
-        return RoutingMetadataSupport.of(resourceAttributes.apply(batch));
+        return RoutingMetadata.of(resourceAttributes.apply(batch));
+    }
+
+    /// Returns `batch` with only the resource groups whose resource `keep` accepts, each with all its
+    /// items. This is the signal-generic form of the batch types' own `filterResources`, so it returns
+    /// the same instance when `keep` accepts every resource and keeps a profiles dictionary.
+    ///
+    /// @param batch the batch to select from
+    /// @param keep  the test a resource must pass for its group to stay
+    /// @return the batch holding the accepted resource groups
+    public T filterResources(T batch, Predicate<? super Resource> keep) {
+        return resourceFilter.apply(batch, keep);
     }
 
     /// An empty batch of this signal.
@@ -188,44 +208,20 @@ public final class SignalDescriptor<T> {
         List<T> split(T batch, long maxItems);
     }
 
+    // --- resource attributes behind routing metadata ---
+
+    /// Reads one [Attributes] per resource group of a batch, in wire order.
+    private static <T, G> Function<T, List<Attributes>> resourceAttributes(
+            Function<T, List<G>> groups, Function<G, Resource> resource) {
+        return batch -> groups.apply(batch).stream().map(group -> resource.apply(group).attributes()).toList();
+    }
+
     // --- per-signal merge bodies, batch policy owned by core ---
 
     private static TracesData mergeTraces(List<TracesData> snapshot) {
         var combined = new ArrayList<TracesData.ResourceSpans>();
         snapshot.forEach(t -> combined.addAll(t.resourceSpans()));
         return new TracesData(combined);
-    }
-
-    private static List<Attributes> traceResourceAttributes(TracesData batch) {
-        var result = new ArrayList<Attributes>(batch.resourceSpans().size());
-        for (var resource : batch.resourceSpans()) {
-            result.add(resource.resource().attributes());
-        }
-        return List.copyOf(result);
-    }
-
-    private static List<Attributes> metricsResourceAttributes(MetricsData batch) {
-        var result = new ArrayList<Attributes>(batch.resourceMetrics().size());
-        for (var resource : batch.resourceMetrics()) {
-            result.add(resource.resource().attributes());
-        }
-        return List.copyOf(result);
-    }
-
-    private static List<Attributes> logsResourceAttributes(LogsData batch) {
-        var result = new ArrayList<Attributes>(batch.resourceLogs().size());
-        for (var resource : batch.resourceLogs()) {
-            result.add(resource.resource().attributes());
-        }
-        return List.copyOf(result);
-    }
-
-    private static List<Attributes> profilesResourceAttributes(ProfilesData batch) {
-        var result = new ArrayList<Attributes>(batch.resourceProfiles().size());
-        for (var resource : batch.resourceProfiles()) {
-            result.add(resource.resource().attributes());
-        }
-        return List.copyOf(result);
     }
 
     private static MetricsData mergeMetrics(List<MetricsData> snapshot) {

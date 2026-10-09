@@ -74,12 +74,7 @@ class RoutingMetadataParityTest {
         RoutingMetadata domainMetadata = domain.routingMetadata();
 
         for (var metadata : List.of(protoMetadata, domainMetadata)) {
-            assertThat(metadata.resourceAttribute("service.name")).contains("checkout");
-            assertThat(metadata.resourceAttribute("tenant")).contains("acme");
-            assertThat(metadata.resourceAttribute("deployment.environment")).contains("prod");
-            assertThat(metadata.resourceAttribute("absent")).isEmpty();
-            assertThat(metadata.resourceAttributeKeys())
-                    .containsExactlyInAnyOrder("service.name", "tenant", "deployment.environment");
+            assertThat(metadata.resources()).containsExactly(RESOURCE_A.attributes(), RESOURCE_B.attributes());
         }
         assertThat(proto.dataMaterialized()).isFalse();
     }

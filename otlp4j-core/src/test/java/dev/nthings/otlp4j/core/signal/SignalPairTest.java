@@ -37,9 +37,11 @@ class SignalPairTest {
         var replacement = payload.withData(second);
         assertThat(replacement.data().spans()).extracting(Span::name).containsExactly("pay", "ship");
         assertThat(replacement.itemCount()).isEqualTo(2);
-        assertThat(replacement.routingMetadata().resourceAttribute("service.name")).contains("checkout");
+        assertThat(replacement.routingMetadata().resources())
+                .extracting(resource -> resource.getString("service.name"))
+                .containsExactly("checkout");
         assertThat(payload.itemCount()).isZero();
-        assertThat(payload.routingMetadata().resourceAttributeKeys()).isEmpty();
+        assertThat(payload.routingMetadata().resources()).isEmpty();
     }
 
     @Test

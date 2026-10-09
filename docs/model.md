@@ -85,7 +85,7 @@ Components exchange `Payload<T>`, which associates data with its descriptor, ite
 
 `data()` exposes the domain batch. On a received OTLP payload, the implementation can construct this view lazily. Item counts and resource routing checks do not require a full domain conversion. `withData(replacement)` returns a payload for the replacement and updates its derived metadata.
 
-Routing metadata is a batch-level view. Its resource attribute lookup returns the first string value found for a key, and its key set covers resource groups. See [Filtering and routing](components.md#filtering-and-routing) before using it to classify mixed-resource batches.
+Routing metadata lists the attributes of each resource group through `resources()`, in wire order, without decoding the batch's items. A mixed-resource batch has one entry per group, and the built-in [filter](components.md#filtering-and-routing) decides each group separately.
 
 ## Profiles
 

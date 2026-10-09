@@ -64,7 +64,7 @@ For wiring examples, use [Pipelines](pipelines.md) and [Gateways](gateways.md). 
 
 `Payload<T>` is the consumer boundary. It exposes a descriptor, domain data, item count, and routing metadata. Applications work with that contract and the [immutable model](model.md), without generated messages.
 
-Received payloads can retain a parsed protobuf request. Metadata routing and forwarding reuse that request without constructing the domain batch. This is protobuf-object reuse, not a promise of zero-copy networking or identical complete request bytes.
+Received payloads can retain a parsed protobuf request. Metadata routing and forwarding reuse that request without constructing the domain batch, unless a [filter](components.md#filtering-and-routing) must drop some of a payload's resource groups. This is protobuf-object reuse, not a promise of zero-copy networking or identical complete request bytes.
 
 A transform that returns a different batch replaces the domain data and causes encoding of that replacement. A transform that returns the batch it received leaves the payload and its parsed request in place; the model's [item operations](model.md#select-and-replace-items) do so when they change nothing. Batching also requests the domain view to merge and split items. Domain conversion preserves modeled fields; it does not expose arbitrary unknown protobuf fields. Forwarding an unchanged protobuf-backed payload retains fields present in that parsed request.
 

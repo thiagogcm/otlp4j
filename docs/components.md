@@ -6,8 +6,7 @@ Add `otlp4j-components` for reusable processors and the span-count connector. Re
 | --- | --- | --- | --- |
 | Batching | `BatchProcessorFactory` | `BatchProcessorConfig` | Traces, metrics, logs |
 | Memory limiting | `MemoryLimiterProcessorFactory` | `MemoryLimiterConfig` | All four |
-| Filtering | `FilterProcessorFactory` | `FilterConfig` | All four |
-| Routing branch | `RoutingProcessorFactory` | `RoutingConfig` | All four |
+| Filtering and routing | `FilterProcessorFactory` | `FilterConfig` | All four |
 | Span counting | `SpanCountConnectorFactory` | `SpanCountConnectorConfig` | Traces -> metrics |
 
 ## Batching
@@ -83,32 +82,41 @@ Choose thresholds for the host application's heap, not just telemetry payload si
 
 ## Filtering and routing
 
-These processors keep or discard entire payloads without changing their contents:
+The filter processor decides each resource group of a payload separately. It forwards the groups that match `include` and do not match `exclude`, each with all its items, and discards the rest.
 
-| Configuration | Forwarding rule | Default |
-| --- | --- | --- |
-| `FilterConfig(include, exclude)` | Included and not excluded | Keep everything |
-| `RoutingConfig(match)` | Match the branch condition | Forward nothing |
+| Configuration | Kept resource groups |
+| --- | --- |
+| `FilterConfig.defaults()` | All |
+| `FilterConfig.keep(match)` | Those matching `match` |
+| `new FilterConfig(include, exclude)` | Those matching `include` and not `exclude` |
 
 Use `MatchSpec.all()` for an explicit catch-all and `MatchSpec.none()` for no match. A `MatchSpec` matches when any contained rule matches. Within a `MatchRule`, every configured condition must match. Regular expressions match the whole string.
 
 ```java
+import dev.nthings.otlp4j.components.routing.FilterConfig;
 import dev.nthings.otlp4j.components.routing.MatchRule;
 import dev.nthings.otlp4j.components.routing.MatchSpec;
-import dev.nthings.otlp4j.components.routing.RoutingConfig;
 
 var checkout = MatchRule.builder()
         .resourceAttribute("service.name", "checkout")
         .header("x-tenant-id", "tenant-a")
         .build();
-var branch = new RoutingConfig(MatchSpec.of(checkout));
+var branch = FilterConfig.keep(MatchSpec.of(checkout));
 ```
 
-Resource checks use the first string value found for a key across the payload's resource groups. Header checks match when at least one value for that key satisfies the condition. These checks use routing metadata without requesting the full domain batch. `domainPredicate(...)` explicitly requests the domain view.
+Conditions apply at two levels:
 
-A mixed-resource batch is still forwarded or discarded as one unit. To keep only some of its resource groups or items, add a `map` stage that uses the batch's [resource and item filters](model.md#select-and-replace-items). A routing processor has one downstream branch; build several pipelines sharing a source to route to several destinations. Overlapping matches send the payload to each matching branch.
+| Condition | Tested against | Outcome within one payload |
+| --- | --- | --- |
+| `resourceAttribute`, `resourceAttributeRegex` | Each resource group's string value for the key | Can differ between resource groups |
+| `header`, `headerRegex` | The request's client headers; one matching value is enough | Same for every resource group |
+| `domainPredicate` | The whole domain batch | Same for every resource group |
 
-An intentional filter or routing discard returns `Accepted`. It is a policy decision, not a queue-overflow loss, and is not added to a flush report's dropped-item count.
+A payload whose groups are all kept is forwarded as received, and a payload whose groups are all discarded is not forwarded. Neither case requests the domain batch unless a rule uses `domainPredicate(...)`. A payload with both kept and discarded groups is decoded and forwarded with only its kept groups, so that reduced batch is encoded again on export. A payload without resource groups cannot satisfy a resource condition; its header and domain conditions still decide it.
+
+To route to several destinations, [build several pipelines](gateways.md#wire-named-components) that share a source and start each with its own filter. Each branch receives exactly the resource groups its condition selects, and overlapping conditions send a group to every matching branch. To select individual items instead of resource groups, add a `map` stage that uses the batch's [item filters](model.md#select-and-replace-items).
+
+A payload the filter discards entirely returns `Accepted`. When some groups are kept, the result is the downstream consumer's result for the forwarded groups. A discard is a policy decision, not a queue-overflow loss, and is not added to a flush report's dropped-item count.
 
 ## Span counting
 

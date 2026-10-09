@@ -11,22 +11,23 @@ import org.junit.jupiter.api.Timeout;
 @DisplayName("OTLP end-to-end demo")
 class OtlpE2eDemoTest {
 
-    @DisplayName("demo filters spans, derives count, enriches the resource, and redacts a span attribute")
+    @DisplayName("demo drops a resource, filters spans, derives count, enriches the resource, and redacts")
     @Test
     void demoTraversesTheFullPipeline() throws Exception {
         var result = OtlpE2eDemo.run();
 
         assertThat(result.spansAtBackend())
-                .as("only the 3 SERVER spans should survive the filter")
+                .as("only checkout's 3 SERVER spans should survive: the resource filter drops the "
+                        + "monitor's 2 SERVER spans and the span filter drops the 2 INTERNAL spans")
                 .isEqualTo(3);
         assertThat(result.derivedSpanCount())
-                .as("the CountConnector should derive a span-count metric of 3")
+                .as("the span-count connector should count only the 3 retained spans")
                 .isEqualTo(3L);
         assertThat(result.enrichedEnvironment())
                 .as("the processor should have stamped deployment.environment onto the resource")
                 .isEqualTo("demo");
         assertThat(result.redactedEnduserId())
-                .as("the mapSpans helper should have masked the sensitive enduser.id attribute")
+                .as("the redaction should have masked the sensitive enduser.id attribute")
                 .isEqualTo("***");
     }
 }

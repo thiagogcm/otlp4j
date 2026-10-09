@@ -10,7 +10,7 @@ import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 /// The factory for the built-in filter processor, type `filter`.
 ///
 /// It supports every signal, since a filter rule reads only the routing-metadata and client-metadata
-/// axes (or, through the escape hatch, the domain), none of which is signal-specific.
+/// axes (or, through the escape hatch, the domain), and every signal's batch can drop resource groups.
 public final class FilterProcessorFactory implements ProcessorFactory<FilterConfig> {
 
     /// The component type name.

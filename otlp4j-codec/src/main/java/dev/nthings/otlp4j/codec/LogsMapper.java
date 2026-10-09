@@ -36,20 +36,6 @@ final class LogsMapper {
         return count;
     }
 
-    /// The resource-level attributes of a domain logs batch, one entry per resource in wire order.
-    /// Reads only the resource wrappers, so it never touches the log records, which is what lets the
-    /// routing-metadata view answer a routing question without walking the payload.
-    ///
-    /// @param batch the domain logs batch
-    /// @return the per-resource attributes in wire order
-    static List<Attributes> resourceAttributes(LogsData batch) {
-        var result = new ArrayList<Attributes>(batch.resourceLogs().size());
-        for (var rl : batch.resourceLogs()) {
-            result.add(rl.resource().attributes());
-        }
-        return result;
-    }
-
     /// The resource-level attributes of a proto logs export request, one entry per resource in wire
     /// order. Converts only the top-level resource attribute lists through [CommonMapper#attributes],
     /// so the log records are never decoded and no domain batch is materialised.

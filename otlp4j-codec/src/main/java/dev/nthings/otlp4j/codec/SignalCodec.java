@@ -43,7 +43,7 @@ public final class SignalCodec<T, REQ extends MessageLite, RESP extends MessageL
     public static final SignalCodec<TracesData, ExportTraceServiceRequest, ExportTraceServiceResponse> TRACES =
             new SignalCodec<>(SignalDescriptor.TRACES,
                     TraceMapper::toDomain, TraceMapper::toProto, TraceMapper::itemCount,
-                    TraceMapper::resourceAttributes, TraceMapper::protoResourceAttributes,
+                    TraceMapper::protoResourceAttributes,
                     TraceMapper::deliveryResult, DeliveryResultResponses::traces,
                     ExportTraceServiceRequest::parseFrom, ExportTraceServiceResponse::parseFrom);
 
@@ -51,7 +51,7 @@ public final class SignalCodec<T, REQ extends MessageLite, RESP extends MessageL
     public static final SignalCodec<MetricsData, ExportMetricsServiceRequest, ExportMetricsServiceResponse> METRICS =
             new SignalCodec<>(SignalDescriptor.METRICS,
                     MetricsMapper::toDomain, MetricsMapper::toProto, MetricsMapper::itemCount,
-                    MetricsMapper::resourceAttributes, MetricsMapper::protoResourceAttributes,
+                    MetricsMapper::protoResourceAttributes,
                     MetricsMapper::deliveryResult, DeliveryResultResponses::metrics,
                     ExportMetricsServiceRequest::parseFrom, ExportMetricsServiceResponse::parseFrom);
 
@@ -59,7 +59,7 @@ public final class SignalCodec<T, REQ extends MessageLite, RESP extends MessageL
     public static final SignalCodec<LogsData, ExportLogsServiceRequest, ExportLogsServiceResponse> LOGS =
             new SignalCodec<>(SignalDescriptor.LOGS,
                     LogsMapper::toDomain, LogsMapper::toProto, LogsMapper::itemCount,
-                    LogsMapper::resourceAttributes, LogsMapper::protoResourceAttributes,
+                    LogsMapper::protoResourceAttributes,
                     LogsMapper::deliveryResult, DeliveryResultResponses::logs,
                     ExportLogsServiceRequest::parseFrom, ExportLogsServiceResponse::parseFrom);
 
@@ -67,7 +67,7 @@ public final class SignalCodec<T, REQ extends MessageLite, RESP extends MessageL
     public static final SignalCodec<ProfilesData, ExportProfilesServiceRequest, ExportProfilesServiceResponse> PROFILES =
             new SignalCodec<>(SignalDescriptor.PROFILES,
                     ProfilesMapper::toDomain, ProfilesMapper::toProto, ProfilesMapper::itemCount,
-                    ProfilesMapper::resourceAttributes, ProfilesMapper::protoResourceAttributes,
+                    ProfilesMapper::protoResourceAttributes,
                     ProfilesMapper::deliveryResult, DeliveryResultResponses::profiles,
                     ExportProfilesServiceRequest::parseFrom, ExportProfilesServiceResponse::parseFrom);
 
@@ -77,7 +77,6 @@ public final class SignalCodec<T, REQ extends MessageLite, RESP extends MessageL
     private final Function<REQ, T> toDomain;
     private final Function<T, REQ> toProto;
     private final ToLongFunction<REQ> protoItemCount;
-    private final Function<T, List<Attributes>> domainResourceAttributes;
     private final Function<REQ, List<Attributes>> protoResourceAttributes;
     private final BiFunction<RESP, Provenance, DeliveryResult> deliveryResult;
     private final Function<DeliveryResult, RESP> deliveryResponse;
@@ -87,7 +86,6 @@ public final class SignalCodec<T, REQ extends MessageLite, RESP extends MessageL
     private SignalCodec(SignalDescriptor<T> descriptor,
                         Function<REQ, T> toDomain, Function<T, REQ> toProto,
                         ToLongFunction<REQ> protoItemCount,
-                        Function<T, List<Attributes>> domainResourceAttributes,
                         Function<REQ, List<Attributes>> protoResourceAttributes,
                         BiFunction<RESP, Provenance, DeliveryResult> deliveryResult,
                         Function<DeliveryResult, RESP> deliveryResponse,
@@ -96,7 +94,6 @@ public final class SignalCodec<T, REQ extends MessageLite, RESP extends MessageL
         this.toDomain = toDomain;
         this.toProto = toProto;
         this.protoItemCount = protoItemCount;
-        this.domainResourceAttributes = domainResourceAttributes;
         this.protoResourceAttributes = protoResourceAttributes;
         this.deliveryResult = deliveryResult;
         this.deliveryResponse = deliveryResponse;
@@ -155,7 +152,7 @@ public final class SignalCodec<T, REQ extends MessageLite, RESP extends MessageL
     /// @param batch the domain batch
     /// @return the routing metadata
     RoutingMetadata routingMetadata(T batch) {
-        return new RoutingMetadataView(domainResourceAttributes.apply(batch));
+        return descriptor.routingMetadata(batch);
     }
 
     /// Builds the proto-free routing surface for a proto export request by converting only its
@@ -166,7 +163,7 @@ public final class SignalCodec<T, REQ extends MessageLite, RESP extends MessageL
     /// @param request the proto export request
     /// @return the routing metadata
     RoutingMetadata protoRoutingMetadata(REQ request) {
-        return new RoutingMetadataView(protoResourceAttributes.apply(request));
+        return RoutingMetadata.of(protoResourceAttributes.apply(request));
     }
 
     /// Interprets a proto export response as a [DeliveryResult] attributed to `provenance`.

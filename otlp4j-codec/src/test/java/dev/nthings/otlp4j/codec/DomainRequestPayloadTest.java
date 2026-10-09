@@ -36,7 +36,9 @@ class DomainRequestPayloadTest {
         assertThat(payload.signal()).isEqualTo(SignalDescriptor.TRACES);
         assertThat(payload.data()).isEqualTo(batch);
         assertThat(payload.itemCount()).isEqualTo(2L);
-        assertThat(payload.routingMetadata().resourceAttribute("service.name")).contains("checkout");
+        assertThat(payload.routingMetadata().resources())
+                .extracting(resource -> resource.getString("service.name"))
+                .containsExactly("checkout");
     }
 
     @Test

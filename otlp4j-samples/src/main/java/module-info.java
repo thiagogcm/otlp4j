@@ -11,7 +11,7 @@ module dev.nthings.otlp4j.samples {
     // The owned OTLP receiver and exporter runtimes, configs, and graph factories from the
     // consolidated Armeria transport.
     requires dev.nthings.otlp4j.transport;
-    // The built-in batch processor and span-count connector the demo gateway pipeline wires.
+    // The built-in filter, batch processor, and span-count connector the demo gateway pipeline wires.
     requires dev.nthings.otlp4j.components;
     // The domain batch records the demo builds and inspects.
     requires dev.nthings.otlp4j.model;

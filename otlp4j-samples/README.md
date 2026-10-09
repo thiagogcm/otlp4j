@@ -5,7 +5,7 @@ The samples demonstrate application code using the public model, service, transp
 | Example | Demonstrates | External destination |
 | --- | --- | --- |
 | [EmbeddedPipelineDemo](src/main/java/dev/nthings/otlp4j/samples/EmbeddedPipelineDemo.java) | A typed trace pipeline with empty-batch filtering, identifier redaction, and OTLP/gRPC export | Required when running its `main` method |
-| [OtlpE2eDemo](src/main/java/dev/nthings/otlp4j/samples/OtlpE2eDemo.java) | A gateway, batching, fan-out, and a traces-to-metrics connector across two OTLP/gRPC hops | None; the sample starts its own backend |
+| [OtlpE2eDemo](src/main/java/dev/nthings/otlp4j/samples/OtlpE2eDemo.java) | A gateway, resource filtering, batching, fan-out, and a traces-to-metrics connector across two OTLP/gRPC hops | None; the sample starts its own backend |
 | [LoggingGatewayMetrics](src/main/java/dev/nthings/otlp4j/samples/LoggingGatewayMetrics.java) | A logging adapter for the self-observability SPI | None |
 
 For a complete introductory program, use [Getting started](../docs/getting-started.md). For pipeline assembly, use [Typed pipelines](../docs/pipelines.md).
@@ -24,7 +24,7 @@ Its tests supply local destinations and verify the behavior without requiring an
 
 ## End-to-end gateway
 
-The client submits five spans: three `SERVER` and two `INTERNAL`. The gateway adds resource metadata, redacts a span attribute, retains only server spans, batches them, and fans out to trace export and span counting. The connector emits into a separate metrics pipeline.
+The client submits one request with spans from two services: five from `checkout` (three `SERVER` and two `INTERNAL`) and two `SERVER` spans from `synthetic-monitor`. The gateway's [built-in filter](../docs/components.md#filtering-and-routing) drops the monitor's resource group. The gateway then adds resource metadata, redacts a span attribute, retains only server spans, batches them, and fans out to trace export and span counting. The connector emits into a separate metrics pipeline.
 
 ```mermaid
 sequenceDiagram
@@ -32,8 +32,8 @@ sequenceDiagram
     participant Client
     participant Gateway
     participant Backend
-    Client->>Gateway: Export five spans over OTLP/gRPC
-    Gateway->>Gateway: Enrich, redact, keep three spans, buffer
+    Client->>Gateway: Export seven spans from two services over OTLP/gRPC
+    Gateway->>Gateway: Drop one service, enrich, redact, keep three spans, buffer
     Gateway-->>Client: Accepted ownership
     Runner->>Gateway: Shut down and drain
     par Forward traces

@@ -1,23 +1,28 @@
 package dev.nthings.otlp4j.core.signal;
 
-import java.util.Optional;
-import java.util.Set;
+import dev.nthings.otlp4j.model.Attributes;
+import java.util.List;
 
 /// The cheap, proto-free resource metadata a [Payload] exposes for routing and filtering. The header
 /// axis is carried separately by the consume context's client metadata. Resource metadata deliberately
 /// excludes item-level attributes because reading those would require walking the payload.
 public interface RoutingMetadata {
 
-    /// The string value of a resource-level attribute, if present as a string on any resource in the
-    /// payload. When several resources carry the key, the first match in wire order wins. This is the
-    /// common tenancy or service routing key.
+    /// Routing metadata over the given resource attribute sets.
     ///
-    /// @param key the resource-attribute key to look up
-    /// @return the attribute value, or empty when absent or not string-valued
-    Optional<String> resourceAttribute(String key);
+    /// @param resources the attributes of each resource group, in wire order
+    /// @return immutable routing metadata
+    static RoutingMetadata of(List<Attributes> resources) {
+        if (resources == null) {
+            throw new IllegalArgumentException("resources must be non-null");
+        }
+        return new ResourceRoutingMetadata(resources);
+    }
 
-    /// The set of resource-attribute keys present across the payload's resources.
+    /// The attributes of each resource group in the payload, in wire order. A payload that mixes
+    /// resources has one entry per group, so a routing decision can be made for each group rather
+    /// than for the payload as a whole.
     ///
-    /// @return the resource-attribute key set
-    Set<String> resourceAttributeKeys();
+    /// @return the immutable per-resource attributes
+    List<Attributes> resources();
 }

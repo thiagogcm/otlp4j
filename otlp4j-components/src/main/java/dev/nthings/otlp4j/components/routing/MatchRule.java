@@ -2,19 +2,23 @@ package dev.nthings.otlp4j.components.routing;
 
 import dev.nthings.otlp4j.core.consumer.ConsumeContext;
 import dev.nthings.otlp4j.core.signal.Payload;
-import dev.nthings.otlp4j.core.signal.RoutingMetadata;
+import dev.nthings.otlp4j.model.Attributes;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import org.jspecify.annotations.Nullable;
 
 /// One conjunction of resource-attribute, client-header, and optional domain conditions. A rule
-/// without conditions matches every payload; that explicit rule is the building block for a catch-all
-/// [MatchSpec]. Routing and header checks stay on [Payload#routingMetadata()] and never decode the
-/// domain. A domain predicate is the deliberate opt-in to [Payload#data()].
+/// without conditions matches everything; that explicit rule is the building block for a catch-all
+/// [MatchSpec].
+///
+/// The conditions apply at two levels. Resource-attribute conditions are tested against each resource
+/// group of a payload separately, so a rule can match some groups of a mixed-resource payload and not
+/// others. Header conditions and the domain predicate describe the whole request, so they hold for
+/// every resource group or for none. Resource and header checks never decode the domain; a domain
+/// predicate is the deliberate opt-in to [Payload#data()].
 public final class MatchRule {
 
     private static final MatchRule MATCH_ALL = new MatchRule(List.of(), List.of(), Optional.empty());
@@ -42,28 +46,35 @@ public final class MatchRule {
         return new Builder();
     }
 
-    /// Returns whether every condition holds.
-    public boolean matches(Payload<?> payload, ConsumeContext context) {
-        Objects.requireNonNull(payload, "payload");
-        Objects.requireNonNull(context, "context");
-        if (!resourceAttributes.isEmpty()) {
-            RoutingMetadata metadata = payload.routingMetadata();
-            for (var condition : resourceAttributes) {
-                var value = metadata.resourceAttribute(condition.key());
-                if (value.isEmpty() || !condition.matches(value.get())) {
-                    return false;
-                }
+    /// Returns whether every header condition holds for the request.
+    boolean matchesHeaders(ConsumeContext context) {
+        if (headers.isEmpty()) {
+            return true;
+        }
+        var headerValues = context.metadata().headers();
+        for (var condition : headers) {
+            var values = headerValues.getOrDefault(condition.key(), List.of());
+            if (values.stream().noneMatch(condition::matches)) {
+                return false;
             }
         }
-        if (!headers.isEmpty()) {
-            var headerValues = context.metadata().headers();
-            for (var condition : headers) {
-                var values = headerValues.getOrDefault(condition.key(), List.of());
-                if (values.stream().noneMatch(condition::matches)) {
-                    return false;
-                }
+        return true;
+    }
+
+    /// Returns whether every resource-attribute condition holds for one resource's attributes. A
+    /// condition holds only for a string-valued attribute.
+    boolean matchesResource(Attributes resource) {
+        for (var condition : resourceAttributes) {
+            var value = resource.getString(condition.key());
+            if (value == null || !condition.matches(value)) {
+                return false;
             }
         }
+        return true;
+    }
+
+    /// Returns whether the domain predicate, if any, accepts the payload's domain batch.
+    boolean matchesDomain(Payload<?> payload) {
         return domainPredicate.isEmpty() || domainPredicate.get().test(payload.data());
     }
 
@@ -109,13 +120,14 @@ public final class MatchRule {
 
         private Builder() {}
 
-        /// Requires an exact resource attribute value.
+        /// Requires an exact string value for a resource attribute, tested per resource group.
         public Builder resourceAttribute(String key, String value) {
             resourceAttributes.add(Condition.exact(key, value));
             return this;
         }
 
-        /// Requires a full-match resource attribute regular expression.
+        /// Requires a resource attribute's string value to fully match a regular expression, tested per
+        /// resource group.
         public Builder resourceAttributeRegex(String key, String pattern) {
             resourceAttributes.add(Condition.regex(key, pattern));
             return this;
@@ -133,7 +145,8 @@ public final class MatchRule {
             return this;
         }
 
-        /// Adds the deliberate domain-materialising escape hatch.
+        /// Adds the deliberate domain-materialising escape hatch. The predicate receives the whole
+        /// batch, so it holds for every resource group of a payload or for none.
         public Builder domainPredicate(Predicate<Object> predicate) {
             if (predicate == null) {
                 throw new IllegalArgumentException("domain predicate must be non-null");

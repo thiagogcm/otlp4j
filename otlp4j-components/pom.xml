@@ -13,11 +13,10 @@
     <artifactId>otlp4j-components</artifactId>
     <name>otlp4j-components</name>
     <description>The built-in gateway components: the batch processor and its bounded delivery
-        queue, the memory limiter, the routing and filtering processors, and the span-count connector.
+        queue, the memory limiter, the filter processor, and the span-count connector.
         JPMS module dev.nthings.otlp4j.components, depending
         only on otlp4j-core and otlp4j-codec, so no transport, wire, or graph library appears on its
-        surface. The internal delivery queue and match engine live in a package that is not
-        exported.</description>
+        surface. The internal delivery queue lives in a package that is not exported.</description>
 
     <dependencies>
         <!-- The component, consumer, signal, result, and policy contracts every built-in component

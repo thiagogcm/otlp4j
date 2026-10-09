@@ -7,6 +7,10 @@ import dev.nthings.otlp4j.components.batch.BatchProcessorConfig;
 import dev.nthings.otlp4j.components.batch.BatchProcessorFactory;
 import dev.nthings.otlp4j.components.connector.SpanCountConnectorConfig;
 import dev.nthings.otlp4j.components.connector.SpanCountConnectorFactory;
+import dev.nthings.otlp4j.components.routing.FilterConfig;
+import dev.nthings.otlp4j.components.routing.FilterProcessorFactory;
+import dev.nthings.otlp4j.components.routing.MatchRule;
+import dev.nthings.otlp4j.components.routing.MatchSpec;
 import dev.nthings.otlp4j.core.component.ComponentId;
 import dev.nthings.otlp4j.core.component.ExporterFactory;
 import dev.nthings.otlp4j.core.component.ProcessorFactory;
@@ -40,10 +44,11 @@ import java.util.function.UnaryOperator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/// End-to-end demo: five spans flow through a service-graph gateway (enrich, redact, filter,
-/// drop-empty, batch, fan out to an OTLP exporter and a span-count connector) to a backend gateway. The
-/// batch stage and the span-count connector are built-in components from `otlp4j-components`; the four
-/// domain transforms stay inline through the typed `ProcessorFactory.map` and `filter` helpers.
+/// End-to-end demo: one request carrying spans from two services flows through a service-graph gateway
+/// (drop one service's resource, enrich, redact, filter, drop-empty, batch, fan out to an OTLP exporter
+/// and a span-count connector) to a backend gateway. The resource filter, the batch stage, and the
+/// span-count connector are built-in components from `otlp4j-components`; the four domain transforms
+/// stay inline through the typed `ProcessorFactory.map` and `filter` helpers.
 /// Both the
 /// gateway and the backend are single [dev.nthings.otlp4j.service.config.GatewayConfig] graphs booted
 /// by a [GatewayRuntime]; telemetry still crosses two real OTLP/gRPC hops, and this class never
@@ -55,6 +60,8 @@ public final class OtlpE2eDemo {
     private static final String ENDUSER_ID = "enduser.id";
     private static final String REDACTED = "***";
     private static final String DERIVED_METRIC = "otlp4j.connector.span.count";
+    private static final String SERVICE_NAME = "service.name";
+    private static final String MONITOR_SERVICE = "synthetic-monitor";
 
     private OtlpE2eDemo() {
     }
@@ -68,10 +75,11 @@ public final class OtlpE2eDemo {
     public static void main(String[] args) throws Exception {
         var result = run();
         log.info("=== otlp4j end-to-end demo ===");
-        log.info("Client sent 5 spans (3 SERVER, 2 INTERNAL) to the gateway.");
-        log.info("Gateway pipeline: enrich resource attribute -> redact enduser.id span attribute -> "
-                + "filter SERVER spans -> drop-empty-traces processor -> batch processor -> "
-                + "fan out to exporter + span count connector.");
+        log.info("Client sent one request to the gateway: 5 checkout spans (3 SERVER, 2 INTERNAL) and "
+                + "2 SERVER spans from {}.", MONITOR_SERVICE);
+        log.info("Gateway pipeline: drop the {} resource -> enrich resource attribute -> "
+                + "redact enduser.id span attribute -> filter SERVER spans -> drop-empty-traces processor -> "
+                + "batch processor -> fan out to exporter + span count connector.", MONITOR_SERVICE);
         log.info("Backend received:");
         log.info("  filtered spans          : {} (expected 3)", result.spansAtBackend());
         log.info("  derived span-count metric: {} (expected 3)", result.derivedSpanCount());
@@ -98,9 +106,10 @@ public final class OtlpE2eDemo {
             var backendPort = boundPort(backend, BACKEND_RECV);
             log.info("Backend receiver started on port {}.", backendPort);
 
-            // --- Gateway: receive -> enrich -> redact -> filter -> drop-empty -> fan out to the OTLP
-            // exporter (forwarding traces to the backend) + the span-count connector (deriving a
-            // metric into the metrics pipeline, itself exported to the backend).
+            // --- Gateway: receive -> drop the monitor's resource -> enrich -> redact -> filter ->
+            // drop-empty -> batch -> fan out to the OTLP exporter (forwarding traces to the backend) +
+            // the span-count connector (deriving a metric into the metrics pipeline, itself exported
+            // to the backend).
             gateway = buildGateway(backendPort);
             gateway.start();
             var gatewayPort = boundPort(gateway, GATEWAY_RECV);
@@ -142,6 +151,7 @@ public final class OtlpE2eDemo {
     private static final ComponentId BACKEND_RECV = ComponentId.parse("in");
     private static final ComponentId BACKEND_SINK = ComponentId.parse("capture");
     private static final ComponentId GATEWAY_RECV = ComponentId.parse("in");
+    private static final ComponentId DROP_MONITOR = ComponentId.parse("drop-monitor");
     private static final ComponentId ENRICH = ComponentId.parse("enrich");
     private static final ComponentId REDACT = ComponentId.parse("redact");
     private static final ComponentId FILTER = ComponentId.parse("filter");
@@ -173,7 +183,8 @@ public final class OtlpE2eDemo {
         return gw.build();
     }
 
-    /// Builds the gateway graph: an OTLP/gRPC receiver, the four inline domain-transform processors
+    /// Builds the gateway graph: an OTLP/gRPC receiver, the built-in [FilterProcessorFactory] dropping
+    /// the monitor's resource group from the mixed request, the four inline domain-transform processors
     /// (built through [ProcessorFactory#map] and [ProcessorFactory#filter]) whose transforms read the domain the match engine
     /// cannot express (resource mutation, span-attribute redaction, span-kind filtering, empty-batch
     /// drop), the built-in [BatchProcessorFactory] coalescing what survives into one batch, and a
@@ -183,6 +194,9 @@ public final class OtlpE2eDemo {
     private static GatewayRuntime buildGateway(int backendPort) {
         var gw = Gateway.builder();
         var in = gw.receiver(GATEWAY_RECV, OtlpReceiverFactory.grpc(), ephemeralReceiver());
+        var dropMonitor = gw.processor(DROP_MONITOR, new FilterProcessorFactory(), new FilterConfig(
+                MatchSpec.all(),
+                MatchSpec.of(MatchRule.builder().resourceAttribute(SERVICE_NAME, MONITOR_SERVICE).build())));
         var enrich = gw.processor(ENRICH, ProcessorFactory.map("enrich", TRACES, enrichResource()));
         var redact = gw.processor(REDACT, ProcessorFactory.map("redact", TRACES, redactEnduserId()));
         var filter = gw.processor(FILTER, ProcessorFactory.map("filter", TRACES, keepServerSpans()));
@@ -193,7 +207,8 @@ public final class OtlpE2eDemo {
         var spanCount = gw.connector(SPAN_COUNT, new SpanCountConnectorFactory(), SpanCountConnectorConfig.defaults());
         var metricsOut = gw.exporter(METRICS_OUT, OtlpExporterFactory.grpc(), OtlpExporterConfig.defaults(backendPort));
         gw.pipeline(PipelineId.of(TRACES),
-                p -> p.from(in).via(enrich, redact, filter, dropEmpty, batch).to(tracesOut, spanCount));
+                p -> p.from(in).via(dropMonitor, enrich, redact, filter, dropEmpty, batch)
+                        .to(tracesOut, spanCount));
         gw.pipeline(PipelineId.of(METRICS), p -> p.from(spanCount).to(metricsOut));
         return gw.build();
     }
@@ -270,16 +285,26 @@ public final class OtlpE2eDemo {
         return -1L;
     }
 
+    /// One request mixing two services: the checkout spans the gateway processes and a monitor's
+    /// `SERVER` spans its resource filter drops.
     private static TracesData sampleTraces() {
-        var resource = Resource.of(Attributes.builder().put("service.name", "checkout").build());
+        return new TracesData(List.of(
+                resourceSpans("checkout",
+                        span("GET /cart", Span.Kind.SERVER),
+                        span("GET /checkout", Span.Kind.SERVER),
+                        span("POST /pay", Span.Kind.SERVER),
+                        span("db.query", Span.Kind.INTERNAL),
+                        span("cache.lookup", Span.Kind.INTERNAL)),
+                resourceSpans(MONITOR_SERVICE,
+                        span("GET /health", Span.Kind.SERVER),
+                        span("GET /ready", Span.Kind.SERVER))));
+    }
+
+    private static TracesData.ResourceSpans resourceSpans(String serviceName, Span... spans) {
+        var resource = Resource.of(Attributes.builder().put(SERVICE_NAME, serviceName).build());
         var scope = InstrumentationScope.of("otlp4j-demo", "1.0.0");
-        var spans = List.of(
-                span("GET /cart", Span.Kind.SERVER),
-                span("GET /checkout", Span.Kind.SERVER),
-                span("POST /pay", Span.Kind.SERVER),
-                span("db.query", Span.Kind.INTERNAL),
-                span("cache.lookup", Span.Kind.INTERNAL));
-        return TracesData.of(resource, scope, spans);
+        return new TracesData.ResourceSpans(
+                resource, "", List.of(new TracesData.ScopeSpans(scope, "", List.of(spans))));
     }
 
     private static Span span(String name, Span.Kind kind) {
