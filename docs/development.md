@@ -1,6 +1,6 @@
 # Development
 
-Run commands in this guide from the repository root. Use JDK 25 and the Maven wrapper. The wrapper selects Maven 3.9.16; the build accepts Maven 3.9.9 or newer. `just` is optional and wraps the Maven commands in [justfile](../justfile).
+Run commands in this guide from the repository root. Use JDK 25 and the Maven wrapper. The wrapper selects Maven 3.10.0; the build accepts Maven 3.9.9 or newer. `just` is optional and wraps the Maven commands in [justfile](../justfile).
 
 ## Build and check
 

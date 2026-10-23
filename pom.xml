@@ -40,7 +40,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
         <protobuf.version>4.36.2</protobuf.version>
-        <grpc.version>1.84.1</grpc.version>
+        <grpc.version>1.85.1</grpc.version>
         <!-- com.google.rpc.Status / RetryInfo are used directly by the consolidated transport for
              the grpc-status-details-bin RetryInfo trailer. This artifact is not managed by grpc-bom,
              so keep its version explicit. -->
@@ -48,7 +48,7 @@
         <armeria.version>1.42.0</armeria.version>
         <!-- Keep all Netty artifacts on one current patch line across Armeria and gRPC. -->
         <netty.version>4.2.19.Final</netty.version>
-        <slf4j.version>2.0.19</slf4j.version>
+        <slf4j.version>2.0.20</slf4j.version>
         <logback.version>1.6.5</logback.version>
         <jspecify.version>1.0.1</jspecify.version>
         <junit.version>6.1.3</junit.version>
@@ -73,7 +73,7 @@
         <native-maven-plugin.version>1.1.17</native-maven-plugin.version>
         <jacoco-maven-plugin.version>0.8.15</jacoco-maven-plugin.version>
         <maven-dependency-plugin.version>3.11.0</maven-dependency-plugin.version>
-        <opentelemetry.version>1.66.0</opentelemetry.version>
+        <opentelemetry.version>1.67.0</opentelemetry.version>
     </properties>
 
     <dependencyManagement>
