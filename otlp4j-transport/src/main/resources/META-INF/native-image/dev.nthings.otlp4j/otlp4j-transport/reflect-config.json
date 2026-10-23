@@ -1,0 +1,36 @@
+[
+  {
+    "name": "com.linecorp.armeria.client.HttpClientPipelineConfigurator$UpgradeRequestHandler",
+    "queriedMethods": [
+      {
+        "name": "channelActive",
+        "parameterTypes": ["io.netty.channel.ChannelHandlerContext"]
+      },
+      {
+        "name": "userEventTriggered",
+        "parameterTypes": ["io.netty.channel.ChannelHandlerContext", "java.lang.Object"]
+      },
+      {
+        "name": "channelRead",
+        "parameterTypes": ["io.netty.channel.ChannelHandlerContext", "java.lang.Object"]
+      }
+    ]
+  },
+  {
+    "name": "com.linecorp.armeria.client.HttpClientPipelineConfigurator$WorkaroundHandler",
+    "queriedMethods": [
+      {
+        "name": "channelRead",
+        "parameterTypes": ["io.netty.channel.ChannelHandlerContext", "java.lang.Object"]
+      },
+      {
+        "name": "write",
+        "parameterTypes": [
+          "io.netty.channel.ChannelHandlerContext",
+          "java.lang.Object",
+          "io.netty.channel.ChannelPromise"
+        ]
+      }
+    ]
+  }
+]
