@@ -26,9 +26,14 @@ public final class BatchSupport {
 
     public static Processor<TracesData> tracesBatch(
             String id, BatchProcessorConfig config, SignalConsumer<TracesData> next) {
+        return batch(id, config, SignalDescriptor.TRACES, next);
+    }
+
+    public static <T> Processor<T> batch(
+            String id, BatchProcessorConfig config, SignalDescriptor<T> signal, SignalConsumer<T> next) {
         var factory = new BatchProcessorFactory();
         var ctx = new CreateContext(ComponentId.parse(id), baseContext());
-        return factory.create(ctx, config, SignalDescriptor.TRACES, next);
+        return factory.create(ctx, config, signal, next);
     }
 
     public static Payload<TracesData> traces(int spanCount) {

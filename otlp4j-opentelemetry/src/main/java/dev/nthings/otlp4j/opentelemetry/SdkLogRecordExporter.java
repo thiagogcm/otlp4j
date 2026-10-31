@@ -22,15 +22,7 @@ final class SdkLogRecordExporter extends ExportLifecycle<LogsData> implements Lo
     @Override
     public CompletableResultCode export(Collection<LogRecordData> logs) {
         Objects.requireNonNull(logs, "logs");
-        try {
-            var snapshot = SdkDataMapper.logs(ListCopy.copy(logs));
-            if (snapshot.logRecordCount() == 0) {
-                return emptyExport();
-            }
-            return submit(() -> input().submit(snapshot));
-        } catch (RuntimeException exception) {
-            return CompletableResultCode.ofExceptionalFailure(exception);
-        }
+        return exportSnapshot(() -> SdkDataMapper.logs(ListCopy.copy(logs)));
     }
 
     @Override

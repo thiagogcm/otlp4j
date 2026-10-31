@@ -11,8 +11,11 @@ The bridge targets the SDK version pinned by the build, currently `1.67.0`. The 
 | `SdkExporters.spans(input)` | `TelemetryInput<TracesData>` | `SpanExporter` |
 | `SdkExporters.metrics(input)` | `TelemetryInput<MetricsData>` | `MetricExporter` |
 | `SdkExporters.logs(input)` | `TelemetryInput<LogsData>` | `LogRecordExporter` |
+| `SdkProfileExporters.profiles(input)` | `TelemetryInput<ProfilesData>` | `ProfileExporter` |
 
-There is no profiles adapter in this bridge.
+The profiles adapter is experimental. Its interface comes from `io.opentelemetry:opentelemetry-sdk-profiles`, an alpha artifact outside the SDK's stable BOM. The bridge treats it as optional, so add the `-alpha` release matching the SDK to use this adapter. The other adapters do not need it.
+
+The SDK has no profiles provider, so call the exporter directly from your profiler integration. Each `ProfileData` resolves against its own dictionary, so one export can mix profiles from different dictionaries. Profiles built this way have no wire form: [batch them with the exact sizer](components.md#batch-profiles).
 
 ## Connect a trace provider
 

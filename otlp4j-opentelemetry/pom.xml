@@ -32,6 +32,12 @@
             <artifactId>opentelemetry-sdk-logs</artifactId>
         </dependency>
         <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-sdk-profiles</artifactId>
+            <!-- Alpha. Only SdkProfileExporters needs it, and whoever calls that already has it. -->
+            <optional>true</optional>
+        </dependency>
+        <dependency>
             <groupId>dev.nthings.otlp4j</groupId>
             <artifactId>otlp4j-codec</artifactId>
             <scope>test</scope>

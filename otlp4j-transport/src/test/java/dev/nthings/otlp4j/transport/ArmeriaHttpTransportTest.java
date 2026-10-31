@@ -12,6 +12,7 @@ import dev.nthings.otlp4j.transport.Compression;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
+import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.testing.Fixtures;
@@ -38,11 +39,12 @@ class ArmeriaHttpTransportTest {
         var traces = new AtomicReference<TracesData>();
         var metrics = new AtomicReference<MetricsData>();
         var logs = new AtomicReference<LogsData>();
+        var profiles = new AtomicReference<ProfilesData>();
         var receiver = startReceiver(OtlpReceiver.httpBuilder()
                 .route(TRACES, Consumers.record(TRACES, traces))
                 .route(METRICS, Consumers.record(METRICS, metrics))
                 .route(LOGS, Consumers.record(LOGS, logs))
-                .route(PROFILES, Consumers.accepting()));
+                .route(PROFILES, Consumers.record(PROFILES, profiles)));
         var exporter = exporterTo(receiver);
 
         var sentTraces = TransportFixtures.richTraceData();
@@ -55,12 +57,14 @@ class ArmeriaHttpTransportTest {
                 .isInstanceOf(DeliveryResult.Accepted.class);
         assertThat(exporter.export(LOGS, sentLogs).toCompletableFuture().join())
                 .isInstanceOf(DeliveryResult.Accepted.class);
-        assertThat(exporter.export(PROFILES, TransportFixtures.profilesData()).toCompletableFuture().join())
+        var sentProfiles = TransportFixtures.profilesData();
+        assertThat(exporter.export(PROFILES, sentProfiles).toCompletableFuture().join())
                 .isInstanceOf(DeliveryResult.Accepted.class);
 
         assertThat(traces.get()).isEqualTo(sentTraces);
         assertThat(metrics.get()).isEqualTo(sentMetrics);
         assertThat(logs.get()).isEqualTo(sentLogs);
+        assertThat(profiles.get()).isEqualTo(sentProfiles);
     }
 
     @DisplayName("propagates partial success")

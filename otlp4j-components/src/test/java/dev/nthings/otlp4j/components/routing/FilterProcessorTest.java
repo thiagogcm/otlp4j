@@ -212,11 +212,10 @@ class FilterProcessorTest {
     }
 
     @Test
-    void aProfilesPayloadKeepsItsDictionaryWhenAResourceGroupIsDropped() {
-        var dictionary = new byte[] {1, 2, 3};
-        var batch = new ProfilesData(
-                List.of(profiles("checkout", "0102030405060708"), profiles("billing", "1112131415161718")),
-                dictionary);
+    void aProfilesPayloadKeepsOnlyTheMatchingResourceGroup() {
+        var batch = new ProfilesData(List.of(
+                profiles("checkout", "0102030405060708090a0b0c0d0e0f10"),
+                profiles("billing", "1112131415161718191a1b1c1d1e1f20")));
         var profilesNext = new RecordingConsumer<ProfilesData>();
         var processor = new FilterProcessor<>(
                 ComponentId.parse("filter"), SignalDescriptor.PROFILES, service("billing"), MatchSpec.none(),
@@ -224,12 +223,8 @@ class FilterProcessorTest {
 
         processor.consume(CTX, Payload.of(SignalDescriptor.PROFILES, batch)).toCompletableFuture().join();
 
-        assertThat(profilesNext.received()).singleElement().satisfies(forwarded -> {
-            assertThat(forwarded.data().profiles())
-                    .extracting(ProfilesData.Profile::profileId)
-                    .containsExactly("1112131415161718");
-            assertThat(forwarded.data().dictionary()).isEqualTo(dictionary);
-        });
+        assertThat(profilesNext.received()).singleElement().satisfies(forwarded ->
+                assertThat(forwarded.data().resourceProfiles()).containsExactly(batch.resourceProfiles().get(1)));
     }
 
     @Test

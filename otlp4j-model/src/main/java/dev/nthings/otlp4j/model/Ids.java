@@ -13,6 +13,9 @@ final class Ids {
     /// A span id is 8 bytes (16 hex characters).
     static final int SPAN_ID_HEX_LENGTH = 16;
 
+    /// A profile id is 16 bytes (32 hex characters).
+    static final int PROFILE_ID_HEX_LENGTH = 32;
+
     private static final long UINT32_MAX = 0xFFFF_FFFFL;
 
     private Ids() {}
@@ -30,6 +33,11 @@ final class Ids {
     /// Validates a parent span id: empty (absent) or exactly 16 hex characters.
     static String parentSpanId(String value) {
         return hexId(value, "parentSpanId", SPAN_ID_HEX_LENGTH);
+    }
+
+    /// Validates a profile id: empty (absent) or exactly 32 hex characters.
+    static String profileId(String value) {
+        return hexId(value, "profileId", PROFILE_ID_HEX_LENGTH);
     }
 
     private static String hexId(String value, String field, int hexLength) {

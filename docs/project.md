@@ -41,9 +41,9 @@ The repository includes unit, property, integration, wire-conformance, and lifec
 
 | Area | Supported scope | Boundary |
 | --- | --- | --- |
-| Signals | Traces, metrics, logs, and profiles | Profiles use `v1development` and preserve opaque bodies and dictionaries; see [Domain model](model.md#profiles) |
+| Signals | Traces, metrics, logs, and profiles | Profiles use the experimental `v1development` schema; see [Domain model](model.md#profiles) |
 | Wire delivery | OTLP/gRPC and OTLP/HTTP binary protobuf | OTLP/JSON and other ingestion protocols are not implemented |
-| Processing | Java transforms, built-in processors, and connector contracts | Built-in batch merging excludes profiles; see [Components](components.md#batching) |
+| Processing | Java transforms, built-in processors, and connector contracts | A batched profile cannot be divided, so bound profile pipelines in bytes; see [Components](components.md#batch-profiles) |
 | Configuration | Java builders and immutable configuration records | No bundled YAML loader or configuration-reload service |
 | Buffering | Bounded in-memory batching and delivery queues | No persistent queue or replay after process termination |
 | Security | TLS, client certificates, and outgoing headers | No bundled application authentication or authorization subsystem; see [Transport](transport.md#tls-and-client-authentication) |

@@ -1,6 +1,7 @@
 package dev.nthings.otlp4j.components.batch;
 
 import static dev.nthings.otlp4j.components.support.BatchSupport.baseContext;
+import static dev.nthings.otlp4j.components.support.BatchSupport.batch;
 import static dev.nthings.otlp4j.components.support.BatchSupport.traces;
 import static dev.nthings.otlp4j.components.support.BatchSupport.tracesBatch;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -25,7 +26,10 @@ import dev.nthings.otlp4j.core.signal.Payload;
 import dev.nthings.otlp4j.core.signal.PayloadSizer;
 import dev.nthings.otlp4j.core.signal.RoutingMetadata;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
+import dev.nthings.otlp4j.model.ProfilesData;
+import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
+import dev.nthings.otlp4j.testing.Fixtures;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -35,6 +39,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 class BatchProcessorTest {
@@ -91,6 +97,27 @@ class BatchProcessorTest {
     }
 
     @Test
+    void mergesProfilesFromSeparateSubmissionsThenSplitsThemToTheItemCap() {
+        var next = new RecordingConsumer<ProfilesData>();
+        var processor = batch("batch", config(2, 2, 0, NO_TIMER, List.of()), SignalDescriptor.PROFILES, next);
+        processor.start(baseContext()).toCompletableFuture().join();
+        var first = Fixtures.profile("0102030405060708090a0b0c0d0e0f10", "reserveStock");
+        var second = Fixtures.profile("1112131415161718191a1b1c1d1e1f20", "chargeCard");
+        var third = Fixtures.profile("2122232425262728292a2b2c2d2e2f30", "shipOrder");
+
+        assertAccepted(processor.consume(
+                CTX, Payload.of(SignalDescriptor.PROFILES, Fixtures.profilesData(first))));
+        assertAccepted(processor.consume(
+                CTX, Payload.of(SignalDescriptor.PROFILES, Fixtures.profilesData(second, third))));
+
+        await().atMost(2, TimeUnit.SECONDS).until(() -> next.received().size() == 2);
+        assertThat(next.received().stream().flatMap(payload -> payload.data().profiles().stream()))
+                .containsExactly(first, second, third);
+        assertThat(next.received()).extracting(Payload::itemCount).containsExactly(2L, 1L);
+        processor.shutdown(SHUTDOWN).toCompletableFuture().join();
+    }
+
+    @Test
     void flushesOnExactByteSizeTrigger() {
         var next = new RecordingConsumer<TracesData>();
         var processor = start(config(1_000_000, 0, 200, NO_TIMER, List.of()), next);
@@ -98,6 +125,193 @@ class BatchProcessorTest {
         assertAccepted(processor.consume(CTX, traces(2)));
         await().atMost(2, TimeUnit.SECONDS).until(() -> next.received().size() == 1);
         assertThat(next.received().get(0).itemCount()).isEqualTo(2);
+        processor.shutdown(SHUTDOWN).toCompletableFuture().join();
+    }
+
+    @Test
+    void weighsASubmissionWithinTheByteCapOnce() {
+        var weighings = new AtomicInteger();
+        PayloadSizer counting = payload -> {
+            weighings.incrementAndGet();
+            return PER_ITEM.sizeOf(payload);
+        };
+        var config = new BatchProcessorConfig(
+                new BatchPolicy(1_000_000, 0, 1_000, NO_TIMER, List.of()),
+                new DeliveryQueuePolicy(64, 1, OverflowPolicy.FAIL),
+                Duration.ofSeconds(5),
+                BatchProcessorConfig.DEFAULT_MAX_PENDING_SUBMISSIONS,
+                BatchProcessorConfig.DEFAULT_MAX_PENDING_BYTES,
+                BatchProcessorConfig.DEFAULT_MAX_PARTITIONS,
+                BatchProcessorConfig.DEFAULT_MAX_PENDING_ITEMS,
+                counting);
+        var processor = start(config, new RecordingConsumer<>());
+
+        assertAccepted(processor.consume(CTX, traces(2)));
+
+        assertThat(weighings).hasValue(1);
+        processor.shutdown(SHUTDOWN).toCompletableFuture().join();
+    }
+
+    @Test
+    void refusesAReceivedPayloadWhoseOwnEncodingWouldExceedTheByteCap() {
+        // The sender's encoding fits the cap, but the one this processor would emit does not.
+        PayloadSizer reEncoded = payload -> payload.encodedSize().isPresent() ? 100 : 2_000;
+        var config = new BatchProcessorConfig(
+                new BatchPolicy(1_000_000, 0, 1_000, NO_TIMER, List.of()),
+                new DeliveryQueuePolicy(64, 1, OverflowPolicy.FAIL),
+                Duration.ofSeconds(5),
+                BatchProcessorConfig.DEFAULT_MAX_PENDING_SUBMISSIONS,
+                BatchProcessorConfig.DEFAULT_MAX_PENDING_BYTES,
+                BatchProcessorConfig.DEFAULT_MAX_PARTITIONS,
+                BatchProcessorConfig.DEFAULT_MAX_PENDING_ITEMS,
+                reEncoded);
+        var processor = start(config, new RecordingConsumer<>());
+        var domain = traces(1);
+        var received = new Payload<TracesData>() {
+            @Override public SignalDescriptor<TracesData> signal() { return domain.signal(); }
+            @Override public TracesData data() { return domain.data(); }
+            @Override public long itemCount() { return domain.itemCount(); }
+            @Override public RoutingMetadata routingMetadata() { return domain.routingMetadata(); }
+            @Override public OptionalLong encodedSize() { return OptionalLong.of(100); }
+            @Override public Payload<TracesData> withData(TracesData replacement) { return domain.withData(replacement); }
+        };
+
+        var refused = processor.consume(CTX, received).toCompletableFuture().join();
+
+        assertThat(refused).isInstanceOf(DeliveryResult.Rejected.class);
+        assertThat(processor.flush(new FlushContext(Duration.ofSeconds(5))).toCompletableFuture().join().isSuccess())
+                .isTrue();
+        processor.shutdown(SHUTDOWN).toCompletableFuture().join();
+    }
+
+    /// A sizer under which a span named `poison` weighs 2,000 alone and nothing beside other spans.
+    private static boolean holdsOnlyPoison(Payload<?> payload) {
+        return payload.itemCount() == 1
+                && payload.data() instanceof TracesData traces
+                && traces.spans().getFirst().name().equals("poison");
+    }
+
+    private static BatchProcessorConfig capped(int maxItems, long maxBytes, PayloadSizer sizer) {
+        return new BatchProcessorConfig(
+                new BatchPolicy(maxItems > 0 ? maxItems : 1_000_000, maxItems, maxBytes, NO_TIMER, List.of()),
+                new DeliveryQueuePolicy(64, 1, OverflowPolicy.FAIL),
+                Duration.ofSeconds(5),
+                BatchProcessorConfig.DEFAULT_MAX_PENDING_SUBMISSIONS,
+                BatchProcessorConfig.DEFAULT_MAX_PENDING_BYTES,
+                BatchProcessorConfig.DEFAULT_MAX_PARTITIONS,
+                BatchProcessorConfig.DEFAULT_MAX_PENDING_ITEMS,
+                sizer);
+    }
+
+    @Test
+    void refusesASubmissionThatWouldFillTheDeliveryQueueWithoutCostingItsNeighbours() {
+        var next = new RecordingConsumer<TracesData>();
+        var config = new BatchProcessorConfig(
+                new BatchPolicy(1_000_000, 0, 100, NO_TIMER, List.of()),
+                new DeliveryQueuePolicy(64, 1, OverflowPolicy.FAIL),
+                Duration.ofSeconds(5),
+                BatchProcessorConfig.DEFAULT_MAX_PENDING_SUBMISSIONS,
+                BatchProcessorConfig.DEFAULT_MAX_PENDING_BYTES,
+                BatchProcessorConfig.DEFAULT_MAX_PARTITIONS,
+                BatchProcessorConfig.DEFAULT_MAX_PENDING_ITEMS,
+                PER_ITEM);
+        var processor = start(config, next);
+
+        var refused = processor.consume(CTX, traces(33)).toCompletableFuture().join();
+        assertAccepted(processor.consume(CTX, traces(1)));
+
+        assertThat(refused).isInstanceOf(DeliveryResult.Rejected.class);
+        var report = processor.flush(new FlushContext(Duration.ofSeconds(5))).toCompletableFuture().join();
+        assertThat(report.isSuccess()).isTrue();
+        assertThat(next.received()).extracting(Payload::itemCount).containsExactly(1L);
+        processor.shutdown(SHUTDOWN).toCompletableFuture().join();
+    }
+
+    @Test
+    void anItemCapAloneAlsoKeepsASubmissionWithinTheDeliveryQueue() {
+        var next = new RecordingConsumer<TracesData>();
+        var processor = start(config(1, 1, 0, NO_TIMER, List.of(), 64, 1,
+                BatchProcessorConfig.DEFAULT_MAX_PENDING_SUBMISSIONS,
+                BatchProcessorConfig.DEFAULT_MAX_PENDING_BYTES,
+                BatchProcessorConfig.DEFAULT_MAX_PARTITIONS), next);
+
+        assertThat(processor.consume(CTX, traces(33)).toCompletableFuture().join())
+                .isInstanceOf(DeliveryResult.Rejected.class);
+        assertAccepted(processor.consume(CTX, traces(32)));
+        processor.shutdown(SHUTDOWN).toCompletableFuture().join();
+    }
+
+    @Test
+    void admissionChecksTheUnitsTheItemCapWouldCut() {
+        PayloadSizer heavyAlone = payload -> holdsOnlyPoison(payload) ? 2_000 : 10L * payload.itemCount();
+        var next = new RecordingConsumer<TracesData>();
+        var processor = start(capped(2, 250, heavyAlone), next);
+
+        var refused = processor.consume(CTX, Payload.of(SignalDescriptor.TRACES, Fixtures.traceData(
+                Fixtures.span("first", Span.Kind.SERVER),
+                Fixtures.span("second", Span.Kind.SERVER),
+                Fixtures.span("poison", Span.Kind.SERVER))))
+                .toCompletableFuture().join();
+
+        assertThat(refused).isInstanceOf(DeliveryResult.Rejected.class);
+        processor.shutdown(SHUTDOWN).toCompletableFuture().join();
+    }
+
+    @Test
+    void aSubmissionThatFailsAtFlushFailsAloneAndIsReported() {
+        var admitted = new AtomicBoolean();
+        PayloadSizer heavyLater = payload ->
+                admitted.get() && holdsOnlyPoison(payload) ? 2_000 : 100L * payload.itemCount();
+        var next = new RecordingConsumer<TracesData>();
+        var processor = start(capped(0, 150, heavyLater), next);
+        var innocent = Fixtures.span("innocent", Span.Kind.SERVER);
+
+        assertAccepted(processor.consume(CTX, Payload.of(
+                SignalDescriptor.TRACES, Fixtures.traceData(Fixtures.span("poison", Span.Kind.SERVER)))));
+        admitted.set(true);
+        assertAccepted(processor.consume(CTX, Payload.of(SignalDescriptor.TRACES, Fixtures.traceData(innocent))));
+
+        var report = processor.flush(new FlushContext(Duration.ofSeconds(5))).toCompletableFuture().join();
+
+        assertThat(next.received().stream().flatMap(payload -> payload.data().spans().stream()))
+                .containsExactly(innocent);
+        assertThat(report.rejectedItems()).isEqualTo(1);
+        processor.shutdown(SHUTDOWN).toCompletableFuture().join();
+    }
+
+    @Test
+    void anItemThatOnlyExceedsTheCapAloneDoesNotFailTheBatch() {
+        // Together its spans weigh too little to look suspect, but the poison span alone is over the cap.
+        PayloadSizer heavyAlone = payload -> {
+            var alone = payload.itemCount() == 1
+                    && payload.data() instanceof TracesData traces
+                    && traces.spans().getFirst().name().equals("poison");
+            return alone ? 2_000 : 100L * payload.itemCount();
+        };
+        var config = new BatchProcessorConfig(
+                new BatchPolicy(1_000_000, 0, 250, NO_TIMER, List.of()),
+                new DeliveryQueuePolicy(64, 1, OverflowPolicy.FAIL),
+                Duration.ofSeconds(5),
+                BatchProcessorConfig.DEFAULT_MAX_PENDING_SUBMISSIONS,
+                BatchProcessorConfig.DEFAULT_MAX_PENDING_BYTES,
+                BatchProcessorConfig.DEFAULT_MAX_PARTITIONS,
+                BatchProcessorConfig.DEFAULT_MAX_PENDING_ITEMS,
+                heavyAlone);
+        var next = new RecordingConsumer<TracesData>();
+        var processor = start(config, next);
+        var innocent = Fixtures.span("innocent", Span.Kind.SERVER);
+        var beside = Fixtures.span("beside", Span.Kind.SERVER);
+        var poison = Fixtures.span("poison", Span.Kind.SERVER);
+
+        assertAccepted(processor.consume(CTX, Payload.of(SignalDescriptor.TRACES, Fixtures.traceData(beside, poison))));
+        assertAccepted(processor.consume(CTX, Payload.of(SignalDescriptor.TRACES, Fixtures.traceData(innocent))));
+
+        var report = processor.flush(new FlushContext(Duration.ofSeconds(5))).toCompletableFuture().join();
+
+        assertThat(report.isSuccess()).isTrue();
+        assertThat(next.received())
+                .extracting(payload -> payload.data().spans())
+                .containsExactly(List.of(beside, poison), List.of(innocent));
         processor.shutdown(SHUTDOWN).toCompletableFuture().join();
     }
 

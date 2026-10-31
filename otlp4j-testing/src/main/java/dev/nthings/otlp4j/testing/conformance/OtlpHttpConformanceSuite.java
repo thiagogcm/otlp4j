@@ -24,6 +24,8 @@ import org.junit.jupiter.params.provider.EnumSource;
 /// between cases.
 public abstract class OtlpHttpConformanceSuite {
 
+    private static final String PROFILES_VERSION = "otlp-profiles-development-version";
+
     /// Boots a gateway configured by `scenario` on the given transport. The concrete runner
     /// implements this by delegating to the one seam implementation; this suite never names it.
     ///
@@ -169,6 +171,34 @@ public abstract class OtlpHttpConformanceSuite {
         var garbage = new byte[] {(byte) 0x08, (byte) 0xff, (byte) 0xff, (byte) 0xff, (byte) 0xff};
         withHttp(scenario, (client, gw) ->
                 assertThat(client.exportRaw(ConformanceSignal.TRACES, garbage).httpStatus()).hasValue(400));
+    }
+
+    @Test
+    void profilesDevelopmentVersionOneIsAccepted() {
+        var scenario = Scenario.builder(ConformanceSignal.PROFILES).build();
+        withHttp(scenario, (client, gw) -> assertThat(
+                client.exportWithHeader(ConformanceSignal.PROFILES, PROFILES_VERSION, "1").httpStatus()).hasValue(200));
+    }
+
+    @Test
+    void unsupportedProfilesDevelopmentVersionReturns400() {
+        var scenario = Scenario.builder(ConformanceSignal.PROFILES).build();
+        withHttp(scenario, (client, gw) -> assertThat(
+                client.exportWithHeader(ConformanceSignal.PROFILES, PROFILES_VERSION, "2").httpStatus()).hasValue(400));
+    }
+
+    @Test
+    void repeatedProfilesDevelopmentVersionReturns400() {
+        var scenario = Scenario.builder(ConformanceSignal.PROFILES).build();
+        withHttp(scenario, (client, gw) -> assertThat(
+                client.exportWithHeader(ConformanceSignal.PROFILES, PROFILES_VERSION, "1", "1").httpStatus()).hasValue(400));
+    }
+
+    @Test
+    void profilesDevelopmentVersionMeansNothingToAnotherSignal() {
+        var scenario = Scenario.builder(ConformanceSignal.TRACES).build();
+        withHttp(scenario, (client, gw) -> assertThat(
+                client.exportWithHeader(ConformanceSignal.TRACES, PROFILES_VERSION, "2").httpStatus()).hasValue(200));
     }
 
     @Test

@@ -9,6 +9,7 @@ module dev.nthings.otlp4j.opentelemetry {
     requires transitive io.opentelemetry.sdk.trace;
     requires transitive io.opentelemetry.sdk.metrics;
     requires transitive io.opentelemetry.sdk.logs;
+    requires static transitive sdk.profiles;
 
     exports dev.nthings.otlp4j.opentelemetry;
 }

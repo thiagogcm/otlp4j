@@ -5,15 +5,19 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.nthings.otlp4j.core.signal.Payload;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
+import dev.nthings.otlp4j.core.signal.UndecodablePayloadException;
 import dev.nthings.otlp4j.model.Attributes;
 import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.Resource;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.testing.Fixtures;
+import io.opentelemetry.proto.collector.profiles.v1development.ExportProfilesServiceRequest;
+import io.opentelemetry.proto.profiles.v1development.ResourceProfiles;
+import io.opentelemetry.proto.profiles.v1development.Sample;
+import io.opentelemetry.proto.profiles.v1development.ScopeProfiles;
 import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceRequest;
 import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceResponse;
-import io.opentelemetry.proto.profiles.v1development.ProfilesDictionary;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.List;
@@ -99,12 +103,11 @@ class ProtoRequestPayloadTest {
     }
 
     @Test
-    @DisplayName("dropping a profiles resource group keeps the shared dictionary and the kept group's bytes")
-    void droppingAProfilesResourceGroupKeepsTheDictionary() {
-        var dictionary = ProfilesDictionary.newBuilder().addStringTable("").addStringTable("cpu").build();
-        var batch = new ProfilesData(
-                List.of(resourceProfiles("checkout", "0102030405060708"), resourceProfiles("billing", "1112131415161718")),
-                dictionary.toByteArray());
+    @DisplayName("dropping a profiles resource group keeps the kept profile and sheds what only the dropped one used")
+    void droppingAProfilesResourceGroupPrunesTheDictionary() {
+        var batch = new ProfilesData(List.of(
+                resourceProfiles("checkout", "0102030405060708090a0b0c0d0e0f10", "reserveStock"),
+                resourceProfiles("billing", "1112131415161718191a1b1c1d1e1f20", "chargeCard")));
         var request = SignalCodec.PROFILES.toProto(batch);
         var payload = new ProtoRequestPayload<>(SignalCodec.PROFILES, request);
 
@@ -112,10 +115,27 @@ class ProtoRequestPayloadTest {
                 SignalDescriptor.PROFILES.filterResources(payload.data(), ProtoRequestPayloadTest::isBilling));
 
         var encoded = PayloadWire.request(SignalCodec.PROFILES, kept);
-        assertThat(encoded.getDictionary().toByteArray()).isEqualTo(dictionary.toByteArray());
-        assertThat(encoded.getResourceProfilesCount()).isEqualTo(1);
-        assertThat(encoded.getResourceProfiles(0).toByteArray())
-                .isEqualTo(request.getResourceProfiles(1).toByteArray());
+        assertThat(encoded.getDictionary().getStringTableList()).contains("chargeCard").doesNotContain("reserveStock");
+        assertThat(SignalCodec.PROFILES.toDomain(encoded).resourceProfiles())
+                .containsExactly(batch.resourceProfiles().get(1));
+    }
+
+    @Test
+    @DisplayName("a request the domain cannot express surfaces as an undecodable payload, and forwarding it still works")
+    void anInvalidRequestIsUndecodable() {
+        var request = ExportProfilesServiceRequest.newBuilder()
+                .addResourceProfiles(ResourceProfiles.newBuilder().addScopeProfiles(ScopeProfiles.newBuilder()
+                        .addProfiles(io.opentelemetry.proto.profiles.v1development.Profile.newBuilder()
+                                .addSamples(Sample.newBuilder().setStackIndex(9).addValues(1L)))))
+                .build();
+        var payload = new ProtoRequestPayload<>(SignalCodec.PROFILES, request);
+
+        assertThat(payload.itemCount()).isEqualTo(1);
+        assertThat(PayloadWire.request(SignalCodec.PROFILES, payload)).isSameAs(request);
+        assertThatThrownBy(payload::data)
+                .isInstanceOf(UndecodablePayloadException.class)
+                .hasMessageContaining("profiles")
+                .hasCauseInstanceOf(IllegalArgumentException.class);
     }
 
     private static boolean isBilling(Resource resource) {
@@ -131,9 +151,9 @@ class ProtoRequestPayloadTest {
                 new TracesData.ScopeSpans(Fixtures.testScope(), "", List.of(Fixtures.span(spanName, Span.Kind.SERVER)))));
     }
 
-    private static ProfilesData.ResourceProfiles resourceProfiles(String service, String profileId) {
-        return new ProfilesData.ResourceProfiles(service(service), "", List.of(
-                new ProfilesData.ScopeProfiles(Fixtures.testScope(), "", List.of(Fixtures.profile(profileId)))));
+    private static ProfilesData.ResourceProfiles resourceProfiles(String service, String profileId, String function) {
+        return new ProfilesData.ResourceProfiles(service(service), "", List.of(new ProfilesData.ScopeProfiles(
+                Fixtures.testScope(), "", List.of(Fixtures.profile(profileId, function)))));
     }
 
     @Test

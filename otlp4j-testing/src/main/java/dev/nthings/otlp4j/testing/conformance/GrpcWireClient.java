@@ -1,6 +1,7 @@
 package dev.nthings.otlp4j.testing.conformance;
 
 import io.grpc.ChannelCredentials;
+import io.grpc.ClientInterceptor;
 import io.grpc.Grpc;
 import io.grpc.InsecureChannelCredentials;
 import io.grpc.ManagedChannel;
@@ -8,6 +9,7 @@ import io.grpc.Metadata;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.stub.AbstractStub;
+import io.grpc.stub.MetadataUtils;
 import io.grpc.TlsChannelCredentials;
 import io.opentelemetry.proto.collector.logs.v1.ExportLogsServiceRequest;
 import io.opentelemetry.proto.collector.logs.v1.LogsServiceGrpc;
@@ -84,16 +86,31 @@ public final class GrpcWireClient implements AutoCloseable {
         return call(signal, false, minBytes);
     }
 
-    private WireResponse call(ConformanceSignal signal, boolean gzip, int padBytes) {
+    /// Drives the export service with one `key` metadata entry per entry of `values`.
+    ///
+    /// @param signal the signal to export
+    /// @param key the metadata key
+    /// @param values the metadata values, sent as separate entries
+    /// @return the captured response
+    public WireResponse exportWithMetadata(ConformanceSignal signal, String key, String... values) {
+        var metadata = new Metadata();
+        var name = Metadata.Key.of(key, Metadata.ASCII_STRING_MARSHALLER);
+        for (var value : values) {
+            metadata.put(name, value);
+        }
+        return call(signal, false, 0, MetadataUtils.newAttachHeadersInterceptor(metadata));
+    }
+
+    private WireResponse call(ConformanceSignal signal, boolean gzip, int padBytes, ClientInterceptor... interceptors) {
         try {
             var body = switch (signal) {
-                case TRACES -> compress(TraceServiceGrpc.newBlockingStub(channel), gzip)
+                case TRACES -> compress(TraceServiceGrpc.newBlockingStub(channel), gzip, interceptors)
                         .export(traceRequest(padBytes)).toByteArray();
-                case METRICS -> compress(MetricsServiceGrpc.newBlockingStub(channel), gzip)
+                case METRICS -> compress(MetricsServiceGrpc.newBlockingStub(channel), gzip, interceptors)
                         .export(metricsRequest(padBytes)).toByteArray();
-                case LOGS -> compress(LogsServiceGrpc.newBlockingStub(channel), gzip)
+                case LOGS -> compress(LogsServiceGrpc.newBlockingStub(channel), gzip, interceptors)
                         .export(logsRequest(padBytes)).toByteArray();
-                case PROFILES -> compress(ProfilesServiceGrpc.newBlockingStub(channel), gzip)
+                case PROFILES -> compress(ProfilesServiceGrpc.newBlockingStub(channel), gzip, interceptors)
                         .export(profilesRequest(padBytes)).toByteArray();
             };
             return WireResponse.grpc(Status.Code.OK, null, null, body);
@@ -102,8 +119,8 @@ public final class GrpcWireClient implements AutoCloseable {
         }
     }
 
-    private static <S extends AbstractStub<S>> S compress(S stub, boolean gzip) {
-        return gzip ? stub.withCompression("gzip") : stub;
+    private static <S extends AbstractStub<S>> S compress(S stub, boolean gzip, ClientInterceptor... interceptors) {
+        return (gzip ? stub.withCompression("gzip") : stub).withInterceptors(interceptors);
     }
 
     private static WireResponse fromError(StatusRuntimeException e) {

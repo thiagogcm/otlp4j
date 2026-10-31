@@ -46,9 +46,6 @@ import org.jspecify.annotations.Nullable;
 /// the work observed at this processor's barrier and returns a bounded report after that work reaches
 /// the downstream consumer. Concurrent submissions may race with the barrier and be included in the
 /// same report; an exact global exclusion requires a barrier through every buffering component.
-///
-/// Profiles are intentionally excluded by [BatchProcessorFactory]: distinct opaque dictionaries
-/// cannot be merged without re-indexing. Profile payloads therefore remain one-to-one downstream.
 public final class BatchProcessor<M> implements Processor<M> {
 
     private final SignalDescriptor<M> signal;
@@ -61,6 +58,7 @@ public final class BatchProcessor<M> implements Processor<M> {
     private final long maxPendingBytes;
     private final long maxPendingItems;
     private final int maxPartitions;
+    private final int maxUnitsPerSubmission;
     private final PayloadSizer sizer;
     private final SignalConsumer<M> next;
     private final Provenance provenance;
@@ -94,6 +92,7 @@ public final class BatchProcessor<M> implements Processor<M> {
         this.maxPendingBytes = config.maxPendingBytes();
         this.maxPendingItems = config.maxPendingItems();
         this.maxPartitions = config.maxPartitions();
+        this.maxUnitsPerSubmission = config.delivery().queueSize() / 2;
         this.sizer = config.sizer();
         this.next = Objects.requireNonNull(next, "next");
         this.nanoTime = Objects.requireNonNull(nanoTime, "nanoTime");
@@ -126,11 +125,23 @@ public final class BatchProcessor<M> implements Processor<M> {
         } catch (Throwable failure) {
             return completed(DeliveryResult.permanentFrom("batch materialisation", failure, provenance));
         }
-        if (sendBatchMaxBytes > 0) {
+        if (sendBatchMaxBytes > 0 || sendBatchMaxSize > 0) {
             try {
-                ExactBatchSplitter.split(signal, in, 0, sendBatchMaxBytes, sizer);
+                // Check what this processor will emit, in the units a flush would cut. A received
+                // payload's size describes the sender's encoding, so it cannot answer for that.
+                var emitted = Payload.of(signal, in);
+                var weight = sendBatchMaxBytes > 0 && data.encodedSize().isPresent() ? sizer.sizeOf(emitted) : bytes;
+                var units = ExactBatchSplitter.requireFits(emitted, weight, sendBatchMaxSize, sendBatchMaxBytes, sizer);
+                if (units > maxUnitsPerSubmission) {
+                    // The queue admits a flush's units as a group, so a submission that alone could
+                    // fill it would take whatever is buffered beside it down with it.
+                    return completed(DeliveryResult.permanent(
+                            "submission splits into " + units + " requests, more than the limit of "
+                                    + maxUnitsPerSubmission + " that delivery.queueSize allows",
+                            provenance));
+                }
             } catch (Throwable failure) {
-                return completed(DeliveryResult.permanentFrom("batch byte cap", failure, provenance));
+                return completed(DeliveryResult.permanentFrom("batch cap", failure, provenance));
             }
         }
         final MetadataBatchKey key;
@@ -258,14 +269,17 @@ public final class BatchProcessor<M> implements Processor<M> {
         var context = Objects.requireNonNull(batch.lastContext, "buffered context");
         List<Payload<M>> units;
         try {
-            var merged = signal.merge(batch.parts);
-            units = ExactBatchSplitter.split(signal, merged, sendBatchMaxSize, sendBatchMaxBytes, sizer);
+            units = unitsOf(batch);
         } catch (Throwable failure) {
             release(batch.submissions, batch.bytes, batch.unweighedItems);
             failures.get().record(batch.items, failure);
             if (failure instanceof Error fatal) {
                 throw fatal;
             }
+            return;
+        }
+        if (units.isEmpty()) {
+            release(batch.submissions, batch.bytes, batch.unweighedItems);
             return;
         }
         var release = new ReleaseOnce(batch.submissions, batch.bytes, batch.unweighedItems);
@@ -275,6 +289,31 @@ public final class BatchProcessor<M> implements Processor<M> {
             // batch accounting because no queue completion callback will run.
             release.run();
         }
+    }
+
+    /// The output units of a flushed batch. An item can weigh more alone than inside its submission,
+    /// because a profiles dictionary numbers entries by first use, so a merged batch can fail to split
+    /// although each submission passed admission. The submissions then go out separately, and a
+    /// failure among them stays with that submission, in the next flush report, because accepted work
+    /// from other clients must not depend on it.
+    private List<Payload<M>> unitsOf(Batch batch) {
+        try {
+            return split(batch.parts);
+        } catch (IllegalArgumentException indivisible) {
+            var units = new ArrayList<Payload<M>>();
+            for (var part : batch.parts) {
+                try {
+                    units.addAll(split(List.of(part)));
+                } catch (IllegalArgumentException failure) {
+                    failures.get().record(signal.itemCount(part), failure);
+                }
+            }
+            return units;
+        }
+    }
+
+    private List<Payload<M>> split(List<M> parts) {
+        return ExactBatchSplitter.split(signal, signal.merge(parts), sendBatchMaxSize, sendBatchMaxBytes, sizer);
     }
 
     @Override

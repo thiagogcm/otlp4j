@@ -273,7 +273,6 @@ class BatchTransformTest {
     @DisplayName("ProfilesData")
     class Profiles {
 
-        private final byte[] dictionary = {1, 2, 3};
         private final ProfilesData.ResourceProfiles checkout = new ProfilesData.ResourceProfiles(
                 CHECKOUT, "resource-url", List.of(
                         new ProfilesData.ScopeProfiles(
@@ -282,12 +281,12 @@ class BatchTransformTest {
         private final ProfilesData.ResourceProfiles payments = new ProfilesData.ResourceProfiles(
                 PAYMENTS, "", List.of(new ProfilesData.ScopeProfiles(
                         InstrumentationScope.of("cpu"), "", List.of(profile("d")))));
-        private final ProfilesData data = new ProfilesData(List.of(checkout, payments), dictionary);
+        private final ProfilesData data = new ProfilesData(List.of(checkout, payments));
 
-        @DisplayName("filterProfiles keeps accepted profiles, prunes emptied groups, and keeps the dictionary")
+        @DisplayName("filterProfiles keeps accepted profiles and prunes emptied groups")
         @Test
-        void filterProfilesKeepsAcceptedProfilesAndTheDictionary() {
-            var kept = data.filterProfiles(profile -> profile.profileId().equals("b"));
+        void filterProfilesKeepsAcceptedProfiles() {
+            var kept = data.filterProfiles(profile -> profile.profileId().equals(id("b")));
 
             assertThat(kept.resourceProfiles()).hasSize(1);
             var group = kept.resourceProfiles().get(0);
@@ -295,42 +294,42 @@ class BatchTransformTest {
             assertThat(group.schemaUrl()).isEqualTo("resource-url");
             assertThat(group.scopeProfiles()).hasSize(1);
             assertThat(group.scopeProfiles().get(0).schemaUrl()).isEqualTo("scope-url");
-            assertThat(kept.profiles()).extracting(ProfilesData.Profile::profileId).containsExactly("b");
-            assertThat(kept.dictionary()).isEqualTo(dictionary);
+            assertThat(kept.profiles()).extracting(Profile::profileId).containsExactly(id("b"));
             assertThat(data.filterProfiles(profile -> true)).isSameAs(data);
         }
 
-        @DisplayName("mapProfiles replaces profiles in place and keeps the dictionary")
+        @DisplayName("mapProfiles replaces profiles in place")
         @Test
         void mapProfilesReplacesProfilesInPlace() {
-            var renamed = data.mapProfiles(profile -> profile.profileId().equals("c") ? profile("C") : profile);
+            var renamed = data.mapProfiles(profile -> profile.profileId().equals(id("c")) ? profile("e") : profile);
 
             assertThat(renamed.profiles())
-                    .extracting(ProfilesData.Profile::profileId)
-                    .containsExactly("a", "b", "C", "d");
+                    .extracting(Profile::profileId)
+                    .containsExactly(id("a"), id("b"), id("e"), id("d"));
             assertThat(renamed.resourceProfiles().get(0).scopeProfiles().get(1).scope())
                     .isEqualTo(InstrumentationScope.of("heap"));
-            assertThat(renamed.dictionary()).isEqualTo(dictionary);
             assertThat(data.mapProfiles(profile -> profile)).isSameAs(data);
         }
 
-        @DisplayName("resource operations address resource groups and keep the dictionary")
+        @DisplayName("resource operations address resource groups")
         @Test
         void resourceOperationsAddressResourceGroups() {
             var kept = data.filterResources(resource -> resource.equals(PAYMENTS));
             assertThat(kept.resourceProfiles()).containsExactly(payments);
-            assertThat(kept.dictionary()).isEqualTo(dictionary);
 
             var enriched = data.mapResources(resource -> resource.withAttribute("env", AttributeValue.of("prod")));
             assertThat(enriched.resourceProfiles().get(0).resource().attributes().getString("env"))
                     .isEqualTo("prod");
             assertThat(enriched.resourceProfiles().get(0).schemaUrl()).isEqualTo("resource-url");
             assertThat(enriched.resourceProfiles().get(0).scopeProfiles()).isEqualTo(checkout.scopeProfiles());
-            assertThat(enriched.dictionary()).isEqualTo(dictionary);
         }
 
-        private static ProfilesData.Profile profile(String id) {
-            return new ProfilesData.Profile(id, 0L, 0L, 0L, 0, 0, "", new byte[0]);
+        private static Profile profile(String digit) {
+            return Profile.builder().profileId(id(digit)).build();
+        }
+
+        private static String id(String digit) {
+            return digit.repeat(32);
         }
     }
 

@@ -2,7 +2,7 @@
 ///
 /// Application code reads and constructs these types - `TracesData`, `MetricsData`, `LogsData`,
 /// `ProfilesData` and their building blocks (`Resource`, `InstrumentationScope`, `Attributes`,
-/// `AttributeValue`, `Span`, `Metric`, `LogRecord`). Every signal batch preserves OTLP's
+/// `AttributeValue`, `Span`, `Metric`, `LogRecord`, `Profile`). Every signal batch preserves OTLP's
 /// resource/scope grouping and offers a flattened accessor plus allocation-free `forEach…` and
 /// item-count helpers for hot paths; the `of(...)` factories build the common
 /// single-resource/single-scope shape without hand-nesting wrappers. Each batch also offers `map…`

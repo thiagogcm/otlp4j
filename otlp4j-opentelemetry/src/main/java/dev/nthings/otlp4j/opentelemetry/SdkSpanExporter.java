@@ -22,15 +22,7 @@ final class SdkSpanExporter extends ExportLifecycle<TracesData> implements SpanE
     @Override
     public CompletableResultCode export(Collection<SpanData> spans) {
         Objects.requireNonNull(spans, "spans");
-        try {
-            var snapshot = SdkDataMapper.traces(ListCopy.copy(spans));
-            if (snapshot.spanCount() == 0) {
-                return emptyExport();
-            }
-            return submit(() -> input().submit(snapshot));
-        } catch (RuntimeException exception) {
-            return CompletableResultCode.ofExceptionalFailure(exception);
-        }
+        return exportSnapshot(() -> SdkDataMapper.traces(ListCopy.copy(spans)));
     }
 
     @Override

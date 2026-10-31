@@ -14,6 +14,8 @@ import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.function.IntFunction;
+import org.jspecify.annotations.Nullable;
 
 /// Maps OTLP common/resource types between proto and domain, in both directions.
 ///
@@ -22,6 +24,10 @@ import java.util.List;
 final class CommonMapper {
 
     private static final HexFormat HEX = HexFormat.of();
+
+    /// The string lookup of a signal without a `ProfilesDictionary`, whose references mean nothing:
+    /// OTLP requires such a signal to process them as absent or empty.
+    private static final IntFunction<@Nullable String> NO_STRINGS = index -> null;
 
     private CommonMapper() {}
 
@@ -53,17 +59,36 @@ final class CommonMapper {
     }
 
     public static Attributes attributes(List<KeyValue> keyValues) {
+        return attributes(keyValues, NO_STRINGS);
+    }
+
+    /// Maps attributes that may refer to a `ProfilesDictionary` string table through `strings`, which
+    /// answers `null` for a reference it cannot resolve.
+    static Attributes attributes(List<KeyValue> keyValues, IntFunction<@Nullable String> strings) {
         if (keyValues.isEmpty()) {
             return Attributes.empty();
         }
         var map = new LinkedHashMap<String, AttributeValue>(keyValues.size());
         for (var kv : keyValues) {
-            map.put(kv.getKey(), attributeValue(kv.getValue()));
+            map.put(key(kv, strings), attributeValue(kv.getValue(), strings));
         }
         return Attributes.of(map);
     }
 
+    private static String key(KeyValue kv, IntFunction<@Nullable String> strings) {
+        if (kv.getKeyStrindex() == 0) {
+            return kv.getKey();
+        }
+        var key = strings.apply(kv.getKeyStrindex());
+        return key == null ? kv.getKey() : key;
+    }
+
     public static AttributeValue attributeValue(AnyValue value) {
+        return attributeValue(value, NO_STRINGS);
+    }
+
+    /// Maps a value that may refer to a `ProfilesDictionary` string table through `strings`.
+    static AttributeValue attributeValue(AnyValue value, IntFunction<@Nullable String> strings) {
         return switch (value.getValueCase()) {
             case STRING_VALUE -> AttributeValue.of(value.getStringValue());
             case BOOL_VALUE -> AttributeValue.of(value.getBoolValue());
@@ -73,7 +98,7 @@ final class CommonMapper {
             case ARRAY_VALUE -> {
                 var values = new ArrayList<AttributeValue>(value.getArrayValue().getValuesCount());
                 for (var element : value.getArrayValue().getValuesList()) {
-                    values.add(attributeValue(element));
+                    values.add(attributeValue(element, strings));
                 }
                 yield AttributeValue.of(values);
             }
@@ -81,28 +106,39 @@ final class CommonMapper {
                 var list = value.getKvlistValue();
                 var map = new LinkedHashMap<String, AttributeValue>(list.getValuesCount());
                 for (var kv : list.getValuesList()) {
-                    map.put(kv.getKey(), attributeValue(kv.getValue()));
+                    map.put(key(kv, strings), attributeValue(kv.getValue(), strings));
                 }
                 yield AttributeValue.of(map);
             }
-            // string_value_strindex is a profiling-only reference into ProfilesDictionary.
-            // Forwarded profiles round-trip losslessly via opaque payload passthrough, but
-            // modeled attributes surface this as empty because the dictionary is unresolved.
-            case STRING_VALUE_STRINDEX, VALUE_NOT_SET -> AttributeValue.empty();
+            case STRING_VALUE_STRINDEX -> {
+                var string = strings.apply(value.getStringValueStrindex());
+                yield string == null ? AttributeValue.empty() : AttributeValue.of(string);
+            }
+            case VALUE_NOT_SET -> AttributeValue.empty();
         };
     }
 
     public static Resource resource(io.opentelemetry.proto.resource.v1.Resource resource) {
+        return resource(resource, NO_STRINGS);
+    }
+
+    static Resource resource(
+            io.opentelemetry.proto.resource.v1.Resource resource, IntFunction<@Nullable String> strings) {
         return new Resource(
-                attributes(resource.getAttributesList()), resource.getDroppedAttributesCount());
+                attributes(resource.getAttributesList(), strings), resource.getDroppedAttributesCount());
     }
 
     public static InstrumentationScope scope(
             io.opentelemetry.proto.common.v1.InstrumentationScope scope) {
+        return scope(scope, NO_STRINGS);
+    }
+
+    static InstrumentationScope scope(
+            io.opentelemetry.proto.common.v1.InstrumentationScope scope, IntFunction<@Nullable String> strings) {
         return new InstrumentationScope(
                 scope.getName(),
                 scope.getVersion(),
-                attributes(scope.getAttributesList()),
+                attributes(scope.getAttributesList(), strings),
                 scope.getDroppedAttributesCount());
     }
 
@@ -151,18 +187,29 @@ final class CommonMapper {
     }
 
     public static io.opentelemetry.proto.resource.v1.Resource toProtoResource(Resource resource) {
+        return toProtoResource(resource, toKeyValues(resource.attributes()));
+    }
+
+    /// Maps `resource` with its attributes already encoded as `attributes`.
+    static io.opentelemetry.proto.resource.v1.Resource toProtoResource(Resource resource, List<KeyValue> attributes) {
         return io.opentelemetry.proto.resource.v1.Resource.newBuilder()
-                .addAllAttributes(toKeyValues(resource.attributes()))
+                .addAllAttributes(attributes)
                 .setDroppedAttributesCount(resource.droppedAttributesCount())
                 .build();
     }
 
     public static io.opentelemetry.proto.common.v1.InstrumentationScope toProtoScope(
             InstrumentationScope scope) {
+        return toProtoScope(scope, toKeyValues(scope.attributes()));
+    }
+
+    /// Maps `scope` with its attributes already encoded as `attributes`.
+    static io.opentelemetry.proto.common.v1.InstrumentationScope toProtoScope(
+            InstrumentationScope scope, List<KeyValue> attributes) {
         return io.opentelemetry.proto.common.v1.InstrumentationScope.newBuilder()
                 .setName(scope.name())
                 .setVersion(scope.version())
-                .addAllAttributes(toKeyValues(scope.attributes()))
+                .addAllAttributes(attributes)
                 .setDroppedAttributesCount(scope.droppedAttributesCount())
                 .build();
     }

@@ -4,6 +4,7 @@ import com.google.protobuf.MessageLite;
 import dev.nthings.otlp4j.core.signal.Payload;
 import dev.nthings.otlp4j.core.signal.RoutingMetadata;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
+import dev.nthings.otlp4j.core.signal.UndecodablePayloadException;
 import java.util.Objects;
 import java.util.OptionalLong;
 
@@ -35,12 +36,21 @@ final class ProtoRequestPayload<T, REQ extends MessageLite, RESP extends Message
             synchronized (this) {
                 value = data;
                 if (value == null) {
-                    value = codec.toDomain(request);
+                    value = decode();
                     data = value;
                 }
             }
         }
         return value;
+    }
+
+    private T decode() {
+        try {
+            return codec.toDomain(request);
+        } catch (IllegalArgumentException failure) {
+            throw new UndecodablePayloadException(
+                    "invalid " + codec.descriptor().signalName() + " request: " + failure.getMessage(), failure);
+        }
     }
 
     @Override

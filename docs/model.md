@@ -75,7 +75,7 @@ An item filter removes a scope or resource group that loses all its items; a rem
 
 An operation that changes nothing returns the same batch instance. Return the item you received when it needs no change, as the example does for spans without the attribute. A pipeline `map` stage then keeps the payload it received, so a payload that arrived over OTLP is forwarded without being encoded again; see [Payloads and wire fidelity](architecture.md#payloads-and-wire-fidelity).
 
-Metric operations address whole metrics, although [counting](#signal-batches-and-counting) uses data points. To select data points, return a metric with replaced data from `mapMetrics`. Profile operations retain the shared dictionary under the rules in [Profiles](#profiles).
+Metric operations address whole metrics, although [counting](#signal-batches-and-counting) uses data points. To select data points, return a metric with replaced data from `mapMetrics`. Profile operations address whole profiles in the same way; to select samples, return a profile with replaced samples from `mapProfiles`.
 
 Use these operations inside a pipeline's `map` stage; see [Transform immutable batches](pipelines.md#transform-immutable-batches).
 
@@ -89,17 +89,71 @@ Routing metadata lists the attributes of each resource group through `resources(
 
 ## Profiles
 
-Profiles use the experimental `v1development` schema. `ProfilesData` exposes resource and scope groups, selected scalar profile metadata, serialized raw profile bodies, and the shared serialized dictionary.
+Profiles use the experimental `v1development` schema, so their shape can still change. A `Profile` holds the samples of one sample type collected over a period, and `ProfilesData` groups profiles by resource and scope like the other signals.
 
-| Value | Contract |
+```mermaid
+classDiagram
+    class Profile
+    class Sample
+    class Stack
+    class Location
+    class Line
+    class Function
+    class Mapping
+    class Link
+    Profile "1" *-- "0..*" Sample
+    Sample --> Stack
+    Sample --> Link
+    Stack --> "0..*" Location
+    Location --> Mapping
+    Location "1" *-- "0..*" Line
+    Line --> Function
+```
+
+A profile holds values rather than references, so it is complete on its own. OTLP shares repeated strings, stacks, and attributes between the profiles of a request through a `ProfilesDictionary` of indexed tables. The codec resolves those references when it decodes a batch and builds a new dictionary when it encodes one, so application code never handles an index. Moving a profile to another batch, merging batches, and replacing any field are therefore plain list and record operations.
+
+For an existing `resource` and `scope`, this builds a batch holding one CPU profile:
+
+```java
+import dev.nthings.otlp4j.model.Attributes;
+import dev.nthings.otlp4j.model.Profile;
+import dev.nthings.otlp4j.model.ProfilesData;
+import java.util.List;
+import java.util.Map;
+
+var handle = new Profile.Function("handle", "_Z6handlev", "handler.cc", 40);
+var frame = Profile.Location.builder()
+        .address(0x1234L)
+        .addLine(new Profile.Line(handle, 44, 0))
+        .build();
+var stack = new Profile.Stack(List.of(frame));
+var sample = Profile.Sample.builder()
+        .stack(stack)
+        .attributes(Attributes.builder().put("allocated", 128L).build())
+        .attributeUnits(Map.of("allocated", "By"))
+        .addValue(30_000_000L)
+        .build();
+var profile = Profile.builder()
+        .profileId("0102030405060708090a0b0c0d0e0f10")
+        .epochNanos(1_700_000_000_000_000_000L)
+        .durationNanos(10_000_000_000L)
+        .sampleType(new Profile.ValueType("cpu", "nanoseconds"))
+        .addSample(sample)
+        .build();
+var batch = ProfilesData.of(resource, scope, List.of(profile));
+```
+
+`Profile`, `Sample`, `Location`, and `Mapping` carry `Attributes` plus `attributeUnits`, which maps an attribute key to its UCUM unit and lists only the attributes that have one. Reuse one `Stack` object for samples that repeat a stack: decoded batches already do, and encoding finds a repeated object without comparing its frames.
+
+A `Sample` records its observations in `values`, `timestamps`, or both. When both are populated they have the same size, and a consumer counts each timestamp of a sample without values as one. `Sample.builder()` refuses a sample that breaks these rules. Decoding does not, so a sample received from a less careful sender is carried as it arrived rather than failing its batch.
+
+| Situation | Behavior |
 | --- | --- |
-| `dictionary` | Opaque bytes shared by the profiles in the batch |
-| `Profile.rawProfile` | Opaque serialized profile body; when present, it takes precedence when re-emitting that profile |
-| Scalar profile fields | Inspection metadata; when raw profile bytes are absent, the codec builds a body from the modeled fields except `sampleCount` |
-| `Profile.sampleCount` | Inspection count; it cannot reconstruct samples, so a body built without raw profile bytes contains no samples |
+| Reference outside its dictionary table | `data()` throws `UndecodablePayloadException` rather than change what a profile says, and the receiver answers with [an invalid-request status](delivery.md#receiver-responses) |
+| Attribute table values that string references expand past four times the dictionary's size, or 64 KiB if that is larger | Decoding fails the same way, because consumers read these values inline and encoding must write each reference out in full |
+| Malformed dictionary entry that nothing references | Ignored and not carried forward |
+| Duplicate attribute keys on one sample | The last wins; OTLP forbids them |
+| Payload forwarded without a change | Keeps its received request, including dictionary order |
+| Batch encoded from the domain | Equivalent profiles in a new dictionary, without duplicate or unreferenced entries, which OTLP states is unobservable. Resource and scope attribute keys and strings are written as dictionary references, as the Collector writes them |
 
-Do not expect changes to scalar fields to rewrite an existing opaque body. Keep raw bodies with their dictionary so embedded references remain valid.
-
-The codec preserves raw profile bodies and dictionaries for forwarding. `SignalDescriptor.PROFILES.split(...)` keeps the dictionary with each slice. Merging distinct non-empty dictionaries is rejected because dictionary references would need re-indexing. The built-in batch processor excludes profiles entirely.
-
-Forward profile payloads one-to-one, or implement a processor that explicitly preserves dictionary ownership. Wire-level passthrough and domain conversion boundaries are explained in [Architecture](architecture.md#payloads-and-wire-fidelity).
+Because each encoded batch gets its own dictionary, `SignalDescriptor.PROFILES.split(...)` output carries only what each part references, and a [byte cap](components.md#batch-profiles) measures that. An item is a whole profile, which [batching](components.md#batch-profiles) cannot divide.

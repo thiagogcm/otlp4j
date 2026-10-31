@@ -54,13 +54,13 @@ class PayloadItemCountParityTest {
     @DisplayName("profiles count agrees, with more than one scope per resource")
     @Test
     void profiles() {
-        var profile = Fixtures.profile("0102030405060708");
+        var profile = Fixtures.profile("0102030405060708090a0b0c0d0e0f10");
         var scope = Fixtures.testScope();
         var resource = Fixtures.checkoutResource();
         var scopeA = new ProfilesData.ScopeProfiles(scope, "", List.of(profile, profile));
         var scopeB = new ProfilesData.ScopeProfiles(scope, "", List.of(profile));
         var batch = new ProfilesData(
-                List.of(new ProfilesData.ResourceProfiles(resource, "", List.of(scopeA, scopeB))), new byte[0]);
+                List.of(new ProfilesData.ResourceProfiles(resource, "", List.of(scopeA, scopeB))));
         assertParity(SignalCodec.PROFILES, batch, 3L);
     }
 

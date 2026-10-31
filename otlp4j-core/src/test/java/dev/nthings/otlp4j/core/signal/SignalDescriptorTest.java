@@ -1,7 +1,6 @@
 package dev.nthings.otlp4j.core.signal;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.nthings.otlp4j.model.Attributes;
 import dev.nthings.otlp4j.model.AttributeValue;
@@ -13,6 +12,7 @@ import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.Metric;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.NumberPoint;
+import dev.nthings.otlp4j.model.Profile;
 import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.Resource;
 import dev.nthings.otlp4j.model.Span;
@@ -26,17 +26,6 @@ import org.junit.jupiter.api.Test;
 class SignalDescriptorTest {
 
     @Test
-    @DisplayName("PROFILES.merge throws IllegalStateException on distinct non-empty dictionaries")
-    void profilesMergeParity() {
-        var first = new ProfilesData(List.of(), new byte[] {1});
-        var second = new ProfilesData(List.of(), new byte[] {2});
-
-        assertThatThrownBy(() -> SignalDescriptor.PROFILES.merge(List.of(first, second)))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("distinct ProfilesDictionaries");
-    }
-
-    @Test
     @DisplayName("merging retains each resource and its telemetry")
     void mergingRetainsResourceAssociations() {
         var checkout = Resource.of(Attributes.builder().put("service.name", "checkout").build());
@@ -48,8 +37,8 @@ class SignalDescriptorTest {
         var secondMetrics = MetricsData.of(payments, scope, List.of(Metric.builder().name("refunds").data(Metric.gauge(NumberPoint.of(Attributes.empty(), 10, NumberPoint.longValue(2)))).build()));
         var firstLogs = LogsData.of(checkout, scope, List.of(LogRecord.builder().epochNanos(10).severity(LogRecord.Severity.INFO).body(AttributeValue.of("paid")).build()));
         var secondLogs = LogsData.of(payments, scope, List.of(LogRecord.builder().epochNanos(10).severity(LogRecord.Severity.WARN).body(AttributeValue.of("refunded")).build()));
-        var firstProfiles = ProfilesData.of(checkout, scope, List.of(new ProfilesData.Profile("01020304050607080102030405060708", 10, 5, 1, 0, 0, "", new byte[0])));
-        var secondProfiles = ProfilesData.of(payments, scope, List.of(new ProfilesData.Profile("08070605040302010807060504030201", 10, 5, 1, 0, 0, "", new byte[0])));
+        var firstProfiles = ProfilesData.of(checkout, scope, List.of(Profile.builder().profileId("01020304050607080102030405060708").epochNanos(10).build()));
+        var secondProfiles = ProfilesData.of(payments, scope, List.of(Profile.builder().profileId("08070605040302010807060504030201").epochNanos(10).build()));
 
         assertThat(SignalDescriptor.TRACES.merge(List.of(firstTraces, secondTraces)).resourceSpans())
                 .containsExactly(firstTraces.resourceSpans().getFirst(), secondTraces.resourceSpans().getFirst());

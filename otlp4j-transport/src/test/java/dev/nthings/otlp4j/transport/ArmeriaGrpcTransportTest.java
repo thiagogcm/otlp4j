@@ -14,15 +14,27 @@ import dev.nthings.otlp4j.transport.Compression;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.MetricsData;
+import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.testing.Fixtures;
 import dev.nthings.otlp4j.testing.TransportFixtures;
 import io.grpc.Status;
+import com.linecorp.armeria.client.grpc.GrpcClients;
+import io.grpc.StatusRuntimeException;
+import io.opentelemetry.proto.collector.profiles.v1development.ProfilesServiceGrpc;
+import dev.nthings.otlp4j.core.component.ComponentId;
+import dev.nthings.otlp4j.core.component.ComponentKind;
+import dev.nthings.otlp4j.core.consumer.ConsumeContext;
+import dev.nthings.otlp4j.core.consumer.SignalConsumer;
+import dev.nthings.otlp4j.core.result.Provenance;
+import dev.nthings.otlp4j.core.signal.Payload;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -44,11 +56,12 @@ class ArmeriaGrpcTransportTest {
         var traces = new AtomicReference<TracesData>();
         var metrics = new AtomicReference<MetricsData>();
         var logs = new AtomicReference<LogsData>();
+        var profiles = new AtomicReference<ProfilesData>();
         var receiver = startReceiver(OtlpReceiver.grpcBuilder()
                 .route(TRACES, Consumers.record(TRACES, traces))
                 .route(METRICS, Consumers.record(METRICS, metrics))
                 .route(LOGS, Consumers.record(LOGS, logs))
-                .route(PROFILES, Consumers.accepting()));
+                .route(PROFILES, Consumers.record(PROFILES, profiles)));
         var exporter = exporterTo(receiver);
 
         var sentTraces = TransportFixtures.richTraceData();
@@ -61,12 +74,52 @@ class ArmeriaGrpcTransportTest {
                 .isInstanceOf(DeliveryResult.Accepted.class);
         assertThat(exporter.export(LOGS, sentLogs).toCompletableFuture().join())
                 .isInstanceOf(DeliveryResult.Accepted.class);
-        assertThat(exporter.export(PROFILES, TransportFixtures.profilesData()).toCompletableFuture().join())
+        var sentProfiles = TransportFixtures.profilesData();
+        assertThat(exporter.export(PROFILES, sentProfiles).toCompletableFuture().join())
                 .isInstanceOf(DeliveryResult.Accepted.class);
 
         assertThat(traces.get()).isEqualTo(sentTraces);
         assertThat(metrics.get()).isEqualTo(sentMetrics);
         assertThat(logs.get()).isEqualTo(sentLogs);
+        assertThat(profiles.get()).isEqualTo(sentProfiles);
+    }
+
+    @DisplayName("a dangling dictionary reference is the sender's error")
+    @Test
+    void danglingReferenceYieldsInvalidArgument() {
+        var receiver = startReceiver(OtlpReceiver.grpcBuilder()
+                .route(PROFILES, Consumers.record(PROFILES, new AtomicReference<>())));
+        var stub = GrpcClients.newClient(
+                "gproto+http://localhost:" + receiver.port() + "/", ProfilesServiceGrpc.ProfilesServiceBlockingStub.class);
+
+        assertThatThrownBy(() -> stub.export(ArmeriaHttpWireTest.danglingProfilesRequest()))
+                .isInstanceOfSatisfying(StatusRuntimeException.class, failure ->
+                        assertThat(failure.getStatus().getCode()).isEqualTo(Status.Code.INVALID_ARGUMENT));
+    }
+
+    @DisplayName("a consumer that throws an Error gives its admission permit back")
+    @Test
+    void aFatalConsumerErrorReleasesItsAdmissionPermit() {
+        var throwing = new AtomicBoolean(true);
+        var consumer = new SignalConsumer<TracesData>() {
+            @Override
+            public CompletionStage<DeliveryResult> consume(ConsumeContext context, Payload<TracesData> data) {
+                if (throwing.getAndSet(false)) {
+                    throw new StackOverflowError("simulated");
+                }
+                return DeliveryResult.acceptedStage(new Provenance(
+                        ComponentId.parse("test"), ComponentKind.EXPORTER, TRACES));
+            }
+        };
+        var receiver = startReceiver(OtlpReceiver.grpcBuilder().maxInFlightRequests(1).route(TRACES, consumer));
+        var exporter = exporterTo(receiver);
+        var traces = Fixtures.traceData(Fixtures.span("op", Span.Kind.SERVER));
+
+        assertThat(exporter.export(TRACES, traces).toCompletableFuture().handle((result, failure) -> failure).join())
+                .isNotNull();
+
+        assertThat(exporter.export(TRACES, traces).toCompletableFuture().join())
+                .isInstanceOf(DeliveryResult.Accepted.class);
     }
 
     @DisplayName("propagates partial success")

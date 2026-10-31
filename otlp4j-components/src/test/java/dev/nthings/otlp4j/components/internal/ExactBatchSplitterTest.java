@@ -11,6 +11,7 @@ import dev.nthings.otlp4j.model.LogRecord;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.Metric;
 import dev.nthings.otlp4j.testing.Fixtures;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 class ExactBatchSplitterTest {
@@ -92,6 +93,47 @@ class ExactBatchSplitterTest {
         assertThat(ExactBatchSplitter.split(SignalDescriptor.LOGS, logs, 10, 110, SIZER))
                 .extracting(Payload::itemCount)
                 .containsExactly(1L, 1L);
+    }
+
+    @Test
+    void aimsAtTheCapInsteadOfHalvingWhenWeightFollowsItemCount() {
+        var weighings = new AtomicInteger();
+        PayloadSizer counting = payload -> {
+            weighings.incrementAndGet();
+            return SIZER.sizeOf(payload);
+        };
+
+        var units = ExactBatchSplitter.split(SignalDescriptor.TRACES, traces(1024).data(), 0, 1_010, counting);
+
+        assertThat(units).allSatisfy(unit -> assertThat(unit.itemCount()).isLessThanOrEqualTo(10));
+        // Halving would weigh every level of a tree seven deep, about 250 times.
+        assertThat(weighings).hasValueLessThan(150);
+    }
+
+    @Test
+    void neverAimsAboveHalfBecauseItemsCanShareOverhead() {
+        var weighings = new AtomicInteger();
+        // A part keeps the whole shared overhead, so the candidate's weight overstates what fits.
+        PayloadSizer sharedOverhead = payload -> {
+            weighings.incrementAndGet();
+            return 900L + 10L * payload.itemCount();
+        };
+
+        var units = ExactBatchSplitter.split(SignalDescriptor.TRACES, traces(1024).data(), 0, 1_000, sharedOverhead);
+
+        assertThat(units).allSatisfy(unit -> assertThat(unit.itemCount()).isLessThanOrEqualTo(10));
+        assertThat(weighings).hasValueLessThan(500);
+    }
+
+    @Test
+    void refusesASplitThatWouldMultiplyTheBatch() {
+        // Shared overhead fills all but ten bytes of every unit, so 5,000 items need 500 full units.
+        PayloadSizer nearlyFull = payload -> 990L + payload.itemCount();
+
+        assertThatThrownBy(() -> ExactBatchSplitter.split(
+                        SignalDescriptor.TRACES, traces(5_000).data(), 0, 1_000, nearlyFull))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("times the batch");
     }
 
     @Test

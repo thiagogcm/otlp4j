@@ -102,6 +102,21 @@ public final class HttpWireClient implements AutoCloseable {
         return post(signal, largeRequest(signal, minBytes), PROTOBUF_CONTENT_TYPE, false);
     }
 
+    /// POSTs a well-formed empty request carrying one `name` header per entry of `values`.
+    ///
+    /// @param signal the signal to export
+    /// @param name the header name
+    /// @param values the header values, sent as separate headers
+    /// @return the captured response
+    public WireResponse exportWithHeader(ConformanceSignal signal, String name, String... values) {
+        var builder = HttpRequest.newBuilder(
+                request(signal, emptyRequest(signal), PROTOBUF_CONTENT_TYPE, false), (key, value) -> true);
+        for (var value : values) {
+            builder.header(name, value);
+        }
+        return send(builder.build());
+    }
+
     /// Issues a `GET` to the signal path, for the wrong-method case.
     ///
     /// @param signal the signal whose path to GET

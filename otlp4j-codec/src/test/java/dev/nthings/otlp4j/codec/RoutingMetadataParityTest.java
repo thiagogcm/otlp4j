@@ -59,10 +59,10 @@ class RoutingMetadataParityTest {
     @Test
     void profiles() {
         var scope = Fixtures.testScope();
-        var profile = Fixtures.profile("0102030405060708");
+        var profile = Fixtures.profile("0102030405060708090a0b0c0d0e0f10");
         var batch = new ProfilesData(List.of(
                 new ProfilesData.ResourceProfiles(RESOURCE_A, "", List.of(new ProfilesData.ScopeProfiles(scope, "", List.of(profile)))),
-                new ProfilesData.ResourceProfiles(RESOURCE_B, "", List.of(new ProfilesData.ScopeProfiles(scope, "", List.of(profile))))), new byte[0]);
+                new ProfilesData.ResourceProfiles(RESOURCE_B, "", List.of(new ProfilesData.ScopeProfiles(scope, "", List.of(profile))))));
         assertParity(SignalCodec.PROFILES, batch);
     }
 

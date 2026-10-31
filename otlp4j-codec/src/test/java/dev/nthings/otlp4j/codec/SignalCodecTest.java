@@ -55,17 +55,14 @@ class SignalCodecTest {
     @DisplayName("profiles round-trip through toProto/parseRequest/toDomain and deliveryResponse/deliveryResult")
     @Test
     void profilesCodec() {
-        ProfilesData fixture = Fixtures.profilesData(Fixtures.profile("01"));
+        ProfilesData fixture = Fixtures.profilesData(Fixtures.profile("0102030405060708090a0b0c0d0e0f10"));
         assertRequestRoundTrip(SignalCodec.PROFILES, fixture);
         assertResponseRoundTrip(SignalCodec.PROFILES);
     }
 
     /// Exercises the full `toProto` → wire-encode → `parseRequest` → `toDomain` chain and asserts a
-    /// stable fixed point: re-encoding the decoded batch reproduces the original wire bytes. This is
-    /// signal-uniform: traces/metrics/logs also round-trip at the domain level, but profiles
-    /// forward opaquely (a scalar-only profile materializes its `rawProfile` on the first `toProto`),
-    /// so the byte fixed point is the invariant all four share. `parseRequest` reconstructs the same
-    /// proto it was handed.
+    /// stable fixed point: re-encoding the decoded batch reproduces the original wire bytes.
+    /// `parseRequest` reconstructs the same proto it was handed.
     private static <T, REQ extends MessageLite, RESP extends MessageLite> void assertRequestRoundTrip(
             SignalCodec<T, REQ, RESP> codec, T fixture) {
         try {
@@ -111,6 +108,6 @@ class SignalCodecTest {
         assertRequestRoundTrip(SignalCodec.TRACES, new TracesData(List.of()));
         assertRequestRoundTrip(SignalCodec.METRICS, new MetricsData(List.of()));
         assertRequestRoundTrip(SignalCodec.LOGS, new LogsData(List.of()));
-        assertRequestRoundTrip(SignalCodec.PROFILES, new ProfilesData(List.of(), new byte[0]));
+        assertRequestRoundTrip(SignalCodec.PROFILES, new ProfilesData(List.of()));
     }
 }

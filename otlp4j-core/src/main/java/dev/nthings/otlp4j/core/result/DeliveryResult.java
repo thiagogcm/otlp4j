@@ -1,5 +1,6 @@
 package dev.nthings.otlp4j.core.result;
 
+import dev.nthings.otlp4j.core.signal.UndecodablePayloadException;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -58,7 +59,8 @@ public sealed interface DeliveryResult
     /// The whole payload was rejected.
     ///
     /// `disposition` is the retry axis: `RETRYABLE` maps to gRPC `UNAVAILABLE` / HTTP `503`,
-    /// `PERMANENT` to gRPC `INTERNAL` / HTTP `500`. `reason` names the cause. `cause` is optional
+    /// `PERMANENT` to gRPC `INTERNAL` / HTTP `500`, or to gRPC `INVALID_ARGUMENT` / HTTP `400` when the
+    /// reason is [DeliveryReason#PROTOCOL_TRANSLATION]. `reason` names the cause. `cause` is optional
     /// diagnostics, orthogonal to disposition. `retryAfter`, valid only on a retryable rejection, is
     /// an optional backpressure hint the transports emit on the wire (gRPC `grpc-retry-pushback-ms`
     /// trailer, HTTP `Retry-After` header). `downstream` marks a failure that originated downstream
@@ -254,7 +256,8 @@ public sealed interface DeliveryResult
     /// Normalizes a delivery failure into a permanent rejection following the framework-wide
     /// conventions: a [java.util.concurrent.CompletionException] is unwrapped to its cause, an
     /// [Error] is rethrown, and an [InterruptedException] restores the thread's interrupt flag. The
-    /// rejection message is `prefix + ": " + cause`, its reason `LOCAL_FAILURE`.
+    /// rejection message is `prefix + ": " + cause`, its reason `PROTOCOL_TRANSLATION` for an
+    /// [UndecodablePayloadException] and `LOCAL_FAILURE` otherwise.
     ///
     /// @param prefix     the message prefix naming the failing stage
     /// @param failure    the failure to normalize
@@ -270,9 +273,10 @@ public sealed interface DeliveryResult
         if (cause instanceof InterruptedException) {
             Thread.currentThread().interrupt();
         }
-        return new Rejected(
-                Disposition.PERMANENT, DeliveryReason.LOCAL_FAILURE, prefix + ": " + cause, cause, null, false,
-                provenance);
+        var reason = cause instanceof UndecodablePayloadException
+                ? DeliveryReason.PROTOCOL_TRANSLATION
+                : DeliveryReason.LOCAL_FAILURE;
+        return new Rejected(Disposition.PERMANENT, reason, prefix + ": " + cause, cause, null, false, provenance);
     }
 
     /// Combines results from `peers` that all received the **same** payload in parallel (fan-out

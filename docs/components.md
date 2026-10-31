@@ -4,7 +4,7 @@ Add `otlp4j-components` for reusable processors and the span-count connector. Re
 
 | Component | Factory | Configuration | Signals |
 | --- | --- | --- | --- |
-| Batching | `BatchProcessorFactory` | `BatchProcessorConfig` | Traces, metrics, logs |
+| Batching | `BatchProcessorFactory` | `BatchProcessorConfig` | All four |
 | Memory limiting | `MemoryLimiterProcessorFactory` | `MemoryLimiterConfig` | All four |
 | Filtering and routing | `FilterProcessorFactory` | `FilterConfig` | All four |
 | Span counting | `SpanCountConnectorFactory` | `SpanCountConnectorConfig` | Traces -> metrics |
@@ -28,7 +28,9 @@ Every byte figure comes from the configured `sizer`. A submission the sizer weig
 
 Payloads without a wire form include batches submitted in process, SDK bridge exports, connector output, and the batches this processor builds. Under the default sizer they are bounded by `maxPendingSubmissions` and `maxPendingItems`, and weighing them costs nothing.
 
-A hard byte cap (`sendBatchMaxBytes`) has to weigh the batches the processor builds, so the configuration rejects it unless a sizer other than the default is set. With the exact sizer the cap measures the complete serialized request. If one indivisible item exceeds an output byte cap, the processor refuses the submission permanently rather than emitting an oversized item. Byte limits do not measure JVM heap usage.
+A hard byte cap (`sendBatchMaxBytes`) has to weigh the batches the processor builds, so the configuration rejects it unless a sizer other than the default is set. With the exact sizer the cap measures the complete serialized request. If one indivisible item exceeds an output byte cap, the processor refuses the submission permanently rather than emitting an oversized item. It also refuses a submission whose split would weigh more than 64 times its size: every request repeats its resource, its scope, and any profile dictionary entries its items share, so when those nearly fill the cap each request holds few items and the requests together would dwarf the submission. Byte limits do not measure JVM heap usage.
+
+A submission that would split into more requests than half of `delivery.queueSize` is refused permanently too, with either cap. The queue admits the requests of a flush as a group, so one submission that could fill it would otherwise take the items buffered beside it down with it. Raise `queueSize` if your largest submissions need more requests. For the same reason, a configuration with a hard cap is rejected unless `queueSize` is at least 64.
 
 ### Batching defaults
 
@@ -82,7 +84,16 @@ builder.via(new BatchProcessorFactory(), config);
 
 The last two arguments are `maxPendingItems` and the sizer. Without a byte cap, the six-argument constructor keeps their defaults.
 
-Profiles are excluded from this processor. Their opaque dictionaries need ownership-preserving handling; see [Profiles](model.md#profiles).
+### Batch profiles
+
+The processor counts a profile as one item however many samples it holds, which is the unit of OTLP's `rejected_profiles`. One profile can outweigh thousands of spans, and the item settings assume about 256 bytes per item, so on their own they neither shape batches nor bound memory for this signal:
+
+- `sendBatchSize` rarely fires, so a partial batch normally waits for the timeout, and only a byte cap limits the size of the merged request.
+- Under the default sizer, profiles built in process or exported by the SDK bridge never count toward `maxPendingBytes`. Only `maxPendingSubmissions` and `maxPendingItems` limit them, which can retain far more memory than `maxPendingBytes` suggests. Profiles received over OTLP carry their size and are weighed.
+
+Configure every batching profile pipeline with `OtlpPayloadSizer.exact()` and a `sendBatchMaxBytes` below the destination's request limit. Without a cap, encoding a merged batch can pass the exporter's `maxRequestBytes`, and the exporter then refuses that whole batch after its senders were told `Accepted`. Merged batches then split into requests within the cap, each with a [dictionary](model.md#profiles) holding only what it references, and pending profiles count at their encoded size. Weighing a payload without a wire form costs one encode, including its dictionary. A batch above the cap costs more, because the processor encodes each part it builds to weigh it. It splits a batch it flushes while holding the lock that admits new submissions, so a cap near the size of a typical submission keeps that work short.
+
+A profile does not split: dividing one would repeat its id and change the `rejected_profiles` count of a partial success. A submission whose encoded form exceeds `sendBatchMaxBytes` and holds a profile that cannot fit is refused permanently, smaller profiles beside it included, so keep the cap above the largest profile your sources produce. A profile can also weigh more alone than inside its submission, because a dictionary numbers entries by first use, so a merged batch can fail to split although each submission fits the cap. The submissions then go out as separate requests instead of being merged, and a failure among them stays with that submission and appears in the [flush report](delivery.md#flush-reports).
 
 ## Memory limiting
 

@@ -8,7 +8,6 @@ import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.Resource;
 import dev.nthings.otlp4j.model.TracesData;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.function.BiFunction;
 import java.util.function.Function;
@@ -24,8 +23,7 @@ import java.util.function.ToLongFunction;
 /// `1`, logs `2`, profiles `3`), and the batch-level operations `merge`, `split`, `itemCount`,
 /// `empty`, `routingMetadata`, and `filterResources`. Merge, split, and item counting are implemented
 /// here directly over the immutable model records, so the batch policy is core behaviour rather than
-/// model behaviour. Profiles merge, in particular, throws an `IllegalStateException` on distinct
-/// non-empty dictionaries, which the conformance suite's profiles wire-identical guarantee depends on.
+/// model behaviour.
 ///
 /// @param <T> the domain batch type this signal identifies
 public final class SignalDescriptor<T> {
@@ -51,14 +49,12 @@ public final class SignalDescriptor<T> {
             resourceAttributes(LogsData::resourceLogs, LogsData.ResourceLogs::resource),
             LogsData::filterResources, () -> new LogsData(List.of()), 2);
 
-    /// Profiles, carrying `ProfilesData`, wire ordinal `3`. Merge is only lossless when batches share
-    /// one `ProfilesDictionary`; see [#merge(List)]. Split, by contrast, only slices the profile list
-    /// under the batch's single shared dictionary, so it is always lossless.
+    /// Profiles, carrying `ProfilesData`, wire ordinal `3`.
     public static final SignalDescriptor<ProfilesData> PROFILES = new SignalDescriptor<>(
             "profiles", ProfilesData.class, SignalDescriptor::mergeProfiles, SignalDescriptor::splitProfiles,
             ProfilesData::profileCount,
             resourceAttributes(ProfilesData::resourceProfiles, ProfilesData.ResourceProfiles::resource),
-            ProfilesData::filterResources, () -> new ProfilesData(List.of(), new byte[0]), 3);
+            ProfilesData::filterResources, () -> new ProfilesData(List.of()), 3);
 
     private static final List<SignalDescriptor<?>> VALUES = List.of(TRACES, METRICS, LOGS, PROFILES);
 
@@ -109,8 +105,8 @@ public final class SignalDescriptor<T> {
         return wireOrdinal;
     }
 
-    /// Merges a snapshot of batches into one downstream batch. For profiles this throws
-    /// `IllegalStateException` if the batches carry distinct non-empty `ProfilesDictionaries`.
+    /// Merges a snapshot of batches into one downstream batch, keeping each batch's resource groups in
+    /// order.
     ///
     /// @param batches the batches to merge
     /// @return the merged batch
@@ -125,10 +121,8 @@ public final class SignalDescriptor<T> {
     /// across the returned sub-batches equal the input's item count.
     ///
     /// A batch already at or under the cap is returned as a singleton list of that same batch, with no
-    /// copy. Unlike merge, split is lossless for every signal including profiles, because it only
-    /// slices the item lists under the batch's single shared dictionary rather than reconciling
-    /// distinct dictionaries. This is the generic mechanism a batch processor uses to honour a
-    /// send-batch maximum size without a per-signal switch.
+    /// copy. This is the generic mechanism a batch processor uses to honour a send-batch maximum size
+    /// without a per-signal switch.
     ///
     /// @param batch    the batch to partition
     /// @param maxItems the maximum item count per sub-batch, which must be positive
@@ -166,7 +160,7 @@ public final class SignalDescriptor<T> {
 
     /// Returns `batch` with only the resource groups whose resource `keep` accepts, each with all its
     /// items. This is the signal-generic form of the batch types' own `filterResources`, so it returns
-    /// the same instance when `keep` accepts every resource and keeps a profiles dictionary.
+    /// the same instance when `keep` accepts every resource.
     ///
     /// @param batch the batch to select from
     /// @param keep  the test a resource must pass for its group to stay
@@ -238,22 +232,8 @@ public final class SignalDescriptor<T> {
 
     private static ProfilesData mergeProfiles(List<ProfilesData> snapshot) {
         var combined = new ArrayList<ProfilesData.ResourceProfiles>();
-        var dictionary = new byte[0];
-        for (var p : snapshot) {
-            combined.addAll(p.resourceProfiles());
-            var dict = p.dictionary();
-            if (dict.length == 0) {
-                continue;
-            }
-            if (dictionary.length == 0) {
-                dictionary = dict;
-            } else if (!Arrays.equals(dictionary, dict)) {
-                throw new IllegalStateException(
-                        "cannot batch-merge profiles carrying distinct ProfilesDictionaries without "
-                                + "re-indexing; forward profiles 1:1 or disable profiles batching");
-            }
-        }
-        return new ProfilesData(combined, dictionary);
+        snapshot.forEach(p -> combined.addAll(p.resourceProfiles()));
+        return new ProfilesData(combined);
     }
 
     // --- per-signal split bodies, item-count based, resource and scope grouping preserved ---
@@ -338,13 +318,12 @@ public final class SignalDescriptor<T> {
     }
 
     private static List<ProfilesData> splitProfiles(ProfilesData batch, long maxItems) {
-        var dictionary = batch.dictionary();
         var runs = scopeRuns(
                 batch.resourceProfiles(), ProfilesData.ResourceProfiles::scopeProfiles,
                 ProfilesData.ScopeProfiles::profiles,
                 (rp, sp, profiles) -> new ProfilesData.ResourceProfiles(rp.resource(), rp.schemaUrl(),
                         List.of(new ProfilesData.ScopeProfiles(sp.scope(), sp.schemaUrl(), profiles))));
-        return chunk(runs, maxItems, resources -> new ProfilesData(resources, dictionary));
+        return chunk(runs, maxItems, ProfilesData::new);
     }
 
     /// Metrics count data points, so each metric is its own run and a slice keeps a range of its

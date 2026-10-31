@@ -24,6 +24,8 @@ import org.junit.jupiter.params.provider.EnumSource;
 /// distinguished by the status description carrying "receiver at capacity".
 public abstract class OtlpGrpcConformanceSuite {
 
+    private static final String PROFILES_VERSION = "otlp-profiles-development-version";
+
     /// Boots a gateway configured by `scenario` on the given transport. The concrete runner
     /// implements this by delegating to the one seam implementation; this suite never names it.
     ///
@@ -54,6 +56,38 @@ public abstract class OtlpGrpcConformanceSuite {
             assertThat(response.grpcCode()).hasValue(Status.Code.OK);
             assertThat(rejectedCount(signal, response)).isEqualTo(1L);
         });
+    }
+
+    @Test
+    void profilesDevelopmentVersionOneIsAccepted() {
+        var scenario = Scenario.builder(ConformanceSignal.PROFILES).build();
+        withGrpc(scenario, (client, gw) -> assertThat(
+                client.exportWithMetadata(ConformanceSignal.PROFILES, PROFILES_VERSION, "1").grpcCode())
+                .hasValue(Status.Code.OK));
+    }
+
+    @Test
+    void unsupportedProfilesDevelopmentVersionReturnsInvalidArgument() {
+        var scenario = Scenario.builder(ConformanceSignal.PROFILES).build();
+        withGrpc(scenario, (client, gw) -> assertThat(
+                client.exportWithMetadata(ConformanceSignal.PROFILES, PROFILES_VERSION, "2").grpcCode())
+                .hasValue(Status.Code.INVALID_ARGUMENT));
+    }
+
+    @Test
+    void repeatedProfilesDevelopmentVersionReturnsInvalidArgument() {
+        var scenario = Scenario.builder(ConformanceSignal.PROFILES).build();
+        withGrpc(scenario, (client, gw) -> assertThat(
+                client.exportWithMetadata(ConformanceSignal.PROFILES, PROFILES_VERSION, "1", "1").grpcCode())
+                .hasValue(Status.Code.INVALID_ARGUMENT));
+    }
+
+    @Test
+    void profilesDevelopmentVersionMeansNothingToAnotherSignal() {
+        var scenario = Scenario.builder(ConformanceSignal.TRACES).build();
+        withGrpc(scenario, (client, gw) -> assertThat(
+                client.exportWithMetadata(ConformanceSignal.TRACES, PROFILES_VERSION, "2").grpcCode())
+                .hasValue(Status.Code.OK));
     }
 
     @Test

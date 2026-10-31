@@ -18,7 +18,6 @@ import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.DisplayName;
@@ -73,9 +72,9 @@ class SignalSourceTest {
                 .isInstanceOf(IllegalStateException.class);
     }
 
-    @DisplayName("dispatch propagates a synchronous consumer throw verbatim (transport-level failure)")
+    @DisplayName("dispatch turns a synchronous consumer throw into a permanent rejection")
     @Test
-    void dispatchPropagatesConsumerException() {
+    void dispatchNormalizesAConsumerException() {
         var source = source();
         source.attach(new SignalConsumer<>() {
             @Override
@@ -83,14 +82,16 @@ class SignalSourceTest {
                 throw new RuntimeException("boom");
             }
         });
-        assertThatThrownBy(() -> source.dispatch(new TestConsumeContext(), payload()))
-                .isInstanceOf(RuntimeException.class)
-                .hasMessageContaining("boom");
+        var result = source.dispatch(new TestConsumeContext(), payload()).toCompletableFuture().join();
+        assertThat(result).isInstanceOfSatisfying(DeliveryResult.Rejected.class, rejected -> {
+            assertThat(rejected.disposition()).isEqualTo(Disposition.PERMANENT);
+            assertThat(rejected.message()).contains("boom");
+        });
     }
 
-    @DisplayName("dispatch propagates an asynchronous consumer failure verbatim (transport-level failure)")
+    @DisplayName("dispatch turns an asynchronous consumer failure into a permanent rejection")
     @Test
-    void dispatchPropagatesAsyncConsumerFailure() {
+    void dispatchNormalizesAnAsyncConsumerFailure() {
         var source = source();
         source.attach(new SignalConsumer<>() {
             @Override
@@ -98,11 +99,11 @@ class SignalSourceTest {
                 return CompletableFuture.failedFuture(new IllegalStateException("async boom"));
             }
         });
-        var stage = source.dispatch(new TestConsumeContext(), payload());
-        assertThatThrownBy(() -> stage.toCompletableFuture().join())
-                .isInstanceOf(CompletionException.class)
-                .hasRootCauseInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("async boom");
+        var result = source.dispatch(new TestConsumeContext(), payload()).toCompletableFuture().join();
+        assertThat(result).isInstanceOfSatisfying(DeliveryResult.Rejected.class, rejected -> {
+            assertThat(rejected.disposition()).isEqualTo(Disposition.PERMANENT);
+            assertThat(rejected.message()).contains("async boom");
+        });
     }
 
     @DisplayName("dispatch keeps the empty payload path exercised")

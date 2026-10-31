@@ -10,6 +10,7 @@ import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.Metric;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.NumberPoint;
+import dev.nthings.otlp4j.model.Profile;
 import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.Resource;
 import dev.nthings.otlp4j.model.Span;
@@ -147,22 +148,25 @@ class SignalDescriptorSplitTest {
     }
 
     @Test
-    @DisplayName("profiles split under a shared dictionary is lossless and carries the dictionary")
-    void profilesSplitSharedDictionary() {
-        var dictionary = new byte[] {7, 8, 9};
-        var profiles = new ArrayList<ProfilesData.Profile>();
+    @DisplayName("profiles split keeps every profile with its resource and scope")
+    void profilesSplit() {
+        var ids = new ArrayList<String>();
+        var profiles = new ArrayList<Profile>();
         for (var i = 0; i < 5; i++) {
-            profiles.add(new ProfilesData.Profile("p" + i, 0L, 0L, 0L, 0, 0, "", new byte[0]));
+            var id = Integer.toString(i).repeat(32);
+            ids.add(id);
+            profiles.add(Profile.builder().profileId(id).build());
         }
-        var scoped = ProfilesData.of(Resource.EMPTY, InstrumentationScope.of("lib"), profiles).resourceProfiles();
-        var batch = new ProfilesData(scoped, dictionary);
+        var scope = InstrumentationScope.of("lib");
+        var batch = ProfilesData.of(Resource.EMPTY, scope, profiles);
 
         var parts = SignalDescriptor.PROFILES.split(batch, 2);
+
         assertThat(parts).hasSize(3);
-        assertThat(parts.stream().mapToLong(SignalDescriptor.PROFILES::itemCount).sum()).isEqualTo(5);
-        assertThat(parts).allSatisfy(p -> assertThat(p.dictionary()).containsExactly(7, 8, 9));
-        assertThat(parts.stream().flatMap(p -> p.profiles().stream()).map(ProfilesData.Profile::profileId))
-                .containsExactly("p0", "p1", "p2", "p3", "p4");
+        assertThat(parts).allSatisfy(part -> assertThat(part.resourceProfiles().getFirst().scopeProfiles())
+                .singleElement().satisfies(group -> assertThat(group.scope()).isEqualTo(scope)));
+        assertThat(parts.stream().flatMap(p -> p.profiles().stream()).map(Profile::profileId))
+                .containsExactlyElementsOf(ids);
     }
 
     private static TracesData traces(int n) {

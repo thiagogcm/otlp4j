@@ -7,6 +7,7 @@ import io.opentelemetry.proto.collector.logs.v1.ExportLogsServiceRequest;
 import io.opentelemetry.proto.collector.metrics.v1.ExportMetricsServiceRequest;
 import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceRequest;
 import io.opentelemetry.proto.common.v1.AnyValue;
+import io.opentelemetry.proto.common.v1.KeyValue;
 import io.opentelemetry.proto.logs.v1.LogRecord;
 import io.opentelemetry.proto.logs.v1.ResourceLogs;
 import io.opentelemetry.proto.logs.v1.ScopeLogs;
@@ -19,6 +20,7 @@ import io.opentelemetry.proto.trace.v1.ResourceSpans;
 import io.opentelemetry.proto.trace.v1.ScopeSpans;
 import io.opentelemetry.proto.trace.v1.Span;
 import io.opentelemetry.proto.trace.v1.Status;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class UnknownWireValuesTest {
@@ -57,6 +59,23 @@ class UnknownWireValuesTest {
         assertThat(decoded.metrics()).singleElement().satisfies(metric ->
                 assertThat(metric.name()).isEqualTo("requests"));
         assertThat(decoded.dataPointCount()).isEqualTo(1);
+    }
+
+    @Test
+    void aProfilesOnlyKeyReferenceDoesNotDiscardAnAttributesKey() {
+        var attributes = List.of(
+                KeyValue.newBuilder()
+                        .setKey("service.name")
+                        .setKeyStrindex(5)
+                        .setValue(AnyValue.newBuilder().setStringValue("checkout"))
+                        .build(),
+                KeyValue.newBuilder()
+                        .setKey("host.name")
+                        .setKeyStrindex(6)
+                        .setValue(AnyValue.newBuilder().setStringValue("h1"))
+                        .build());
+
+        assertThat(CommonMapper.attributes(attributes).keys()).containsExactly("service.name", "host.name");
     }
 
     @Test

@@ -7,6 +7,7 @@ import dev.nthings.otlp4j.core.component.ComponentKind;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.result.Provenance;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
+import dev.nthings.otlp4j.core.signal.UndecodablePayloadException;
 import java.time.Duration;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -63,5 +64,19 @@ class DeliveryResultStatusesTest {
     void wholeSecondHintPassesThrough() {
         var rejected = reject(DeliveryResult.throttled(Duration.ofSeconds(30), "at capacity", PROV));
         assertThat(DeliveryResultStatuses.retryAfterSeconds(rejected)).hasValue(30L);
+    }
+
+    @DisplayName("a payload the sender got wrong maps to 400, and only that")
+    @Test
+    void anUndecodablePayloadIsTheSendersFault() {
+        var provenance = new Provenance(
+                ComponentId.parse("batch"), ComponentKind.PROCESSOR, SignalDescriptor.PROFILES);
+        var invalid = (DeliveryResult.Rejected) DeliveryResult.permanentFrom(
+                "decode", new UndecodablePayloadException("bad", new IllegalArgumentException()), provenance);
+        var internal = (DeliveryResult.Rejected) DeliveryResult.permanentFrom(
+                "decode", new IllegalStateException("broken"), provenance);
+
+        assertThat(DeliveryResultStatuses.httpStatus(invalid)).isEqualTo(400);
+        assertThat(DeliveryResultStatuses.httpStatus(internal)).isEqualTo(500);
     }
 }

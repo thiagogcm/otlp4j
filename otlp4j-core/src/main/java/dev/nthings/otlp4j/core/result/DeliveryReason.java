@@ -20,7 +20,8 @@ public enum DeliveryReason {
     /// The gateway is shutting down and cannot accept the payload.
     SHUTDOWN,
 
-    /// A failure translating between protocol representations.
+    /// A failure translating between protocol representations: the content received cannot be
+    /// understood, so the sender is at fault.
     PROTOCOL_TRANSLATION,
 
     /// No consumer is wired for the payload's signal.

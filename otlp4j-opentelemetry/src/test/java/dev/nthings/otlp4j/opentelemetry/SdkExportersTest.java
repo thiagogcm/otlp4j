@@ -577,18 +577,18 @@ final class SdkExportersTest {
                         new AttributeValue.StringValue("two"))));
     }
 
-    private static final class RecordingInput<T> implements TelemetryInput<T> {
+    static final class RecordingInput<T> implements TelemetryInput<T> {
         private final SignalDescriptor<T> signal;
-        private final List<T> batches = new CopyOnWriteArrayList<>();
+        final List<T> batches = new CopyOnWriteArrayList<>();
         private final dev.nthings.otlp4j.core.result.Provenance provenance;
         private volatile CompletableFuture<DeliveryResult> nextResult;
-        private volatile CompletionStage<FlushReport> nextFlush;
-        private volatile int flushCalls;
+        volatile CompletionStage<FlushReport> nextFlush;
+        volatile int flushCalls;
         private volatile boolean blockFlush;
         private volatile CountDownLatch flushEntered;
         private volatile CountDownLatch flushRelease;
 
-        private RecordingInput(SignalDescriptor<T> signal) {
+        RecordingInput(SignalDescriptor<T> signal) {
             this.signal = signal;
             this.provenance = new dev.nthings.otlp4j.core.result.Provenance(
                     new ComponentId("test", ""), ComponentKind.EXPORTER, signal);

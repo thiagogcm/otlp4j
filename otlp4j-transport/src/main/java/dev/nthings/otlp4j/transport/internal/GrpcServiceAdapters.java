@@ -7,7 +7,8 @@ import dev.nthings.otlp4j.codec.PayloadWire;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.signal.Payload;
 import com.linecorp.armeria.server.ServiceRequestContext;
-import io.grpc.BindableService;
+import io.grpc.ServerInterceptors;
+import io.grpc.ServerServiceDefinition;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import io.opentelemetry.proto.collector.logs.v1.ExportLogsServiceRequest;
@@ -42,8 +43,11 @@ import org.slf4j.LoggerFactory;
 ///   `RESOURCE_EXHAUSTED`, which the transport reserves for the oversized-message path (enforced by
 ///   the `GrpcService` builder's max request message length, separate from admission).
 /// - A retryable [DeliveryResult.Rejected] maps to `UNAVAILABLE` with the rejection's own pushback
-///   hint; a permanent one maps to `INTERNAL`.
+///   hint; a permanent one maps to `INTERNAL`, or to `INVALID_ARGUMENT` when the request itself is
+///   invalid.
 /// - A synchronous or asynchronous dispatcher failure maps to `INTERNAL`.
+/// - A profiles request naming a development version this server cannot read maps to
+///   `INVALID_ARGUMENT` before it is decoded.
 ///
 /// A `cause`, when present, is attached as the status cause regardless of retryability.
 final class GrpcServiceAdapters {
@@ -57,8 +61,9 @@ final class GrpcServiceAdapters {
     ///
     /// @param dispatch  the per-signal dispatch seam
     /// @param admission the shared admission control
-    /// @return the four bindable OTLP collector services
-    static List<BindableService> create(
+    /// @return the four OTLP collector services; the profiles service first checks the development
+    ///     version of each request
+    static List<ServerServiceDefinition> create(
             PayloadDispatch dispatch, AdmissionControl admission, Clock clock) {
         return List.of(
                 new TraceServiceAdapter(
@@ -67,28 +72,30 @@ final class GrpcServiceAdapters {
                                 () -> ReceiverConsumeContext.grpc(
                                         clock, RequestMetadata.current(), ServiceRequestContext.current()),
                                 PayloadWire.proto(SignalCodec.TRACES, request)),
-                        admission),
+                        admission).bindService(),
                 new MetricsServiceAdapter(
                         request -> dispatchWithContext(
                                 dispatch,
                                 () -> ReceiverConsumeContext.grpc(
                                         clock, RequestMetadata.current(), ServiceRequestContext.current()),
                                 PayloadWire.proto(SignalCodec.METRICS, request)),
-                        admission),
+                        admission).bindService(),
                 new LogsServiceAdapter(
                         request -> dispatchWithContext(
                                 dispatch,
                                 () -> ReceiverConsumeContext.grpc(
                                         clock, RequestMetadata.current(), ServiceRequestContext.current()),
                                 PayloadWire.proto(SignalCodec.LOGS, request)),
-                        admission),
-                new ProfilesServiceAdapter(
-                        request -> dispatchWithContext(
-                                dispatch,
-                                () -> ReceiverConsumeContext.grpc(
-                                        clock, RequestMetadata.current(), ServiceRequestContext.current()),
-                                PayloadWire.proto(SignalCodec.PROFILES, request)),
-                        admission));
+                        admission).bindService(),
+                ServerInterceptors.intercept(
+                        new ProfilesServiceAdapter(
+                                request -> dispatchWithContext(
+                                        dispatch,
+                                        () -> ReceiverConsumeContext.grpc(
+                                                clock, RequestMetadata.current(), ServiceRequestContext.current()),
+                                        PayloadWire.proto(SignalCodec.PROFILES, request)),
+                                admission),
+                        ProfilesDevelopmentVersion.grpcInterceptor()));
     }
 
     private static CompletionStage<DeliveryResult> dispatchWithContext(
@@ -133,8 +140,11 @@ final class GrpcServiceAdapters {
         CompletionStage<DeliveryResult> stage;
         try {
             stage = dispatcher.apply(request);
-        } catch (RuntimeException e) {
+        } catch (Throwable e) {
             permit.close();
+            if (e instanceof Error fatal) {
+                throw fatal;
+            }
             observer.onError(
                     Status.INTERNAL.withDescription(e.getMessage()).withCause(e).asRuntimeException());
             return;
@@ -151,8 +161,15 @@ final class GrpcServiceAdapters {
                 .asRuntimeException(GrpcPushback.pushbackTrailers(admission.retryAfterHint()));
     }
 
-    /// Asynchronously consumes the result, mapping [DeliveryResult] to a gRPC response or to an
-    /// INTERNAL error.
+    private static Status status(DeliveryResult.Rejected rejected) {
+        if (DeliveryResultStatuses.isRetryable(rejected)) {
+            return Status.UNAVAILABLE;
+        }
+        return DeliveryResultStatuses.isInvalidRequest(rejected) ? Status.INVALID_ARGUMENT : Status.INTERNAL;
+    }
+
+    /// Asynchronously consumes the result, mapping [DeliveryResult] to a gRPC response or to a gRPC
+    /// error.
     static <RESP> void respond(
             StreamObserver<RESP> observer,
             CompletionStage<DeliveryResult> stage,
@@ -167,7 +184,7 @@ final class GrpcServiceAdapters {
                 return;
             }
             if (result instanceof DeliveryResult.Rejected rejected) {
-                var status = DeliveryResultStatuses.isRetryable(rejected) ? Status.UNAVAILABLE : Status.INTERNAL;
+                var status = status(rejected);
                 if (rejected.cause() != null) {
                     status = status.withCause(rejected.cause());
                 }

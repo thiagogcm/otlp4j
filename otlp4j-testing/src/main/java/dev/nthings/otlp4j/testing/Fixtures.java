@@ -7,6 +7,7 @@ import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.Metric;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.NumberPoint;
+import dev.nthings.otlp4j.model.Profile;
 import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.Resource;
 import dev.nthings.otlp4j.model.Span;
@@ -49,22 +50,31 @@ public final class Fixtures {
                 .build();
     }
 
-    public static ProfilesData profilesData(ProfilesData.Profile... profiles) {
+    public static ProfilesData profilesData(Profile... profiles) {
         return ProfilesData.of(checkoutResource(), testScope(), List.of(profiles));
     }
 
-    /// Profiles batch carrying an explicit shared dictionary (for
-    /// batch-merge tests).
-    public static ProfilesData profilesDataWithDictionary(byte[] dictionary, ProfilesData.Profile... profiles) {
-        return new ProfilesData(
-                List.of(new ProfilesData.ResourceProfiles(
-                        checkoutResource(), "", List.of(new ProfilesData.ScopeProfiles(
-                                testScope(), "", List.of(profiles))))),
-                dictionary);
+    /// A CPU profile with the given 32-character hex id: one sample of one frame, which `function` names.
+    public static Profile profile(String profileId, String function) {
+        var frame = Profile.Location.builder()
+                .address(0x1000L)
+                .addLine(new Profile.Line(new Profile.Function(function, "", "checkout.java", 1L), 7L, 0L))
+                .build();
+        return Profile.builder()
+                .profileId(profileId)
+                .epochNanos(1_000L)
+                .durationNanos(500L)
+                .sampleType(new Profile.ValueType("cpu", "nanoseconds"))
+                .addSample(Profile.Sample.builder()
+                        .stack(new Profile.Stack(List.of(frame)))
+                        .addValue(42L)
+                        .build())
+                .build();
     }
 
-    public static ProfilesData.Profile profile(String profileId) {
-        return new ProfilesData.Profile(profileId, 1_000L, 500L, 0L, 0, 0, "", new byte[0]);
+    /// A CPU profile with the given 32-character hex id.
+    public static Profile profile(String profileId) {
+        return profile(profileId, "checkout");
     }
 
     public static LogRecord logRecord(String body, LogRecord.Severity severity) {

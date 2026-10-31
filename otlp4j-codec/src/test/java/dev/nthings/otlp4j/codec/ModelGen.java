@@ -12,7 +12,7 @@ import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.Metric;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.NumberPoint;
-import dev.nthings.otlp4j.model.ProfilesData;
+import dev.nthings.otlp4j.model.Profile;
 import dev.nthings.otlp4j.model.Resource;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.SummaryPoint;
@@ -41,11 +41,11 @@ import io.opentelemetry.proto.metrics.v1.Sum;
 import io.opentelemetry.proto.metrics.v1.Summary;
 import io.opentelemetry.proto.metrics.v1.SummaryDataPoint;
 import io.opentelemetry.proto.profiles.v1development.KeyValueAndUnit;
-import io.opentelemetry.proto.profiles.v1development.Profile;
 import io.opentelemetry.proto.profiles.v1development.ProfilesDictionary;
 import io.opentelemetry.proto.profiles.v1development.ResourceProfiles;
 import io.opentelemetry.proto.profiles.v1development.Sample;
 import io.opentelemetry.proto.profiles.v1development.ScopeProfiles;
+import io.opentelemetry.proto.profiles.v1development.Stack;
 import io.opentelemetry.proto.profiles.v1development.ValueType;
 import io.opentelemetry.proto.trace.v1.ResourceSpans;
 import io.opentelemetry.proto.trace.v1.ScopeSpans;
@@ -53,8 +53,10 @@ import io.opentelemetry.proto.trace.v1.Span.Event;
 import io.opentelemetry.proto.trace.v1.Span.Link;
 import io.opentelemetry.proto.trace.v1.Span.SpanKind;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.OptionalDouble;
 import java.util.function.Function;
 import java.util.random.RandomGenerator;
@@ -871,77 +873,163 @@ final class ModelGen {
 
     // ---- profiles ----
 
-    /// Scalar metadata without samples or a captured source payload.
-    static ProfilesData.Profile scalarProfile(RandomGenerator rng) {
-        return new ProfilesData.Profile(
-                hexId(rng, TRACE_ID_HEX_LEN),
-                positiveLong(rng),
-                rng.nextLong(1, 1_000_000),
-                rng.nextLong(1, 1_000_000),
-                0,
-                rng.nextInt(20),
-                "",
-                new byte[0]);
+    private static Profile.ValueType valueType(RandomGenerator rng) {
+        return new Profile.ValueType(asciiString(rng, 8), asciiString(rng, 8));
     }
 
-    private static ValueType protoValueType(RandomGenerator rng) {
-        return ValueType.newBuilder()
-                .setTypeStrindex(1)
-                .setUnitStrindex(2)
+    private static Profile.Function function(RandomGenerator rng) {
+        return new Profile.Function(
+                asciiString(rng, 8), asciiString(rng, 8), asciiString(rng, 8), rng.nextLong(0, 1_000));
+    }
+
+    private static Profile.Mapping mapping(RandomGenerator rng) {
+        var attributes = Attributes.builder().put("size", rng.nextLong(1, 100)).build();
+        return Profile.Mapping.builder()
+                .memoryStart(rng.nextLong())
+                .memoryLimit(rng.nextLong())
+                .fileOffset(rng.nextLong())
+                .filename(asciiString(rng, 8))
+                .attributes(attributes)
+                .attributeUnits(rng.nextBoolean() ? Map.of("size", "By") : Map.of())
                 .build();
     }
 
-    private static Profile protoRichProfile(RandomGenerator rng) {
-        var builder = Profile.newBuilder()
-                .setSampleType(protoValueType(rng))
+    /// A stack drawing on `functions` and `mappings`, so stacks overlap the way real ones do.
+    private static Profile.Stack stack(
+            RandomGenerator rng, List<Profile.Function> functions, List<Profile.Mapping> mappings) {
+        var locations = new ArrayList<Profile.Location>();
+        var depth = 1 + rng.nextInt(4);
+        for (var i = 0; i < depth; i++) {
+            var location = Profile.Location.builder()
+                    .mapping(mappings.get(rng.nextInt(mappings.size())))
+                    .address(rng.nextLong())
+                    .attributes(attributes(rng));
+            var lines = rng.nextInt(3);
+            for (var l = 0; l < lines; l++) {
+                location.addLine(new Profile.Line(
+                        functions.get(rng.nextInt(functions.size())), rng.nextLong(0, 1_000), rng.nextLong(0, 100)));
+            }
+            locations.add(location.build());
+        }
+        return new Profile.Stack(locations);
+    }
+
+    private static Profile.Sample sample(RandomGenerator rng, List<Profile.Stack> stacks) {
+        var builder = Profile.Sample.builder()
+                .stack(stacks.get(rng.nextInt(stacks.size())))
+                .attributes(attributes(rng));
+        if (rng.nextBoolean()) {
+            builder.link(new Profile.Link(hexId(rng, TRACE_ID_HEX_LEN), hexId(rng, SPAN_ID_HEX_LEN)));
+        }
+        var observations = 1 + rng.nextInt(3);
+        var shape = rng.nextInt(3);
+        for (var i = 0; i < observations; i++) {
+            if (shape != 0) {
+                builder.addValue(rng.nextLong());
+            }
+            if (shape != 1) {
+                builder.addTimestamp(rng.nextLong());
+            }
+        }
+        return builder.build();
+    }
+
+    /// A profile whose samples of every shape repeat stacks, functions, and mappings.
+    static Profile profile(RandomGenerator rng) {
+        var functions = List.of(function(rng), function(rng));
+        var mappings = List.of(mapping(rng), Profile.Mapping.EMPTY);
+        var stacks = List.of(stack(rng, functions, mappings), stack(rng, functions, mappings), Profile.Stack.EMPTY);
+        var builder = Profile.builder()
+                .profileId(hexId(rng, TRACE_ID_HEX_LEN))
+                .epochNanos(positiveLong(rng))
+                .durationNanos(rng.nextLong())
+                .sampleType(valueType(rng))
+                .periodType(valueType(rng))
+                .period(rng.nextLong())
+                .attributes(attributes(rng))
+                .droppedAttributesCount(rng.nextInt(20))
+                .originalPayloadFormat(asciiString(rng, 8))
+                .originalPayload(randomBytes(rng, rng.nextInt(16)));
+        var samples = rng.nextInt(6);
+        for (var i = 0; i < samples; i++) {
+            builder.addSample(sample(rng, stacks));
+        }
+        return builder.build();
+    }
+
+    /// A valid request as a careless producer might write it: dictionary tables in arbitrary order,
+    /// with duplicate entries and entries nothing refers to.
+    static ExportProfilesServiceRequest protoProfilesRequestRich(RandomGenerator rng) {
+        var strings = new ArrayList<>(List.of(
+                "cpu", "nanoseconds", "thread.id", "main", "work", "app.c", "/bin/app", "By", "orphan"));
+        Collections.shuffle(strings, java.util.Random.from(rng));
+        strings.addFirst("");
+        var dictionary = ProfilesDictionary.newBuilder().addAllStringTable(strings);
+
+        dictionary.addMappingTableBuilder();
+        dictionary.addMappingTableBuilder()
+                .setMemoryStart(rng.nextLong())
+                .setMemoryLimit(rng.nextLong())
+                .setFilenameStrindex(strings.indexOf("/bin/app"));
+
+        dictionary.addFunctionTableBuilder();
+        var main = io.opentelemetry.proto.profiles.v1development.Function.newBuilder()
+                .setNameStrindex(strings.indexOf("main"))
+                .setFilenameStrindex(strings.indexOf("app.c"));
+        dictionary.addFunctionTable(main);
+        dictionary.addFunctionTable(main);
+        dictionary.addFunctionTableBuilder().setNameStrindex(strings.indexOf("orphan"));
+
+        dictionary.addAttributeTableBuilder();
+        dictionary.addAttributeTable(KeyValueAndUnit.newBuilder()
+                .setKeyStrindex(strings.indexOf("thread.id"))
+                .setUnitStrindex(strings.indexOf("By"))
+                .setValue(AnyValue.newBuilder().setIntValue(rng.nextLong(1, 10_000))));
+        dictionary.addAttributeTable(KeyValueAndUnit.newBuilder()
+                .setKeyStrindex(strings.indexOf("orphan"))
+                .setValue(AnyValue.newBuilder().setStringValueStrindex(strings.indexOf("work"))));
+
+        dictionary.addLocationTableBuilder();
+        for (var function = 1; function <= 2; function++) {
+            dictionary.addLocationTableBuilder()
+                    .setMappingIndex(rng.nextInt(2))
+                    .setAddress(rng.nextLong(1, 1_000_000))
+                    .addLines(io.opentelemetry.proto.profiles.v1development.Line.newBuilder()
+                            .setFunctionIndex(function)
+                            .setLine(rng.nextLong(1, 1_000)))
+                    .addAttributeIndices(1 + rng.nextInt(2));
+        }
+
+        dictionary.addLinkTableBuilder();
+        dictionary.addLinkTableBuilder()
+                .setTraceId(protoId(rng, TRACE_ID_BYTE_LEN))
+                .setSpanId(protoId(rng, SPAN_ID_BYTE_LEN));
+
+        dictionary.addStackTableBuilder();
+        dictionary.addStackTable(Stack.newBuilder().addLocationIndices(1).addLocationIndices(2));
+        dictionary.addStackTable(Stack.newBuilder().addLocationIndices(2));
+
+        var profile = io.opentelemetry.proto.profiles.v1development.Profile.newBuilder()
+                .setProfileId(protoId(rng, TRACE_ID_BYTE_LEN))
                 .setTimeUnixNano(positiveLong(rng))
                 .setDurationNano(rng.nextLong(1, 1_000_000))
-                .setPeriodType(protoValueType(rng))
+                .setSampleType(ValueType.newBuilder()
+                        .setTypeStrindex(strings.indexOf("cpu"))
+                        .setUnitStrindex(strings.indexOf("nanoseconds")))
                 .setPeriod(rng.nextLong(1, 1_000_000))
-                .setProfileId(protoId(rng, TRACE_ID_BYTE_LEN))
-                .setDroppedAttributesCount(rng.nextInt(20))
                 .setOriginalPayloadFormat("pprof")
                 .setOriginalPayload(ByteString.copyFrom(randomBytes(rng, rng.nextInt(1, 16))));
-        var sampleCount = 1 + rng.nextInt(3);
-        for (var i = 0; i < sampleCount; i++) {
-            var sample = Sample.newBuilder().setStackIndex(1).setLinkIndex(rng.nextInt(2));
-            var valueCount = 1 + rng.nextInt(3);
-            for (var v = 0; v < valueCount; v++) {
-                sample.addValues(rng.nextLong(1, 1_000_000));
-            }
-            var attrCount = rng.nextInt(2);
-            for (var a = 0; a < attrCount; a++) {
+        var samples = 1 + rng.nextInt(4);
+        for (var i = 0; i < samples; i++) {
+            var sample = Sample.newBuilder()
+                    .setStackIndex(rng.nextInt(3))
+                    .setLinkIndex(rng.nextInt(2))
+                    .addValues(rng.nextLong(1, 1_000_000));
+            if (rng.nextBoolean()) {
                 sample.addAttributeIndices(1);
             }
-            builder.addSamples(sample);
+            profile.addSamples(sample);
         }
-        var attrIndexCount = rng.nextInt(2);
-        for (var i = 0; i < attrIndexCount; i++) {
-            builder.addAttributeIndices(1);
-        }
-        return builder.build();
-    }
-
-    private static ProfilesDictionary protoDictionary(RandomGenerator rng) {
-        var builder = ProfilesDictionary.newBuilder().addStringTable("").addStringTable("cpu")
-                .addStringTable("nanoseconds").addStringTable("thread.id");
-        builder.addMappingTableBuilder();
-        builder.addFunctionTableBuilder();
-        builder.addLocationTableBuilder();
-        builder.addLocationTableBuilder().setAddress(rng.nextLong(1, 1_000_000));
-        builder.addLinkTableBuilder();
-        builder.addLinkTableBuilder().setTraceId(protoId(rng, TRACE_ID_BYTE_LEN)).setSpanId(protoId(rng, SPAN_ID_BYTE_LEN));
-        builder.addStackTableBuilder();
-        builder.addStackTableBuilder().addLocationIndices(1);
-        builder.addAttributeTableBuilder();
-        builder.addAttributeTable(KeyValueAndUnit.newBuilder().setKeyStrindex(3)
-                .setValue(AnyValue.newBuilder().setIntValue(rng.nextLong(1, 10_000))));
-        return builder.build();
-    }
-
-    /// Samples and a shared dictionary with valid references.
-    static ExportProfilesServiceRequest protoProfilesRequestRich(RandomGenerator rng) {
-        var profile = protoRichProfile(rng);
         return ExportProfilesServiceRequest.newBuilder()
                 .addResourceProfiles(ResourceProfiles.newBuilder()
                         .setResource(protoResource(rng))
@@ -950,7 +1038,7 @@ final class ModelGen {
                                 .setScope(protoScope(rng))
                                 .setSchemaUrl(asciiString(rng, 12))
                                 .addProfiles(profile)))
-                .setDictionary(protoDictionary(rng))
+                .setDictionary(dictionary)
                 .build();
     }
 }

@@ -9,6 +9,7 @@ import dev.nthings.otlp4j.model.LogsData;
 import dev.nthings.otlp4j.model.Metric;
 import dev.nthings.otlp4j.model.MetricsData;
 import dev.nthings.otlp4j.model.NumberPoint;
+import dev.nthings.otlp4j.model.Profile;
 import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.Resource;
 import dev.nthings.otlp4j.model.Span;
@@ -16,6 +17,7 @@ import dev.nthings.otlp4j.model.SummaryPoint;
 import dev.nthings.otlp4j.model.TracesData;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.OptionalDouble;
 
 /// Rich, fully-populated telemetry payloads for the transport tests - one place to build the
@@ -27,12 +29,8 @@ public final class TransportFixtures {
 
     private TransportFixtures() {}
 
-    public static ProfilesData profiles(ProfilesData.Profile... profiles) {
-        return new ProfilesData(List.of(new ProfilesData.ResourceProfiles(
-                Resource.EMPTY,
-                "",
-                List.of(new ProfilesData.ScopeProfiles(
-                        InstrumentationScope.EMPTY, "", List.of(profiles))))), new byte[0]);
+    public static ProfilesData profiles(Profile... profiles) {
+        return ProfilesData.of(Resource.EMPTY, InstrumentationScope.EMPTY, List.of(profiles));
     }
 
     /// A trace with every span field - events, links, status, dropped counts - populated.
@@ -180,19 +178,55 @@ public final class TransportFixtures {
         return Fixtures.logsData(record);
     }
 
-    /// A profiles batch built from scalar metadata only (empty raw profile), so it re-emits just
-    /// the modeled scalar fields. Lossless sample/dictionary forwarding is covered by the dedicated
-    /// round-trip test that drives the proto builders directly.
+    /// A profile with every field populated: samples of each shape, a link, inlined frames, a mapping,
+    /// and attributes with units at every level that takes them.
     public static ProfilesData profilesData() {
-        return profiles(new ProfilesData.Profile(
-                "0102030405060708090a0b0c0d0e0f10",
-                1_700_000_000_000_000_000L,
-                5_000_000L,
-                99L,
-                0,
-                4,
-                "pprof",
-                new byte[0]));
+        var mapping = Profile.Mapping.builder()
+                .memoryStart(0x1000L)
+                .memoryLimit(0x9000L)
+                .fileOffset(0x100L)
+                .filename("/usr/bin/checkout")
+                .attributes(Attributes.builder().put("process.executable.build_id.gnu", "abc123").build())
+                .build();
+        var inlined = new Profile.Function("memcpy", "__memcpy_avx", "memcpy.c", 10L);
+        var caller = new Profile.Function("handle", "_ZN6handleEv", "handler.cc", 40L);
+        var leaf = Profile.Location.builder()
+                .mapping(mapping)
+                .address(0x1234L)
+                .addLine(new Profile.Line(inlined, 12L, 3L))
+                .addLine(new Profile.Line(caller, 44L, 9L))
+                .attributes(Attributes.builder().put("profile.frame.type", "native").build())
+                .build();
+        var root = Profile.Location.builder().mapping(mapping).address(0x2000L).build();
+        var stack = new Profile.Stack(List.of(leaf, root));
+        var link = new Profile.Link("0102030405060708090a0b0c0d0e0f10", "0102030405060708");
+        var heap = Attributes.builder().put("allocation_size", 128L).put("thread.name", "worker").build();
+        return profiles(Profile.builder()
+                .profileId("0102030405060708090a0b0c0d0e0f10")
+                .epochNanos(1_700_000_000_000_000_000L)
+                .durationNanos(5_000_000L)
+                .sampleType(new Profile.ValueType("cpu", "nanoseconds"))
+                .periodType(new Profile.ValueType("cpu", "milliseconds"))
+                .period(10L)
+                .addSample(Profile.Sample.builder().stack(stack).link(link).addValue(30L).build())
+                .addSample(Profile.Sample.builder()
+                        .stack(stack)
+                        .attributes(heap)
+                        .attributeUnits(Map.of("allocation_size", "By"))
+                        .addTimestamp(1_700_000_000_000_000_100L)
+                        .addTimestamp(1_700_000_000_000_000_200L)
+                        .build())
+                .addSample(Profile.Sample.builder()
+                        .addValue(1L)
+                        .addValue(2L)
+                        .addTimestamp(1_700_000_000_000_000_300L)
+                        .addTimestamp(1_700_000_000_000_000_400L)
+                        .build())
+                .attributes(Attributes.builder().put("pprof.profile.comment", "nightly").build())
+                .droppedAttributesCount(4)
+                .originalPayloadFormat("pprof")
+                .originalPayload(new byte[] {1, 2, 3})
+                .build());
     }
 
     // --- malformed / mutated inputs for the bug-hunt tests -------------------------------------

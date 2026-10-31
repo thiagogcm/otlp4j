@@ -64,6 +64,13 @@ public record BatchProcessorConfig(
         if (sizer == null) {
             throw new IllegalArgumentException("sizer must be non-null; use PayloadSizer.reported()");
         }
+        if ((batch.sendBatchMaxSize() > 0 || batch.sendBatchMaxBytes() > 0)
+                && delivery.queueSize() < MIN_QUEUE_SIZE_WITH_CAP) {
+            throw new IllegalArgumentException(
+                    "a hard batch cap needs delivery.queueSize >= " + MIN_QUEUE_SIZE_WITH_CAP
+                            + ", got " + delivery.queueSize() + ": the queue admits the requests of one "
+                            + "flush as a group, so a smaller one can refuse ordinary accepted work");
+        }
         if (batch.sendBatchMaxBytes() > 0 && sizer == PayloadSizer.reported()) {
             throw new IllegalArgumentException(
                     "sendBatchMaxBytes needs a sizer that can weigh every payload, because the default "
@@ -93,6 +100,12 @@ public record BatchProcessorConfig(
     }
 
     public static final int DEFAULT_MAX_PENDING_SUBMISSIONS = 1024;
+
+    /// The smallest delivery queue a hard output cap may use. A flush holds at most one submission of
+    /// half the queue beside what was already buffered, and with heavy-tailed item sizes that can split
+    /// into some sixteen requests of its own, so this leaves the group room to fit.
+    public static final int MIN_QUEUE_SIZE_WITH_CAP = 64;
+
     public static final long DEFAULT_MAX_PENDING_BYTES = 64L * 1024 * 1024;
     public static final int DEFAULT_MAX_PARTITIONS = 1024;
 

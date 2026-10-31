@@ -40,6 +40,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalDouble;
+import java.util.function.Function;
 
 /** Converts immutable OpenTelemetry SDK export data into immutable otlp4j batches. */
 final class SdkDataMapper {
@@ -53,96 +54,58 @@ final class SdkDataMapper {
     private SdkDataMapper() {}
 
     static TracesData traces(Collection<SpanData> spans) {
-        var groups = new LinkedHashMap<ResourceKey, ResourceGroup<Span>>();
-        for (var sdkSpan : spans) {
-            var sdkResource = sdkSpan.getResource();
-            var resource = resourceOf(sdkResource);
-            var resourceSchemaUrl = schemaUrl(sdkResource.getSchemaUrl());
-            var resourceKey = new ResourceKey(resource, resourceSchemaUrl);
-            var resourceGroup = groups.computeIfAbsent(resourceKey, key -> new ResourceGroup<>(
-                    key.resource, key.schemaUrl));
-            var sdkScope = sdkSpan.getInstrumentationScopeInfo();
-            var scope = scopeOf(sdkScope);
-            var scopeSchemaUrl = schemaUrl(sdkScope.getSchemaUrl());
-            var scopeKey = new ScopeKey(scope, scopeSchemaUrl);
-            var scopeGroup = resourceGroup.scopes.computeIfAbsent(scopeKey, key ->
-                    new ScopeGroup<>(key.scope, key.schemaUrl));
-            scopeGroup.items.add(spanOf(sdkSpan));
-        }
-
-        var resourceSpans = new ArrayList<TracesData.ResourceSpans>(groups.size());
-        for (var resourceGroup : groups.values()) {
-            var scopeSpans = new ArrayList<TracesData.ScopeSpans>(resourceGroup.scopes.size());
-            for (var scopeGroup : resourceGroup.scopes.values()) {
-                scopeSpans.add(new TracesData.ScopeSpans(
-                        scopeGroup.scope, scopeGroup.schemaUrl, scopeGroup.items));
-            }
-            resourceSpans.add(new TracesData.ResourceSpans(
-                    resourceGroup.resource, resourceGroup.schemaUrl, scopeSpans));
-        }
-        return new TracesData(resourceSpans);
+        return new TracesData(group(
+                spans, SpanData::getResource, SpanData::getInstrumentationScopeInfo, SdkDataMapper::spanOf,
+                TracesData.ScopeSpans::new, TracesData.ResourceSpans::new));
     }
 
     static LogsData logs(Collection<LogRecordData> logs) {
-        var groups = new LinkedHashMap<ResourceKey, ResourceGroup<LogRecord>>();
-        for (var sdkLog : logs) {
-            var sdkResource = sdkLog.getResource();
-            var resource = resourceOf(sdkResource);
-            var resourceSchemaUrl = schemaUrl(sdkResource.getSchemaUrl());
-            var resourceKey = new ResourceKey(resource, resourceSchemaUrl);
-            var resourceGroup = groups.computeIfAbsent(resourceKey, key -> new ResourceGroup<>(
-                    key.resource, key.schemaUrl));
-            var sdkScope = sdkLog.getInstrumentationScopeInfo();
-            var scope = scopeOf(sdkScope);
-            var scopeSchemaUrl = schemaUrl(sdkScope.getSchemaUrl());
-            var scopeKey = new ScopeKey(scope, scopeSchemaUrl);
-            var scopeGroup = resourceGroup.scopes.computeIfAbsent(scopeKey, key ->
-                    new ScopeGroup<>(key.scope, key.schemaUrl));
-            scopeGroup.items.add(logOf(sdkLog));
-        }
-
-        var resourceLogs = new ArrayList<LogsData.ResourceLogs>(groups.size());
-        for (var resourceGroup : groups.values()) {
-            var scopeLogs = new ArrayList<LogsData.ScopeLogs>(resourceGroup.scopes.size());
-            for (var scopeGroup : resourceGroup.scopes.values()) {
-                scopeLogs.add(new LogsData.ScopeLogs(
-                        scopeGroup.scope, scopeGroup.schemaUrl, scopeGroup.items));
-            }
-            resourceLogs.add(new LogsData.ResourceLogs(
-                    resourceGroup.resource, resourceGroup.schemaUrl, scopeLogs));
-        }
-        return new LogsData(resourceLogs);
+        return new LogsData(group(
+                logs, LogRecordData::getResource, LogRecordData::getInstrumentationScopeInfo, SdkDataMapper::logOf,
+                LogsData.ScopeLogs::new, LogsData.ResourceLogs::new));
     }
 
     static MetricsData metrics(Collection<MetricData> metrics) {
-        var groups = new LinkedHashMap<ResourceKey, ResourceGroup<Metric>>();
-        for (var sdkMetric : metrics) {
-            var sdkResource = sdkMetric.getResource();
-            var resource = resourceOf(sdkResource);
-            var resourceSchemaUrl = schemaUrl(sdkResource.getSchemaUrl());
-            var resourceKey = new ResourceKey(resource, resourceSchemaUrl);
-            var resourceGroup = groups.computeIfAbsent(resourceKey, key -> new ResourceGroup<>(
-                    key.resource, key.schemaUrl));
-            var sdkScope = sdkMetric.getInstrumentationScopeInfo();
-            var scope = scopeOf(sdkScope);
-            var scopeSchemaUrl = schemaUrl(sdkScope.getSchemaUrl());
-            var scopeKey = new ScopeKey(scope, scopeSchemaUrl);
-            var scopeGroup = resourceGroup.scopes.computeIfAbsent(scopeKey, key ->
-                    new ScopeGroup<>(key.scope, key.schemaUrl));
-            scopeGroup.items.add(metricOf(sdkMetric));
-        }
+        return new MetricsData(group(
+                metrics, MetricData::getResource, MetricData::getInstrumentationScopeInfo, SdkDataMapper::metricOf,
+                MetricsData.ScopeMetrics::new, MetricsData.ResourceMetrics::new));
+    }
 
-        var resourceMetrics = new ArrayList<MetricsData.ResourceMetrics>(groups.size());
-        for (var resourceGroup : groups.values()) {
-            var scopeMetrics = new ArrayList<MetricsData.ScopeMetrics>(resourceGroup.scopes.size());
-            for (var scopeGroup : resourceGroup.scopes.values()) {
-                scopeMetrics.add(new MetricsData.ScopeMetrics(
-                        scopeGroup.scope, scopeGroup.schemaUrl, scopeGroup.items));
-            }
-            resourceMetrics.add(new MetricsData.ResourceMetrics(
-                    resourceGroup.resource, resourceGroup.schemaUrl, scopeMetrics));
+    /// Builds one OTLP grouping level around the items or groups below it.
+    @FunctionalInterface
+    interface Grouping<O, C, G> {
+        G of(O owner, String schemaUrl, List<C> children);
+    }
+
+    /// Nests `items` the way OTLP does, by resource then by scope, in first-seen order. Equal resources
+    /// and scopes coalesce, and `item` maps each one to the signal's domain item.
+    static <I, V, S, R> List<R> group(
+            Collection<I> items,
+            Function<I, io.opentelemetry.sdk.resources.Resource> resource,
+            Function<I, InstrumentationScopeInfo> scope,
+            Function<I, V> item,
+            Grouping<InstrumentationScope, V, S> scopeGroup,
+            Grouping<Resource, S, R> resourceGroup) {
+        var groups = new LinkedHashMap<ResourceKey, Map<ScopeKey, List<V>>>();
+        for (var sdkItem : items) {
+            var sdkResource = resource.apply(sdkItem);
+            var sdkScope = scope.apply(sdkItem);
+            groups.computeIfAbsent(
+                            new ResourceKey(resourceOf(sdkResource), nullToEmpty(sdkResource.getSchemaUrl())),
+                            key -> new LinkedHashMap<>())
+                    .computeIfAbsent(
+                            new ScopeKey(scopeOf(sdkScope), nullToEmpty(sdkScope.getSchemaUrl())),
+                            key -> new ArrayList<>())
+                    .add(item.apply(sdkItem));
         }
-        return new MetricsData(resourceMetrics);
+        var resources = new ArrayList<R>(groups.size());
+        groups.forEach((resourceKey, scopes) -> {
+            var scopeGroups = new ArrayList<S>(scopes.size());
+            scopes.forEach((scopeKey, values) ->
+                    scopeGroups.add(scopeGroup.of(scopeKey.scope(), scopeKey.schemaUrl(), values)));
+            resources.add(resourceGroup.of(resourceKey.resource(), resourceKey.schemaUrl(), scopeGroups));
+        });
+        return resources;
     }
 
     private static Span spanOf(SpanData sdkSpan) {
@@ -195,14 +158,14 @@ final class SdkDataMapper {
                 sdkLog.getTimestampEpochNanos(),
                 sdkLog.getObservedTimestampEpochNanos(),
                 LogRecord.Severity.fromNumber(severity == null ? 0 : severity.getSeverityNumber()),
-                sdkLog.getSeverityText() == null ? "" : sdkLog.getSeverityText(),
+                nullToEmpty(sdkLog.getSeverityText()),
                 body == null ? AttributeValue.empty() : attributeValueOf(body),
                 attributesOf(sdkLog.getAttributes()),
                 dropped(sdkLog.getTotalAttributeCount(), sdkLog.getAttributes().size()),
                 traceFlags(context),
                 traceId(context),
                 spanId(context),
-                sdkLog.getEventName() == null ? "" : sdkLog.getEventName());
+                nullToEmpty(sdkLog.getEventName()));
     }
 
     private static Metric metricOf(MetricData sdkMetric) {
@@ -398,27 +361,19 @@ final class SdkDataMapper {
         if (value instanceof byte[] bytes) {
             return AttributeValue.of(bytes);
         }
-        if (value instanceof ByteBuffer bytes) {
-            var copy = bytes.asReadOnlyBuffer();
-            var bytesArray = new byte[copy.remaining()];
-            copy.get(bytesArray);
-            return AttributeValue.of(bytesArray);
+        if (value instanceof ByteBuffer buffer) {
+            return AttributeValue.of(bytes(buffer));
         }
         throw new IllegalArgumentException("Unsupported OpenTelemetry attribute value: " + value);
     }
 
-    private static AttributeValue attributeValueOf(Value<?> value) {
+    static AttributeValue attributeValueOf(Value<?> value) {
         return switch (value.getType()) {
             case STRING -> AttributeValue.of((String) value.getValue());
             case BOOLEAN -> AttributeValue.of((Boolean) value.getValue());
             case LONG -> AttributeValue.of((Long) value.getValue());
             case DOUBLE -> AttributeValue.of((Double) value.getValue());
-            case BYTES -> {
-                var bytes = ((ByteBuffer) value.getValue()).asReadOnlyBuffer();
-                var copy = new byte[bytes.remaining()];
-                bytes.get(copy);
-                yield AttributeValue.of(copy);
-            }
+            case BYTES -> AttributeValue.of(bytes((ByteBuffer) value.getValue()));
             case ARRAY -> {
                 var values = new ArrayList<AttributeValue>();
                 for (var element : (List<?>) value.getValue()) {
@@ -453,7 +408,7 @@ final class SdkDataMapper {
         // count.
         return new InstrumentationScope(
                 scope.getName(),
-                scope.getVersion() == null ? "" : scope.getVersion(),
+                nullToEmpty(scope.getVersion()),
                 attributesOf(scope.getAttributes()),
                 0);
     }
@@ -488,12 +443,20 @@ final class SdkDataMapper {
         };
     }
 
-    private static int dropped(int total, int retained) {
+    static int dropped(int total, int retained) {
         return Math.max(0, total - retained);
     }
 
-    private static String schemaUrl(String schemaUrl) {
-        return schemaUrl == null ? "" : schemaUrl;
+    static String nullToEmpty(String value) {
+        return value == null ? "" : value;
+    }
+
+    /// Copies a buffer's remaining bytes without moving its position.
+    static byte[] bytes(ByteBuffer buffer) {
+        var readable = buffer.asReadOnlyBuffer();
+        var copy = new byte[readable.remaining()];
+        readable.get(copy);
+        return copy;
     }
 
     private static String traceId(SpanContext context) {
@@ -536,26 +499,4 @@ final class SdkDataMapper {
     private record ResourceKey(Resource resource, String schemaUrl) {}
 
     private record ScopeKey(InstrumentationScope scope, String schemaUrl) {}
-
-    private static final class ResourceGroup<T> {
-        private final Resource resource;
-        private final String schemaUrl;
-        private final Map<ScopeKey, ScopeGroup<T>> scopes = new LinkedHashMap<>();
-
-        private ResourceGroup(Resource resource, String schemaUrl) {
-            this.resource = resource;
-            this.schemaUrl = schemaUrl;
-        }
-    }
-
-    private static final class ScopeGroup<T> {
-        private final InstrumentationScope scope;
-        private final String schemaUrl;
-        private final List<T> items = new ArrayList<>();
-
-        private ScopeGroup(InstrumentationScope scope, String schemaUrl) {
-            this.scope = scope;
-            this.schemaUrl = schemaUrl;
-        }
-    }
 }

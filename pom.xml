@@ -74,6 +74,7 @@
         <jacoco-maven-plugin.version>0.8.15</jacoco-maven-plugin.version>
         <maven-dependency-plugin.version>3.11.0</maven-dependency-plugin.version>
         <opentelemetry.version>1.67.0</opentelemetry.version>
+        <opentelemetry-alpha.version>${opentelemetry.version}-alpha</opentelemetry-alpha.version>
     </properties>
 
     <dependencyManagement>
@@ -186,6 +187,12 @@
                 <version>${opentelemetry.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+            <dependency>
+                <!-- Alpha, so the stable BOM above does not manage it. -->
+                <groupId>io.opentelemetry</groupId>
+                <artifactId>opentelemetry-sdk-profiles</artifactId>
+                <version>${opentelemetry-alpha.version}</version>
             </dependency>
 
             <dependency>

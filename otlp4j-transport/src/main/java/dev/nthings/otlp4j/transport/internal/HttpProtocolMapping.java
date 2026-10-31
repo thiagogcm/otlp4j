@@ -44,8 +44,8 @@ import org.slf4j.LoggerFactory;
 /// - malformed protobuf yields `400`.
 /// - an admission rejection yields `429` with a `Retry-After` header when a throttle hint is set.
 /// - a [DeliveryResult.Accepted] or [DeliveryResult.Partial] yields `200` with the protobuf response;
-///   a retryable rejection yields `503` (with `Retry-After` when hinted), a permanent one `500`; a
-///   dispatcher failure yields `500`.
+///   a retryable rejection yields `503` (with `Retry-After` when hinted), a permanent one `500`, or
+///   `400` when the request itself is invalid; a dispatcher failure yields `500`.
 final class HttpProtocolMapping {
 
     private static final Logger log = LoggerFactory.getLogger(HttpProtocolMapping.class);
@@ -223,7 +223,7 @@ final class HttpProtocolMapping {
                 : error;
     }
 
-    private static HttpResponse text(HttpStatus status, @Nullable String message) {
+    static HttpResponse text(HttpStatus status, @Nullable String message) {
         return statusResponse(status, message, null);
     }
 

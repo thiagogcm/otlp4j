@@ -73,4 +73,31 @@ class BatchProcessorConfigTest {
     private static BatchProcessorConfig config(Duration degradedWindow) {
         return new BatchProcessorConfig(BATCH, DELIVERY, degradedWindow, 1, 1, 1);
     }
+
+    @Test
+    void aHardCapNeedsAQueueThatCanHoldOneFlush() {
+        var byteCap = new BatchPolicy(8192, 0, 1024, Duration.ofSeconds(1), List.of());
+        var itemCap = new BatchPolicy(8, 8, 0, Duration.ofSeconds(1), List.of());
+        var noCap = new BatchPolicy(8192, 0, 0, Duration.ofSeconds(1), List.of());
+        var small = new DeliveryQueuePolicy(63, 1, OverflowPolicy.FAIL);
+        var enough = new DeliveryQueuePolicy(64, 1, OverflowPolicy.FAIL);
+
+        assertThatThrownBy(() -> config(byteCap, small)).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("queueSize");
+        assertThatThrownBy(() -> config(itemCap, small)).isInstanceOf(IllegalArgumentException.class);
+        assertThat(config(byteCap, enough).delivery()).isEqualTo(enough);
+        assertThat(config(noCap, small).delivery()).isEqualTo(small);
+    }
+
+    private static BatchProcessorConfig config(BatchPolicy batch, DeliveryQueuePolicy delivery) {
+        return new BatchProcessorConfig(
+                batch,
+                delivery,
+                Duration.ofSeconds(5),
+                BatchProcessorConfig.DEFAULT_MAX_PENDING_SUBMISSIONS,
+                BatchProcessorConfig.DEFAULT_MAX_PENDING_BYTES,
+                BatchProcessorConfig.DEFAULT_MAX_PARTITIONS,
+                BatchProcessorConfig.DEFAULT_MAX_PENDING_ITEMS,
+                payload -> 1L);
+    }
 }

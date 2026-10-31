@@ -4,7 +4,7 @@
 /// assembled into any graph without dragging a server or client runtime with it.
 ///
 /// The `dev.nthings.otlp4j.core` contracts are re-exported transitively because a built-in factory's
-/// public config record and its `SignalSupport` capability uses core types. The
+/// public config record uses core types. The
 /// `dev.nthings.otlp4j.components.internal` package, holding the bounded delivery queue and memory
 /// limiter core, is deliberately not exported: it is module-internal machinery a component reuses, not
 /// a public surface.

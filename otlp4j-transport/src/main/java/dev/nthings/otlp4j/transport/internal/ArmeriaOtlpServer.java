@@ -1,5 +1,6 @@
 package dev.nthings.otlp4j.transport.internal;
 
+import com.linecorp.armeria.server.HttpService;
 import com.linecorp.armeria.server.Server;
 import com.linecorp.armeria.server.ServerBuilder;
 import com.linecorp.armeria.server.grpc.GrpcService;
@@ -20,6 +21,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
+import java.util.function.UnaryOperator;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -51,13 +53,13 @@ public final class ArmeriaOtlpServer {
     /// which would drop telemetry on every rolling restart, so the quiet period is kept non-zero.
     private static final Duration QUIET_PERIOD = Duration.ofSeconds(1);
 
-    private record HttpRoute(SignalCodec<?, ?, ?> codec, String path) {}
+    private record HttpRoute(SignalCodec<?, ?, ?> codec, String path, UnaryOperator<HttpService> guard) {}
 
     private static final List<HttpRoute> HTTP_ROUTES = List.of(
-            new HttpRoute(SignalCodec.TRACES, OtlpHttpPaths.TRACES_PATH),
-            new HttpRoute(SignalCodec.METRICS, OtlpHttpPaths.METRICS_PATH),
-            new HttpRoute(SignalCodec.LOGS, OtlpHttpPaths.LOGS_PATH),
-            new HttpRoute(SignalCodec.PROFILES, OtlpHttpPaths.PROFILES_PATH));
+            new HttpRoute(SignalCodec.TRACES, OtlpHttpPaths.TRACES_PATH, UnaryOperator.identity()),
+            new HttpRoute(SignalCodec.METRICS, OtlpHttpPaths.METRICS_PATH, UnaryOperator.identity()),
+            new HttpRoute(SignalCodec.LOGS, OtlpHttpPaths.LOGS_PATH, UnaryOperator.identity()),
+            new HttpRoute(SignalCodec.PROFILES, OtlpHttpPaths.PROFILES_PATH, ProfilesDevelopmentVersion::guard));
 
     private final OtlpReceiverConfig config;
     private final PayloadDispatch dispatch;
@@ -156,12 +158,12 @@ public final class ArmeriaOtlpServer {
             for (var route : HTTP_ROUTES) {
                 sb.route().post(route.path())
                         .maxRequestLength(wireCap)
-                        .build(HttpProtocolMapping.service(
+                        .build(route.guard().apply(HttpProtocolMapping.service(
                                 route.codec(),
                                 dispatch,
                                 config.maxInboundMessageSizeBytes(),
                                 admissionControl,
-                                clock));
+                                clock)));
             }
         }
 

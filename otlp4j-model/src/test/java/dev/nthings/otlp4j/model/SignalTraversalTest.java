@@ -225,18 +225,19 @@ class SignalTraversalTest {
                                 Resource.EMPTY,
                                 "",
                                 List.of(new ProfilesData.ScopeProfiles(
-                                        InstrumentationScope.of("s3"), "", List.of(profile("c")))))),
-                new byte[0]);
+                                        InstrumentationScope.of("s3"), "", List.of(profile("c")))))));
 
         @DisplayName("forEachProfile visits every profile in flattened order")
         @Test
         void forEachProfileVisitsEveryProfileInFlattenedOrder() {
-            var visited = new ArrayList<ProfilesData.Profile>();
+            var visited = new ArrayList<Profile>();
 
             data.forEachProfile(visited::add);
 
             assertThat(visited).containsExactlyElementsOf(data.profiles());
-            assertThat(visited).extracting(ProfilesData.Profile::profileId).containsExactly("a", "b", "c");
+            assertThat(visited)
+                    .extracting(Profile::profileId)
+                    .containsExactly("a".repeat(32), "b".repeat(32), "c".repeat(32));
         }
 
         @DisplayName("profileCount equals the flattened profile count")
@@ -248,7 +249,7 @@ class SignalTraversalTest {
         @DisplayName("an empty batch counts zero and never invokes the action")
         @Test
         void emptyBatchCountsZeroAndNeverInvokesTheAction() {
-            var empty = new ProfilesData(List.of(), new byte[0]);
+            var empty = new ProfilesData(List.of());
 
             assertThat(empty.profileCount()).isZero();
             empty.forEachProfile(profile -> {
@@ -262,8 +263,8 @@ class SignalTraversalTest {
             assertThatNullPointerException().isThrownBy(() -> data.forEachProfile(null));
         }
 
-        private static ProfilesData.Profile profile(String id) {
-            return new ProfilesData.Profile(id, 0L, 0L, 0L, 0, 0, "", new byte[0]);
+        private static Profile profile(String digit) {
+            return Profile.builder().profileId(digit.repeat(32)).build();
         }
     }
 }

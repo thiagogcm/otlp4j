@@ -22,9 +22,8 @@ import org.jspecify.annotations.Nullable;
 /// forwarded verbatim to the attached consumer, whose [DeliveryResult] flows back to the transport
 /// unchanged. When no consumer is attached, dispatch answers a retryable [DeliveryReason#NO_CONSUMER]
 /// rejection attributed to the receiver, which the transport renders as gRPC `UNAVAILABLE` / HTTP
-/// `503`. A directly attached consumer's throw or failed stage is NOT normalized here: it propagates
-/// so the transport renders gRPC `INTERNAL` / HTTP `500`, exactly as the graph boundary upstream
-/// leaves it.
+/// `503`. A directly attached consumer's throw or failed stage becomes a permanent rejection, as it
+/// does at a graph boundary, so the transport classifies every failure in one place.
 ///
 /// @param <T> the domain batch type this signal identifies
 public final class SignalSource<T> {
@@ -69,6 +68,12 @@ public final class SignalSource<T> {
         if (consumer == null) {
             return CompletableFuture.completedFuture(noConsumerResult);
         }
-        return consumer.consume(context, payload);
+        try {
+            return consumer.consume(context, payload).exceptionally(
+                    failure -> DeliveryResult.permanentFrom("consume failed", failure, provenance));
+        } catch (RuntimeException failure) {
+            return CompletableFuture.completedFuture(
+                    DeliveryResult.permanentFrom("consume threw", failure, provenance));
+        }
     }
 }

@@ -101,7 +101,8 @@ These are the bundled receiver's mappings. HTTP admission refusal refers to refu
 | Accepted | `200`, OTLP response | `OK`, OTLP response |
 | Partial | `200`, OTLP partial-success response | `OK`, OTLP partial-success response |
 | Retryable whole-payload rejection | `503` | `UNAVAILABLE` |
-| Permanent whole-payload rejection or dispatcher failure | `500` | `INTERNAL` |
+| Request content a component cannot decode | `400` | `INVALID_ARGUMENT` |
+| Other permanent whole-payload rejection or dispatcher failure | `500` | `INTERNAL` |
 | Receiver at capacity | `429` | `UNAVAILABLE` |
 | Request exceeds decoded-message cap | `413` | `RESOURCE_EXHAUSTED` |
 

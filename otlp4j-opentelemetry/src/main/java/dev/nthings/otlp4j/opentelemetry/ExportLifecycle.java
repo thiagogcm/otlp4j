@@ -12,7 +12,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Supplier;
 
-/** Shared lifecycle and result handling for the three SDK exporter adapters. */
+/** Shared lifecycle and result handling for the SDK exporter adapters. */
 abstract class ExportLifecycle<T> {
 
     static final Duration DEFAULT_SHUTDOWN_TIMEOUT = Duration.ofSeconds(10);
@@ -41,6 +41,22 @@ abstract class ExportLifecycle<T> {
 
     protected final TelemetryInput<T> input() {
         return input;
+    }
+
+    /**
+     * Exports the batch {@code snapshot} takes, or reports an empty export when it holds no items. A
+     * failure taking the snapshot fails the export.
+     */
+    protected final CompletableResultCode exportSnapshot(Supplier<T> snapshot) {
+        try {
+            var batch = snapshot.get();
+            if (input.signal().itemCount(batch) == 0) {
+                return emptyExport();
+            }
+            return submit(() -> input.submit(batch));
+        } catch (RuntimeException exception) {
+            return CompletableResultCode.ofExceptionalFailure(exception);
+        }
     }
 
     /** Returns success for an empty SDK export while still enforcing adapter lifecycle. */

@@ -23,6 +23,8 @@ Both protocols carry all four signals. HTTP uses `POST` and `application/x-proto
 
 The HTTP receiver tolerates a missing content-type header. It rejects JSON and other content types with `415`, unsupported methods with `405`, malformed protobuf with `400`, and oversized decoded requests with `413`.
 
+Profiles are a `v1development` signal, and a request can name its schema version in the `OTLP-Profiles-Development-Version` header or `otlp-profiles-development-version` gRPC metadata. The receiver reads version 1, which is also what a request without that metadata means. It refuses a repeated value, a malformed value, or any other version before decoding the request, with `400` over HTTP and `INVALID_ARGUMENT` over gRPC. The exporter sends version 1 and omits the optional metadata.
+
 ## Configure an exporter
 
 `OtlpExporterConfig` holds the endpoint, optional HTTP path prefix, headers, TLS, compression, retry policy, timeout policy, and request/response byte caps. Use the record's builder for graph factories or pass the built record to an owned exporter.
