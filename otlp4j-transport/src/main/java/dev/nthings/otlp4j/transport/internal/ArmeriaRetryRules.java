@@ -13,6 +13,12 @@ import com.linecorp.armeria.common.logging.RequestLog;
 import com.linecorp.armeria.common.logging.RequestLogProperty;
 import dev.nthings.otlp4j.core.policy.BackoffPolicy;
 import dev.nthings.otlp4j.core.policy.RetryPolicy;
+import dev.nthings.otlp4j.core.result.DeliveryReason;
+import dev.nthings.otlp4j.core.result.DeliveryResult;
+import dev.nthings.otlp4j.core.result.Disposition;
+import dev.nthings.otlp4j.core.result.Provenance;
+import io.grpc.Metadata;
+import io.grpc.Status;
 import java.time.Duration;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
@@ -48,6 +54,12 @@ import org.jspecify.annotations.Nullable;
 ///    absolute-date form the OTLP/HTTP spec also allows. gRPC carries no `Retry-After` header, so that
 ///    path only reaches the trailer hints above.
 ///
+/// The same decision functions classify an outcome that survives the retries: the exporter turns a
+/// final response or failure into a retryable or permanent downstream [DeliveryResult] through
+/// [#decideHttp(int, String, boolean)], [#decideGrpc(Status, Metadata, boolean)] and
+/// [#toDelivery], so the code sets and hint precedence live in exactly one place and a gateway's
+/// upstream sender is told the same thing the retry loop concluded.
+///
 /// **Internal.** Part of the transport layer.
 final class ArmeriaRetryRules {
 
@@ -71,6 +83,12 @@ final class ArmeriaRetryRules {
     /// HTTP statuses the client retries: 429, 502, 503, and 504. Request timeout (408) is permanent
     /// because it does not establish that retrying the request is safe.
     private static final Set<Integer> RETRYABLE_HTTP = Set.of(429, 502, 503, 504);
+
+    private static final Metadata.Key<String> PUSHBACK_KEY =
+            Metadata.Key.of(PUSHBACK_MS, Metadata.ASCII_STRING_MARSHALLER);
+
+    private static final Metadata.Key<byte[]> STATUS_DETAILS_KEY =
+            Metadata.Key.of(STATUS_DETAILS_BIN, Metadata.BINARY_BYTE_MARSHALLER);
 
     private ArmeriaRetryRules() {}
 
@@ -192,9 +210,9 @@ final class ArmeriaRetryRules {
         return Decision.retryDefault();
     }
 
-    /// The HTTP retry decision from the status alone. The `Retry-After` header is not read here: the
-    /// [HttpRetryRule] parses and folds it onto a [Kind#RETRY_DEFAULT] result when the policy respects
-    /// server hints, so this pure function stays a plain status-to-retryability mapping.
+    /// The HTTP retry decision from the status alone. The `Retry-After` header is not read here, so this
+    /// pure function stays a plain status-to-retryability mapping; see
+    /// [#decideHttp(int, String, boolean)] for the decision with the header folded in.
     ///
     /// @param httpStatus       the response status code, or null when the attempt failed at the transport
     /// @param transportFailure true when the attempt failed with an exception and no response
@@ -205,6 +223,70 @@ final class ArmeriaRetryRules {
         }
         var retryable = httpStatus != null && RETRYABLE_HTTP.contains(httpStatus);
         return retryable ? Decision.retryDefault() : Decision.noRetry();
+    }
+
+    /// The HTTP decision for a received response: the status mapping of [#decideHttp(Integer, boolean)],
+    /// with a retryable response's `Retry-After` header (numeric or RFC 1123 date) folded into a
+    /// [Kind#RETRY_DELAY] when the policy respects server hints.
+    ///
+    /// @param httpStatus    the response status code
+    /// @param retryAfter    the raw `Retry-After` header value, or null when absent
+    /// @param respectHints  whether the policy respects positive server backoff hints
+    /// @return the decision
+    static Decision decideHttp(int httpStatus, @Nullable String retryAfter, boolean respectHints) {
+        var decision = decideHttp(httpStatus, false);
+        if (decision.kind() == Kind.RETRY_DEFAULT && respectHints) {
+            var delay = parseRetryAfter(retryAfter);
+            if (delay != null) {
+                return Decision.retryAfter(delay);
+            }
+        }
+        return decision;
+    }
+
+    /// The gRPC decision for a call that finished with a non-OK `status` and `trailers`, as surfaced by
+    /// an Armeria gRPC client call. The pushback and `RetryInfo` are read from the trailers the call
+    /// exposes, then handed to [#decideGrpc(Integer, Long, Duration, boolean, boolean)] exactly as the
+    /// retry rule does from the raw HTTP/2 trailers.
+    ///
+    /// @param status        the call's final status
+    /// @param trailers      the call's trailers, or null when none were exposed
+    /// @param respectHints  whether the policy respects positive server backoff hints
+    /// @return the decision
+    static Decision decideGrpc(Status status, @Nullable Metadata trailers, boolean respectHints) {
+        Long pushback = null;
+        Duration retryInfo = null;
+        if (trailers != null) {
+            pushback = parseLong(trailers.get(PUSHBACK_KEY));
+            var details = trailers.get(STATUS_DETAILS_KEY);
+            if (details != null) {
+                retryInfo = RetryInfoCodec.decodeRetryDelay(details);
+            }
+        }
+        return decideGrpc(status.getCode().value(), pushback, retryInfo, false, respectHints);
+    }
+
+    /// Renders a [Decision] as the downstream [DeliveryResult] an exporter reports once retries are
+    /// exhausted or declined: `NO_RETRY` and `STOP` are permanent, `RETRY_DEFAULT` is retryable, and
+    /// `RETRY_DELAY` is retryable carrying the server's requested delay as the hint. Every result is
+    /// marked downstream, since the endpoint (or the path to it) produced the outcome.
+    ///
+    /// @param decision   the decision to render
+    /// @param message    the explanation
+    /// @param cause      the diagnostic cause, may be null
+    /// @param provenance the exporter's provenance
+    /// @return the downstream rejection
+    static DeliveryResult toDelivery(
+            Decision decision, String message, @Nullable Throwable cause, Provenance provenance) {
+        return switch (decision.kind()) {
+            case NO_RETRY, STOP -> DeliveryResult.downstream(
+                    Disposition.PERMANENT, DeliveryReason.LOCAL_FAILURE, message, cause, null, provenance);
+            case RETRY_DEFAULT -> DeliveryResult.downstream(
+                    Disposition.RETRYABLE, DeliveryReason.LOCAL_FAILURE, message, cause, null, provenance);
+            case RETRY_DELAY -> DeliveryResult.downstream(
+                    Disposition.RETRYABLE, DeliveryReason.LOCAL_FAILURE, message, cause, decision.delay(),
+                    provenance);
+        };
     }
 
     /// Maps a neutral [Decision] onto an Armeria [RetryDecision] against `backoff`.
@@ -330,20 +412,12 @@ final class ArmeriaRetryRules {
                 return completed(toArmeria(decideHttp(null, true), backoff));
             }
             RequestLog log = ctx.log().getIfAvailable(RequestLogProperty.RESPONSE_HEADERS);
-            Integer status = null;
-            String retryAfter = null;
-            if (log != null) {
-                var responseHeaders = log.responseHeaders();
-                status = responseHeaders.status().code();
-                retryAfter = responseHeaders.get(RETRY_AFTER);
-            }
-            var decision = decideHttp(status, false);
-            if (decision.kind() == Kind.RETRY_DEFAULT && respectHints) {
-                var delay = parseRetryAfter(retryAfter);
-                if (delay != null) {
-                    decision = Decision.retryAfter(delay);
-                }
-            }
+            var decision = log == null
+                    ? decideHttp(null, false)
+                    : decideHttp(
+                            log.responseHeaders().status().code(),
+                            log.responseHeaders().get(RETRY_AFTER),
+                            respectHints);
             return completed(toArmeria(decision, backoff));
         }
     }

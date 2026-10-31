@@ -4,6 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.nthings.otlp4j.core.policy.BackoffPolicy;
+import dev.nthings.otlp4j.core.policy.DeliveryQueuePolicy;
+import dev.nthings.otlp4j.core.policy.OverflowPolicy;
+import dev.nthings.otlp4j.core.policy.RedeliveryPolicy;
 import dev.nthings.otlp4j.core.policy.RetryPolicy;
 import dev.nthings.otlp4j.core.policy.TimeoutPolicy;
 import java.time.Duration;
@@ -39,6 +42,41 @@ class OtlpComponentConfigTest {
         assertThat(config.retry()).isEqualTo(retry);
         assertThat(config.timeout().perAttempt()).isEqualTo(Duration.ofSeconds(3));
         assertThat(config.timeout().total()).isEqualTo(Duration.ofSeconds(15));
+    }
+
+    @DisplayName("queue and redelivery default to the Collector defaults in both defaults() and the builder")
+    @Test
+    void queueAndRedeliveryDefaults() {
+        var fromDefaults = OtlpExporterConfig.defaults(4317);
+        var fromBuilder = OtlpExporterConfig.builder(4317).build();
+
+        for (var config : new OtlpExporterConfig[] {fromDefaults, fromBuilder}) {
+            assertThat(config.queue()).isEqualTo(DeliveryQueuePolicy.defaults());
+            assertThat(config.redelivery()).isEqualTo(RedeliveryPolicy.defaults());
+        }
+    }
+
+    @DisplayName("queue, noQueue and redelivery set the record and survive toBuilder")
+    @Test
+    void queueKnobsRoundTrip() {
+        var queue = new DeliveryQueuePolicy(10, 2, OverflowPolicy.DROP_OLDEST);
+        var redelivery = new RedeliveryPolicy(
+                new BackoffPolicy(Duration.ofMillis(10), 2.0, 0.0, Duration.ofMillis(40)), Duration.ofSeconds(1));
+        var tuned = OtlpExporterConfig.builder(4317).queue(queue).redelivery(redelivery).build();
+        assertThat(tuned.queue()).isEqualTo(queue);
+        assertThat(tuned.redelivery()).isEqualTo(redelivery);
+        assertThat(tuned.toBuilder().build()).isEqualTo(tuned);
+
+        var unqueued = tuned.toBuilder().noQueue().build();
+        assertThat(unqueued.queue()).isNull();
+        assertThat(unqueued.redelivery()).isEqualTo(redelivery);
+        assertThat(unqueued.toBuilder().build().queue()).isNull();
+        assertThat(unqueued.toBuilder().queue(queue).build().queue()).isEqualTo(queue);
+
+        assertThatThrownBy(() -> OtlpExporterConfig.builder(4317).queue(null))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> OtlpExporterConfig.builder(4317).redelivery(null))
+                .isInstanceOf(NullPointerException.class);
     }
 
     @DisplayName("an unset total timeout falls back to the per-attempt bound")

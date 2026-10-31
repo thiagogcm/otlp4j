@@ -124,12 +124,14 @@ public abstract class OtlpGrpcConformanceSuite {
     }
 
     @Test
-    void dispatcherExceptionReturnsInternal() {
+    void dispatcherExceptionReturnsUnavailable() {
+        // A failure no component classified is retryable, as in the OpenTelemetry Collector's
+        // receiver: answering INTERNAL would tell the sender not to retry over a possibly transient fault.
         var scenario = Scenario.builder(ConformanceSignal.TRACES)
                 .outcome(new ProgrammedOutcome.ThrowRuntime("boom"))
                 .build();
         withGrpc(scenario, (client, gw) ->
-                assertThat(client.export(ConformanceSignal.TRACES).grpcCode()).hasValue(Status.Code.INTERNAL));
+                assertThat(client.export(ConformanceSignal.TRACES).grpcCode()).hasValue(Status.Code.UNAVAILABLE));
     }
 
     @Test

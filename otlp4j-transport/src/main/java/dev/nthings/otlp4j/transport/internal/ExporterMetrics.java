@@ -3,6 +3,7 @@ package dev.nthings.otlp4j.transport.internal;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.signal.Payload;
 import dev.nthings.otlp4j.core.telemetry.GatewayMetrics;
+import java.util.function.LongSupplier;
 import org.jspecify.annotations.Nullable;
 
 /// The single owner of the exporter's self-observability instruments. One instance is built per
@@ -29,8 +30,12 @@ public final class ExporterMetrics {
     private final GatewayMetrics.LongCounter bytes;
     private final GatewayMetrics.LongCounter durationNanos;
     private final GatewayMetrics.LongCounter retries;
+    private final GatewayMetrics.LongCounter queueRefused;
+    private final GatewayMetrics.LongCounter queueLost;
+    private final GatewayMetrics telemetry;
 
     private ExporterMetrics(GatewayMetrics telemetry) {
+        this.telemetry = telemetry;
         this.success = telemetry.counter(
                 "otlp4j.exporter.export.success", "batches the endpoint acknowledged");
         this.failure = telemetry.counter(
@@ -43,9 +48,15 @@ public final class ExporterMetrics {
                 "otlp4j.exporter.export.duration.nanos", "accumulated send latency in nanoseconds");
         this.retries = telemetry.counter(
                 "otlp4j.exporter.export.retries", "retry attempts beyond the first across all exports");
+        this.queueRefused = telemetry.counter(
+                "otlp4j.exporter.queue.refused.items",
+                "items an exporter queue refused to its sender because it was full or stopping");
+        this.queueLost = telemetry.counter(
+                "otlp4j.exporter.queue.lost.items",
+                "items an exporter queue acknowledged and then lost");
     }
 
-    /// Builds an instrument owner backed by `telemetry`, registering all six counters once. When
+    /// Builds an instrument owner backed by `telemetry`, registering all the counters once. When
     /// `telemetry` is the shared [GatewayMetrics#noop] registry the shared [#noop] owner is returned,
     /// so the wire client's `metrics == noop()` guard can short-circuit the retry-accounting context
     /// read when self-observability is disabled.
@@ -93,5 +104,31 @@ public final class ExporterMetrics {
     /// once per scheduled retry.
     public void recordRetry() {
         retries.add(1);
+    }
+
+    /// Records items an exporter queue refused to its sender: the queue was full under `FAIL`, or had
+    /// stopped accepting. The sender was told and owns the retry, so this is backpressure, not loss.
+    ///
+    /// @param items the items in the refused payload
+    public void recordQueueRefused(long items) {
+        queueRefused.add(items);
+    }
+
+    /// Records items an exporter queue acknowledged and then lost: redelivery gave up, a drop policy
+    /// discarded them, or shutdown ended before they were delivered.
+    ///
+    /// @param items the items lost
+    public void recordQueueLost(long items) {
+        queueLost.add(items);
+    }
+
+    /// Registers the depth of one exporter queue. The depth gauge is shared: it reports the total across
+    /// every queue reporting to the same registry, so the several queues of one exporter, one per
+    /// signal, do not replace each other.
+    ///
+    /// @param size the live depth of the queue
+    /// @return a registration to close when the queue stops
+    public GatewayMetrics.Registration registerQueueSize(LongSupplier size) {
+        return telemetry == GatewayMetrics.noop() ? () -> {} : QueueDepthGauge.register(telemetry, size);
     }
 }

@@ -4,6 +4,8 @@ import static dev.nthings.otlp4j.core.signal.SignalDescriptor.TRACES;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import dev.nthings.otlp4j.core.result.DeliveryReason;
+import dev.nthings.otlp4j.core.result.Disposition;
 import dev.nthings.otlp4j.core.consumer.ClientMetadata;
 import dev.nthings.otlp4j.core.consumer.ConsumeContext;
 import dev.nthings.otlp4j.core.consumer.Deadline;
@@ -99,11 +101,37 @@ class OwnedExporterLifecycleTest {
                     case "deadline" -> { }
                     default -> throw new AssertionError(trigger);
                 }
-                assertThatThrownBy(delivery::join).isInstanceOf(RuntimeException.class);
+                if (trigger.equals("deadline")) {
+                    // The caller's deadline elapsing is a retryable timeout, reported as a result.
+                    assertThat(delivery.join()).isInstanceOfSatisfying(DeliveryResult.Rejected.class, rejected -> {
+                        assertThat(rejected.disposition()).isEqualTo(Disposition.RETRYABLE);
+                        assertThat(rejected.reason()).isEqualTo(DeliveryReason.TIMEOUT);
+                    });
+                } else {
+                    assertThatThrownBy(delivery::join).isInstanceOf(RuntimeException.class);
+                }
                 cancelled.get(3, TimeUnit.SECONDS);
             } finally {
                 response.complete(DeliveryResult.accepted(Consumers.PROV));
             }
+        }
+    }
+
+    /// Connects through a URL's port, not the builder's 4317/4318 seed. A portless URL cannot be
+    /// tested end to end because its port would be 80 or 443, which a test cannot bind.
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void urlEndpointDecidesTheConnectedPort(boolean grpc) throws Exception {
+        var received = new CompletableFuture<Void>();
+        var receiver = cleanup.receiver(receiver(grpc).route(TRACES, (context, payload) -> {
+            received.complete(null);
+            return CompletableFuture.completedFuture(DeliveryResult.accepted(Consumers.PROV));
+        }).ephemeralPort().build().start());
+        try (var exporter = exporter(grpc).endpoint("http://localhost:" + receiver.port())
+                .timeout(BUDGET).build().start()) {
+            assertThat(exporter.export(TRACES, EMPTY).toCompletableFuture().get(5, TimeUnit.SECONDS))
+                    .isInstanceOf(DeliveryResult.Accepted.class);
+            assertThat(received).isCompleted();
         }
     }
 
@@ -122,8 +150,9 @@ class OwnedExporterLifecycleTest {
                 entered.get(3, TimeUnit.SECONDS);
                 var shutdown = exporter.shutdown(BUDGET);
                 assertThat(shutdown.toCompletableFuture()).isNotDone();
-                assertThatThrownBy(() -> exporter.export(TRACES, EMPTY).toCompletableFuture().join())
-                        .isInstanceOf(RuntimeException.class);
+                assertThat(exporter.export(TRACES, EMPTY).toCompletableFuture().join())
+                        .isInstanceOfSatisfying(DeliveryResult.Rejected.class, rejected ->
+                                assertThat(rejected.reason()).isEqualTo(DeliveryReason.SHUTDOWN));
                 response.complete(DeliveryResult.accepted(Consumers.PROV));
                 assertThat(delivery.get(3, TimeUnit.SECONDS)).isInstanceOf(DeliveryResult.Accepted.class);
                 shutdown.toCompletableFuture().get(5, TimeUnit.SECONDS);

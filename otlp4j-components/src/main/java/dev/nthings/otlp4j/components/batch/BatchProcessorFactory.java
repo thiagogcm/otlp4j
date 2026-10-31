@@ -35,6 +35,6 @@ public final class BatchProcessorFactory implements ProcessorFactory<BatchProces
     @Override
     public <T> Processor<T> create(
             CreateContext ctx, BatchProcessorConfig config, SignalDescriptor<T> signal, SignalConsumer<T> next) {
-        return new BatchProcessor<>(ctx.id(), signal, config, next, System::nanoTime);
+        return new BatchProcessor<>(ctx.id(), signal, config, next, System::nanoTime, ctx.base().metrics());
     }
 }

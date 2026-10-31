@@ -26,6 +26,7 @@ module dev.nthings.otlp4j.transport {
     // The consolidated transport runtime: one Armeria server and client for both protocols.
     requires com.linecorp.armeria;
     requires com.linecorp.armeria.grpc;
+    requires com.linecorp.armeria.grpc.protocol;
     // Netty SslContextBuilder / ClientAuth for the TLS mapping.
     requires io.netty.handler;
     requires io.netty.common;

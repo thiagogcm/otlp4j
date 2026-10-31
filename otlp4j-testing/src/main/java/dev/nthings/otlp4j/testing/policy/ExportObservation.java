@@ -1,5 +1,6 @@
 package dev.nthings.otlp4j.testing.policy;
 
+import dev.nthings.otlp4j.core.result.DeliveryReason;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import java.time.Duration;
 import java.util.List;
@@ -30,7 +31,7 @@ public record ExportObservation(
 
     /// The neutral outcome of an export, agreed by every seam so a case reads the same value on any
     /// transport. A rejection records failure independently of the number of attempts;
-    /// `TIMED_OUT` is a total-budget expiry.
+    /// `TIMED_OUT` is a total-budget expiry, a rejection with reason `TIMEOUT`.
     public enum Outcome {
         ACCEPTED,
         PARTIAL,
@@ -75,7 +76,10 @@ public record ExportObservation(
             return switch (result) {
                 case DeliveryResult.Accepted ignored -> Outcome.ACCEPTED;
                 case DeliveryResult.Partial ignored -> Outcome.PARTIAL;
-                case DeliveryResult.Rejected ignored -> Outcome.REJECTED;
+                // A total-budget expiry is reported as a retryable TIMEOUT rejection, not an exception.
+                case DeliveryResult.Rejected rejected -> rejected.reason() == DeliveryReason.TIMEOUT
+                        ? Outcome.TIMED_OUT
+                        : Outcome.REJECTED;
             };
         }
         var cause = unwrap(failure);

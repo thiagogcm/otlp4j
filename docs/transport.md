@@ -27,7 +27,7 @@ Profiles are a `v1development` signal, and a request can name its schema version
 
 ## Configure an exporter
 
-`OtlpExporterConfig` holds the endpoint, optional HTTP path prefix, headers, TLS, compression, retry policy, timeout policy, and request/response byte caps. Use the record's builder for graph factories or pass the built record to an owned exporter.
+`OtlpExporterConfig` holds the endpoint, optional HTTP path prefix, headers, TLS, compression, retry policy, timeout policy, request/response byte caps, and the graph exporter's queue and redelivery policy. Use the record's builder for graph factories or pass the built record to an owned exporter.
 
 ```java
 import dev.nthings.otlp4j.transport.Compression;
@@ -43,9 +43,9 @@ var config = OtlpExporterConfig.builder(4318)
         .build();
 ```
 
-An endpoint URL's scheme selects plaintext or TLS. If the URL omits a port, the builder retains its configured port. For HTTP, the exporter appends the signal path to the prefix: this example sends traces to `/otlp/v1/traces`. The bundled receiver serves the paths in the table; a prefix is useful when a proxy exposes it under another path.
+An endpoint URL's scheme selects plaintext or TLS. A URL sets the port: its own, else `80` for `http` and `443` for `https`, as the OTLP exporter specification requires. The builder's seed port (4317 or 4318) applies when no URL is set. For HTTP, the exporter appends the signal path to the prefix: this example sends traces to `/otlp/v1/traces`. The bundled receiver serves the paths in the table; a prefix is useful when a proxy exposes it under another path.
 
-`addHeader(key, value)` configures static headers. `headers(supplier)` supplies headers per export, for example to obtain a current credential. Supplier values override matching static keys and are validated on resolution. Invalid supplied headers fail the export exceptionally and are not retried. Outgoing headers do not provide a receiver-side authentication policy.
+`addHeader(key, value)` configures static headers. `headers(supplier)` supplies headers per export, for example to obtain a current credential. Supplier values override matching static keys and are validated on resolution. An invalid supplied header makes the export a permanent rejection that is not retried. Outgoing headers do not provide a receiver-side authentication policy.
 
 ### Exporter defaults
 
@@ -60,8 +60,33 @@ An endpoint URL's scheme selects plaintext or TLS. If the URL omits a port, the 
 | Maximum attempts, including the initial request | 5 |
 | Backoff initial delay, multiplier, jitter, cap | 1 second, `1.5`, `0.5`, 5 seconds |
 | Respect positive server retry hints | `true` |
+| Graph exporter queue | 1,000 entries per signal, 10 consumers, `FAIL` when full |
+| Graph exporter redelivery | 5 seconds initial delay, `1.5` multiplier, `0.5` jitter, 30 seconds cap, 5 minutes in total |
 
 The shared exporter record requires positive byte caps no larger than `Integer.MAX_VALUE`. To change size caps on an owned builder, create a configuration record and pass it through `.config(config)`.
+
+### Queue and redelivery
+
+A graph exporter acknowledges a payload once it is in the exporter's own queue, and its workers then export it. An exporter id has one queue per signal, and all of its signals share one wire client. A queue redelivers a payload the destination failed retryably, which carries data through an outage longer than the wire retry. `DeliveryQueuePolicy` sets the capacity, consumer count, and full-queue behavior; `RedeliveryPolicy` sets the backoff and the total time to keep trying. See [Exporter queues and redelivery](delivery.md#exporter-queues-and-redelivery) for the semantics.
+
+```java
+import dev.nthings.otlp4j.core.policy.BackoffPolicy;
+import dev.nthings.otlp4j.core.policy.DeliveryQueuePolicy;
+import dev.nthings.otlp4j.core.policy.OverflowPolicy;
+import dev.nthings.otlp4j.core.policy.RedeliveryPolicy;
+import dev.nthings.otlp4j.transport.OtlpExporterConfig;
+import java.time.Duration;
+
+var config = OtlpExporterConfig.builder(4317)
+        .endpoint("backend.example.com", 4317)
+        .queue(new DeliveryQueuePolicy(5_000, 10, OverflowPolicy.FAIL))
+        .redelivery(new RedeliveryPolicy(
+                new BackoffPolicy(Duration.ofSeconds(2), 1.5, 0.5, Duration.ofSeconds(20)),
+                Duration.ofMinutes(10)))
+        .build();
+```
+
+With `noQueue()` the graph exporter exports synchronously and nothing redelivers: a retryable failure reaches the upstream sender as `503` or `UNAVAILABLE`, and a permanent one as `500` or `INTERNAL`. The queue settings apply to an exporter registered in a gateway or pipeline. An owned `OtlpExporter` from `grpcBuilder()` or `httpBuilder()` has no queue: its caller gets the result of the bounded export and decides what to do with it.
 
 ## Receiver admission and size limits
 
@@ -143,7 +168,30 @@ This authenticates certificates at the transport layer. Application authorizatio
 | gRPC | Retry `CANCELLED`, `DEADLINE_EXCEEDED`, `ABORTED`, `OUT_OF_RANGE`, `UNAVAILABLE`, and `DATA_LOSS`, plus transport failures |
 | gRPC resource exhaustion | Retry `RESOURCE_EXHAUSTED` only with a valid positive `RetryInfo` delay |
 
-Successful OTLP responses with partial rejection are terminal and are not retried. An exporter has no persistent sending queue; final failure ends that export operation.
+Successful OTLP responses with partial rejection are terminal and are not retried. Retries run in two layers, one inside the other:
+
+| Layer | Governs | Gives up |
+| --- | --- | --- |
+| Wire retry (`RetryPolicy`, `TimeoutPolicy`) | One `export` call: up to five attempts within the total timeout | When attempts or the total timeout run out, and `export` completes with the last outcome |
+| Queue redelivery (`RedeliveryPolicy`) | One queued payload: repeats the whole `export` call | When a wait would pass the five-minute budget, on a permanent rejection, or at shutdown |
+
+One redelivery attempt is one `export` call, so a payload reaches the wire up to five times per redelivery attempt by default. The redelivery wait is the larger of its jittered backoff and the retry-after hint the failed export carried. A permanent rejection and a partial success are never redelivered. Neither layer is persistent: a queued payload is lost when the process stops. An owned `OtlpExporter` has the wire retry alone, and final failure ends that export operation.
+
+### Export outcomes
+
+`export` completes with a `DeliveryResult` for every wire outcome. The last outcome is classified with the decisions the retry loop used:
+
+| Wire outcome | Result |
+| --- | --- |
+| HTTP `429`, `502`, `503`, `504`, a retryable gRPC status, or a transport failure (refused, reset, closed connection, TLS failure) | Retryable, downstream, with the server's wait hint when hints are respected |
+| Any other non-2xx HTTP status or gRPC status, `RESOURCE_EXHAUSTED` without `RetryInfo`, or a negative gRPC pushback | Permanent, downstream |
+| Total deadline expires | Retryable, reason `TIMEOUT`, downstream |
+| Request cannot be prepared (over `maxRequestBytes`, invalid supplied header, unmarshallable payload) | Permanent, not downstream |
+| Exporter is stopping or stopped | Retryable, reason `SHUTDOWN` |
+| HTTP `2xx` whose body is empty or whose content type is not `application/x-protobuf` | Accepted |
+| HTTP `2xx` declared protobuf that does not parse, or a response over `maxResponseBytes` | Permanent, downstream |
+
+A `2xx` that cannot be read is never retryable: the server accepted the data, so re-sending would duplicate it. Caller cancellation and an exporter that was never started complete exceptionally. A graph exporter with `noQueue()` relays these results to its upstream sender; see [receiver responses](delivery.md#receiver-responses).
 
 When positive server hints are enabled, HTTP `Retry-After` accepts delta seconds or an HTTP date. For gRPC, `RetryInfo` takes precedence over positive `grpc-retry-pushback-ms`, then the policy backoff applies. A negative gRPC pushback stops retries even when respecting positive hints is disabled.
 
@@ -155,7 +203,7 @@ Environment loading is opt-in through `OtlpExporterConfig.Builder.fromEnvironmen
 
 | Variable under `OTEL_EXPORTER_OTLP_` | Effect |
 | --- | --- |
-| `ENDPOINT` | Host, optional port, HTTP prefix, and TLS scheme |
+| `ENDPOINT` | Host, optional port (else the scheme default, 80 or 443), HTTP prefix, and TLS scheme; an explicitly set builder port wins |
 | `HEADERS` | Comma-separated `key=value` pairs; percent-decode values |
 | `TIMEOUT` | Positive milliseconds for the per-attempt timeout; also the total unless set separately |
 | `COMPRESSION` | `gzip` or `none` |

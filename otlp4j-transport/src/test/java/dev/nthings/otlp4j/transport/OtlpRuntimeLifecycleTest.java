@@ -5,6 +5,9 @@ import static dev.nthings.otlp4j.core.signal.SignalDescriptor.TRACES;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import dev.nthings.otlp4j.core.result.Disposition;
+import dev.nthings.otlp4j.core.result.DeliveryResult;
+import dev.nthings.otlp4j.core.result.DeliveryReason;
 import dev.nthings.otlp4j.core.component.ComponentContext;
 import dev.nthings.otlp4j.core.component.ComponentId;
 import dev.nthings.otlp4j.core.component.CreateContext;
@@ -53,7 +56,15 @@ class OtlpRuntimeLifecycleTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("already stopped");
         assertThat(exporter.shutdown(SHORT).toCompletableFuture().join()).isNull();
-        assertThatThrownBy(() -> exporter.export(TRACES, EMPTY_TRACES.data()))
+        // A stopped exporter reports shutdown as a typed result; only an exporter that was never
+        // started is a misuse that throws.
+        assertThat(exporter.export(TRACES, EMPTY_TRACES.data()).toCompletableFuture().join())
+                .isInstanceOfSatisfying(DeliveryResult.Rejected.class, rejected -> {
+                    assertThat(rejected.disposition()).isEqualTo(Disposition.RETRYABLE);
+                    assertThat(rejected.reason()).isEqualTo(DeliveryReason.SHUTDOWN);
+                });
+        var neverStarted = OtlpExporter.httpBuilder().endpoint("127.0.0.1", 1).build();
+        assertThatThrownBy(() -> neverStarted.export(TRACES, EMPTY_TRACES.data()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("not been started");
     }

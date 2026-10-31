@@ -54,7 +54,7 @@ Factory registrations also accept an overload that uses `defaultConfig()`. IDs a
 
 In each pipeline block, call `from`, `via`, and `to` at most once. Pass several handles in one call for multiple sources, an ordered processor chain, or multiple terminals. Omit `via` when no processor is needed.
 
-Multiple pipelines can share a receiver or exporter registration. The OTLP exporter shares one underlying client across its signal facets and releases it after the last facet shuts down. Use separate registrations when endpoints or policies must differ.
+Multiple pipelines can share a receiver or exporter registration. The OTLP exporter shares one underlying client across its signal facets and releases it after the last facet shuts down. Each facet has its own [queue](delivery.md#exporter-queues-and-redelivery) in front of that client, so a registration has one queue per signal, and a destination that is down holds back only its own queues. Use separate registrations when endpoints or policies must differ, and `noQueue()` on the exporter config when a downstream failure must reach the sender synchronously.
 
 ## Submit inside the JVM
 

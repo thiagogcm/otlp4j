@@ -17,7 +17,7 @@ The builder applies processors in registration order and sends the resulting pay
 | `to(factory)` or `to(factory, config)` | Add a terminal exporter; repeat for fan-out |
 | `service(options)` | Set the graph's lifecycle budgets |
 
-At least one terminal exporter is required; `build()` throws `IllegalStateException` until one is added. Buffering is explicit: the input, `filter`, and `map` stages add no implicit queue.
+At least one terminal exporter is required; `build()` throws `IllegalStateException` until one is added. The input, `filter`, and `map` stages hold no queue, so buffering comes from the stages and exporters you choose. The bundled OTLP exporter queues each signal and acknowledges on enqueue, so `submit` reports admission to that queue; with `noQueue()` on its config, `submit` reports the destination's answer. See [Delivery](delivery.md#exporter-queues-and-redelivery).
 
 This example exports an existing trace `batch` to an OTLP/gRPC destination on localhost. The destination must be running and accept traces.
 

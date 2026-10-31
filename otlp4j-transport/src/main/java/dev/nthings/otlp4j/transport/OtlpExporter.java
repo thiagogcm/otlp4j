@@ -7,6 +7,7 @@ import dev.nthings.otlp4j.core.component.Exporter;
 import dev.nthings.otlp4j.core.component.FlushContext;
 import dev.nthings.otlp4j.core.component.ShutdownContext;
 import dev.nthings.otlp4j.core.consumer.ConsumeContext;
+import dev.nthings.otlp4j.core.delivery.QueuedExporter;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.result.FlushReport;
 import dev.nthings.otlp4j.core.result.Provenance;
@@ -18,6 +19,8 @@ import dev.nthings.otlp4j.core.telemetry.GatewayMetrics;
 import dev.nthings.otlp4j.codec.PayloadWire;
 import dev.nthings.otlp4j.transport.internal.ArmeriaOtlpClient;
 import dev.nthings.otlp4j.transport.internal.ExporterMetrics;
+import dev.nthings.otlp4j.transport.internal.MemoizingExporter;
+import dev.nthings.otlp4j.transport.internal.QueueEvents;
 import dev.nthings.otlp4j.transport.internal.Protocol;
 import java.time.Duration;
 import java.time.Clock;
@@ -38,6 +41,11 @@ import java.util.function.Supplier;
  * <p>{@code build()} only validates and captures configuration. The wire client is created by
  * {@code start()}, making ownership and startup failures explicit. Exporting a domain batch is
  * type safe through the signal descriptor; graph factories use the signal facet.
+ *
+ * <p>An owned exporter is never queued: {@code export} completes with the real end-to-end result of one
+ * bounded wire attempt (the configured retry and timeout), so a direct caller decides what to do with a
+ * failure. The queue and redelivery of {@link OtlpExporterConfig} apply only to the facets a gateway
+ * creates, which wrap this exporter in a per-signal queue.
  */
 public final class OtlpExporter implements AutoCloseable {
 
@@ -143,11 +151,25 @@ public final class OtlpExporter implements AutoCloseable {
         if (remaining.isNegative() || remaining.isZero()) {
             return CompletableFuture.failedFuture(new CancellationException("export context deadline elapsed"));
         }
-        var effectivePayload = PayloadWire.memoize(payload);
-        var current = client();
-        var provenance = new Provenance(id, ComponentKind.EXPORTER, effectivePayload.signal());
+        var signal = payload.signal();
+        var provenance = new Provenance(id, ComponentKind.EXPORTER, signal);
+        var lifecycle = state.get();
+        if (lifecycle == State.STOPPING || lifecycle == State.STOPPED) {
+            return CompletableFuture.completedFuture(
+                    DeliveryResult.shuttingDown("exporter is stopping", provenance));
+        }
+        var wire = client();
+        Payload<T> effectivePayload;
+        long serializedBytes;
+        try {
+            effectivePayload = PayloadWire.memoize(payload);
+            serializedBytes = serializedSize(effectivePayload);
+        } catch (RuntimeException e) {
+            // The payload cannot be marshalled; re-sending the same payload cannot change that.
+            return CompletableFuture.completedFuture(
+                    DeliveryResult.permanentFrom("failed to prepare the OTLP request", e, provenance));
+        }
         var startedAt = System.nanoTime();
-        var serializedBytes = serializedSize(effectivePayload);
         remaining = context.deadline().remaining(Clock.systemUTC());
         if (context.isCancelled() || remaining.isNegative() || remaining.isZero()) {
             return CompletableFuture.failedFuture(new CancellationException("export context expired during encoding"));
@@ -156,11 +178,16 @@ public final class OtlpExporter implements AutoCloseable {
         var budget = remaining.compareTo(total) < 0 ? remaining : total;
         // The client gates registration against shutdown; encoding need not serialize every caller
         // on the owner's lifecycle monitor.
-        var delivery = current.export(effectivePayload, provenance).toCompletableFuture();
+        var delivery = wire.export(effectivePayload, provenance).toCompletableFuture();
         delivery.whenComplete((result, failure) ->
                 metrics.recordSend(effectivePayload, serializedBytes, System.nanoTime() - startedAt, result, failure));
         context.onCancel(() -> delivery.cancel(true));
-        return delivery.orTimeout(TimeUnit.NANOSECONDS.convert(budget), TimeUnit.NANOSECONDS);
+        // The caller's remaining deadline may be shorter than the client's own total deadline; when it
+        // elapses first the export settles as the same retryable timeout the client would report, and
+        // the client cancels the wire call because it sees its stage settled early.
+        return delivery.completeOnTimeout(
+                ArmeriaOtlpClient.totalDeadlineExceeded(provenance), TimeUnit.NANOSECONDS.convert(budget),
+                TimeUnit.NANOSECONDS);
     }
 
     /** Flushes in-flight exports and returns an empty report because the wire client has no buffer. */
@@ -211,10 +238,24 @@ public final class OtlpExporter implements AutoCloseable {
         shutdown(DEFAULT_CLOSE_TIMEOUT).toCompletableFuture().join();
     }
 
-    /** Creates a graph exporter facet for one signal. */
+    /** Creates a graph exporter facet for one signal, exporting each payload synchronously. */
     <T> Exporter<T> facet(SignalDescriptor<T> signal) {
         facetReferences.incrementAndGet();
         return new Facet<>(this, signal);
+    }
+
+    /**
+     * Creates a graph exporter facet for one signal behind its own queue, so a payload is acknowledged
+     * once queued and redelivered under the configured policy until the destination takes it. The
+     * queue drives the facet, and all of an exporter's facets still share one wire client. The payload
+     * is memoized before it is queued so that a redelivery reuses the encoded request.
+     */
+    <T> Exporter<T> queuedFacet(SignalDescriptor<T> signal) {
+        var queue = Objects.requireNonNull(config.queue(), "config.queue");
+        var provenance = new Provenance(id, ComponentKind.EXPORTER, signal);
+        var queued = new QueuedExporter<>(
+                facet(signal), queue, config.redelivery(), provenance, new QueueEvents(id, signal, metrics));
+        return new MemoizingExporter<>(queued, id, signal);
     }
 
     private CompletionStage<Void> releaseFacet(Duration timeout) {

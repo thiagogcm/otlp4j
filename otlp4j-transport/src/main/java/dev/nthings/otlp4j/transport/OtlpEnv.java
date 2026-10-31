@@ -111,7 +111,7 @@ final class OtlpEnv {
         if (!builder.hostExplicit) {
             builder.host(endpoint.host());
         }
-        if (!builder.portExplicit && endpoint.port() != -1) {
+        if (!builder.portExplicit) {
             builder.port(endpoint.port());
         }
         if (!builder.pathExplicit) {

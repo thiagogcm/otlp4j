@@ -17,8 +17,6 @@ import dev.nthings.otlp4j.core.consumer.ClientMetadata;
 import dev.nthings.otlp4j.core.consumer.ConsumeContext;
 import dev.nthings.otlp4j.core.consumer.Deadline;
 import dev.nthings.otlp4j.core.policy.BatchPolicy;
-import dev.nthings.otlp4j.core.policy.DeliveryQueuePolicy;
-import dev.nthings.otlp4j.core.policy.OverflowPolicy;
 import dev.nthings.otlp4j.core.result.DeliveryReason;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.result.Disposition;
@@ -30,6 +28,7 @@ import dev.nthings.otlp4j.model.ProfilesData;
 import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.testing.Fixtures;
+import dev.nthings.otlp4j.testing.RecordingGatewayMetrics;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -46,6 +45,7 @@ import org.junit.jupiter.api.Test;
 class BatchProcessorTest {
 
     private static final Duration NO_TIMER = Duration.ZERO;
+    private static final String LOST = "otlp4j.batch.lost.items";
     private static final ShutdownContext SHUTDOWN = new ShutdownContext(Duration.ofSeconds(5));
     private static final ConsumeContext CTX = new TestConsumeContext();
 
@@ -54,7 +54,7 @@ class BatchProcessorTest {
 
     private static BatchProcessorConfig config(
             int target, int maxSize, long maxBytes, Duration timeout, List<String> keys) {
-        return config(target, maxSize, maxBytes, timeout, keys, 64, 1,
+        return config(target, maxSize, maxBytes, timeout, keys, 1,
                 BatchProcessorConfig.DEFAULT_MAX_PENDING_SUBMISSIONS,
                 BatchProcessorConfig.DEFAULT_MAX_PENDING_BYTES,
                 BatchProcessorConfig.DEFAULT_MAX_PARTITIONS);
@@ -62,11 +62,10 @@ class BatchProcessorTest {
 
     private static BatchProcessorConfig config(
             int target, int maxSize, long maxBytes, Duration timeout, List<String> keys,
-            int queueSize, int consumers, int maxPending, long maxPendingBytes, int maxPartitions) {
+            int consumers, int maxPending, long maxPendingBytes, int maxPartitions) {
         return new BatchProcessorConfig(
                 new BatchPolicy(target, maxSize, maxBytes, timeout, keys),
-                new DeliveryQueuePolicy(queueSize, consumers, OverflowPolicy.FAIL),
-                Duration.ofSeconds(5), maxPending, maxPendingBytes, maxPartitions,
+                consumers, maxPending, maxPendingBytes, maxPartitions,
                 BatchProcessorConfig.DEFAULT_MAX_PENDING_ITEMS, PER_ITEM);
     }
 
@@ -77,6 +76,13 @@ class BatchProcessorTest {
     private static Processor<TracesData> start(
             BatchProcessorConfig config, RecordingConsumer<TracesData> next) {
         var processor = tracesBatch("batch", config, next);
+        processor.start(baseContext()).toCompletableFuture().join();
+        return processor;
+    }
+
+    private static Processor<TracesData> start(
+            BatchProcessorConfig config, RecordingConsumer<TracesData> next, RecordingGatewayMetrics metrics) {
+        var processor = batch("batch", config, SignalDescriptor.TRACES, next, metrics);
         processor.start(baseContext()).toCompletableFuture().join();
         return processor;
     }
@@ -137,8 +143,7 @@ class BatchProcessorTest {
         };
         var config = new BatchProcessorConfig(
                 new BatchPolicy(1_000_000, 0, 1_000, NO_TIMER, List.of()),
-                new DeliveryQueuePolicy(64, 1, OverflowPolicy.FAIL),
-                Duration.ofSeconds(5),
+                1,
                 BatchProcessorConfig.DEFAULT_MAX_PENDING_SUBMISSIONS,
                 BatchProcessorConfig.DEFAULT_MAX_PENDING_BYTES,
                 BatchProcessorConfig.DEFAULT_MAX_PARTITIONS,
@@ -158,8 +163,7 @@ class BatchProcessorTest {
         PayloadSizer reEncoded = payload -> payload.encodedSize().isPresent() ? 100 : 2_000;
         var config = new BatchProcessorConfig(
                 new BatchPolicy(1_000_000, 0, 1_000, NO_TIMER, List.of()),
-                new DeliveryQueuePolicy(64, 1, OverflowPolicy.FAIL),
-                Duration.ofSeconds(5),
+                1,
                 BatchProcessorConfig.DEFAULT_MAX_PENDING_SUBMISSIONS,
                 BatchProcessorConfig.DEFAULT_MAX_PENDING_BYTES,
                 BatchProcessorConfig.DEFAULT_MAX_PARTITIONS,
@@ -194,8 +198,7 @@ class BatchProcessorTest {
     private static BatchProcessorConfig capped(int maxItems, long maxBytes, PayloadSizer sizer) {
         return new BatchProcessorConfig(
                 new BatchPolicy(maxItems > 0 ? maxItems : 1_000_000, maxItems, maxBytes, NO_TIMER, List.of()),
-                new DeliveryQueuePolicy(64, 1, OverflowPolicy.FAIL),
-                Duration.ofSeconds(5),
+                1,
                 BatchProcessorConfig.DEFAULT_MAX_PENDING_SUBMISSIONS,
                 BatchProcessorConfig.DEFAULT_MAX_PENDING_BYTES,
                 BatchProcessorConfig.DEFAULT_MAX_PARTITIONS,
@@ -204,12 +207,11 @@ class BatchProcessorTest {
     }
 
     @Test
-    void refusesASubmissionThatWouldFillTheDeliveryQueueWithoutCostingItsNeighbours() {
+    void aByteCapThatSplitsASubmissionIntoManyRequestsStillDeliversIt() {
         var next = new RecordingConsumer<TracesData>();
         var config = new BatchProcessorConfig(
                 new BatchPolicy(1_000_000, 0, 100, NO_TIMER, List.of()),
-                new DeliveryQueuePolicy(64, 1, OverflowPolicy.FAIL),
-                Duration.ofSeconds(5),
+                1,
                 BatchProcessorConfig.DEFAULT_MAX_PENDING_SUBMISSIONS,
                 BatchProcessorConfig.DEFAULT_MAX_PENDING_BYTES,
                 BatchProcessorConfig.DEFAULT_MAX_PARTITIONS,
@@ -217,28 +219,176 @@ class BatchProcessorTest {
                 PER_ITEM);
         var processor = start(config, next);
 
-        var refused = processor.consume(CTX, traces(33)).toCompletableFuture().join();
+        assertAccepted(processor.consume(CTX, traces(500)));
         assertAccepted(processor.consume(CTX, traces(1)));
 
-        assertThat(refused).isInstanceOf(DeliveryResult.Rejected.class);
         var report = processor.flush(new FlushContext(Duration.ofSeconds(5))).toCompletableFuture().join();
         assertThat(report.isSuccess()).isTrue();
-        assertThat(next.received()).extracting(Payload::itemCount).containsExactly(1L);
+        assertThat(next.totalItems()).isEqualTo(501);
+        assertThat(next.received()).hasSize(501).allSatisfy(payload -> assertThat(payload.itemCount()).isOne());
         processor.shutdown(SHUTDOWN).toCompletableFuture().join();
     }
 
     @Test
-    void anItemCapAloneAlsoKeepsASubmissionWithinTheDeliveryQueue() {
+    void anItemCapThatSplitsASubmissionIntoManyRequestsStillDeliversIt() {
         var next = new RecordingConsumer<TracesData>();
-        var processor = start(config(1, 1, 0, NO_TIMER, List.of(), 64, 1,
-                BatchProcessorConfig.DEFAULT_MAX_PENDING_SUBMISSIONS,
-                BatchProcessorConfig.DEFAULT_MAX_PENDING_BYTES,
-                BatchProcessorConfig.DEFAULT_MAX_PARTITIONS), next);
+        var processor = start(config(1, 1, 0, NO_TIMER, List.of()), next);
 
-        assertThat(processor.consume(CTX, traces(33)).toCompletableFuture().join())
-                .isInstanceOf(DeliveryResult.Rejected.class);
-        assertAccepted(processor.consume(CTX, traces(32)));
+        assertAccepted(processor.consume(CTX, traces(500)));
+
+        var report = processor.flush(new FlushContext(Duration.ofSeconds(5))).toCompletableFuture().join();
+        assertThat(report.isSuccess()).isTrue();
+        assertThat(next.received()).hasSize(500);
         processor.shutdown(SHUTDOWN).toCompletableFuture().join();
+    }
+
+    @Test
+    void oneFailedDeliveryDoesNotStopLaterBatchesFromBeingAttempted() {
+        var next = new RecordingConsumer<TracesData>();
+        var calls = new AtomicInteger();
+        next.result(payload -> calls.getAndIncrement() == 0
+                ? DeliveryResult.permanent("downstream down", next.provenance())
+                : DeliveryResult.accepted(next.provenance()));
+        var metrics = new RecordingGatewayMetrics();
+        var processor = start(sizeTriggered(1), next, metrics);
+
+        for (var i = 0; i < 6; i++) {
+            assertAccepted(processor.consume(CTX, traces(1)));
+        }
+        var report = processor.flush(new FlushContext(Duration.ofSeconds(5))).toCompletableFuture().join();
+
+        assertThat(next.received()).hasSize(6);
+        assertThat(report.rejectedItems()).isEqualTo(1);
+        assertThat(report.failedBatches()).isEqualTo(1);
+        assertThat(metrics.counterValue(LOST)).isEqualTo(1);
+        processor.shutdown(SHUTDOWN).toCompletableFuture().join();
+    }
+
+    @Test
+    void aDownstreamFailureOfEveryBatchAttemptsEveryBatch() {
+        var next = new RecordingConsumer<TracesData>();
+        next.rejectWith(DeliveryResult.permanent("downstream down", next.provenance()));
+        var metrics = new RecordingGatewayMetrics();
+        var processor = start(sizeTriggered(1), next, metrics);
+
+        for (var i = 0; i < 6; i++) {
+            assertAccepted(processor.consume(CTX, traces(1)));
+        }
+        var report = processor.flush(new FlushContext(Duration.ofSeconds(5))).toCompletableFuture().join();
+
+        assertThat(next.received()).hasSize(6);
+        assertThat(report.rejectedItems()).isEqualTo(6);
+        assertThat(report.failedBatches()).isEqualTo(6);
+        assertThat(metrics.counterValue(LOST)).isEqualTo(6);
+        processor.shutdown(SHUTDOWN).toCompletableFuture().join();
+    }
+
+    @Test
+    void aPartiallyRejectedDeliveryCountsOnlyTheRejectedItemsAsLost() {
+        var next = new RecordingConsumer<TracesData>();
+        next.result(payload -> DeliveryResult.partial(2, "two bad", next.provenance()));
+        var metrics = new RecordingGatewayMetrics();
+        var processor = start(sizeTriggered(5), next, metrics);
+
+        assertAccepted(processor.consume(CTX, traces(5)));
+        var report = processor.flush(new FlushContext(Duration.ofSeconds(5))).toCompletableFuture().join();
+
+        assertThat(report.rejectedItems()).isEqualTo(2);
+        assertThat(metrics.counterValue(LOST)).isEqualTo(2);
+        processor.shutdown(SHUTDOWN).toCompletableFuture().join();
+    }
+
+    @Test
+    void aBatchTheDownstreamTookCountsAsNothingLost() {
+        var metrics = new RecordingGatewayMetrics();
+        var processor = start(sizeTriggered(1), new RecordingConsumer<>(), metrics);
+
+        assertAccepted(processor.consume(CTX, traces(3)));
+        processor.flush(new FlushContext(Duration.ofSeconds(5))).toCompletableFuture().join();
+
+        assertThat(metrics.counterValue(LOST)).isZero();
+        processor.shutdown(SHUTDOWN).toCompletableFuture().join();
+    }
+
+    @Test
+    void aBatchThatCannotBeSplitAtFlushIsReportedAndCountedOnce() {
+        var broken = new AtomicBoolean();
+        PayloadSizer failsLater = payload -> {
+            if (broken.get()) {
+                throw new IllegalStateException("sizer broke");
+            }
+            return 100L * payload.itemCount();
+        };
+        var next = new RecordingConsumer<TracesData>();
+        var metrics = new RecordingGatewayMetrics();
+        var processor = start(capped(0, 1_000, failsLater), next, metrics);
+
+        assertAccepted(processor.consume(CTX, traces(2)));
+        assertAccepted(processor.consume(CTX, traces(3)));
+        broken.set(true);
+        var report = processor.flush(new FlushContext(Duration.ofSeconds(5))).toCompletableFuture().join();
+
+        assertThat(next.received()).isEmpty();
+        assertThat(report.rejectedItems()).isEqualTo(5);
+        assertThat(report.failedBatches()).isEqualTo(1);
+        assertThat(metrics.counterValue(LOST)).isEqualTo(5);
+        processor.shutdown(SHUTDOWN).toCompletableFuture().join();
+    }
+
+    @Test
+    void workAcceptedAfterTheQueueStoppedIsReportedAndCountedAsLost() {
+        var next = new RecordingConsumer<TracesData>();
+        var calls = new AtomicInteger();
+        next.result(payload -> {
+            if (calls.getAndIncrement() == 0) {
+                throw new AssertionError("fatal downstream failure");
+            }
+            return DeliveryResult.accepted(next.provenance());
+        });
+        var metrics = new RecordingGatewayMetrics();
+        var processor = start(sizeTriggered(1), next, metrics);
+
+        // The fatal error stops the only worker and closes the queue to admission.
+        assertAccepted(processor.consume(CTX, traces(1)));
+        var first = processor.flush(new FlushContext(Duration.ofSeconds(5))).toCompletableFuture().join();
+        assertThat(first.rejectedItems()).isEqualTo(1);
+        assertThat(metrics.counterValue(LOST)).isEqualTo(1);
+
+        // Already acknowledged by the time the queue refuses it, so it must not vanish.
+        assertAccepted(processor.consume(CTX, traces(4)));
+        var second = processor.flush(new FlushContext(Duration.ofSeconds(5))).toCompletableFuture().join();
+
+        assertThat(next.received()).hasSize(1);
+        assertThat(second.rejectedItems()).isEqualTo(4);
+        assertThat(second.failedBatches()).isEqualTo(1);
+        assertThat(metrics.counterValue(LOST)).isEqualTo(5);
+    }
+
+    @Test
+    void aFatalWorkerErrorCountsTheInFlightAndQueuedItemsOnce() throws InterruptedException {
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var next = new RecordingConsumer<TracesData>();
+        next.result(payload -> {
+            entered.countDown();
+            try {
+                release.await();
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            }
+            throw new AssertionError("fatal downstream failure");
+        });
+        var metrics = new RecordingGatewayMetrics();
+        var processor = start(sizeTriggered(1), next, metrics);
+
+        assertAccepted(processor.consume(CTX, traces(2)));
+        assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
+        assertAccepted(processor.consume(CTX, traces(3)));
+        release.countDown();
+        var report = processor.flush(new FlushContext(Duration.ofSeconds(5))).toCompletableFuture().join();
+
+        assertThat(report.rejectedItems()).isEqualTo(5);
+        assertThat(metrics.counterValue(LOST)).isEqualTo(5);
     }
 
     @Test
@@ -263,7 +413,8 @@ class BatchProcessorTest {
         PayloadSizer heavyLater = payload ->
                 admitted.get() && holdsOnlyPoison(payload) ? 2_000 : 100L * payload.itemCount();
         var next = new RecordingConsumer<TracesData>();
-        var processor = start(capped(0, 150, heavyLater), next);
+        var metrics = new RecordingGatewayMetrics();
+        var processor = start(capped(0, 150, heavyLater), next, metrics);
         var innocent = Fixtures.span("innocent", Span.Kind.SERVER);
 
         assertAccepted(processor.consume(CTX, Payload.of(
@@ -276,6 +427,7 @@ class BatchProcessorTest {
         assertThat(next.received().stream().flatMap(payload -> payload.data().spans().stream()))
                 .containsExactly(innocent);
         assertThat(report.rejectedItems()).isEqualTo(1);
+        assertThat(metrics.counterValue(LOST)).isEqualTo(1);
         processor.shutdown(SHUTDOWN).toCompletableFuture().join();
     }
 
@@ -290,8 +442,7 @@ class BatchProcessorTest {
         };
         var config = new BatchProcessorConfig(
                 new BatchPolicy(1_000_000, 0, 250, NO_TIMER, List.of()),
-                new DeliveryQueuePolicy(64, 1, OverflowPolicy.FAIL),
-                Duration.ofSeconds(5),
+                1,
                 BatchProcessorConfig.DEFAULT_MAX_PENDING_SUBMISSIONS,
                 BatchProcessorConfig.DEFAULT_MAX_PENDING_BYTES,
                 BatchProcessorConfig.DEFAULT_MAX_PARTITIONS,
@@ -453,7 +604,7 @@ class BatchProcessorTest {
     @Test
     void contextCaptureFailureDoesNotReserveAdmissionCapacity() {
         var next = new RecordingConsumer<TracesData>();
-        var processor = start(config(1, 0, 0, NO_TIMER, List.of(), 64, 1, 1,
+        var processor = start(config(1, 0, 0, NO_TIMER, List.of(), 1, 1,
                 BatchProcessorConfig.DEFAULT_MAX_PENDING_BYTES, 1), next);
         var broken = new ConsumeContext() {
             @Override
@@ -568,7 +719,7 @@ class BatchProcessorTest {
     void globalPendingSubmissionLimitRefusesBeforeBuffering() {
         var next = new RecordingConsumer<TracesData>();
         var processor = start(config(1_000_000, 0, 0, NO_TIMER, List.of(),
-                64, 1, 1, BatchProcessorConfig.DEFAULT_MAX_PENDING_BYTES, 1024), next);
+                1, 1, BatchProcessorConfig.DEFAULT_MAX_PENDING_BYTES, 1024), next);
 
         assertAccepted(processor.consume(CTX, traces(1)));
         var refused = processor.consume(CTX, traces(1)).toCompletableFuture().join();
@@ -583,7 +734,7 @@ class BatchProcessorTest {
     void globalPendingByteLimitRefusesBeforeBuffering() {
         var next = new RecordingConsumer<TracesData>();
         var processor = start(config(1_000_000, 0, 0, NO_TIMER, List.of(),
-                64, 1, 1024, 99, 1024), next);
+                1, 1024, 99, 1024), next);
 
         var refused = processor.consume(CTX, traces(1)).toCompletableFuture().join();
 
@@ -600,8 +751,8 @@ class BatchProcessorTest {
         // applies and the three-item limit does.
         var processor = start(new BatchProcessorConfig(
                 new BatchPolicy(1_000_000, 0, 0, NO_TIMER, List.of()),
-                new DeliveryQueuePolicy(64, 1, OverflowPolicy.FAIL),
-                Duration.ofSeconds(5), 1024, 1, 1024, 3, PayloadSizer.reported()), next);
+                1,
+                1024, 1, 1024, 3, PayloadSizer.reported()), next);
 
         assertAccepted(processor.consume(CTX, traces(2)));
         var refused = processor.consume(CTX, traces(2)).toCompletableFuture().join();
@@ -620,8 +771,8 @@ class BatchProcessorTest {
         var next = new RecordingConsumer<TracesData>();
         var processor = start(new BatchProcessorConfig(
                 new BatchPolicy(1_000_000, 0, 0, NO_TIMER, List.of()),
-                new DeliveryQueuePolicy(64, 1, OverflowPolicy.FAIL),
-                Duration.ofSeconds(5), 1024, 1, 1024, 3, PayloadSizer.reported()), next);
+                1,
+                1024, 1, 1024, 3, PayloadSizer.reported()), next);
 
         // Five items exceed the three-item limit, yet refusing them forever would lose every such batch.
         assertAccepted(processor.consume(CTX, traces(5)));
@@ -639,15 +790,14 @@ class BatchProcessorTest {
     @Test
     void aSizerThatCannotWeighUnderAByteCapOrReturnsANegativeWeightIsAPermanentRejection() {
         var next = new RecordingConsumer<TracesData>();
-        var delivery = new DeliveryQueuePolicy(64, 1, OverflowPolicy.FAIL);
         PayloadSizer unable = payload -> 0;
         PayloadSizer negative = payload -> -1;
         var capped = start(new BatchProcessorConfig(
-                new BatchPolicy(1_000_000, 0, 1024, NO_TIMER, List.of()), delivery,
-                Duration.ofSeconds(5), 1024, 1024, 1024, 1024, unable), next);
+                new BatchPolicy(1_000_000, 0, 1024, NO_TIMER, List.of()), 1,
+                1024, 1024, 1024, 1024, unable), next);
         var broken = start(new BatchProcessorConfig(
-                new BatchPolicy(1_000_000, 0, 0, NO_TIMER, List.of()), delivery,
-                Duration.ofSeconds(5), 1024, 1024, 1024, 1024, negative), next);
+                new BatchPolicy(1_000_000, 0, 0, NO_TIMER, List.of()), 1,
+                1024, 1024, 1024, 1024, negative), next);
 
         // Letting either through would export a request the byte cap or the byte limit never saw.
         for (var processor : List.of(capped, broken)) {
@@ -665,8 +815,8 @@ class BatchProcessorTest {
         // One pending item would refuse a three-item payload if it were charged by items.
         var processor = start(new BatchProcessorConfig(
                 new BatchPolicy(1_000_000, 0, 0, NO_TIMER, List.of()),
-                new DeliveryQueuePolicy(64, 1, OverflowPolicy.FAIL),
-                Duration.ofSeconds(5), 1024, 900, 1024, 1, PayloadSizer.reported()), next);
+                1,
+                1024, 900, 1024, 1, PayloadSizer.reported()), next);
 
         assertAccepted(processor.consume(CTX, encoded(traces(3), 500)));
         var refused = processor.consume(CTX, encoded(traces(1), 500)).toCompletableFuture().join();
@@ -680,7 +830,7 @@ class BatchProcessorTest {
     void globalPartitionLimitRefusesNewPartition() {
         var next = new RecordingConsumer<TracesData>();
         var processor = start(config(1_000_000, 0, 0, NO_TIMER, List.of("tenant"),
-                64, 1, 1024, BatchProcessorConfig.DEFAULT_MAX_PENDING_BYTES, 1), next);
+                1, 1024, BatchProcessorConfig.DEFAULT_MAX_PENDING_BYTES, 1), next);
 
         assertAccepted(processor.consume(TestConsumeContext.withHeader("tenant", "a"), traces(1)));
         var refused = processor.consume(TestConsumeContext.withHeader("tenant", "b"), traces(1))
@@ -690,23 +840,23 @@ class BatchProcessorTest {
     }
 
     @Test
-    void automaticQueueRefusalDoesNotWithdrawTheAdmissionAcknowledgement() {
+    void aSlowDownstreamBacksUpAcceptedWorkWithoutRefusingIt() {
         var next = new RecordingConsumer<TracesData>();
         var gate = new CountDownLatch(1);
         next.gate(gate);
         var processor = start(config(1, 0, 0, NO_TIMER, List.of(),
-                1, 1, 1024, BatchProcessorConfig.DEFAULT_MAX_PENDING_BYTES, 1024), next);
+                1, 1024, BatchProcessorConfig.DEFAULT_MAX_PENDING_BYTES, 1024), next);
 
         assertAccepted(processor.consume(CTX, traces(1)));
         await().atMost(2, TimeUnit.SECONDS).until(() -> next.received().size() == 1);
-        assertAccepted(processor.consume(CTX, traces(1)));
-        assertAccepted(processor.consume(CTX, traces(1)));
+        for (var i = 0; i < 100; i++) {
+            assertAccepted(processor.consume(CTX, traces(1)));
+        }
 
         gate.countDown();
-        var report = processor.flush(new FlushContext(Duration.ofSeconds(2))).toCompletableFuture().join();
-        assertThat(report.rejectedItems()).isEqualTo(1);
-        assertThat(report.failedBatches()).isEqualTo(1);
-        assertThat(next.totalItems()).isEqualTo(2);
+        var report = processor.flush(new FlushContext(Duration.ofSeconds(5))).toCompletableFuture().join();
+        assertThat(report.isSuccess()).isTrue();
+        assertThat(next.totalItems()).isEqualTo(101);
         processor.shutdown(SHUTDOWN).toCompletableFuture().join();
     }
 

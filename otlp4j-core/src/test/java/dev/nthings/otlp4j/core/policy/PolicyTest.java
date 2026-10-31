@@ -35,6 +35,33 @@ class PolicyTest {
     }
 
     @Test
+    @DisplayName("redelivery defaults to the upstream retry defaults and rejects a missing backoff or budget")
+    void redeliveryPolicy() {
+        var defaults = RedeliveryPolicy.defaults();
+        assertThat(defaults.backoff().initial()).isEqualTo(Duration.ofSeconds(5));
+        assertThat(defaults.backoff().multiplier()).isEqualTo(1.5);
+        assertThat(defaults.backoff().jitter()).isEqualTo(0.5);
+        assertThat(defaults.backoff().max()).isEqualTo(Duration.ofSeconds(30));
+        assertThat(defaults.maxElapsed()).isEqualTo(Duration.ofMinutes(5));
+
+        assertThatThrownBy(() -> new RedeliveryPolicy(null, Duration.ofMinutes(1)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new RedeliveryPolicy(BackoffPolicy.defaults(), Duration.ZERO))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new RedeliveryPolicy(BackoffPolicy.defaults(), null))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("the default delivery queue holds a thousand entries across ten consumers and refuses when full")
+    void deliveryQueueDefaults() {
+        var defaults = DeliveryQueuePolicy.defaults();
+        assertThat(defaults.queueSize()).isEqualTo(1000);
+        assertThat(defaults.numConsumers()).isEqualTo(10);
+        assertThat(defaults.overflow()).isEqualTo(OverflowPolicy.FAIL);
+    }
+
+    @Test
     @DisplayName("timeout policy requires a positive per-attempt and a total at least as large")
     void timeoutPolicy() {
 

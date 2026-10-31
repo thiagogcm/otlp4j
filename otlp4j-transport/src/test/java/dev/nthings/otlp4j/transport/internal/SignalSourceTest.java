@@ -72,7 +72,7 @@ class SignalSourceTest {
                 .isInstanceOf(IllegalStateException.class);
     }
 
-    @DisplayName("dispatch turns a synchronous consumer throw into a permanent rejection")
+    @DisplayName("dispatch turns a synchronous consumer throw into a retryable rejection")
     @Test
     void dispatchNormalizesAConsumerException() {
         var source = source();
@@ -84,12 +84,12 @@ class SignalSourceTest {
         });
         var result = source.dispatch(new TestConsumeContext(), payload()).toCompletableFuture().join();
         assertThat(result).isInstanceOfSatisfying(DeliveryResult.Rejected.class, rejected -> {
-            assertThat(rejected.disposition()).isEqualTo(Disposition.PERMANENT);
+            assertThat(rejected.disposition()).isEqualTo(Disposition.RETRYABLE);
             assertThat(rejected.message()).contains("boom");
         });
     }
 
-    @DisplayName("dispatch turns an asynchronous consumer failure into a permanent rejection")
+    @DisplayName("dispatch turns an asynchronous consumer failure into a retryable rejection")
     @Test
     void dispatchNormalizesAnAsyncConsumerFailure() {
         var source = source();
@@ -101,7 +101,7 @@ class SignalSourceTest {
         });
         var result = source.dispatch(new TestConsumeContext(), payload()).toCompletableFuture().join();
         assertThat(result).isInstanceOfSatisfying(DeliveryResult.Rejected.class, rejected -> {
-            assertThat(rejected.disposition()).isEqualTo(Disposition.PERMANENT);
+            assertThat(rejected.disposition()).isEqualTo(Disposition.RETRYABLE);
             assertThat(rejected.message()).contains("async boom");
         });
     }

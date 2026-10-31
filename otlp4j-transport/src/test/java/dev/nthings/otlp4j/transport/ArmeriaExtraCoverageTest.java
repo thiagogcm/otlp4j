@@ -2,8 +2,8 @@ package dev.nthings.otlp4j.transport;
 
 import static dev.nthings.otlp4j.core.signal.SignalDescriptor.TRACES;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import dev.nthings.otlp4j.core.result.Disposition;
 import com.linecorp.armeria.client.WebClient;
 import com.linecorp.armeria.common.HttpData;
 import com.linecorp.armeria.common.HttpHeaderNames;
@@ -18,11 +18,9 @@ import dev.nthings.otlp4j.model.Span;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.testing.Fixtures;
 import dev.nthings.otlp4j.testing.TransportFixtures;
-import io.grpc.Status;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
@@ -144,11 +142,11 @@ class ArmeriaExtraCoverageTest {
                 .retryPolicy(new RetryPolicy(1, BackoffPolicy.defaults(), false)).build().start();
         cleanup.client(exporter);
 
-        assertThatThrownBy(() -> exporter.export(TRACES, TransportFixtures.richTraceData())
-                .toCompletableFuture().join())
-                .isInstanceOf(CompletionException.class)
-                .satisfies(e -> assertThat(Status.fromThrowable(e.getCause()).getCode())
-                        .isEqualTo(Status.Code.UNAVAILABLE));
+        assertThat(exporter.export(TRACES, TransportFixtures.richTraceData()).toCompletableFuture().join())
+                .isInstanceOfSatisfying(DeliveryResult.Rejected.class, rejected -> {
+                    assertThat(rejected.disposition()).isEqualTo(Disposition.RETRYABLE);
+                    assertThat(rejected.downstream()).isTrue();
+                });
     }
 
     @DisplayName("admission at capacity without a throttle hint yields 429 and no Retry-After")

@@ -45,7 +45,8 @@ import org.slf4j.LoggerFactory;
 /// - an admission rejection yields `429` with a `Retry-After` header when a throttle hint is set.
 /// - a [DeliveryResult.Accepted] or [DeliveryResult.Partial] yields `200` with the protobuf response;
 ///   a retryable rejection yields `503` (with `Retry-After` when hinted), a permanent one `500`, or
-///   `400` when the request itself is invalid; a dispatcher failure yields `500`.
+///   `400` when the request itself is invalid; a dispatcher failure is classified like any other
+///   unclassified failure (see [WireFailures]), so it yields `503` unless the payload was undecodable.
 final class HttpProtocolMapping {
 
     private static final Logger log = LoggerFactory.getLogger(HttpProtocolMapping.class);
@@ -141,9 +142,7 @@ final class HttpProtocolMapping {
     private static <T, REQ extends MessageLite, RESP extends MessageLite> HttpResponse mapResult(
             SignalCodec<T, REQ, RESP> codec, @Nullable DeliveryResult result, @Nullable Throwable error) {
         if (error != null) {
-            var cause = unwrap(error);
-            log.warn("OTLP/HTTP dispatcher failed; responding 500", cause);
-            return text(HttpStatus.INTERNAL_SERVER_ERROR, cause.getMessage());
+            result = WireFailures.rejection(error, codec.descriptor());
         }
         if (result instanceof DeliveryResult.Rejected rejected) {
             var status = HttpStatus.valueOf(DeliveryResultStatuses.httpStatus(rejected));

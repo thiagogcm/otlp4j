@@ -73,7 +73,7 @@ The adapter borrows its `TelemetryInput`. It neither starts nor closes that inpu
 | `flush()` | Flush the input with a ten-second budget; fail if the report is unsuccessful |
 | `shutdown()` | Stop accepting adapter exports, wait for outstanding submissions, and flush within one ten-second budget |
 
-Shutdown is idempotent and preserves its result. It fails if pending submissions do not settle within the budget. A custom input must complete its submission stages and implement meaningful flush behavior. For buffered pipelines, later losses are visible through input flush even when SDK export previously reported success.
+Shutdown is idempotent and preserves its result. It fails if pending submissions do not settle within the budget. A custom input must complete its submission stages and implement meaningful flush behavior. A batch processor or exporter queue acknowledges on admission, so SDK export reports success at that point and input flush reports later losses. The [OTLP exporter queues by default](delivery.md#exporter-queues-and-redelivery).
 
 The direct adapter callback maps partial success to SDK success to avoid replaying accepted items. See [Delivery and lifecycle](delivery.md) for the detailed domain outcomes.
 

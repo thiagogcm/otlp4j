@@ -8,10 +8,10 @@ import dev.nthings.otlp4j.core.policy.BackoffPolicy;
 import dev.nthings.otlp4j.core.policy.RetryPolicy;
 import dev.nthings.otlp4j.transport.Tls;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
+import dev.nthings.otlp4j.core.result.Disposition;
 import dev.nthings.otlp4j.testing.TransportFixtures;
 import dev.nthings.otlp4j.testing.conformance.TlsTestMaterial;
 import java.time.Duration;
-import java.util.concurrent.CompletionException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -58,9 +58,12 @@ class ArmeriaMutualTlsTest {
                 .build().start();
         cleanup.client(exporter);
 
-        assertThatThrownBy(() -> exporter.export(TRACES, TransportFixtures.richTraceData())
-                .toCompletableFuture().join())
-                .isInstanceOf(CompletionException.class);
+        assertThat(exporter.export(TRACES, TransportFixtures.richTraceData()).toCompletableFuture().join())
+                .isInstanceOfSatisfying(DeliveryResult.Rejected.class, rejected -> {
+                    // A failed handshake never reached an answering server, so it is retryable.
+                    assertThat(rejected.disposition()).isEqualTo(Disposition.RETRYABLE);
+                    assertThat(rejected.downstream()).isTrue();
+                });
     }
 
     @DisplayName("HTTP REQUIRE: a client presenting its certificate is accepted")
@@ -92,9 +95,12 @@ class ArmeriaMutualTlsTest {
                 .build().start();
         cleanup.client(exporter);
 
-        assertThatThrownBy(() -> exporter.export(TRACES, TransportFixtures.richTraceData())
-                .toCompletableFuture().join())
-                .isInstanceOf(CompletionException.class);
+        assertThat(exporter.export(TRACES, TransportFixtures.richTraceData()).toCompletableFuture().join())
+                .isInstanceOfSatisfying(DeliveryResult.Rejected.class, rejected -> {
+                    // A failed handshake never reached an answering server, so it is retryable.
+                    assertThat(rejected.disposition()).isEqualTo(Disposition.RETRYABLE);
+                    assertThat(rejected.downstream()).isTrue();
+                });
     }
 
     @DisplayName("OPTIONAL: a certless client still succeeds")

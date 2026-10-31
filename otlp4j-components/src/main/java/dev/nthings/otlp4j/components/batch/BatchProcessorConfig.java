@@ -2,14 +2,15 @@ package dev.nthings.otlp4j.components.batch;
 
 import dev.nthings.otlp4j.core.component.ComponentConfig;
 import dev.nthings.otlp4j.core.policy.BatchPolicy;
-import dev.nthings.otlp4j.core.policy.DeliveryQueuePolicy;
-import dev.nthings.otlp4j.core.policy.OverflowPolicy;
 import dev.nthings.otlp4j.core.signal.PayloadSizer;
 import java.time.Duration;
 import java.util.List;
 
-/// The typed configuration for the batch processor: the flush triggers, the bounded delivery queue,
-/// and the admission limits that cover buffered, queued, and in-flight submissions together.
+/// The typed configuration for the batch processor: the flush triggers, the number of delivery
+/// workers, and the admission limits that cover buffered, queued, and in-flight submissions together.
+///
+/// Those admission limits are the only bound on accepted work. The queue behind the flush has no
+/// capacity of its own that could refuse a flush after its submissions were acknowledged.
 ///
 /// The `sizer` supplies every byte figure this processor uses. A submission the sizer weighs counts
 /// toward `maxPendingBytes`; one it weighs as zero counts its items toward `maxPendingItems` instead.
@@ -18,8 +19,7 @@ import java.util.List;
 /// weigh the batches this processor builds itself, so it needs a sizer that can weigh any payload.
 ///
 /// @param batch          the flush-trigger policy: target and maximum sizes, timeout, metadata keys
-/// @param delivery       the bounded delivery queue policy behind the flush
-/// @param degradedWindow how long the delivery queue refuses ingress after a failed downstream delivery
+/// @param numConsumers   the number of workers delivering flushed batches downstream, at least one
 /// @param maxPendingSubmissions maximum accepted submissions retained by this processor at once
 /// @param maxPendingBytes maximum weight, as measured by `sizer`, retained by this processor at once
 /// @param maxPartitions maximum metadata partitions retained by this processor at once
@@ -28,8 +28,7 @@ import java.util.List;
 /// @param sizer          the source of payload weights for the byte limits and the byte cap
 public record BatchProcessorConfig(
         BatchPolicy batch,
-        DeliveryQueuePolicy delivery,
-        Duration degradedWindow,
+        int numConsumers,
         int maxPendingSubmissions,
         long maxPendingBytes,
         int maxPartitions,
@@ -37,17 +36,14 @@ public record BatchProcessorConfig(
         PayloadSizer sizer)
         implements ComponentConfig {
 
-    /// Validates the wrapped policies, degraded window, global pending-work limits, and that a hard
+    /// Validates the wrapped policy, consumer count, global pending-work limits, and that a hard
     /// byte cap comes with a sizer able to enforce it.
     public BatchProcessorConfig {
         if (batch == null) {
             throw new IllegalArgumentException("batch must be non-null");
         }
-        if (delivery == null) {
-            throw new IllegalArgumentException("delivery must be non-null");
-        }
-        if (degradedWindow == null || degradedWindow.isNegative()) {
-            throw new IllegalArgumentException("degradedWindow must be non-null and non-negative");
+        if (numConsumers < 1) {
+            throw new IllegalArgumentException("numConsumers must be >= 1, got " + numConsumers);
         }
         if (maxPendingSubmissions < 1) {
             throw new IllegalArgumentException("maxPendingSubmissions must be >= 1");
@@ -64,13 +60,6 @@ public record BatchProcessorConfig(
         if (sizer == null) {
             throw new IllegalArgumentException("sizer must be non-null; use PayloadSizer.reported()");
         }
-        if ((batch.sendBatchMaxSize() > 0 || batch.sendBatchMaxBytes() > 0)
-                && delivery.queueSize() < MIN_QUEUE_SIZE_WITH_CAP) {
-            throw new IllegalArgumentException(
-                    "a hard batch cap needs delivery.queueSize >= " + MIN_QUEUE_SIZE_WITH_CAP
-                            + ", got " + delivery.queueSize() + ": the queue admits the requests of one "
-                            + "flush as a group, so a smaller one can refuse ordinary accepted work");
-        }
         if (batch.sendBatchMaxBytes() > 0 && sizer == PayloadSizer.reported()) {
             throw new IllegalArgumentException(
                     "sendBatchMaxBytes needs a sizer that can weigh every payload, because the default "
@@ -83,28 +72,24 @@ public record BatchProcessorConfig(
     /// payloads that already carry an encoded size.
     ///
     /// @param batch          the flush-trigger policy, without a hard byte cap
-    /// @param delivery       the bounded delivery queue policy behind the flush
-    /// @param degradedWindow how long the delivery queue refuses ingress after a failed delivery
+    /// @param numConsumers   the number of workers delivering flushed batches downstream
     /// @param maxPendingSubmissions maximum accepted submissions retained at once
     /// @param maxPendingBytes maximum weight retained at once from payloads that carry a size
     /// @param maxPartitions maximum metadata partitions retained at once
     public BatchProcessorConfig(
             BatchPolicy batch,
-            DeliveryQueuePolicy delivery,
-            Duration degradedWindow,
+            int numConsumers,
             int maxPendingSubmissions,
             long maxPendingBytes,
             int maxPartitions) {
-        this(batch, delivery, degradedWindow, maxPendingSubmissions, maxPendingBytes, maxPartitions,
+        this(batch, numConsumers, maxPendingSubmissions, maxPendingBytes, maxPartitions,
                 DEFAULT_MAX_PENDING_ITEMS, PayloadSizer.reported());
     }
 
     public static final int DEFAULT_MAX_PENDING_SUBMISSIONS = 1024;
 
-    /// The smallest delivery queue a hard output cap may use. A flush holds at most one submission of
-    /// half the queue beside what was already buffered, and with heavy-tailed item sizes that can split
-    /// into some sixteen requests of its own, so this leaves the group room to fit.
-    public static final int MIN_QUEUE_SIZE_WITH_CAP = 64;
+    /// The default number of delivery workers.
+    public static final int DEFAULT_NUM_CONSUMERS = 1;
 
     public static final long DEFAULT_MAX_PENDING_BYTES = 64L * 1024 * 1024;
     public static final int DEFAULT_MAX_PARTITIONS = 1024;
@@ -114,16 +99,13 @@ public record BatchProcessorConfig(
     public static final long DEFAULT_MAX_PENDING_ITEMS = 262_144L;
 
     /// The default batch configuration: a one second flush timeout, an 8192-item target with no hard
-    /// item or byte cap and no metadata keys, a single-consumer queue of 1024 entries applying
-    /// backpressure on overflow without waiting for the downstream result, a five second degraded
-    /// window, and the default sizer.
+    /// item or byte cap and no metadata keys, a single delivery worker, and the default sizer.
     ///
     /// @return the default configuration
     public static BatchProcessorConfig defaults() {
         return new BatchProcessorConfig(
                 new BatchPolicy(8192, 0, 0, Duration.ofSeconds(1), List.of()),
-                new DeliveryQueuePolicy(1024, 1, OverflowPolicy.FAIL),
-                Duration.ofSeconds(5),
+                DEFAULT_NUM_CONSUMERS,
                 DEFAULT_MAX_PENDING_SUBMISSIONS,
                 DEFAULT_MAX_PENDING_BYTES,
                 DEFAULT_MAX_PARTITIONS);

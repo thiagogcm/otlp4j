@@ -33,7 +33,8 @@ All packages below have the prefix `dev.nthings.otlp4j.core`.
 | `.component` | Component factories, `ComponentConfig`, `ComponentId`, `ComponentKind` | Construction, configuration, identity |
 | `.component` | `ComponentContext`, `CreateContext`, `FlushContext`, `ShutdownContext`, `SignalSupport`, `NetworkBound` | Runtime context and capabilities |
 | `.result` | `DeliveryResult`, `Disposition`, `DeliveryReason`, `Provenance`, `FlushReport` | Delivery and drain outcomes |
-| `.policy` | `BatchPolicy`, `DeliveryQueuePolicy`, `OverflowPolicy`, `RetryPolicy`, `BackoffPolicy`, `TimeoutPolicy` | Immutable policy values |
+| `.policy` | `BatchPolicy`, `DeliveryQueuePolicy`, `OverflowPolicy`, `RetryPolicy`, `RedeliveryPolicy`, `BackoffPolicy`, `TimeoutPolicy` | Immutable policy values |
+| `.delivery` | `DeliveryQueue<T>`, `QueuedExporter<T>`, `QueueObserver`, `LossListener` | Bounded acknowledge-on-enqueue queue with optional redelivery, and the decorator that puts one in front of an exporter |
 | `.pipeline` | `PipelineId` | Signal and optional pipeline name |
 | `.telemetry` | `GatewayMetrics` | Counters and gauges for component health |
 
@@ -68,7 +69,20 @@ Implementations must return non-null completion stages and outcomes, release res
 
 Install an implementation through `GatewayBuilder.build(new ComponentContext(metrics, clock))` or an owned transport builder's `.telemetry(metrics)`. Unconfigured runtimes use `GatewayMetrics.noop()`. The [`LoggingGatewayMetrics` sample](../otlp4j-samples/src/main/java/dev/nthings/otlp4j/samples/LoggingGatewayMetrics.java) illustrates an adapter.
 
-Bundled transport instruments include exporter outcomes and receiver admission counts and gauges. The SPI is not an automatic bridge to a monitoring backend, and the SDK exporter bridge does not implement such a backend.
+The bundled components report these instruments:
+
+| Instrument | Kind | Reports |
+| --- | --- | --- |
+| `otlp4j.exporter.export.success`, `.failure` | Counter | Batches the endpoint acknowledged, and batches rejected or failed in transit |
+| `otlp4j.exporter.export.items`, `.bytes`, `.duration.nanos`, `.retries` | Counter | Items, request bytes, send latency, and retry attempts |
+| `otlp4j.exporter.queue.size` | Gauge | Entries accepted and not yet finished, summed over the exporter queues of one registry |
+| `otlp4j.exporter.queue.refused.items` | Counter | Items refused to the sender because the queue was full or stopping |
+| `otlp4j.exporter.queue.lost.items` | Counter | Items acknowledged and then lost |
+| `otlp4j.batch.lost.items` | Counter | Items the batch processor accepted and then lost |
+| `otlp4j.receiver.admission.in_flight.requests`, `.bytes` | Gauge | Requests and bytes in flight |
+| `otlp4j.receiver.admission.rejected` | Counter | Requests refused at admission |
+
+`DeliveryQueue` reports each loss to a `LossListener`, and the owning component logs and counts it. The SPI is not an automatic bridge to a monitoring backend, and the SDK exporter bridge does not implement such a backend.
 
 ## Component and transport configuration
 

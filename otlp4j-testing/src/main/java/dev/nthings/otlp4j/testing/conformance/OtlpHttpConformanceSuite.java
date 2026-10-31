@@ -93,12 +93,14 @@ public abstract class OtlpHttpConformanceSuite {
     }
 
     @Test
-    void dispatcherExceptionReturns500() {
+    void dispatcherExceptionReturns503() {
+        // A failure no component classified is retryable, as in the OpenTelemetry Collector's
+        // receiver: answering 500 would tell the sender not to retry over a possibly transient fault.
         var scenario = Scenario.builder(ConformanceSignal.TRACES)
                 .outcome(new ProgrammedOutcome.ThrowRuntime("boom"))
                 .build();
         withHttp(scenario, (client, gw) ->
-                assertThat(client.export(ConformanceSignal.TRACES).httpStatus()).hasValue(500));
+                assertThat(client.export(ConformanceSignal.TRACES).httpStatus()).hasValue(503));
     }
 
     @Test

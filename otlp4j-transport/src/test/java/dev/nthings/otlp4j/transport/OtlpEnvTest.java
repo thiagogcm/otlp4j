@@ -8,6 +8,8 @@ import java.time.Duration;
 import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 /// Drives the package-private [OtlpExporterConfig.Builder#fromEnvironment] seam with a
 /// map-backed lookup, so the suite exercises env parsing without touching process environment.
@@ -36,11 +38,58 @@ class OtlpEnvTest {
         assertThat(cfg.tls()).isEqualTo(Tls.systemTrust());
     }
 
-    @DisplayName("endpoint without a port defaults to 4317")
+    @DisplayName("a portless endpoint takes its scheme's default port, not the builder's seed")
+    @ParameterizedTest
+    @CsvSource({
+        "http://collector, 80", "https://collector, 443",
+        "http://collector:8080, 8080", "https://collector:443, 443",
+        "https://collector/otlp, 443", "http://collector/otlp, 80",
+        "https://[::1], 443", "http://[::1], 80"
+    })
+    void endpointPortFollowsScheme(String url, int expected) {
+        assertThat(OtlpExporterConfig.builder(4317).fromEnvironment(Map.of(OtlpEnv.ENDPOINT, url)::get)
+                .build().port()).isEqualTo(expected);
+        assertThat(OtlpExporterConfig.builder(4318).fromEnvironment(Map.of(OtlpEnv.ENDPOINT, url)::get)
+                .build().port()).isEqualTo(expected);
+    }
+
+    @DisplayName("a portless IPv6 endpoint is unwrapped and gets the scheme's port")
     @Test
-    void endpointDefaultPort() {
-        assertThat(fromEnv(Map.of(OtlpEnv.ENDPOINT, "http://collector")).port()).isEqualTo(4317);
-        assertThat(fromEnv(Map.of(OtlpEnv.ENDPOINT, "https://collector:443")).port()).isEqualTo(443);
+    void portlessIpv6Endpoint() {
+        var cfg = fromEnv(Map.of(OtlpEnv.ENDPOINT, "https://[::1]"));
+
+        assertThat(cfg.host()).isEqualTo("::1");
+        assertThat(cfg.port()).isEqualTo(443);
+    }
+
+    @DisplayName("a portless endpoint with a path keeps the path and takes the scheme's port")
+    @Test
+    void portlessEndpointWithPath() {
+        var cfg = fromEnv(Map.of(OtlpEnv.ENDPOINT, "https://collector/otlp"));
+
+        assertThat(cfg.host()).isEqualTo("collector");
+        assertThat(cfg.port()).isEqualTo(443);
+        assertThat(cfg.path()).isEqualTo("/otlp");
+    }
+
+    @DisplayName("an explicit port wins over a portless env endpoint")
+    @Test
+    void explicitPortBeatsPortlessEnvEndpoint() {
+        var env = Map.of(OtlpEnv.ENDPOINT, "https://collector");
+
+        assertThat(OtlpExporterConfig.builder(4317).port(9999).fromEnvironment(env::get).build().port())
+                .isEqualTo(9999);
+        assertThat(OtlpExporterConfig.builder(4317).fromEnvironment(env::get).port(9999).build().port())
+                .isEqualTo(9999);
+    }
+
+    @DisplayName("without an endpoint the builder's seed port is unchanged")
+    @Test
+    void noEndpointKeepsSeedPort() {
+        assertThat(OtlpExporterConfig.builder(4317).fromEnvironment(Map.<String, String>of()::get).build().port())
+                .isEqualTo(4317);
+        assertThat(OtlpExporterConfig.builder(4318).fromEnvironment(Map.of(OtlpEnv.INSECURE, "true")::get)
+                .build().port()).isEqualTo(4318);
     }
 
     @DisplayName("a scheme-less, bad-scheme, or blank endpoint is rejected")

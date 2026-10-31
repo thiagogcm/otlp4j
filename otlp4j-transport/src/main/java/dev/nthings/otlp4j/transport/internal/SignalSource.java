@@ -22,8 +22,9 @@ import org.jspecify.annotations.Nullable;
 /// forwarded verbatim to the attached consumer, whose [DeliveryResult] flows back to the transport
 /// unchanged. When no consumer is attached, dispatch answers a retryable [DeliveryReason#NO_CONSUMER]
 /// rejection attributed to the receiver, which the transport renders as gRPC `UNAVAILABLE` / HTTP
-/// `503`. A directly attached consumer's throw or failed stage becomes a permanent rejection, as it
-/// does at a graph boundary, so the transport classifies every failure in one place.
+/// `503`. A directly attached consumer's throw or failed stage becomes a rejection through
+/// `DeliveryResult.fromFailure`, as it does at a graph boundary, so the transport classifies every
+/// failure in one place: retryable (`UNAVAILABLE` / `503`) unless the payload was undecodable.
 ///
 /// @param <T> the domain batch type this signal identifies
 public final class SignalSource<T> {
@@ -69,11 +70,17 @@ public final class SignalSource<T> {
             return CompletableFuture.completedFuture(noConsumerResult);
         }
         try {
-            return consumer.consume(context, payload).exceptionally(
-                    failure -> DeliveryResult.permanentFrom("consume failed", failure, provenance));
+            var stage = consumer.consume(context, payload);
+            if (stage == null) {
+                // A null stage is a defect in the consumer, not a transient fault: retrying repeats it.
+                return CompletableFuture.completedFuture(DeliveryResult.permanent(
+                        "consumer returned a null completion stage", provenance));
+            }
+            return stage.exceptionally(
+                    failure -> DeliveryResult.fromFailure("consume failed", failure, provenance));
         } catch (RuntimeException failure) {
             return CompletableFuture.completedFuture(
-                    DeliveryResult.permanentFrom("consume threw", failure, provenance));
+                    DeliveryResult.fromFailure("consume threw", failure, provenance));
         }
     }
 }

@@ -2,8 +2,8 @@ package dev.nthings.otlp4j.transport;
 
 import static dev.nthings.otlp4j.core.signal.SignalDescriptor.TRACES;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import dev.nthings.otlp4j.core.result.Disposition;
 import dev.nthings.otlp4j.core.policy.BackoffPolicy;
 import dev.nthings.otlp4j.core.policy.RetryPolicy;
 import dev.nthings.otlp4j.core.consumer.SignalConsumer;
@@ -13,7 +13,6 @@ import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.testing.Fixtures;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.DisplayName;
@@ -99,8 +98,9 @@ class ArmeriaGracefulShutdownTest {
 
     private void assertRefused(boolean grpc, int port, TracesData batch) {
         var exporter = exporterTo(grpc, port);
-        assertThatThrownBy(() -> exporter.export(TRACES, batch).toCompletableFuture().join())
-                .isInstanceOf(CompletionException.class);
+        assertThat(exporter.export(TRACES, batch).toCompletableFuture().join())
+                .isInstanceOfSatisfying(DeliveryResult.Rejected.class, rejected ->
+                        assertThat(rejected.disposition()).isEqualTo(Disposition.RETRYABLE));
     }
 
     private OtlpReceiver startReceiver(boolean grpc, SignalConsumer<TracesData> consumer) {

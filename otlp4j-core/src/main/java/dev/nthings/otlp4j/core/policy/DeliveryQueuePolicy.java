@@ -5,10 +5,15 @@ package dev.nthings.otlp4j.core.policy;
 /// acknowledged at the first bounded buffer; downstream outcomes are surfaced by the component flush
 /// report rather than by an optional result-waiting mode.
 ///
+/// The capacity counts entries waiting for a consumer. An entry a consumer has taken, including one it
+/// is redelivering, occupies that consumer and not a slot.
+///
 /// @param queueSize     the queue capacity in entries, at least one
 /// @param numConsumers  the number of draining consumers, at least one
 /// @param overflow      the behaviour when the queue is full
 public record DeliveryQueuePolicy(int queueSize, int numConsumers, OverflowPolicy overflow) {
+
+    private static final DeliveryQueuePolicy DEFAULT = new DeliveryQueuePolicy(1000, 10, OverflowPolicy.FAIL);
 
     /// Validates the sizes and overflow policy.
     public DeliveryQueuePolicy {
@@ -21,5 +26,13 @@ public record DeliveryQueuePolicy(int queueSize, int numConsumers, OverflowPolic
         if (overflow == null) {
             throw new IllegalArgumentException("overflow must be non-null");
         }
+    }
+
+    /// The default queue, the upstream Collector exporter's: one thousand entries, ten consumers, and a
+    /// full queue refuses the arriving entry retryably (`FAIL`).
+    ///
+    /// @return the default delivery queue policy
+    public static DeliveryQueuePolicy defaults() {
+        return DEFAULT;
     }
 }

@@ -6,6 +6,7 @@ import dev.nthings.otlp4j.codec.SignalCodec;
 import dev.nthings.otlp4j.codec.PayloadWire;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.signal.Payload;
+import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import com.linecorp.armeria.server.ServiceRequestContext;
 import io.grpc.ServerInterceptors;
 import io.grpc.ServerServiceDefinition;
@@ -45,7 +46,9 @@ import org.slf4j.LoggerFactory;
 /// - A retryable [DeliveryResult.Rejected] maps to `UNAVAILABLE` with the rejection's own pushback
 ///   hint; a permanent one maps to `INTERNAL`, or to `INVALID_ARGUMENT` when the request itself is
 ///   invalid.
-/// - A synchronous or asynchronous dispatcher failure maps to `INTERNAL`.
+/// - A synchronous or asynchronous dispatcher failure is classified like any other unclassified
+///   failure (see [WireFailures]): `UNAVAILABLE` unless the payload was undecodable, so the sender
+///   retries instead of dropping data over a fault that may be transient.
 /// - A profiles request naming a development version this server cannot read maps to
 ///   `INVALID_ARGUMENT` before it is decoded.
 ///
@@ -115,8 +118,9 @@ final class GrpcServiceAdapters {
     /// Decodes `request` and dispatches to the signal handler, holding an admission permit for the
     /// request's decoded size until the dispatch completes. At capacity the request is rejected with
     /// `UNAVAILABLE` "receiver at capacity" (plus a pushback trailer when configured). A synchronous
-    /// failure maps to gRPC `INTERNAL`; the asynchronous outcome is handed to [#respond].
+    /// failure is classified by [WireFailures]; the asynchronous outcome is handed to [#respond].
     ///
+    /// @param signal     the signal this request carries
     /// @param request    the decoded proto export request
     /// @param observer   the response observer
     /// @param dispatcher the signal dispatcher
@@ -125,6 +129,7 @@ final class GrpcServiceAdapters {
     /// @param <REQ>      the proto request type
     /// @param <RESP>     the proto response type
     static <REQ extends MessageLite, RESP> void dispatch(
+            SignalDescriptor<?> signal,
             REQ request,
             StreamObserver<RESP> observer,
             Function<REQ, CompletionStage<DeliveryResult>> dispatcher,
@@ -145,11 +150,10 @@ final class GrpcServiceAdapters {
             if (e instanceof Error fatal) {
                 throw fatal;
             }
-            observer.onError(
-                    Status.INTERNAL.withDescription(e.getMessage()).withCause(e).asRuntimeException());
+            reject(observer, WireFailures.rejection(e, signal));
             return;
         }
-        respond(observer, stage.whenComplete((result, error) -> permit.close()), asResponse);
+        respond(signal, observer, stage.whenComplete((result, error) -> permit.close()), asResponse);
     }
 
     /// `UNAVAILABLE` for a request rejected at admission, carrying the configured pushback hint.
@@ -169,29 +173,20 @@ final class GrpcServiceAdapters {
     }
 
     /// Asynchronously consumes the result, mapping [DeliveryResult] to a gRPC response or to a gRPC
-    /// error.
+    /// error. A stage that failed is classified by [WireFailures] and then rendered like any returned
+    /// rejection.
     static <RESP> void respond(
+            SignalDescriptor<?> signal,
             StreamObserver<RESP> observer,
             CompletionStage<DeliveryResult> stage,
             Function<DeliveryResult, RESP> mapResult) {
         stage.whenComplete((result, error) -> {
             if (error != null) {
-                log.warn("dispatcher failed; responding with gRPC INTERNAL", error);
-                observer.onError(Status.INTERNAL
-                        .withDescription(error.getMessage())
-                        .withCause(error)
-                        .asRuntimeException());
+                reject(observer, WireFailures.rejection(error, signal));
                 return;
             }
             if (result instanceof DeliveryResult.Rejected rejected) {
-                var status = status(rejected);
-                if (rejected.cause() != null) {
-                    status = status.withCause(rejected.cause());
-                }
-                log.warn("dispatcher rejected the whole batch; responding with gRPC {}: {}",
-                        status.getCode(), rejected.message());
-                observer.onError(status.withDescription(rejected.message())
-                        .asRuntimeException(GrpcPushback.pushbackTrailers(rejected.retryAfter())));
+                reject(observer, rejected);
                 return;
             }
             try {
@@ -204,6 +199,18 @@ final class GrpcServiceAdapters {
                         .asRuntimeException());
             }
         });
+    }
+
+    /// Renders a whole-payload rejection as the gRPC error its disposition and hint call for.
+    private static <RESP> void reject(StreamObserver<RESP> observer, DeliveryResult.Rejected rejected) {
+        var status = status(rejected);
+        if (rejected.cause() != null) {
+            status = status.withCause(rejected.cause());
+        }
+        log.warn("dispatcher rejected the whole batch; responding with gRPC {}: {}",
+                status.getCode(), rejected.message());
+        observer.onError(status.withDescription(rejected.message())
+                .asRuntimeException(GrpcPushback.pushbackTrailers(rejected.retryAfter())));
     }
 }
 
@@ -224,7 +231,8 @@ final class TraceServiceAdapter extends TraceServiceGrpc.TraceServiceImplBase {
             ExportTraceServiceRequest request,
             StreamObserver<ExportTraceServiceResponse> observer) {
         GrpcServiceAdapters.dispatch(
-                request, observer, dispatcher, SignalCodec.TRACES::deliveryResponse, admission);
+                SignalDescriptor.TRACES, request, observer, dispatcher, SignalCodec.TRACES::deliveryResponse,
+                admission);
     }
 }
 
@@ -245,7 +253,8 @@ final class MetricsServiceAdapter extends MetricsServiceGrpc.MetricsServiceImplB
             ExportMetricsServiceRequest request,
             StreamObserver<ExportMetricsServiceResponse> observer) {
         GrpcServiceAdapters.dispatch(
-                request, observer, dispatcher, SignalCodec.METRICS::deliveryResponse, admission);
+                SignalDescriptor.METRICS, request, observer, dispatcher, SignalCodec.METRICS::deliveryResponse,
+                admission);
     }
 }
 
@@ -266,7 +275,8 @@ final class LogsServiceAdapter extends LogsServiceGrpc.LogsServiceImplBase {
             ExportLogsServiceRequest request,
             StreamObserver<ExportLogsServiceResponse> observer) {
         GrpcServiceAdapters.dispatch(
-                request, observer, dispatcher, SignalCodec.LOGS::deliveryResponse, admission);
+                SignalDescriptor.LOGS, request, observer, dispatcher, SignalCodec.LOGS::deliveryResponse,
+                admission);
     }
 }
 
@@ -287,6 +297,7 @@ final class ProfilesServiceAdapter extends ProfilesServiceGrpc.ProfilesServiceIm
             ExportProfilesServiceRequest request,
             StreamObserver<ExportProfilesServiceResponse> observer) {
         GrpcServiceAdapters.dispatch(
-                request, observer, dispatcher, SignalCodec.PROFILES::deliveryResponse, admission);
+                SignalDescriptor.PROFILES, request, observer, dispatcher, SignalCodec.PROFILES::deliveryResponse,
+                admission);
     }
 }

@@ -11,7 +11,9 @@ import dev.nthings.otlp4j.transport.internal.Protocol;
 /// [#http()]. Each factory creates one exporter bound to a signal by building a shared
 /// [OtlpExporter] (once per component id, through the build-scoped [CreateContext#sharedComponents])
 /// and handing each per-signal pipeline the matching facet, so one shared channel serves every signal
-/// that terminates at one endpoint. The protocol derives the component [#type()] (`otlp` for gRPC,
+/// that terminates at one endpoint. When the config has a queue, each facet is wrapped in its own
+/// delivery queue, so an exporter id has one queue per signal and a stalled destination holds back only
+/// its own queues. The protocol derives the component [#type()] (`otlp` for gRPC,
 /// `otlphttp` for HTTP) and the [#defaultPort()] (`4317` / `4318`).
 public final class OtlpExporterFactory implements ExporterFactory<OtlpExporterConfig> {
 
@@ -70,6 +72,9 @@ public final class OtlpExporterFactory implements ExporterFactory<OtlpExporterCo
         // only when the last facet shuts down.
         OtlpExporter exporter = ctx.sharedComponents().computeIfAbsent(ctx.id(), () ->
                 OtlpExporter.forFactory(protocol, config, ctx.id(), ctx.base().metrics()));
-        return exporter.facet(signal);
+        // A queue per signal, as the upstream Collector exporter has: a payload is acknowledged once
+        // queued and redelivered until the destination takes it. With no queue configured the facet
+        // exports synchronously and relays a failure to the sender.
+        return config.queue() == null ? exporter.facet(signal) : exporter.queuedFacet(signal);
     }
 }

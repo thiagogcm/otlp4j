@@ -69,6 +69,11 @@
             <groupId>com.linecorp.armeria</groupId>
             <artifactId>armeria-grpc</artifactId>
         </dependency>
+        <!-- ArmeriaStatusException: how Armeria's gRPC client reports its own message-size limit. -->
+        <dependency>
+            <groupId>com.linecorp.armeria</groupId>
+            <artifactId>armeria-grpc-protocol</artifactId>
+        </dependency>
         <!-- Netty ClientAuth / SslContextBuilder for the TLS mapping. -->
         <dependency>
             <groupId>io.netty</groupId>

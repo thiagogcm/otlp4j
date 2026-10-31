@@ -12,14 +12,14 @@ import java.util.concurrent.CompletionStage;
 /// consume call so a thrown exception, a null returned stage, or a failed stage becomes a delivery
 /// result carrying the node's [Provenance] gives every graph edge the same failure semantics.
 /// The normalization matches the framework-wide
-/// convention `DeliveryResult.permanentFrom` codifies: a `CompletionException` is unwrapped, an
+/// convention `DeliveryResult.fromFailure` codifies: a `CompletionException` is unwrapped, an
 /// `Error` is rethrown, and an interrupt is restored.
 public final class GraphNodeBoundary {
 
     private GraphNodeBoundary() {}
 
-    /// Delivers `data` to `consumer`, guarding the call so any failure becomes a permanent rejection
-    /// carrying `provenance` rather than escaping.
+    /// Delivers `data` to `consumer`, guarding the call so any failure becomes a rejection carrying
+    /// `provenance` (retryable unless the payload was undecodable) rather than escaping.
     ///
     /// @param consumer   the consumer to invoke
     /// @param provenance the provenance to stamp on a normalized failure
@@ -34,7 +34,7 @@ public final class GraphNodeBoundary {
             stage = consumer.consume(context, data);
         } catch (Throwable failure) {
             return CompletableFuture.completedFuture(
-                    DeliveryResult.permanentFrom("consume threw", failure, provenance));
+                    DeliveryResult.fromFailure("consume threw", failure, provenance));
         }
         if (stage == null) {
             return CompletableFuture.completedFuture(DeliveryResult.permanent(
@@ -42,7 +42,7 @@ public final class GraphNodeBoundary {
         }
         return stage.handle((result, failure) -> {
             if (failure != null) {
-                return DeliveryResult.permanentFrom("consume failed", failure, provenance);
+                return DeliveryResult.fromFailure("consume failed", failure, provenance);
             }
             if (result == null) {
                 return DeliveryResult.permanent(

@@ -9,7 +9,7 @@ Public library modules use the JPMS name `dev.nthings.otlp4j.<suffix>`, where th
 | Module | Responsibility | Application use |
 | --- | --- | --- |
 | `otlp4j-model` | Immutable telemetry records and common values | Construct and inspect batches |
-| `otlp4j-core` | Typed signals, payloads, contexts, results, policies, and component contracts | Implement processing and extensions |
+| `otlp4j-core` | Typed signals, payloads, contexts, results, policies, the delivery queue, and component contracts | Implement processing and extensions |
 | `otlp4j-service` | Pipeline builder, gateway compiler, graph validation, and lifecycle | Assemble and own processing runtimes |
 | `otlp4j-transport` | Armeria OTLP receivers and exporters | Exchange telemetry over gRPC or HTTP |
 | `otlp4j-components` | Built-in processors and span-count connector | Add configured processing stages |
@@ -80,5 +80,7 @@ Some implementation dependencies are automatic modules, including dependencies o
 ## Extension and visibility boundaries
 
 New receiver, processor, exporter, and connector factories implement the core contracts. The service compiler assembles them without requiring a transport-specific implementation. Configuration belongs to the component and uses `ComponentConfig`; delivery outcomes use core result types.
+
+An exporter factory wraps its exporter in the core `QueuedExporter` for an acknowledge-on-enqueue queue with redelivery, as the OTLP exporter factory does; see [Delivery](delivery.md#exporter-queues-and-redelivery). The queue reports losses to a listener its owner supplies, which keeps core free of logging and metrics dependencies.
 
 `GatewayMetrics` supplies optional counters and gauge registrations without choosing a monitoring backend. It defaults to a no-op implementation. See [Public API](public-api.md#self-observability) for installation and thread-safety requirements.

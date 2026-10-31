@@ -11,7 +11,9 @@ Add `otlp4j-components` for reusable processors and the span-count connector. Re
 
 ## Batching
 
-The batch processor coalesces accepted submissions, splits output to configured item and byte caps, and passes it to a bounded delivery queue. Buffering transfers ownership, so inspect [flush reports](delivery.md#flush-reports) for failures after acceptance.
+The batch processor coalesces accepted submissions, splits output to configured item and byte caps, and hands it to its delivery workers. Buffering transfers ownership, so inspect [flush reports](delivery.md#flush-reports) for failures after acceptance.
+
+The processor acknowledges on accept and attempts each batch once; retries belong to the [exporter queue](delivery.md#exporter-queues-and-redelivery) behind it. Every loss after acceptance is logged at WARN with the component id, item count, and reason, counted in `otlp4j.batch.lost.items` of the configured [`GatewayMetrics`](public-api.md#self-observability), and recorded in the flush report. See [Batch delivery](delivery.md#batch-delivery).
 
 `BatchPolicy.sendBatchSize` is a flush trigger, not a hard output-size cap. Set `sendBatchMaxSize` or `sendBatchMaxBytes` to enforce output limits. A zero hard cap disables that dimension. A zero timeout disables timed flushing; size triggers and explicit flush still apply.
 
@@ -30,7 +32,7 @@ Payloads without a wire form include batches submitted in process, SDK bridge ex
 
 A hard byte cap (`sendBatchMaxBytes`) has to weigh the batches the processor builds, so the configuration rejects it unless a sizer other than the default is set. With the exact sizer the cap measures the complete serialized request. If one indivisible item exceeds an output byte cap, the processor refuses the submission permanently rather than emitting an oversized item. It also refuses a submission whose split would weigh more than 64 times its size: every request repeats its resource, its scope, and any profile dictionary entries its items share, so when those nearly fill the cap each request holds few items and the requests together would dwarf the submission. Byte limits do not measure JVM heap usage.
 
-A submission that would split into more requests than half of `delivery.queueSize` is refused permanently too, with either cap. The queue admits the requests of a flush as a group, so one submission that could fill it would otherwise take the items buffered beside it down with it. Raise `queueSize` if your largest submissions need more requests. For the same reason, a configuration with a hard cap is rejected unless `queueSize` is at least 64.
+A submission can split into any number of requests. The admission limits below bound accepted work, and a flush is never refused after its submissions were acknowledged.
 
 ### Batching defaults
 
@@ -41,19 +43,14 @@ A submission that would split into more requests than half of `delivery.queueSiz
 | `batch.sendBatchMaxSize` | `0` | No hard item cap |
 | `batch.sendBatchMaxBytes` | `0` | No hard output-byte cap |
 | `batch.metadataKeys` | Empty | One metadata partition |
-| `delivery.queueSize` | 1024 entries | Buffered output queue capacity |
-| `delivery.numConsumers` | 1 | Delivery worker count |
-| `delivery.overflow` | `FAIL` | Refuse new queued work retryably when full |
-| `degradedWindow` | 5 seconds | Temporarily refuse new delivery-queue admissions after downstream rejection |
+| `numConsumers` | 1 | Delivery worker count |
 | `maxPendingSubmissions` | 1024 | Accepted submissions retained across buffering, queueing, and delivery |
 | `maxPendingBytes` | 64 MiB | Weight, as measured by the sizer, of accepted submissions still retained |
 | `maxPartitions` | 1024 | Active metadata buffers awaiting flush |
 | `maxPendingItems` | 262,144 items | Items still retained from submissions the sizer weighs as zero |
 | `sizer` | `PayloadSizer.reported()` | Weigh only payloads that carry an encoded size |
 
-`maxPendingSubmissions`, `maxPendingBytes`, and `maxPendingItems` cover accepted work across buffering, queueing, and delivery. The default item limit is what the default byte limit holds at 256 bytes per item. It is a starting point and it bounds a count, not memory: when item sizes vary widely, as with large log bodies, configure the exact sizer so the byte limit applies. A submission the sizer cannot weigh is admitted even when it exceeds `maxPendingItems`, provided no other unweighed work is pending; otherwise it is refused retryably, and under continuous unweighed traffic that can keep happening. A weighed submission above `maxPendingBytes` is always refused. `maxPartitions` counts only active batch buffers; a partition stops counting when its buffer moves to the delivery queue. Configure both admission and output limits because queue capacity alone does not bound all retained work.
-
-The degraded window applies at the delivery queue. A submission can receive `Accepted` from the batch processor before that queue refuses its output. Inspect the [flush report](delivery.md#flush-reports) for these later refusals.
+`maxPendingSubmissions`, `maxPendingBytes`, and `maxPendingItems` cover accepted work across buffering, queueing, and delivery. The default item limit is what the default byte limit holds at 256 bytes per item. It is a starting point and it bounds a count, not memory: when item sizes vary widely, as with large log bodies, configure the exact sizer so the byte limit applies. A submission the sizer cannot weigh is admitted even when it exceeds `maxPendingItems`, provided no other unweighed work is pending; otherwise it is refused retryably, and under continuous unweighed traffic that can keep happening. A weighed submission above `maxPendingBytes` is always refused. `maxPartitions` counts only active batch buffers; a partition stops counting when its buffer moves to the delivery queue. Configure both admission and output limits: the admission limits bound all retained work, and the output limits shape each request. A submission receives `Accepted` before its batch is delivered, so the [flush report](delivery.md#flush-reports) and the loss counter carry a downstream failure, not the submission result.
 
 ### Configure a batch processor
 
@@ -63,8 +60,6 @@ For an existing typed `builder`, this configuration uses a smaller trigger and c
 import dev.nthings.otlp4j.components.batch.BatchProcessorConfig;
 import dev.nthings.otlp4j.components.batch.BatchProcessorFactory;
 import dev.nthings.otlp4j.core.policy.BatchPolicy;
-import dev.nthings.otlp4j.core.policy.DeliveryQueuePolicy;
-import dev.nthings.otlp4j.core.policy.OverflowPolicy;
 import dev.nthings.otlp4j.transport.OtlpPayloadSizer;
 import java.time.Duration;
 import java.util.List;
@@ -72,8 +67,7 @@ import java.util.List;
 var config = new BatchProcessorConfig(
         new BatchPolicy(512, 1024, 4L * 1024 * 1024,
                 Duration.ofMillis(200), List.of("x-tenant-id")),
-        new DeliveryQueuePolicy(128, 1, OverflowPolicy.FAIL),
-        Duration.ofSeconds(5),
+        1,
         256,
         16L * 1024 * 1024,
         64,
@@ -82,7 +76,7 @@ var config = new BatchProcessorConfig(
 builder.via(new BatchProcessorFactory(), config);
 ```
 
-The last two arguments are `maxPendingItems` and the sizer. Without a byte cap, the six-argument constructor keeps their defaults.
+The last two arguments are `maxPendingItems` and the sizer. Without a byte cap, the five-argument constructor keeps their defaults.
 
 ### Batch profiles
 

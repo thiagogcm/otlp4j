@@ -2,6 +2,7 @@ package dev.nthings.otlp4j.transport;
 
 import static dev.nthings.otlp4j.core.signal.SignalDescriptor.TRACES;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 import dev.nthings.otlp4j.core.component.ComponentId;
 import dev.nthings.otlp4j.core.component.ComponentKind;
@@ -14,6 +15,7 @@ import dev.nthings.otlp4j.service.Gateway;
 import dev.nthings.otlp4j.service.GatewayRuntime;
 import dev.nthings.otlp4j.service.config.PipelineConfig;
 import dev.nthings.otlp4j.testing.Fixtures;
+import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.DisplayName;
@@ -62,8 +64,9 @@ class ArmeriaFactoriesTest {
 
         var result = wireClient.export(TRACES, sent).toCompletableFuture().join();
 
+        // The graph exporter acknowledges on enqueue, so the sender's ack precedes the delivery.
         assertThat(result).isInstanceOf(DeliveryResult.Accepted.class);
-        assertThat(captured.get()).isEqualTo(sent);
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> assertThat(captured.get()).isEqualTo(sent));
     }
 
     @DisplayName("an HTTP receiver->exporter graph round-trips a wire request")
@@ -93,8 +96,9 @@ class ArmeriaFactoriesTest {
 
         var result = wireClient.export(TRACES, sent).toCompletableFuture().join();
 
+        // The graph exporter acknowledges on enqueue, so the sender's ack precedes the delivery.
         assertThat(result).isInstanceOf(DeliveryResult.Accepted.class);
-        assertThat(captured.get()).isEqualTo(sent);
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> assertThat(captured.get()).isEqualTo(sent));
     }
 
     private static int graphPort(GatewayRuntime runtime) {

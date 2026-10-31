@@ -12,15 +12,19 @@ import com.linecorp.armeria.client.ResponseTimeoutException;
 import com.linecorp.armeria.client.WebClient;
 import com.linecorp.armeria.client.grpc.GrpcClients;
 import com.linecorp.armeria.common.AggregatedHttpResponse;
+import com.linecorp.armeria.common.ContentTooLargeException;
 import com.linecorp.armeria.common.HttpHeaderNames;
 import com.linecorp.armeria.common.HttpRequest;
 import com.linecorp.armeria.common.MediaType;
+import com.linecorp.armeria.common.grpc.protocol.ArmeriaStatusException;
 import com.linecorp.armeria.common.logging.RequestLog;
 import dev.nthings.otlp4j.codec.SignalCodec;
 import dev.nthings.otlp4j.codec.PayloadWire;
 import dev.nthings.otlp4j.transport.OtlpExporterConfig;
 import dev.nthings.otlp4j.transport.Compression;
+import dev.nthings.otlp4j.core.result.DeliveryReason;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
+import dev.nthings.otlp4j.core.result.Disposition;
 import dev.nthings.otlp4j.core.result.FlushReport;
 import dev.nthings.otlp4j.core.result.Provenance;
 import dev.nthings.otlp4j.core.signal.Payload;
@@ -28,6 +32,8 @@ import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.transport.internal.ClientHeaders;
 import dev.nthings.otlp4j.transport.internal.ExporterMetrics;
 import io.grpc.Metadata;
+import io.grpc.StatusException;
+import io.grpc.StatusRuntimeException;
 import io.grpc.stub.AbstractStub;
 import io.grpc.stub.MetadataUtils;
 import io.opentelemetry.proto.collector.logs.v1.LogsServiceGrpc;
@@ -38,11 +44,13 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
@@ -72,6 +80,19 @@ import org.slf4j.LoggerFactory;
 /// directive), and `RetryInfo` follows the documented precedence. Each rule-driven re-send is counted
 /// into the exporter's `otlp4j.exporter.export.retries` instrument by reading the retrying context's
 /// per-attempt children after the delivery settles, so the count is exactly one per retry.
+///
+/// Every wire outcome completes with a typed [DeliveryResult]; a wire failure never completes the
+/// stage exceptionally. What survives the retries is classified with the same decision functions the
+/// retry rule used ([ArmeriaRetryRules]), so the result tells the caller whether re-sending can help:
+/// a non-2xx HTTP status, a gRPC status with its pushback and `RetryInfo`, and a transport failure
+/// (refused, reset, closed session) are retryable or permanent downstream rejections, carrying the
+/// server's retry-after hint when the policy respects it, and the total deadline expiring is a
+/// retryable `TIMEOUT`. A failure preparing the request (oversize, invalid headers, marshalling) is
+/// permanent and not downstream, since no retry can change it. A 2xx response is success: one whose
+/// body cannot be read as the OTLP response is accepted when its content type says it is not
+/// protobuf, and permanent when it claims to be protobuf yet does not parse, because the server has
+/// already accepted the data and a retry would duplicate it. Only caller cancellation and an exporter
+/// that was never started remain exceptional.
 ///
 /// **Internal.** Part of the transport layer; internal.
 public final class ArmeriaOtlpClient implements AutoCloseable {
@@ -197,19 +218,22 @@ public final class ArmeriaOtlpClient implements AutoCloseable {
     }
 
     /// Exports one `payload`, mapping the endpoint's response to a [DeliveryResult] attributed to
-    /// `provenance`. Never throws synchronously: a failure preparing the request surfaces as a failed
-    /// stage.
+    /// `provenance`. Never throws synchronously, and the stage completes exceptionally only for an
+    /// exporter that was never started or a cancelled caller: every other outcome, including a failure
+    /// preparing the request and a client that is stopping, is a typed result.
     ///
     /// @param payload    the payload to export
     /// @param provenance the provenance to attribute the result to
     /// @return a stage completing with the export outcome
     public <T> CompletionStage<DeliveryResult> export(Payload<T> payload, Provenance provenance) {
         synchronized (this) {
-            if (!started || closing) {
+            if (closing) {
+                return CompletableFuture.completedFuture(
+                        DeliveryResult.shuttingDown("exporter is stopping", provenance));
+            }
+            if (!started) {
                 return CompletableFuture.failedFuture(
-                        new IllegalStateException(closing
-                                ? "exporter is stopping"
-                                : "exporter has not been started"));
+                        new IllegalStateException("exporter has not been started"));
             }
             var export = exports.get(payload.signal());
             // Admission and registration are one critical section. Shutdown takes the same lock
@@ -221,7 +245,11 @@ public final class ArmeriaOtlpClient implements AutoCloseable {
                 delivery.whenComplete((result, error) -> inFlight.remove(delivery));
                 return delivery;
             } catch (RuntimeException e) {
-                return CompletableFuture.failedFuture(e);
+                // Everything that can throw here runs before a byte is sent: marshalling, the size
+                // cap, and header resolution. The same request would fail the same way again, so
+                // this is permanent, and it is not the endpoint's doing.
+                return CompletableFuture.completedFuture(
+                        DeliveryResult.permanentFrom("failed to prepare the OTLP request", e, provenance));
             }
         }
     }
@@ -233,7 +261,7 @@ public final class ArmeriaOtlpClient implements AutoCloseable {
         return (payload, provenance) -> {
             @SuppressWarnings("unchecked")
             var request = PayloadWire.request(codec, (Payload<T>) payload);
-            return withRetryAccounting(cancel -> {
+            return withRetryAccounting(provenance, cancel -> {
                 var response = toCompletableFuture(rpc.apply(request));
                 cancel.set(() -> response.cancel(true));
                 var mapped = response.thenApply(value -> codec.deliveryResult(value, provenance));
@@ -243,49 +271,78 @@ public final class ArmeriaOtlpClient implements AutoCloseable {
     }
 
     /// Binds a [SignalCodec] to an OTLP/HTTP POST at `path`: serialises the payload, posts it (retried
-    /// by the installed decorator), and maps a 2xx response to a [DeliveryResult]; any other status
-    /// throws.
+    /// by the installed decorator), and maps the final response to a [DeliveryResult].
     private <T, REQ extends MessageLite, RESP extends MessageLite> Export httpExport(
             WebClient webClient, SignalCodec<T, REQ, RESP> codec, String path) {
         return (payload, provenance) -> {
             var body = serialize(payload);
-            return withRetryAccounting(cancel -> {
+            return withRetryAccounting(provenance, cancel -> {
                 var response = webClient.execute(request(path, body));
                 // Abort the public response stream as well as the captured request context. Armeria
                 // wrappers may delegate one operation but not the other depending on the installed
                 // retry decorator, so retaining both paths keeps cancellation effective for HTTP/1
                 // and HTTP/2.
                 cancel.set(response::abort);
-                var aggregate = response.aggregate();
-                var mapped = aggregate.thenApply(result -> {
-                    var code = result.status().code();
-                    if (code >= 200 && code < 300) {
-                        return codec.deliveryResult(
-                                parseResponse(codec, result.content().array()), provenance);
-                    }
-                    throw rejection(path, result);
-                });
-                return mapped;
+                return response.aggregate().thenApply(result -> httpResult(codec, path, result, provenance));
             });
         };
+    }
+
+    /// Maps a final HTTP response to a [DeliveryResult]. A 2xx is success; the status, not the body,
+    /// is what the server committed to, so a body that is empty or not declared as protobuf is simply
+    /// accepted (as the OpenTelemetry Collector's exporter does). A body that claims to be protobuf
+    /// but does not parse is permanent: the data was accepted, so a retry would only duplicate it.
+    /// Any other status is classified by the retry rule's own decision.
+    private <T, REQ extends MessageLite, RESP extends MessageLite> DeliveryResult httpResult(
+            SignalCodec<T, REQ, RESP> codec, String path, AggregatedHttpResponse response, Provenance provenance) {
+        var code = response.status().code();
+        if (code >= 200 && code < 300) {
+            if (response.content().isEmpty() || !isProtobuf(response.contentType())) {
+                return DeliveryResult.accepted(provenance);
+            }
+            RESP parsed;
+            try {
+                parsed = codec.parseResponse(response.content().array());
+            } catch (InvalidProtocolBufferException e) {
+                return DeliveryResult.downstream(
+                        Disposition.PERMANENT, DeliveryReason.LOCAL_FAILURE,
+                        "OTLP/HTTP export to " + path + " returned HTTP " + code
+                                + " with an unreadable protobuf response body: " + e.getMessage(),
+                        e, null, provenance);
+            }
+            return codec.deliveryResult(parsed, provenance);
+        }
+        var decision = ArmeriaRetryRules.decideHttp(
+                code, response.headers().get(ArmeriaRetryRules.RETRY_AFTER), config.retry().respectServerRetryAfter());
+        return ArmeriaRetryRules.toDelivery(decision, rejectionMessage(path, response), null, provenance);
+    }
+
+    /// Whether `contentType` is the OTLP/HTTP binary protobuf media type, ignoring parameters.
+    private static boolean isProtobuf(@Nullable MediaType contentType) {
+        return contentType != null
+                && "application".equalsIgnoreCase(contentType.type())
+                && "x-protobuf".equalsIgnoreCase(contentType.subtype());
     }
 
     /// Initiates `call` under a captured client context and returns a stage that settles once the
     /// delivery has settled and its retries have been counted. The request is initiated synchronously
     /// (the async stub / web client returns a future immediately), so the captor observes its context
     /// before it is closed. The returned stage completes only after the retry instrument has been
-    /// written, so a caller that observes completion also observes the retry count. A total-deadline
-    /// response timeout is mapped onto a [TimeoutException] so the caller boundary reads a timeout
-    /// rather than a transport rejection; the per-attempt response timeout never surfaces here, since
-    /// the retrying client consumes it as a failed attempt and retries.
+    /// written, so a caller that observes completion also observes the retry count. A failure of the
+    /// wire call settles as the typed result [#wireFailure] classifies, never exceptionally; only a
+    /// cancellation stays exceptional. The per-attempt response timeout never surfaces here, since the
+    /// retrying client consumes it as a failed attempt and retries; a total-deadline response timeout
+    /// is a retryable `TIMEOUT`.
     ///
-    /// The returned stage carries a total-budget `orTimeout`: gating completion on the retry-log
+    /// The returned stage carries a total-budget timeout: gating completion on the retry-log
     /// settling means the caller-observed completion can otherwise lag the wire response timeout while
     /// a timed-out request against an unresponsive peer finishes settling its log, so this bounds the
     /// caller's wait on the total budget independently of that settling. It is a scheduled timer, not a
-    /// carrier thread, so it keeps the per-export thread hop removed.
+    /// carrier thread, so it keeps the per-export thread hop removed. When the stage settles before the
+    /// wire call does (that timeout, or the caller's own deadline or cancellation) the wire call is
+    /// cancelled too, otherwise an abandoned export would stay in flight until the peer answered.
     private CompletionStage<DeliveryResult> withRetryAccounting(
-            Function<WireCancellation, CompletableFuture<DeliveryResult>> call) {
+            Provenance provenance, Function<WireCancellation, CompletableFuture<DeliveryResult>> call) {
         var cancellation = new WireCancellation();
         List<ClientRequestContext> contexts;
         CompletableFuture<DeliveryResult> stage;
@@ -300,25 +357,39 @@ public final class ArmeriaOtlpClient implements AutoCloseable {
                         .whenComplete((ignored, recordFailure) -> {
                     if (error == null) {
                         settled.complete(result);
+                    } else if (isCancellation(error)) {
+                        settled.completeExceptionally(error);
                     } else {
-                        settled.completeExceptionally(mapTotalTimeout(asRuntime(error)));
+                        settled.complete(wireFailure(error, provenance));
                     }
                 }));
+        settled.completeOnTimeout(
+                totalDeadlineExceeded(provenance), timeoutNanos(config.timeout().total()), TimeUnit.NANOSECONDS);
         settled.whenComplete((result, error) -> {
-            if (settled.isCancelled()) {
+            // The stage can only be unfinished here if something other than the wire settled
+            // `settled`: the total-budget timeout above, a caller's own timeout, or a cancellation.
+            // CompletableFuture timeouts only settle the dependent stage, so cancel the active Armeria
+            // request as well, otherwise it would stay in flight until the remote peer answers.
+            if (settled.isCancelled() || !stage.isDone()) {
                 cancelWire(stage, contexts, cancellation);
             }
         });
-        var bounded = settled.orTimeout(timeoutNanos(config.timeout().total()), TimeUnit.NANOSECONDS);
-        bounded.whenComplete((result, error) -> {
-            // CompletableFuture.orTimeout only settles the dependent stage. Cancel the active
-            // Armeria request as well when the total budget expires, otherwise a timed-out export
-            // would remain in-flight until the remote peer eventually responds.
-            if (error != null && !stage.isDone()) {
-                cancelWire(stage, contexts, cancellation);
-            }
-        });
-        return bounded;
+        return settled;
+    }
+
+    /// The result of an export whose total deadline elapsed: a retryable `TIMEOUT` attributed
+    /// downstream, since the endpoint (or the path to it) did not answer in time.
+    ///
+    /// @param provenance the exporter's provenance
+    /// @return the timeout rejection
+    public static DeliveryResult totalDeadlineExceeded(Provenance provenance) {
+        return timedOut(null, provenance);
+    }
+
+    private static DeliveryResult timedOut(@Nullable Throwable cause, Provenance provenance) {
+        return DeliveryResult.downstream(
+                Disposition.RETRYABLE, DeliveryReason.TIMEOUT,
+                "OTLP export exceeded the total deadline", cause, null, provenance);
     }
 
     private static void cancelWire(
@@ -385,12 +456,6 @@ public final class ArmeriaOtlpClient implements AutoCloseable {
         }
     }
 
-    /// Narrows a settled stage's failure to a [RuntimeException] for [#mapTotalTimeout], wrapping a
-    /// non-runtime throwable in a [CompletionException] so its cause chain stays walkable.
-    private static RuntimeException asRuntime(Throwable error) {
-        return error instanceof RuntimeException runtime ? runtime : new CompletionException(error);
-    }
-
     /// Bridges a gRPC [ListenableFuture] onto a [CompletableFuture], completing inline on the thread
     /// that settles the future (Armeria's event loop) and unwrapping the [ExecutionException] so the
     /// stage carries the same `StatusRuntimeException` the blocking stub would have thrown.
@@ -417,20 +482,71 @@ public final class ArmeriaOtlpClient implements AutoCloseable {
         return result;
     }
 
-    /// Rewraps a total-deadline response timeout as a [TimeoutException] (inside a [CompletionException]
-    /// so the exporter boundary unwraps it to a timeout), and passes every other failure through
-    /// unchanged.
-    private static RuntimeException mapTotalTimeout(RuntimeException error) {
-        for (Throwable cause = error; cause != null; cause = cause.getCause()) {
+    /// Classifies a failure of the wire call that survived the retrying client. A timeout comes first,
+    /// since Armeria may wrap it in a gRPC `DEADLINE_EXCEEDED` whose status alone would hide the cause.
+    /// A gRPC status is decided from its code, `grpc-retry-pushback-ms` and `RetryInfo` by the retry
+    /// rule's own function. A response that exceeds the size cap is permanent, as a retry would meet the
+    /// same response. Every other failure is a transport failure (refused, reset, closed session, TLS):
+    /// retryable, because nothing says the endpoint rejected the data.
+    private DeliveryResult wireFailure(Throwable error, Provenance provenance) {
+        var causes = causeChain(error);
+        for (var cause : causes) {
             if (cause instanceof ResponseTimeoutException) {
-                return new CompletionException(
-                        new TimeoutException("OTLP export exceeded the total deadline"));
-            }
-            if (cause.getCause() == cause) {
-                break;
+                return timedOut(cause, provenance);
             }
         }
-        return error;
+        var respectHints = config.retry().respectServerRetryAfter();
+        for (var cause : causes) {
+            // Armeria's own gRPC limits (a message over the configured size) surface as a CANCELLED
+            // status whose cause carries the real code; the code, not the wrapper, decides.
+            if (cause instanceof ArmeriaStatusException armeria) {
+                return ArmeriaRetryRules.toDelivery(
+                        ArmeriaRetryRules.decideGrpc(armeria.getCode(), null, null, false, respectHints),
+                        "OTLP/gRPC export failed: " + armeria.getMessage(), error, provenance);
+            }
+        }
+        for (var cause : causes) {
+            var status = cause instanceof StatusRuntimeException runtime
+                    ? runtime.getStatus()
+                    : cause instanceof StatusException checked ? checked.getStatus() : null;
+            if (status != null) {
+                var trailers = cause instanceof StatusRuntimeException runtime
+                        ? runtime.getTrailers()
+                        : ((StatusException) cause).getTrailers();
+                var message = "OTLP/gRPC export rejected: " + status.getCode()
+                        + (status.getDescription() == null ? "" : " - " + status.getDescription());
+                return ArmeriaRetryRules.toDelivery(
+                        ArmeriaRetryRules.decideGrpc(status, trailers, respectHints), message, error, provenance);
+            }
+        }
+        for (var cause : causes) {
+            if (cause instanceof ContentTooLargeException) {
+                return DeliveryResult.downstream(
+                        Disposition.PERMANENT, DeliveryReason.LOCAL_FAILURE,
+                        "OTLP export response exceeds the configured maxResponseBytes", error, null, provenance);
+            }
+        }
+        return ArmeriaRetryRules.toDelivery(
+                ArmeriaRetryRules.decideHttp(null, true),
+                "OTLP export failed in transit: " + rootMessage(error), error, provenance);
+    }
+
+    private static boolean isCancellation(Throwable error) {
+        return causeChain(error).stream().anyMatch(CancellationException.class::isInstance);
+    }
+
+    private static List<Throwable> causeChain(Throwable error) {
+        var chain = new ArrayList<Throwable>();
+        for (Throwable cause = error; cause != null && !chain.contains(cause); cause = cause.getCause()) {
+            chain.add(cause);
+        }
+        return chain;
+    }
+
+    private static String rootMessage(Throwable error) {
+        var chain = causeChain(error);
+        var root = chain.getLast();
+        return root.getClass().getSimpleName() + (root.getMessage() == null ? "" : ": " + root.getMessage());
     }
 
     /// Decorates a gRPC stub once at construction with the settings that never vary per export: optional
@@ -509,16 +625,7 @@ public final class ArmeriaOtlpClient implements AutoCloseable {
         return (REQ) PayloadWire.request((SignalCodec) codec, (Payload) payload);
     }
 
-    private static <RESP extends MessageLite> RESP parseResponse(
-            SignalCodec<?, ?, RESP> codec, byte[] body) {
-        try {
-            return codec.parseResponse(body);
-        } catch (InvalidProtocolBufferException e) {
-            throw new UncheckedIOException("malformed OTLP/HTTP response body", e);
-        }
-    }
-
-    private static RuntimeException rejection(String path, AggregatedHttpResponse response) {
+    private static String rejectionMessage(String path, AggregatedHttpResponse response) {
         var code = response.status().code();
         var text = response.contentUtf8().strip();
         if (!response.content().isEmpty()) {
@@ -531,8 +638,7 @@ public final class ArmeriaOtlpClient implements AutoCloseable {
                 // A non-OTLP peer may still return plain text. Preserve that useful diagnostic.
             }
         }
-        return new IllegalStateException(
-                "OTLP/HTTP export to " + path + " rejected: HTTP " + code + (text.isEmpty() ? "" : " - " + text));
+        return "OTLP/HTTP export to " + path + " rejected: HTTP " + code + (text.isEmpty() ? "" : " - " + text);
     }
 
     private static Metadata toMetadata(Map<String, String> headers) {

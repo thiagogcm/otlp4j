@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.TimeoutException;
 import org.jspecify.annotations.Nullable;
 
 /// The outcome of feeding one telemetry payload to a consumer.
@@ -60,11 +61,12 @@ public sealed interface DeliveryResult
     ///
     /// `disposition` is the retry axis: `RETRYABLE` maps to gRPC `UNAVAILABLE` / HTTP `503`,
     /// `PERMANENT` to gRPC `INTERNAL` / HTTP `500`, or to gRPC `INVALID_ARGUMENT` / HTTP `400` when the
-    /// reason is [DeliveryReason#PROTOCOL_TRANSLATION]. `reason` names the cause. `cause` is optional
-    /// diagnostics, orthogonal to disposition. `retryAfter`, valid only on a retryable rejection, is
-    /// an optional backpressure hint the transports emit on the wire (gRPC `grpc-retry-pushback-ms`
-    /// trailer, HTTP `Retry-After` header). `downstream` marks a failure that originated downstream
-    /// of the producing component.
+    /// reason is [DeliveryReason#PROTOCOL_TRANSLATION]. A failure that nobody classified is retryable
+    /// (see [#fromFailure]); permanence is an explicit claim that retrying cannot help. `reason` names
+    /// the cause. `cause` is optional diagnostics, orthogonal to disposition. `retryAfter`, valid only
+    /// on a retryable rejection, is an optional backpressure hint the transports emit on the wire (gRPC
+    /// `grpc-retry-pushback-ms` trailer, HTTP `Retry-After` header). `downstream` marks a failure that
+    /// originated downstream of the producing component.
     ///
     /// @param disposition the retry axis
     /// @param reason      the cause reason code
@@ -253,17 +255,61 @@ public sealed interface DeliveryResult
         return new Rejected(disposition, reason, message, cause, retryAfter, true, provenance);
     }
 
-    /// Normalizes a delivery failure into a permanent rejection following the framework-wide
-    /// conventions: a [java.util.concurrent.CompletionException] is unwrapped to its cause, an
-    /// [Error] is rethrown, and an [InterruptedException] restores the thread's interrupt flag. The
-    /// rejection message is `prefix + ": " + cause`, its reason `PROTOCOL_TRANSLATION` for an
-    /// [UndecodablePayloadException] and `LOCAL_FAILURE` otherwise.
+    /// Normalizes an unclassified delivery failure into a rejection, defaulting to retryable. A
+    /// component that fails without saying whether retrying can help is more likely to have hit a
+    /// transient fault than a permanent one, and mislabelling it permanent makes upstream senders
+    /// (which must not retry a permanent failure) drop data that would have been delivered. This
+    /// matches the OpenTelemetry Collector receiver, where an error carrying no status is retryable
+    /// and only one explicitly marked permanent is not.
+    ///
+    /// The conventions are framework-wide: a [java.util.concurrent.CompletionException] is unwrapped
+    /// to its cause, an [Error] is rethrown, and an [InterruptedException] restores the thread's
+    /// interrupt flag. The rejection message is `prefix + ": " + cause`. The classification is:
+    ///
+    ///   - an [UndecodablePayloadException] is permanent with reason `PROTOCOL_TRANSLATION`, since the
+    ///     payload itself cannot be understood and retrying cannot change that;
+    ///   - a [java.util.concurrent.TimeoutException] is retryable with reason `TIMEOUT`;
+    ///   - anything else is retryable with reason `LOCAL_FAILURE`.
+    ///
+    /// Use [#permanentFrom] instead where the caller knows retrying cannot fix the failure.
+    ///
+    /// @param prefix     the message prefix naming the failing stage
+    /// @param failure    the failure to normalize
+    /// @param provenance the producing component's provenance
+    /// @return a rejection carrying the unwrapped cause
+    static DeliveryResult fromFailure(String prefix, Throwable failure, Provenance provenance) {
+        var cause = unwrapFailure(failure);
+        if (cause instanceof UndecodablePayloadException) {
+            return new Rejected(
+                    Disposition.PERMANENT, DeliveryReason.PROTOCOL_TRANSLATION,
+                    prefix + ": " + cause, cause, null, false, provenance);
+        }
+        var reason = cause instanceof TimeoutException ? DeliveryReason.TIMEOUT : DeliveryReason.LOCAL_FAILURE;
+        return new Rejected(Disposition.RETRYABLE, reason, prefix + ": " + cause, cause, null, false, provenance);
+    }
+
+    /// Normalizes a delivery failure into a permanent rejection, for a caller that knows retrying
+    /// cannot fix it. It follows the same conventions as [#fromFailure]: a
+    /// [java.util.concurrent.CompletionException] is unwrapped to its cause, an [Error] is rethrown,
+    /// and an [InterruptedException] restores the thread's interrupt flag. The rejection message is
+    /// `prefix + ": " + cause`, its reason `PROTOCOL_TRANSLATION` for an [UndecodablePayloadException]
+    /// and `LOCAL_FAILURE` otherwise.
     ///
     /// @param prefix     the message prefix naming the failing stage
     /// @param failure    the failure to normalize
     /// @param provenance the producing component's provenance
     /// @return a permanent rejection carrying the unwrapped cause
     static DeliveryResult permanentFrom(String prefix, Throwable failure, Provenance provenance) {
+        var cause = unwrapFailure(failure);
+        var reason = cause instanceof UndecodablePayloadException
+                ? DeliveryReason.PROTOCOL_TRANSLATION
+                : DeliveryReason.LOCAL_FAILURE;
+        return new Rejected(Disposition.PERMANENT, reason, prefix + ": " + cause, cause, null, false, provenance);
+    }
+
+    /// The shared failure-normalization prologue: unwraps a [CompletionException], rethrows an
+    /// [Error], and restores the interrupt flag for an [InterruptedException].
+    private static Throwable unwrapFailure(Throwable failure) {
         var cause = failure instanceof CompletionException completion && completion.getCause() != null
                 ? completion.getCause()
                 : failure;
@@ -273,10 +319,7 @@ public sealed interface DeliveryResult
         if (cause instanceof InterruptedException) {
             Thread.currentThread().interrupt();
         }
-        var reason = cause instanceof UndecodablePayloadException
-                ? DeliveryReason.PROTOCOL_TRANSLATION
-                : DeliveryReason.LOCAL_FAILURE;
-        return new Rejected(Disposition.PERMANENT, reason, prefix + ": " + cause, cause, null, false, provenance);
+        return cause;
     }
 
     /// Combines results from `peers` that all received the **same** payload in parallel (fan-out

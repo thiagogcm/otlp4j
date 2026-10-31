@@ -3,9 +3,17 @@ package dev.nthings.otlp4j.transport.internal;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.linecorp.armeria.client.retry.Backoff;
+import dev.nthings.otlp4j.core.component.ComponentId;
+import dev.nthings.otlp4j.core.component.ComponentKind;
 import dev.nthings.otlp4j.core.policy.BackoffPolicy;
+import dev.nthings.otlp4j.core.result.DeliveryResult;
+import dev.nthings.otlp4j.core.result.Disposition;
+import dev.nthings.otlp4j.core.result.Provenance;
+import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.transport.internal.ArmeriaRetryRules.Decision;
 import dev.nthings.otlp4j.transport.internal.ArmeriaRetryRules.Kind;
+import io.grpc.Metadata;
+import io.grpc.Status;
 import java.time.Duration;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
@@ -255,5 +263,90 @@ class ArmeriaRetryRulesTest {
         var decision = ArmeriaRetryRules.decideGrpc(UNAVAILABLE, 0L, null, false, true);
         // A zero pushback is not a positive hint, so the default backoff is used.
         assertThat(decision).isEqualTo(new Decision(Kind.RETRY_DEFAULT, null));
+    }
+
+    @Nested
+    @DisplayName("classifying a surviving outcome")
+    class Classification {
+
+        private final Provenance provenance = new Provenance(
+                ComponentId.parse("out"), ComponentKind.EXPORTER, SignalDescriptor.TRACES);
+
+        private Metadata trailers(String pushback, byte[] details) {
+            var metadata = new Metadata();
+            if (pushback != null) {
+                metadata.put(Metadata.Key.of("grpc-retry-pushback-ms", Metadata.ASCII_STRING_MARSHALLER), pushback);
+            }
+            if (details != null) {
+                metadata.put(Metadata.Key.of("grpc-status-details-bin", Metadata.BINARY_BYTE_MARSHALLER), details);
+            }
+            return metadata;
+        }
+
+        @DisplayName("an HTTP retryable status folds Retry-After only when hints are respected")
+        @Test
+        void httpRetryAfterFoldedOnlyWhenRespected() {
+            assertThat(ArmeriaRetryRules.decideHttp(503, "5", true))
+                    .isEqualTo(new Decision(Kind.RETRY_DELAY, Duration.ofSeconds(5)));
+            assertThat(ArmeriaRetryRules.decideHttp(503, "5", false).kind()).isEqualTo(Kind.RETRY_DEFAULT);
+            assertThat(ArmeriaRetryRules.decideHttp(503, "soon", true).kind()).isEqualTo(Kind.RETRY_DEFAULT);
+        }
+
+        @DisplayName("an HTTP non-retryable status ignores Retry-After")
+        @Test
+        void httpNonRetryableIgnoresRetryAfter() {
+            assertThat(ArmeriaRetryRules.decideHttp(400, "5", true).kind()).isEqualTo(Kind.NO_RETRY);
+        }
+
+        @DisplayName("a gRPC status reads the pushback trailer")
+        @Test
+        void grpcReadsPushback() {
+            assertThat(ArmeriaRetryRules.decideGrpc(Status.UNAVAILABLE, trailers("250", null), true))
+                    .isEqualTo(new Decision(Kind.RETRY_DELAY, Duration.ofMillis(250)));
+            assertThat(ArmeriaRetryRules.decideGrpc(Status.UNAVAILABLE, trailers("-1", null), false).kind())
+                    .isEqualTo(Kind.STOP);
+        }
+
+        @DisplayName("a gRPC status reads RetryInfo from the binary details trailer")
+        @Test
+        void grpcReadsRetryInfo() {
+            var details = RetryInfoCodec.encodeRetryInfo(8, "throttled", Duration.ofSeconds(2));
+
+            assertThat(ArmeriaRetryRules.decideGrpc(Status.RESOURCE_EXHAUSTED, trailers(null, details), true))
+                    .isEqualTo(new Decision(Kind.RETRY_DELAY, Duration.ofSeconds(2)));
+            assertThat(ArmeriaRetryRules.decideGrpc(Status.RESOURCE_EXHAUSTED, trailers(null, null), true).kind())
+                    .isEqualTo(Kind.NO_RETRY);
+        }
+
+        @DisplayName("a gRPC status without trailers decides on the code alone")
+        @Test
+        void grpcWithoutTrailers() {
+            assertThat(ArmeriaRetryRules.decideGrpc(Status.UNAVAILABLE, null, true).kind())
+                    .isEqualTo(Kind.RETRY_DEFAULT);
+            assertThat(ArmeriaRetryRules.decideGrpc(Status.INVALID_ARGUMENT, null, true).kind())
+                    .isEqualTo(Kind.NO_RETRY);
+        }
+
+        @DisplayName("a decision renders as a downstream rejection with the matching disposition and hint")
+        @Test
+        void toDeliveryRendersDecision() {
+            var delay = (DeliveryResult.Rejected) ArmeriaRetryRules.toDelivery(
+                    Decision.retryAfter(Duration.ofSeconds(3)), "m", null, provenance);
+            assertThat(delay.disposition()).isEqualTo(Disposition.RETRYABLE);
+            assertThat(delay.retryAfter()).isEqualTo(Duration.ofSeconds(3));
+            assertThat(delay.downstream()).isTrue();
+
+            var plain = (DeliveryResult.Rejected) ArmeriaRetryRules.toDelivery(
+                    Decision.retryDefault(), "m", null, provenance);
+            assertThat(plain.disposition()).isEqualTo(Disposition.RETRYABLE);
+            assertThat(plain.retryAfter()).isNull();
+
+            for (var stop : new Decision[] {Decision.noRetry(), Decision.stop()}) {
+                var rejected = (DeliveryResult.Rejected) ArmeriaRetryRules.toDelivery(stop, "m", null, provenance);
+                assertThat(rejected.disposition()).isEqualTo(Disposition.PERMANENT);
+                assertThat(rejected.retryAfter()).isNull();
+                assertThat(rejected.downstream()).isTrue();
+            }
+        }
     }
 }

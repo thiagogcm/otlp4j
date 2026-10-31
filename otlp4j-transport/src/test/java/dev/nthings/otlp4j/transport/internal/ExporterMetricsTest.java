@@ -90,4 +90,61 @@ class ExporterMetricsTest {
         metrics.recordRetry();
         assertThat(registry.counterValue(RETRIES)).isEqualTo(3);
     }
+
+    private static final String QUEUE_SIZE = "otlp4j.exporter.queue.size";
+
+    @DisplayName("queue refusals and losses are counted in items")
+    @Test
+    void queueRefusalsAndLossesAreCounted() {
+        var registry = new RecordingGatewayMetrics();
+        var metrics = ExporterMetrics.from(registry);
+
+        metrics.recordQueueRefused(4);
+        metrics.recordQueueRefused(1);
+        metrics.recordQueueLost(7);
+
+        assertThat(registry.counterValue("otlp4j.exporter.queue.refused.items")).isEqualTo(5);
+        assertThat(registry.counterValue("otlp4j.exporter.queue.lost.items")).isEqualTo(7);
+    }
+
+    @DisplayName("the queues of one registry share one depth gauge that sums them and outlives all but the last")
+    @Test
+    void queueDepthGaugeSumsAcrossQueuesWithoutClobbering() {
+        var registry = new RecordingGatewayMetrics();
+        // Two exporters on one registry, each with queues of its own: a gauge is keyed by name alone,
+        // so a registration per queue would let the last replace the others.
+        var first = ExporterMetrics.from(registry);
+        var second = ExporterMetrics.from(registry);
+        var traces = new java.util.concurrent.atomic.AtomicLong(3);
+        var metricsQueue = new java.util.concurrent.atomic.AtomicLong(4);
+        var logs = new java.util.concurrent.atomic.AtomicLong(5);
+
+        var a = first.registerQueueSize(traces::get);
+        var b = first.registerQueueSize(metricsQueue::get);
+        var c = second.registerQueueSize(logs::get);
+        assertThat(registry.gaugeValue(QUEUE_SIZE)).isEqualTo(12);
+
+        traces.set(0);
+        assertThat(registry.gaugeValue(QUEUE_SIZE)).isEqualTo(9);
+
+        a.close();
+        a.close();
+        assertThat(registry.gaugeValue(QUEUE_SIZE)).isEqualTo(9);
+        b.close();
+        assertThat(registry.gaugeValue(QUEUE_SIZE)).isEqualTo(5);
+        c.close();
+        assertThat(registry.gaugeValue(QUEUE_SIZE)).isZero();
+
+        // A queue that starts after the gauge went away registers it afresh.
+        var d = first.registerQueueSize(() -> 2);
+        assertThat(registry.gaugeValue(QUEUE_SIZE)).isEqualTo(2);
+        d.close();
+    }
+
+    @DisplayName("the depth gauge is not registered when self-observability is off")
+    @Test
+    void queueDepthGaugeIsInertUnderNoop() {
+        ExporterMetrics.noop().registerQueueSize(() -> 1).close();
+        ExporterMetrics.from(dev.nthings.otlp4j.core.telemetry.GatewayMetrics.noop()).recordQueueLost(3);
+    }
 }

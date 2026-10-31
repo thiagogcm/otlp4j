@@ -18,8 +18,6 @@ import dev.nthings.otlp4j.core.component.ComponentId;
 import dev.nthings.otlp4j.core.component.ExporterFactory;
 import dev.nthings.otlp4j.core.pipeline.PipelineId;
 import dev.nthings.otlp4j.core.policy.BatchPolicy;
-import dev.nthings.otlp4j.core.policy.DeliveryQueuePolicy;
-import dev.nthings.otlp4j.core.policy.OverflowPolicy;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.signal.Payload;
 import dev.nthings.otlp4j.model.Attributes;
@@ -126,8 +124,7 @@ class GatewayBuiltinsBootTest {
     private static BatchProcessorConfig holdingBatch() {
         return new BatchProcessorConfig(
                 new BatchPolicy(1_000_000, 0, 0, Duration.ZERO, List.of()),
-                new DeliveryQueuePolicy(1024, 1, OverflowPolicy.FAIL),
-                Duration.ofSeconds(5),
+                BatchProcessorConfig.DEFAULT_NUM_CONSUMERS,
                 BatchProcessorConfig.DEFAULT_MAX_PENDING_SUBMISSIONS,
                 BatchProcessorConfig.DEFAULT_MAX_PENDING_BYTES,
                 BatchProcessorConfig.DEFAULT_MAX_PARTITIONS);

@@ -16,8 +16,6 @@ import dev.nthings.otlp4j.core.component.ExporterFactory;
 import dev.nthings.otlp4j.core.component.ProcessorFactory;
 import dev.nthings.otlp4j.core.pipeline.PipelineId;
 import dev.nthings.otlp4j.core.policy.BatchPolicy;
-import dev.nthings.otlp4j.core.policy.DeliveryQueuePolicy;
-import dev.nthings.otlp4j.core.policy.OverflowPolicy;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.model.AttributeValue;
 import dev.nthings.otlp4j.model.Attributes;
@@ -118,7 +116,11 @@ public final class OtlpE2eDemo {
             // --- Client: export a mixed batch of spans to the gateway and block until it is handled.
             try (var client = OtlpExporter.grpcBuilder().endpoint("localhost", gatewayPort).build()) {
                 client.start();
-                client.export(TRACES, sampleTraces()).toCompletableFuture().join();
+                // A wire failure is a rejected result, not an exception, so the outcome must be read.
+                var result = client.export(TRACES, sampleTraces()).toCompletableFuture().join();
+                if (result instanceof DeliveryResult.Rejected rejected) {
+                    throw new IllegalStateException("gateway rejected the sample batch: " + rejected.message());
+                }
                 log.info("Client exported sample trace batch to the gateway.");
             }
         } finally {
@@ -219,8 +221,7 @@ public final class OtlpE2eDemo {
     private static BatchProcessorConfig batchConfig() {
         return new BatchProcessorConfig(
                 new BatchPolicy(8192, 0, 0, Duration.ofMillis(200), List.of()),
-                new DeliveryQueuePolicy(1024, 1, OverflowPolicy.FAIL),
-                Duration.ofSeconds(5),
+                BatchProcessorConfig.DEFAULT_NUM_CONSUMERS,
                 BatchProcessorConfig.DEFAULT_MAX_PENDING_SUBMISSIONS,
                 BatchProcessorConfig.DEFAULT_MAX_PENDING_BYTES,
                 BatchProcessorConfig.DEFAULT_MAX_PARTITIONS);

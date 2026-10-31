@@ -7,8 +7,6 @@ import dev.nthings.otlp4j.components.batch.BatchProcessorConfig;
 import dev.nthings.otlp4j.components.batch.BatchProcessorFactory;
 import dev.nthings.otlp4j.core.component.ExporterFactory;
 import dev.nthings.otlp4j.core.policy.BatchPolicy;
-import dev.nthings.otlp4j.core.policy.DeliveryQueuePolicy;
-import dev.nthings.otlp4j.core.policy.OverflowPolicy;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.model.InstrumentationScope;
 import dev.nthings.otlp4j.model.Profile;
@@ -39,8 +37,7 @@ class ProfilesBatchingCanaryTest {
     private static BatchProcessorConfig config(long maxRequestBytes, long maxPendingBytes) {
         return new BatchProcessorConfig(
                 new BatchPolicy(8192, 0, maxRequestBytes, Duration.ZERO, List.of()),
-                new DeliveryQueuePolicy(1024, 1, OverflowPolicy.FAIL),
-                Duration.ofSeconds(5),
+                BatchProcessorConfig.DEFAULT_NUM_CONSUMERS,
                 BatchProcessorConfig.DEFAULT_MAX_PENDING_SUBMISSIONS,
                 maxPendingBytes,
                 BatchProcessorConfig.DEFAULT_MAX_PARTITIONS,

@@ -7,15 +7,18 @@ import dev.nthings.otlp4j.core.component.ComponentId;
 import dev.nthings.otlp4j.core.component.ComponentKind;
 import dev.nthings.otlp4j.core.consumer.ConsumeContext;
 import dev.nthings.otlp4j.core.consumer.SignalConsumer;
+import dev.nthings.otlp4j.core.result.DeliveryReason;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.result.Disposition;
 import dev.nthings.otlp4j.core.result.Provenance;
 import dev.nthings.otlp4j.core.signal.Payload;
+import dev.nthings.otlp4j.core.signal.UndecodablePayloadException;
 import dev.nthings.otlp4j.model.TracesData;
 import dev.nthings.otlp4j.service.internal.GraphNodeBoundary;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.TimeoutException;
 import java.util.function.BiFunction;
 import org.junit.jupiter.api.Test;
 
@@ -61,7 +64,10 @@ class HelpersTest {
                 .join();
         assertThat(result).isInstanceOf(DeliveryResult.Rejected.class);
         var rejected = (DeliveryResult.Rejected) result;
-        assertThat(rejected.disposition()).isEqualTo(Disposition.PERMANENT);
+        // A thrown exception nobody classified is retryable, so an upstream sender does not drop data
+        // over what may be a transient fault.
+        assertThat(rejected.disposition()).isEqualTo(Disposition.RETRYABLE);
+        assertThat(rejected.reason()).isEqualTo(DeliveryReason.LOCAL_FAILURE);
         assertThat(rejected.provenance()).isEqualTo(PROV);
     }
 
@@ -71,6 +77,8 @@ class HelpersTest {
                 .toCompletableFuture()
                 .join();
         assertThat(result).isInstanceOf(DeliveryResult.Rejected.class);
+        // A null stage is a component defect, not a transient fault.
+        assertThat(((DeliveryResult.Rejected) result).disposition()).isEqualTo(Disposition.PERMANENT);
     }
 
     @Test
@@ -83,7 +91,34 @@ class HelpersTest {
                 .toCompletableFuture()
                 .join();
         assertThat(result).isInstanceOf(DeliveryResult.Rejected.class);
-        assertThat(((DeliveryResult.Rejected) result).disposition()).isEqualTo(Disposition.PERMANENT);
+        assertThat(((DeliveryResult.Rejected) result).disposition()).isEqualTo(Disposition.RETRYABLE);
+    }
+
+    @Test
+    void boundaryTreatsUndecodablePayloadAsPermanent() {
+        var result = (DeliveryResult.Rejected) GraphNodeBoundary.deliver(
+                        consumer((c, d) -> CompletableFuture.failedFuture(
+                                new UndecodablePayloadException("bad", new IllegalStateException()))),
+                        PROV,
+                        ctx,
+                        payload)
+                .toCompletableFuture()
+                .join();
+        assertThat(result.disposition()).isEqualTo(Disposition.PERMANENT);
+        assertThat(result.reason()).isEqualTo(DeliveryReason.PROTOCOL_TRANSLATION);
+    }
+
+    @Test
+    void boundaryTreatsTimeoutAsRetryableTimeout() {
+        var result = (DeliveryResult.Rejected) GraphNodeBoundary.deliver(
+                        consumer((c, d) -> CompletableFuture.failedFuture(new TimeoutException("slow"))),
+                        PROV,
+                        ctx,
+                        payload)
+                .toCompletableFuture()
+                .join();
+        assertThat(result.disposition()).isEqualTo(Disposition.RETRYABLE);
+        assertThat(result.reason()).isEqualTo(DeliveryReason.TIMEOUT);
     }
 
     @Test
@@ -93,5 +128,6 @@ class HelpersTest {
                 .toCompletableFuture()
                 .join();
         assertThat(result).isInstanceOf(DeliveryResult.Rejected.class);
+        assertThat(((DeliveryResult.Rejected) result).disposition()).isEqualTo(Disposition.PERMANENT);
     }
 }

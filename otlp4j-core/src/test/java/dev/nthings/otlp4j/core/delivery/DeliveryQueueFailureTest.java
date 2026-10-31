@@ -1,23 +1,19 @@
-package dev.nthings.otlp4j.components.internal;
+package dev.nthings.otlp4j.core.delivery;
 
-import static dev.nthings.otlp4j.components.support.BatchSupport.traces;
+import static dev.nthings.otlp4j.core.delivery.DeliverySupport.CTX;
+import static dev.nthings.otlp4j.core.delivery.DeliverySupport.FIVE_SECONDS;
+import static dev.nthings.otlp4j.core.delivery.DeliverySupport.PROV;
+import static dev.nthings.otlp4j.core.delivery.DeliverySupport.traces;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
-import dev.nthings.otlp4j.components.support.RecordingConsumer;
-import dev.nthings.otlp4j.components.support.TestConsumeContext;
-import dev.nthings.otlp4j.core.component.ComponentId;
-import dev.nthings.otlp4j.core.component.ComponentKind;
-import dev.nthings.otlp4j.core.consumer.ConsumeContext;
 import dev.nthings.otlp4j.core.consumer.SignalConsumer;
 import dev.nthings.otlp4j.core.policy.DeliveryQueuePolicy;
 import dev.nthings.otlp4j.core.policy.OverflowPolicy;
 import dev.nthings.otlp4j.core.result.DeliveryReason;
 import dev.nthings.otlp4j.core.result.DeliveryResult;
 import dev.nthings.otlp4j.core.result.FlushReport;
-import dev.nthings.otlp4j.core.result.Provenance;
-import dev.nthings.otlp4j.core.signal.SignalDescriptor;
 import dev.nthings.otlp4j.model.TracesData;
 import java.time.Duration;
 import java.util.List;
@@ -27,16 +23,13 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 class DeliveryQueueFailureTest {
 
-    private static final Provenance PROV =
-            new Provenance(ComponentId.parse("batch"), ComponentKind.PROCESSOR, SignalDescriptor.TRACES);
-    private static final ConsumeContext CTX = new TestConsumeContext();
-    private static final Duration FIVE_SECONDS = Duration.ofSeconds(5);
 
     @Test
     void concurrentWorkersKeepLaterAdmissionsOutsideAnEarlierFlush() throws Exception {
@@ -54,7 +47,7 @@ class DeliveryQueueFailureTest {
                 default -> throw new AssertionError("unexpected delivery");
             };
         };
-        var q = queue(new DeliveryQueuePolicy(4, 2, OverflowPolicy.FAIL), Duration.ZERO, next);
+        var q = queue(new DeliveryQueuePolicy(4, 2, OverflowPolicy.FAIL), next);
         q.start();
         try {
             q.offer(CTX, traces(2));
@@ -92,7 +85,7 @@ class DeliveryQueueFailureTest {
             }
             return DeliveryResult.acceptedStage(PROV);
         };
-        var q = queue(policy(2, OverflowPolicy.FAIL), FIVE_SECONDS, next);
+        var q = queue(policy(2, OverflowPolicy.FAIL), next);
         q.start();
         try {
             var admission = q.offerAll(CTX, List.of(traces(1)), () -> {
@@ -120,9 +113,8 @@ class DeliveryQueueFailureTest {
         return new DeliveryQueuePolicy(queueSize, 1, overflow);
     }
 
-    private static <T> DeliveryQueue<T> queue(
-            DeliveryQueuePolicy policy, Duration degradedWindow, SignalConsumer<T> next) {
-        return new DeliveryQueue<>(policy, degradedWindow, next, PROV, System::nanoTime);
+    private static <T> DeliveryQueue<T> queue(DeliveryQueuePolicy policy, SignalConsumer<T> next) {
+        return new DeliveryQueue<>(policy, next, PROV, (items, reason) -> {});
     }
 
     private static void assertFlushTimeout(CompletionStage<FlushReport> stage) {
@@ -132,9 +124,9 @@ class DeliveryQueueFailureTest {
 
     @Test
     void failOverflowRejectsAnEntireGroupThatExceedsCapacity() {
-        var next = new RecordingConsumer<TracesData>();
+        var next = new DeliverySupport.Recording();
         var completions = new AtomicInteger();
-        var q = queue(policy(1, OverflowPolicy.FAIL), FIVE_SECONDS, next);
+        var q = queue(policy(1, OverflowPolicy.FAIL), next);
         q.start();
 
         var admission = q.offerAll(
@@ -147,28 +139,29 @@ class DeliveryQueueFailureTest {
         assertThat(completions).hasValue(0);
         assertThat(next.received()).isEmpty();
 
+        // A refusal is returned to the caller, which owns the retry; the queue records nothing for it.
         var report = q.flush(FIVE_SECONDS).toCompletableFuture().join();
-        assertThat(report.rejectedItems()).isEqualTo(3);
-        assertThat(report.droppedItems()).isZero();
-        assertThat(report.failedBatches()).isEqualTo(1);
+        assertThat(report.isSuccess()).isTrue();
         q.drainAndStop(FIVE_SECONDS).toCompletableFuture().join();
     }
 
     @Test
-    void dropNewestReportsAnEntireGroupThatExceedsCapacityAsDropped() {
-        var next = new RecordingConsumer<TracesData>();
+    void dropNewestAcknowledgesAndDropsAnEntireGroupThatExceedsCapacity() {
+        var next = new DeliverySupport.Recording();
         var completions = new AtomicInteger();
-        var q = queue(policy(1, OverflowPolicy.DROP_NEWEST), FIVE_SECONDS, next);
+        var lostItems = new AtomicLong();
+        var q = new DeliveryQueue<>(
+                policy(1, OverflowPolicy.DROP_NEWEST), next, PROV, (items, reason) -> lostItems.addAndGet(items));
         q.start();
 
         var admission = q.offerAll(
                 CTX, List.of(traces(1), traces(2)), completions::incrementAndGet);
 
-        assertThat(admission.result()).isInstanceOf(DeliveryResult.Rejected.class);
-        var rejected = (DeliveryResult.Rejected) admission.result();
-        assertThat(rejected.reason()).isEqualTo(DeliveryReason.ADMISSION_REFUSED);
-        assertThat(rejected.retryAfter()).isNull();
-        assertThat(completions).hasValue(0);
+        assertThat(admission.result()).isInstanceOf(DeliveryResult.Accepted.class);
+        assertThat(admission.stages()).hasSize(2);
+        assertThat(completions).hasValue(1);
+        assertThat(lostItems).hasValue(3);
+        assertThat(next.received()).isEmpty();
 
         var report = q.flush(FIVE_SECONDS).toCompletableFuture().join();
         assertThat(report.rejectedItems()).isZero();
@@ -180,7 +173,7 @@ class DeliveryQueueFailureTest {
     @Test
     void nullDownstreamResultBecomesARecordedWholeBatchFailure() {
         SignalConsumer<TracesData> next = (context, payload) -> CompletableFuture.completedFuture(null);
-        var q = queue(policy(2, OverflowPolicy.FAIL), FIVE_SECONDS, next);
+        var q = queue(policy(2, OverflowPolicy.FAIL), next);
         q.start();
 
         assertThat(q.offer(CTX, traces(2)).toCompletableFuture().join())
@@ -197,11 +190,11 @@ class DeliveryQueueFailureTest {
 
     @Test
     void repeatedTimeoutsCoalesceCarryAndPreserveBothLateFailures() {
-        var next = new RecordingConsumer<TracesData>();
+        var next = new DeliverySupport.Recording();
         var gate = new CountDownLatch(1);
         next.gate(gate);
-        next.rejectWith(DeliveryResult.permanent("late failure", next.provenance()));
-        var q = queue(policy(8, OverflowPolicy.FAIL), FIVE_SECONDS, next);
+        next.always(DeliveryResult.permanent("late failure", PROV));
+        var q = queue(policy(8, OverflowPolicy.FAIL), next);
         q.start();
 
         q.offer(CTX, traces(1));
@@ -227,7 +220,7 @@ class DeliveryQueueFailureTest {
             throw fatal;
         };
         var completions = new AtomicInteger();
-        var q = queue(policy(2, OverflowPolicy.FAIL), FIVE_SECONDS, next);
+        var q = queue(policy(2, OverflowPolicy.FAIL), next);
         q.start();
 
         var admission = q.offerAll(CTX, List.of(traces(1)), completions::incrementAndGet);
@@ -243,11 +236,11 @@ class DeliveryQueueFailureTest {
 
     @Test
     void dropOldestSeparatesEvictionsFromDownstreamPartialRejections() {
-        var next = new RecordingConsumer<TracesData>();
+        var next = new DeliverySupport.Recording();
         var gate = new CountDownLatch(1);
         next.gate(gate);
-        next.result(payload -> DeliveryResult.partial(1, "partial", next.provenance()));
-        var q = queue(policy(2, OverflowPolicy.DROP_OLDEST), FIVE_SECONDS, next);
+        next.always(DeliveryResult.partial(1, "partial", PROV));
+        var q = queue(policy(2, OverflowPolicy.DROP_OLDEST), next);
         q.start();
 
         q.offer(CTX, traces(1));
@@ -266,21 +259,19 @@ class DeliveryQueueFailureTest {
     }
 
     @Test
-    void dropNewestCombinesAGroupRejectionWithPartialDownstreamResults() {
-        var next = new RecordingConsumer<TracesData>();
+    void dropNewestCombinesADroppedGroupWithPartialDownstreamResults() {
+        var next = new DeliverySupport.Recording();
         var gate = new CountDownLatch(1);
         next.gate(gate);
-        next.result(payload -> DeliveryResult.partial(1, "partial", next.provenance()));
-        var q = queue(policy(1, OverflowPolicy.DROP_NEWEST), FIVE_SECONDS, next);
+        next.always(DeliveryResult.partial(1, "partial", PROV));
+        var q = queue(policy(1, OverflowPolicy.DROP_NEWEST), next);
         q.start();
 
         q.offer(CTX, traces(1));
         await().atMost(2, TimeUnit.SECONDS).until(() -> next.received().size() == 1);
         q.offer(CTX, traces(2));
         var dropped = q.offer(CTX, traces(3)).toCompletableFuture().join();
-        assertThat(dropped).isInstanceOf(DeliveryResult.Rejected.class);
-        assertThat(((DeliveryResult.Rejected) dropped).reason())
-                .isEqualTo(DeliveryReason.ADMISSION_REFUSED);
+        assertThat(dropped).isInstanceOf(DeliveryResult.Accepted.class);
 
         gate.countDown();
         var report = q.flush(FIVE_SECONDS).toCompletableFuture().join();
@@ -299,7 +290,7 @@ class DeliveryQueueFailureTest {
             received.countDown();
             return delivered;
         };
-        var q = queue(policy(2, OverflowPolicy.FAIL), FIVE_SECONDS, next);
+        var q = queue(policy(2, OverflowPolicy.FAIL), next);
         q.start();
         q.offer(CTX, traces(1));
         try {

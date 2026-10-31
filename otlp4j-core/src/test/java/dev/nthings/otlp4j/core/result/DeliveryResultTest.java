@@ -9,9 +9,11 @@ import dev.nthings.otlp4j.core.result.DeliveryResult.Accepted;
 import dev.nthings.otlp4j.core.result.DeliveryResult.Partial;
 import dev.nthings.otlp4j.core.result.DeliveryResult.Rejected;
 import dev.nthings.otlp4j.core.signal.SignalDescriptor;
+import dev.nthings.otlp4j.core.signal.UndecodablePayloadException;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -182,6 +184,51 @@ class DeliveryResultTest {
                     TRACES_EXPORTER);
             assertThat(Thread.currentThread().isInterrupted()).isTrue();
             assertThat(result.disposition()).isEqualTo(Disposition.PERMANENT);
+        } finally {
+            // Clear the interrupt so it does not leak into other tests on this thread.
+            Thread.interrupted();
+        }
+    }
+
+    @Test
+    @DisplayName("fromFailure defaults an unclassified failure to retryable, unwrapping a CompletionException")
+    void fromFailureDefaultsToRetryable() {
+        var root = new IllegalStateException("root");
+        var result = (Rejected) DeliveryResult.fromFailure("export", new CompletionException(root), TRACES_EXPORTER);
+        assertThat(result.disposition()).isEqualTo(Disposition.RETRYABLE);
+        assertThat(result.reason()).isEqualTo(DeliveryReason.LOCAL_FAILURE);
+        assertThat(result.cause()).isSameAs(root);
+        assertThat(result.message()).isEqualTo("export: " + root);
+        assertThat(result.retryAfter()).isNull();
+        assertThat(result.downstream()).isFalse();
+        assertThat(result.provenance()).isEqualTo(TRACES_EXPORTER);
+    }
+
+    @Test
+    @DisplayName("fromFailure keeps an undecodable payload permanent and a timeout retryable")
+    void fromFailureClassifiesKnownCauses() {
+        var undecodable = (Rejected) DeliveryResult.fromFailure(
+                "x", new UndecodablePayloadException("bad", new IllegalStateException()), TRACES_EXPORTER);
+        assertThat(undecodable.disposition()).isEqualTo(Disposition.PERMANENT);
+        assertThat(undecodable.reason()).isEqualTo(DeliveryReason.PROTOCOL_TRANSLATION);
+
+        var timeout = (Rejected) DeliveryResult.fromFailure(
+                "x", new CompletionException(new TimeoutException("slow")), TRACES_EXPORTER);
+        assertThat(timeout.disposition()).isEqualTo(Disposition.RETRYABLE);
+        assertThat(timeout.reason()).isEqualTo(DeliveryReason.TIMEOUT);
+    }
+
+    @Test
+    @DisplayName("fromFailure rethrows an Error and restores the interrupt flag")
+    void fromFailureErrorAndInterrupt() {
+        var error = new StackOverflowError();
+        assertThatThrownBy(() -> DeliveryResult.fromFailure("x", error, TRACES_EXPORTER)).isSameAs(error);
+
+        try {
+            var result = (Rejected) DeliveryResult.fromFailure("x", new InterruptedException("stop"),
+                    TRACES_EXPORTER);
+            assertThat(Thread.currentThread().isInterrupted()).isTrue();
+            assertThat(result.disposition()).isEqualTo(Disposition.RETRYABLE);
         } finally {
             // Clear the interrupt so it does not leak into other tests on this thread.
             Thread.interrupted();

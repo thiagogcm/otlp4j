@@ -7,6 +7,7 @@ import static dev.nthings.otlp4j.core.signal.SignalDescriptor.TRACES;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import dev.nthings.otlp4j.core.result.Disposition;
 import dev.nthings.otlp4j.core.consumer.Deadline;
 import dev.nthings.otlp4j.core.policy.BackoffPolicy;
 import dev.nthings.otlp4j.core.policy.RetryPolicy;
@@ -32,7 +33,6 @@ import dev.nthings.otlp4j.core.signal.Payload;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -115,8 +115,11 @@ class ArmeriaGrpcTransportTest {
         var exporter = exporterTo(receiver);
         var traces = Fixtures.traceData(Fixtures.span("op", Span.Kind.SERVER));
 
-        assertThat(exporter.export(TRACES, traces).toCompletableFuture().handle((result, failure) -> failure).join())
-                .isNotNull();
+        // The Error escapes the dispatcher, so the receiver answers with a non-retryable gRPC status
+        // the exporter reports as a permanent rejection.
+        assertThat(exporter.export(TRACES, traces).toCompletableFuture().join())
+                .isInstanceOfSatisfying(DeliveryResult.Rejected.class, rejected ->
+                        assertThat(rejected.disposition()).isEqualTo(Disposition.PERMANENT));
 
         assertThat(exporter.export(TRACES, traces).toCompletableFuture().join())
                 .isInstanceOf(DeliveryResult.Accepted.class);
@@ -184,11 +187,12 @@ class ArmeriaGrpcTransportTest {
         var receiver = startReceiver(OtlpReceiver.grpcBuilder());
         var exporter = exporterTo(receiver);
 
-        assertThatThrownBy(() -> exporter.export(TRACES, TransportFixtures.richTraceData())
-                .toCompletableFuture().join())
-                .isInstanceOf(CompletionException.class)
-                .satisfies(e -> assertThat(Status.fromThrowable(e.getCause()).getCode())
-                        .isEqualTo(Status.Code.UNAVAILABLE));
+        assertThat(exporter.export(TRACES, TransportFixtures.richTraceData()).toCompletableFuture().join())
+                .isInstanceOfSatisfying(DeliveryResult.Rejected.class, rejected -> {
+                    assertThat(rejected.disposition()).isEqualTo(Disposition.RETRYABLE);
+                    assertThat(rejected.downstream()).isTrue();
+                    assertThat(rejected.message()).contains("UNAVAILABLE");
+                });
     }
 
     private OtlpReceiver startReceiver(OtlpReceiver.Builder builder) {

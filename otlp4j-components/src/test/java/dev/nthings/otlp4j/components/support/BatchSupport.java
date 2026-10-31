@@ -31,8 +31,17 @@ public final class BatchSupport {
 
     public static <T> Processor<T> batch(
             String id, BatchProcessorConfig config, SignalDescriptor<T> signal, SignalConsumer<T> next) {
+        return batch(id, config, signal, next, GatewayMetrics.noop());
+    }
+
+    public static <T> Processor<T> batch(
+            String id,
+            BatchProcessorConfig config,
+            SignalDescriptor<T> signal,
+            SignalConsumer<T> next,
+            GatewayMetrics metrics) {
         var factory = new BatchProcessorFactory();
-        var ctx = new CreateContext(ComponentId.parse(id), baseContext());
+        var ctx = new CreateContext(ComponentId.parse(id), new ComponentContext(metrics, Clock.systemUTC()));
         return factory.create(ctx, config, signal, next);
     }
 
